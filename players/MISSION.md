@@ -242,22 +242,29 @@ None of this is required on day one. It's where we're heading.
   (smoke, perception, data, localize, actors, tasks, ocr_voting).
   Library build size ~1.7 MB.
 - **guided_bot phase 2 complete (2.0–2.7).** Full action layer and
-  mode strategy. Phase 2.0: A\* pathfinding on the 952x534 walk mask
-  (4-connected, Manhattan heuristic, inline min-heap) + discipline-aware
-  button-mask generation (Normal, TaskHold, KillStrike, Report, NoOp)
-  + stuck detection + perpendicular jiggle + ghost straight-line
-  steering. Phase 2.1: `task_completing` mode — task-icon-based target
-  selection, A\* navigation, hold-A completion, ghost variant. Phase
-  2.2: `meeting` mode — vote-skip fallback (cursor-right to SKIP,
-  press A). Phase 2.3: reflex system — 4 edge-triggered starter
-  reflexes (body→reporting, body→fleeing, lone-crew→hunting,
-  voting→meeting) with per-reflex cooldowns, wired into
-  `bot.reconcileDirective`. Phase 2.4: `hunting` mode — preferred /
-  opportunistic kill-strike + cover-behavior wander. Phase 2.5:
-  `pretending` mode — walk-to-task loiter cycle for imposter cover.
-  Phase 2.6: `reporting` mode — navigate to body, DisciplineReport.
-  Phase 2.7: `fleeing` mode — steer away from body for
-  duration/distance. All 7 test suites pass. Library + CLI build green.
+  mode strategy. A\* pathfinding, discipline-aware button masks,
+  stuck detection, jiggle, ghost straight-line steering. Six mode
+  handlers (`task_completing`, `meeting`, `hunting`, `pretending`,
+  `reporting`, `fleeing`) plus a four-reflex system (body→reporting,
+  body→fleeing, lone-crew→hunting, voting→meeting). All 7 test
+  suites pass. Library + CLI build green.
+- **guided_bot phase 3 complete (3.1–3.6).** LLM guidance loop wired
+  end-to-end. `snapshot.nim` renders curated belief-state JSON for
+  the LLM (DESIGN.md §8.3). `llm.nim` calls the Anthropic Messages
+  API via curly+jsony (adapted from bitworld's `claude.nim`).
+  `guidance.nim` runs a worker thread with three channels:
+  snapshot→worker, directive→main, meeting-action→main.
+  `bot.nim` submits snapshots periodically (every
+  `GuidancePeriodTicks`) and on wake triggers (body seen, meeting
+  started, reflex fired, directive expiring); reads directives
+  non-blocking; handles TTL expiry. `modes/meeting.nim` pops LLM
+  `MeetingAction` values from a queue (speak, vote, confirm_vote,
+  unvote, wait) with a safety-net fallback that forces SKIP when
+  the meeting timer nears expiry. `prompts.nim` holds system
+  prompts for gameplay directives and meeting actions. Bot degrades
+  gracefully with no API key or LLM failures — scripted defaults
+  keep it playing. `nim.cfg` added for curly/jsony/libcurl package
+  paths. All 7 test suites pass; library + CLI builds green.
 
 ### Next
 

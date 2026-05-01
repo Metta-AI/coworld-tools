@@ -1,12 +1,18 @@
 # guided_bot — Design Report (v0.4)
 
-> **Status:** phases 0–2 implemented. Phase 0 scaffolded the type
+> **Status:** phases 0–3 implemented. Phase 0 scaffolded the type
 > system and no-op pipeline. Phase 1 (1.0–1.6) built the full
 > perception pipeline. Phase 2 (2.0–2.7) built the action layer (A*,
 > button masks, stuck detection) and six mode handlers
 > (`task_completing`, `meeting`, `hunting`, `pretending`, `reporting`,
-> `fleeing`) plus the four-reflex system. Phases 3–5 (LLM guidance,
-> trace, playability test) are not started.
+> `fleeing`) plus the four-reflex system. Phase 3 (3.1–3.6) wired the
+> LLM guidance loop: `snapshot.nim` renders beliefs to JSON,
+> `llm.nim` calls the Anthropic Messages API via curly+jsony,
+> `guidance.nim` runs a worker thread with channels, `bot.nim`
+> submits snapshots periodically/on-trigger and reads directives,
+> `modes/meeting.nim` executes LLM-driven chat/vote actions with a
+> safety-net fallback, and `prompts.nim` holds system prompts.
+> Phases 4–5 (trace, playability test) are not started.
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
 > eventually consume this file. This doc describes the *shape* of the
@@ -1356,6 +1362,13 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D25 | Phase 1.6 voting parse | `perception/voting.nim` ports the core of modulabot's `voting.py`. Strict validator: SKIP text must match, and each slot's colour must equal its index. Reuses scalar `matchesCrewmate` / `crewmateColorAt` for slot and speaker-pip parsing (not the vectorised kernel — slots are at known positions). Chat OCR uses `readRun` from `ocr.nim`. Voting parse gates `PhaseVoting` on the belief; if parse fails, falls back to banner OCR for other interstitial kinds. `VotingParse.chatLines` merged into `Belief.social.currentMeetingChat`. | §15, `perception/voting.nim` header |
 
 Further decisions get appended here as they're made.
+
+| D26 | Phase 3 LLM client | Adapted bitworld's `claude.nim`. Uses `curly` + `jsony` via nimby. Fresh `CurlPool` per call to avoid GC-safety issues with globals; overhead negligible at <1 Hz. | `llm.nim` |
+| D27 | Phase 3 threading | `system.Channel[T]` (Nim 2.2.4). Worker thread holds meeting conversation history as thread-local state. Main thread: non-blocking `tryRecv`. No shared GC-managed globals. | `guidance.nim` |
+| D28 | Phase 3 snapshot rendering | `std/json` (not jsony) for structured, readable output. Room name lookups via `geometry.roomNameAt`. Screen→world via `visibleCrewmateWorldX/Y`. | `snapshot.nim` |
+| D29 | Phase 3 wake-flag lifecycle | Flags raised during update-belief, consumed (snapshot submitted) and cleared at end of `decideNextMask`. External code (tests) cannot observe flags after `stepUnpackedFrame`. | `bot.nim` |
+| D30 | Phase 3 LLM model | `claude-sonnet-4-20250514` — fast enough for ~1-5 Hz call rate, smart enough for strategic directives. Max 1024 response tokens. | `llm.nim` |
+| D31 | Phase 3 meeting action queue | Actions pumped from `meetingActionChan` into `ModeScratch.meetPendingActions` in the bot pipeline, popped one-per-tick by meeting mode's `decide()`. | `bot.nim`, `modes/meeting.nim` |
 
 ---
 

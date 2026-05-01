@@ -11,14 +11,16 @@ editing.
 
 ## Status
 
-**Phase 2 complete — action layer + mode strategies.** The bot now
-produces real button masks: crewmates navigate to tasks and hold A,
-imposters hunt/pretend, meetings vote SKIP, and reflexes fire on
-bodies and voting screens. All seven test suites pass; both CLI and
-library builds succeed.
+**Phase 3 complete — LLM guidance loop.** The bot now has a full LLM
+integration: an asynchronous worker thread calls the Anthropic Messages
+API, the inner loop receives strategic directives during gameplay, and
+meetings are LLM-driven with chat and voting. A safety-net fallback
+forces SKIP when the meeting timer runs low. The bot degrades
+gracefully when no API key is set or the LLM is unreachable.
 
-Phase 1 (full perception pipeline) remains intact underneath. The
-bot compiles as both CLI binary and shared library for cogames FFI.
+Phase 2 (action layer + mode strategies) and phase 1 (full perception
+pipeline) remain intact underneath. All seven test suites pass; both
+CLI and library builds succeed.
 
 - **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
 - **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
@@ -45,15 +47,20 @@ dominated by chat OCR line count.
 | 1.4 | Task-icon scanning via `mb_scan_task_icons` + radar-dot scanning | done |
 | 1.5 | ASCII OCR — `mb_best_glyph` + `mb_text_matches` + `findText` + interstitial classification | done |
 | 1.6 | Voting-screen parse — grid layout, slot/cursor/vote-dot parsing, chat OCR + speaker attribution | done |
-| 2.0 | A\* pathfinding on walk mask + button-mask generation (all disciplines: Normal, TaskHold, KillStrike, Report, NoOp) + stuck detection + jiggle + ghost straight-line steering | done |
-| 2.1 | `task_completing` mode — task-icon-based target selection, A\* navigation, hold-A completion, ghost variant | done |
+| 2.0 | A\* pathfinding on walk mask + button-mask generation + stuck detection + jiggle + ghost steering | done |
+| 2.1 | `task_completing` mode — task-icon-based target selection, A\* navigation, hold-A completion | done |
 | 2.2 | `meeting` mode — vote-skip fallback (cursor-right to SKIP, press A) | done |
-| 2.3 | Reflex system — 4 starter reflexes wired into pipeline: body→reporting, body→fleeing, lone-crew→hunting, voting→meeting | done |
+| 2.3 | Reflex system — 4 starter reflexes: body→reporting, body→fleeing, lone-crew→hunting, voting→meeting | done |
 | 2.4 | `hunting` mode — preferred/opportunistic kill-strike + cover-behavior wander | done |
 | 2.5 | `pretending` mode — walk-to-task loiter cycle for imposter cover | done |
 | 2.6 | `reporting` mode — navigate to body, press A via DisciplineReport | done |
 | 2.7 | `fleeing` mode — steer away from body for duration/distance | done |
-| 3 | Guidance worker thread + `llm.nim` HTTP client + meeting mode direct-control | next |
+| 3.1 | `snapshot.nim` — belief-state JSON rendering for LLM (DESIGN.md §8.3) | done |
+| 3.2 | `llm.nim` — real Anthropic Messages API client (curly + jsony) | done |
+| 3.3 | `guidance.nim` — worker thread + channels (snapshot→directive, meeting actions) | done |
+| 3.4 | `bot.nim` — periodic/triggered snapshot submission + directive channel reads + TTL expiry | done |
+| 3.5 | `modes/meeting.nim` — LLM-driven meeting behavior with chat, voting, and safety-net fallback | done |
+| 3.6 | `prompts.nim` — system prompts for gameplay directives and meeting actions | done |
 | 4 | Trace writer end-to-end | not started |
 | 5 | Fallback-only playability test; first submission | not started |
 
@@ -92,9 +99,12 @@ guided_bot/
   action.nim                # ActionIntent -> button mask (A*, stuck detect, jiggle)
   mode_registry.nim         # mode lookup + default directive
   reflex.nim                # reflex evaluation (edge-triggered mode switches)
-  guidance.nim              # worker-thread shell (phase 3)
-  llm.nim                   # HTTP LLM client (phase 3)
+  guidance.nim              # worker-thread + channels (phase 3)
+  llm.nim                   # Anthropic Messages API client (curly + jsony, phase 3)
+  snapshot.nim              # belief → JSON snapshot for the LLM (phase 3)
+  prompts.nim               # system prompts for gameplay + meeting LLM calls (phase 3)
   trace.nim                 # trace writer (phase 4)
+  nim.cfg                   # nimby package paths (curly, jsony, libcurl)
   guided_bot.nim            # CLI entry + library gate
   modes/
     idle.nim               task_completing.nim      fear.nim
@@ -123,7 +133,10 @@ guided_bot/
 
 ## Building
 
-Phase 0 has no external Nim dependencies — `nim c` works without nimby.
+Phase 3 requires `curly`, `jsony`, and `libcurl` (via nimby). Package
+paths are configured in `nim.cfg` in the guided_bot directory. The Nim
+compiler picks this up automatically when building from the repo root
+with `--path:among_them/guided_bot`.
 
 ```sh
 # CLI binary (release mode).
@@ -214,11 +227,11 @@ trips the compile-time shape asserts.
 
 ## Running
 
-The CLI entry point does not yet open a WebSocket to the game server;
-that's a phase-3 deliverable (mirroring `modulabot/viewer/runner.nim`).
-Currently it prints parsed flags and runs one decide call on a zero
-frame so you can confirm the binary builds and the pipeline wires
-through.
+The CLI entry point does not yet open a WebSocket to the game server
+(the runner loop mirroring `modulabot/viewer/runner.nim` is a future
+deliverable). Currently it prints parsed flags and runs one decide
+call on a zero frame so you can confirm the binary builds and the
+pipeline wires through.
 
 ```sh
 among_them/guided_bot/guided_bot --port:2000 --name:gb0
@@ -242,12 +255,13 @@ non-NOOP actions from the first gameplay frame, so the cogames
 
 ## Known gaps / next steps
 
-1. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
-   into `llm.nim`, wire the worker thread in `guidance.nim`. Meeting
-   mode needs to read the LLM action queue instead of always voting SKIP.
-2. **Meeting cursor precision.** Phase 2 meeting mode blindly sends
-   CursorRight for ~1 second to reach SKIP. Phase 3 should read the
-   actual cursor position from the voting parse for precise navigation.
+1. **Integration test with live LLM** (phase 3 follow-up). Run a full
+   local match with `ANTHROPIC_API_KEY` set and verify the bot changes
+   behavior mid-match based on LLM directives.
+2. **Meeting cursor precision.** The meeting mode uses repeated
+   CursorRight as a brute-force approach. A future improvement is to
+   read the actual cursor position from the voting parse and navigate
+   precisely to the target slot.
 3. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
    from phase 1.4 are consumed by `task_completing` for basic
    nearest-station selection, but there is no full task-state machine
@@ -268,3 +282,8 @@ non-NOOP actions from the first gameplay frame, so the cogames
 8. **A\* path caching.** The current implementation recomputes A\* from
    scratch on every goal change. Path segment caching or incremental
    repair could reduce worst-case latency.
+9. **Prompt iteration.** The system prompts in `prompts.nim` are
+   starting points. Iterate based on match performance.
+10. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
+    call to sidestep GC-safety. A thread-local pool would avoid the
+    per-call overhead (negligible at <1 Hz call rate, but cleaner).
