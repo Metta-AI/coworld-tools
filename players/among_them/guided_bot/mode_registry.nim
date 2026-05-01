@@ -2,15 +2,11 @@
 ##
 ## The single extension point for behavior. Adding a new mode is:
 ##   1. Add a variant to `ModeName` in `types.nim` (append; don't reorder).
-##   2. Add a `modes/<name>.nim` file implementing the four-proc interface
+##   2. Add a `modes/<name>.nim` file implementing the five-proc interface
 ##      (`isLegalFor`, `defaultParamsFor`, `onEnter`, `onExit`, `decide`).
 ##   3. Add one import + one `case` arm below.
 ##
 ## No other file needs to change. Per DESIGN.md §5.2.
-##
-## Phase 0: the dispatch exists but every mode returns a no-op. Once
-## `bot.nim` reads the active directive, this registry turns mode name
-## into behavior.
 
 import types
 import modes/idle

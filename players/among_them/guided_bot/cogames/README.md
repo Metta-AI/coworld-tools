@@ -36,14 +36,14 @@ mid-match.
 See `metta/packages/cogames/POLICY_SECRETS.md` for how the key reaches
 the policy subprocess at match time.
 
-## Phase 0 status
+## Current status (phase 2)
 
-This directory exists but should not be used for a real tournament
-submission yet. The Nim side of the bot returns no-op for every
-action. The CoGames dry-run will therefore fail the 10-step validation
-gate with "Policy took no actions (all no-ops)" — which, per
-`COGAMES.md` § validation gate, is the one documented case where
-`--skip-validation` is appropriate (see `ship-skip-validation` in
-`ship.sh`). But there's no point in shipping an empty bot; wait until
-phase 1+ before using these scripts for anything other than smoke
-tests.
+The bot produces real non-NOOP actions from the first gameplay frame
+(the `task_completing` default directive fires as soon as the
+localizer locks). The cogames 10-step dry-run validation gate should
+pass **without** `--skip-validation`. The LLM guidance loop (phase 3)
+is not yet wired, so the bot plays on scripted defaults only — no
+`ANTHROPIC_API_KEY` is required for dry-run or submission.
+
+Once phase 3 ships, submissions with `--secret-env ANTHROPIC_API_KEY=...`
+will enable the LLM strategic layer during matches.

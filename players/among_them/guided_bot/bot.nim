@@ -2,15 +2,9 @@
 ##
 ## Phase 0: `initBot` returns a fully-constructed `Bot`; `decideNextMask`
 ## wires perception -> belief-update -> decide -> act and returns whatever
-## mask the action layer produces (which is currently always 0). Phase 1+
-## replaces the perception stub and fleshes out each stage.
-##
-## Phase 1.3 adds actor scanning (crewmates, bodies, ghosts, role,
-## self-colour) between localize and the decision step. The scan runs
-## after localize (needs a camera lock for future world-coord
-## conversion) and stamps detected sprites into the ignore mask (for
-## the benefit of future refinement passes or phase 1.4 task-icon
-## scanning).
+## mask the action layer produces. Phase 1 filled in the perception
+## pipeline. Phase 2 adds the action layer (A* + button masks), real
+## mode handlers, and reflex evaluation.
 ##
 ## See DESIGN.md §4 (inner loop) and §2 (persistent state ownership).
 
@@ -26,6 +20,7 @@ import perception/ocr
 import perception/voting
 import action
 import mode_registry
+import reflex
 import guidance
 import trace
 
@@ -39,6 +34,7 @@ type
     belief*: Belief
     modeScratch*: ModeScratch
     actionState*: ActionState
+    reflexState*: ReflexState  ## Phase 2 — reflex edge-trigger memory.
     guidance*: GuidanceState
     trace*: TraceWriter
     localizer*: Localizer      ## Phase 1.2 — camera localization scratch.
@@ -51,6 +47,7 @@ proc initBot*(): Bot =
   result.belief = initBelief()
   result.modeScratch = ModeScratch(mode: ModeIdle, idleEnterTick: 0)
   result.actionState = initActionState()
+  result.reflexState = initReflexState()
   result.guidance = initGuidanceState()
   result.trace = nil
   result.localizer = initLocalizer()
@@ -69,13 +66,21 @@ proc switchMode(bot: var Bot, newDirective: Directive) =
 
 proc reconcileDirective(bot: var Bot) =
   ## Per-tick check. Honors the ghost override (§5.7), illegality
-  ## fallback (§4.3), and (phase 2+) reflex evaluation (§5.8). Phase 0
-  ## enforces ghost and legality only.
+  ## fallback (§4.3), and reflex evaluation (§5.8).
   let cur = bot.belief.directive.mode
 
   # Ghost override. Always forces task_completing regardless of LLM.
   if bot.belief.self.isGhost and cur != ModeTaskCompleting:
     switchMode(bot, defaultDirectiveFor(bot.belief))
+    return
+
+  # Reflex evaluation (§5.8). Runs before illegality so reflexes
+  # can install a legal directive that the illegality check would
+  # otherwise override to the default.
+  let rx = evaluateReflexes(bot.belief, bot.reflexState)
+  if rx.fired:
+    switchMode(bot, rx.newDirective)
+    bot.belief.flags.wakeReasons.incl WakeReflexFired
     return
 
   # Illegality fallback.
@@ -84,29 +89,18 @@ proc reconcileDirective(bot: var Bot) =
     return
 
 proc decideNextMask*(bot: var Bot): uint8 =
-  ## One full inner-loop step. Phase 1.4: perception returns a
-  ## `Percept` (interstitial observation + ignore mask); belief update
-  ## merges it; localize updates camera state on non-interstitial
-  ## frames; actor scan detects crewmates/bodies/ghosts and updates
-  ## role/self-colour; task-icon and radar-dot scans find on-screen
-  ## task icons and screen-edge radar pips; actor + task-icon
-  ## exclusions are stamped into the ignore mask; decide routes to
-  ## the current mode; action layer returns 0. See DESIGN.md §4.
+  ## One full inner-loop step. Perception → belief update → reflex
+  ## evaluation → mode decide → action layer → button mask.
   inc bot.frameTick
 
   # 1. Perceive — returns a structured observation of this frame
   #    (interstitial + ignore mask; actors + tasks added in steps 2b/2d).
   var percept = perceive(bot.unpacked, bot.frameTick)
 
-  # 2. Update belief with the percept (and, phase 2, read directive
-  #    channel + evaluate reflexes).
+  # 2. Update belief with the percept.
   updateBelief(bot.belief, percept)
 
-  # 2a. Camera localization (phase 1.2). Skip on interstitials —
-  #     localize can't produce a sensible answer when the framebuffer
-  #     is mostly black, and running it wastes ~5 ms. On the *first*
-  #     gameplay frame after an interstitial, reseed the camera so
-  #     local refit starts from the right place.
+  # 2a. Camera localization (phase 1.2). Skip on interstitials.
   if percept.interstitial.isInterstitial:
     bot.localizer.reseedCameraAtHome(bot.belief.percep)
   else:
@@ -116,9 +110,7 @@ proc decideNextMask*(bot: var Bot): uint8 =
       percept.ignoreMask.data,
       bot.frameTick)
 
-  # 2b. Actor scan (phase 1.3). Runs after localize (needs camera for
-  #     future world-coord conversion). Populates the actor percept
-  #     and stamps detected sprites into the ignore mask.
+  # 2b. Actor scan (phase 1.3).
   percept.actors = scanAll(
     bot.actorScanner,
     bot.belief.percep,
@@ -144,9 +136,7 @@ proc decideNextMask*(bot: var Bot): uint8 =
   # 2c. Merge actor scan results into belief.
   mergeActorPercept(bot.belief, percept.actors)
 
-  # 2d. Task-icon + radar-dot scan (phase 1.4). Runs after localize
-  #     (task icons need camera offset) and after actors (role
-  #     determines whether task-icon scan is skipped for imposters).
+  # 2d. Task-icon + radar-dot scan (phase 1.4).
   percept.taskPercept = scanTasksAndRadar(
     bot.unpacked,
     referenceData.sprites,
@@ -167,11 +157,8 @@ proc decideNextMask*(bot: var Bot): uint8 =
   mergeTaskPercept(bot.belief, percept.taskPercept)
 
   # 2f. Interstitial classification (phase 1.5) + voting-screen parse
-  #     (phase 1.6). Both run on interstitial frames only. The voting
-  #     parser is tried first; if it succeeds, the frame is a voting
-  #     screen. Otherwise, OCR classifies the interstitial banner.
+  #     (phase 1.6).
   if percept.interstitial.isInterstitial:
-    # Try voting parse first.
     percept.votingParse = parseVotingScreen(
       bot.unpacked,
       referenceData.sprites,
@@ -180,13 +167,12 @@ proc decideNextMask*(bot: var Bot): uint8 =
       bot.belief.self.phase = PhaseVoting
       bot.belief.percep.interstitialKind = InterstitialVoting
     else:
-      # Classify interstitial banner via OCR.
       let kind = classifyInterstitial(bot.unpacked)
       if kind != InterstitialUnknown:
         bot.belief.percep.interstitialKind = kind
     mergeVotingPercept(bot.belief, percept.votingParse)
 
-  # 3. Reconcile directive against current state (ghost / legality).
+  # 3. Reconcile directive (ghost override, reflexes, legality).
   reconcileDirective(bot)
 
   # 4. Decide.

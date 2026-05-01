@@ -75,10 +75,28 @@ PYTHONPATH=among_them .venv/bin/python -m unittest \
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
     --duration 20
 
+# Connect to an existing server (replaces old play_live.py)
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/connect.py \
+    --host 127.0.0.1 --port 2000
+
+# All-agent match (replaces old play_eight.sh)
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_match.py
+
+# Debug overlay window (replaces old play_debug.sh)
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_debug.py
+
 # Visual debug overlay (renders perception output over raw frames)
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/debug_overlay.py \
     /tmp/mb_frames.npy --frame 150 --save /tmp/overlay.png
+
+# Capture frames for offline analysis (replaces old capture_frames.py)
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/capture.py \
+    --duration 20 --output /tmp/frames.npy
 ```
+
+All play/connect scripts accept `-p modulabot.policy.AmongThemPolicy`
+(default) to select the policy and `--policy-kwarg KEY=VALUE` for
+constructor kwargs. Use `--help` on any script for the full flag list.
 
 `cogames play` does **not** support Among Them — use `scripts/play_local.py`.
 `cogames` commands that bundle policies (`ship`, `create-bundle`, `upload`)
@@ -113,3 +131,13 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
   finish something big. Update `COGAMES.md` when the CLI drifts.
 - **Trust live `cogames --help`** over any doc in this repo — and fix the
   doc when they disagree.
+- **Ask before diverging from design documents.** When implementing a
+  feature that has a design spec (e.g. `DESIGN.md`), follow the spec.
+  If you encounter a case where the implementation should differ from
+  the design in a non-trivial way — different data flow, dropped
+  features, changed defaults that affect behavior, structural
+  reorganization — **stop and ask** before coding the divergence.
+  Trivial differences (naming conventions, internal helper structure)
+  don't need approval. When in doubt, ask. After an approved
+  divergence, update the design doc in the same change so it stays
+  accurate.

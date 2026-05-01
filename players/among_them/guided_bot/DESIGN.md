@@ -1,14 +1,18 @@
-# guided_bot — Design Report (v0.3, abstract)
+# guided_bot — Design Report (v0.4)
 
-> **Status:** design-only. No code written. This is v0.3, incorporating
-> the second review pass (reflex-as-mode-switch, meeting LLM context,
-> conversation history).
+> **Status:** phases 0–2 implemented. Phase 0 scaffolded the type
+> system and no-op pipeline. Phase 1 (1.0–1.6) built the full
+> perception pipeline. Phase 2 (2.0–2.7) built the action layer (A*,
+> button masks, stuck detection) and six mode handlers
+> (`task_completing`, `meeting`, `hunting`, `pretending`, `reporting`,
+> `fleeing`) plus the four-reflex system. Phases 3–5 (LLM guidance,
+> trace, playability test) are not started.
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
-> eventually consume this file. Implementation details (Nim syntax, file
-> layouts, FFI shape, buffer sizes, exact trace struct definitions) are
-> deferred. This doc describes the *shape* of the agent and the
-> decisions already made; it is not a code outline.
+> eventually consume this file. This doc describes the *shape* of the
+> agent and the decisions already made. Where the implementation
+> diverges from earlier design sketches, the implementation wins and
+> this doc has been updated to match.
 >
 > **Related reading** — load-bearing context:
 >
@@ -237,27 +241,32 @@ frame ──► perceive ──► update belief ──► decide ──► act
   - Update the directive slot (atomic swap in the latest LLM output
     if one is pending; expire the current directive if TTL elapsed,
     falling back to the per-role default).
-  - **Evaluate reflexes for the active mode.** If any reflex fires,
-    synthesize a new directive (new mode + params) and install it in
-    the slot before decide runs. See §5.8. Raise
-    `wake_up_reasons: ["reflex:<name>"]` so the guidance loop knows
-    to snapshot.
-  - Raise / clear other flags for the guidance loop (body seen, kill
+  - Raise / clear flags for the guidance loop (body seen, kill
     ready, new chat, meeting started).
+
+### 4.2a Reconcile directive
+
+- Input: current belief (after update-belief).
+- Output: potentially modified directive + mode switch.
+- Runs after update-belief, before decide. Responsibilities:
+  - **Ghost override** (§5.7): force `task_completing` if ghost.
+  - **Evaluate reflexes** (§5.8) via `reflex.evaluateReflexes`.
+    If a reflex fires, perform a mode switch (on_exit / on_enter)
+    and raise `WakeReflexFired` so the guidance loop snapshots.
+  - **Illegality fallback**: if the current mode is not legal for
+    the current belief state, fall back to the role-appropriate
+    default directive.
 
 ### 4.3 Decide
 
-- Input: belief (with current directive, already possibly reflex-
-  overridden by §4.2).
+- Input: belief (with current directive, already reconciled by §4.2a).
 - Output: action intent (§6).
 - Responsibility: look up `belief.directive.mode` in the mode
-  registry (§5.2), check `is_legal_for(belief)`, and call
-  `decide(belief, mode_params, scratch)`. That's all it does. No
-  strategy lives here — only routing.
-- If the mode is illegal (e.g. LLM said `hunting` but we're a ghost),
-  the decide stage falls back to the role-appropriate default
-  directive for this tick and emits a trace event.
-- **Reflexes are not evaluated here.** They live in §4.2 because a
+  registry (§5.2) and call `decide(belief, mode_params, scratch)`.
+  That's all it does. No strategy lives here — only routing.
+- Ghost override, illegality fallback, and reflex evaluation all
+  happen in the reconcile step (§4.2a) before decide runs.
+- **Reflexes are not evaluated here.** They live in §4.2a because a
   reflex needs to be able to install a new directive and have *that
   mode's* decide logic run on the same tick. See §5.8.
 
@@ -426,8 +435,10 @@ Mode switching is driven by:
 - **The LLM** issuing a new directive.
 - **The default fallback** kicking in when the current directive's
   TTL expires or becomes illegal.
-- **Reflex interrupts** (§5.8) overriding the active mode's output
-  for a single tick, without actually switching mode.
+- **Reflex interrupts** (§5.8) forcing a mode switch to a
+  situationally-appropriate mode. Reflexes perform a full mode
+  switch (on_exit / on_enter / scratch reset), not a single-tick
+  override.
 
 ### 5.6 Per-mode scratch state
 
@@ -492,23 +503,23 @@ that mode — they don't duplicate its logic.
 
 #### Mechanics
 
-- Each mode declares a list of reflex rules:
-  `(condition_fn, target_mode, target_params_fn)`.
-- Reflex evaluation happens in the **update-belief stage** (§4.2),
-  not in decide. This is important: reflex evaluation can install a
-  new directive in the slot *before* decide reads it, so the target
-  mode's `decide()` runs on the same tick as the triggering event.
-  No one-tick bridging action is needed.
+- Reflexes are defined centrally in `reflex.nim` as a prioritized
+  list. Each reflex has a condition, a target mode, and a
+  params-builder function.
+- Reflex evaluation happens in the **reconcile-directive stage**
+  (§4.2a), after update-belief and before decide. This is important:
+  reflex evaluation can install a new directive *before* decide
+  reads it, so the target mode's `decide()` runs on the same tick
+  as the triggering event. No one-tick bridging action is needed.
 - When a reflex fires:
-  1. The target mode's `target_params_fn(belief)` builds params from
-     current belief (e.g. `reporting`'s `body_location` is set from
-     the just-observed body).
+  1. The target params are built from the current belief (e.g.
+     `reporting`'s `body_location` is set from the just-observed body).
   2. The old mode's `on_exit` runs; the new mode's `on_enter` runs;
      scratch state resets.
   3. A new directive is written to the slot with
-     `source: "reflex"`, `ttl_ticks: <short>`, `reflex_name: <id>`.
-  4. `wake_up_reasons: ["reflex:<name>"]` is raised so the guidance
-     loop snapshots next cycle.
+     `source: SourceReflex`, `reflexName: <id>`.
+  4. `WakeReflexFired` is raised so the guidance loop snapshots
+     next cycle.
   5. The decide stage runs normally; the new mode's handler
      produces this tick's action.
 
@@ -534,12 +545,14 @@ If the LLM responds to a reflex-triggered mode switch by trying to
 put us back in the pre-reflex mode, and the reflex condition is
 still present, we'd ping-pong without this rule:
 
-- A reflex cannot fire again within `N` ticks of its last firing,
-  per-mode. (`N` ≈ a couple of seconds of ticks. Tuning knob.)
+- A reflex cannot fire again within `ReflexCooldownTicks` (48 ticks
+  ≈ 2 s at 24 Hz) of its last firing, **per-reflex**. Each of the
+  four reflexes tracks its own cooldown independently
+  (`reflex.nim:ReflexState`).
 
 This means the LLM is allowed to overrule the reflex and ride the
 same situation through without another reflex interruption, at
-least for `N` ticks.
+least for `ReflexCooldownTicks` ticks.
 
 #### The initial reflex set
 
@@ -548,10 +561,10 @@ they add up to a shadow policy if we aren't careful.
 
 | Mode | Condition | Switch to | Reason |
 |---|---|---|---|
-| `task_completing` (crew, alive) | `body_newly_in_view` | `reporting { body_location: <body.position> }` | Let the dedicated reporting mode handle navigation + A press. Crewmate gets a fresh body → go report it, regardless of current task. |
-| `hunting` | `body_newly_in_view` (and I didn't kill them) | `fleeing { away_from: <body.position>, min_distance: ..., duration_ticks: ... }` | Don't hang around a corpse we didn't create. |
-| `pretending` | `lone_crew_in_kill_range AND kill_cooldown == 0 AND witnesses_visible == 0` | `hunting { preferred_target: <color>, max_witnesses: 0, opportunistic: false, cover_mode: pretending }` | Route a kill opportunity into the mode whose `decide` actually knows how to close and strike. |
-| any mode | `voting_screen_appeared` | `meeting { want_to_speak_first: false }` | Meetings are an LLM-driven mode; switch immediately and let meeting's decide handle it. |
+| `task_completing` (crew, alive, not ghost) | `body_newly_in_view` | `reporting { body_location: <body.position> }` | Let the dedicated reporting mode handle navigation + A press. Crewmate gets a fresh body → go report it, regardless of current task. |
+| `hunting` (imposter, alive) | `body_newly_in_view` | `fleeing { away_from: <body.position>, min_distance: 48, duration_ticks: 240 }` | Don't hang around a corpse. (Does not check whether the imposter made the kill — a future refinement could skip this reflex for self-kills.) |
+| `pretending` (imposter, alive, not ghost) | `kill_ready AND visible_crewmates == 1` | `hunting { preferred_target: <color>, max_witnesses: 0, opportunistic: false, cover_mode: pretending }` | Route a kill opportunity into the mode whose `decide` actually knows how to close and strike. |
+| any mode | `voting_screen_appeared` (edge: `prevPhase != PhaseVoting`) | `meeting { want_to_speak_first: false }` | Meetings are an LLM-driven mode; switch immediately and let meeting's decide handle it. |
 
 The `pretending → hunting` reflex is noticeably more aggressive than
 the others — it performs a game-changing action (a kill, via the
@@ -584,10 +597,12 @@ The output of every mode. A small, flat record:
 - `press_b: bool`
 - `cursor: left | right | none` — meeting-screen cursor movement.
 - `chat: string | none` — meeting mode only.
-- `facing: direction | none` — rare; for cases where facing matters
-  without movement.
 - `discipline: normal | task_hold | kill_strike | report | no_op`
   — hint to the action layer.
+
+(`facing: direction | none` was in the original design for cases
+where facing matters without movement. Deferred — not implemented
+in phase 2.)
 
 The action layer translates this into a button mask. The mode never
 touches a button bit directly.
@@ -754,7 +769,8 @@ Hybrid periodic + event-driven:
   kill cooldown elapsed, new chat, meeting started, role revealed,
   directive TTL close to expiring. The guidance thread polls the
   flag and prioritizes triggered snapshots over periodic ones.
-- **Throttled:** hard cap on LLM calls per match (e.g. 60) and per
+- **Throttled:** hard cap on LLM calls per match (`LlmMaxCallsPerMatch`,
+  currently 120 in `tuning.nim`) and per
   second (e.g. 1 per 500 ms). If we hit the cap, the loop stops
   calling and the inner loop rides the last directive (or the
   default, if TTL expires).
@@ -892,11 +908,13 @@ after an LLM failure), the inner loop picks a per-role default:
 - **Crewmate, alive, gameplay** →
   `task_completing { target: nearest_mandatory, abandon_on_nearby_body: true }`
 - **Imposter, alive, gameplay** →
-  `hunting { preferred_target: none, max_witnesses: 1,
+  `hunting { preferred_target: none, max_witnesses: 0,
              opportunistic: true, cover_mode: "pretending" }`
 - **Ghost** →
   `task_completing { target: nearest_mandatory,
                       abandon_on_nearby_body: false }`
+- **Dead, not ghost** → `idle {}` (structurally necessary default;
+  dead non-ghost players have no meaningful actions)
 - **Voting phase, any role** →
   `meeting { want_to_speak_first: false }` (the LLM is still the
   driver; if it's unavailable the meeting fallback in §7.3 takes

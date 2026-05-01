@@ -241,6 +241,23 @@ None of this is required on day one. It's where we're heading.
   `localize.nim`, `actors.nim`, `ocr.nim`). Seven test suites pass
   (smoke, perception, data, localize, actors, tasks, ocr_voting).
   Library build size ~1.7 MB.
+- **guided_bot phase 2 complete (2.0–2.7).** Full action layer and
+  mode strategy. Phase 2.0: A\* pathfinding on the 952x534 walk mask
+  (4-connected, Manhattan heuristic, inline min-heap) + discipline-aware
+  button-mask generation (Normal, TaskHold, KillStrike, Report, NoOp)
+  + stuck detection + perpendicular jiggle + ghost straight-line
+  steering. Phase 2.1: `task_completing` mode — task-icon-based target
+  selection, A\* navigation, hold-A completion, ghost variant. Phase
+  2.2: `meeting` mode — vote-skip fallback (cursor-right to SKIP,
+  press A). Phase 2.3: reflex system — 4 edge-triggered starter
+  reflexes (body→reporting, body→fleeing, lone-crew→hunting,
+  voting→meeting) with per-reflex cooldowns, wired into
+  `bot.reconcileDirective`. Phase 2.4: `hunting` mode — preferred /
+  opportunistic kill-strike + cover-behavior wander. Phase 2.5:
+  `pretending` mode — walk-to-task loiter cycle for imposter cover.
+  Phase 2.6: `reporting` mode — navigate to body, DisciplineReport.
+  Phase 2.7: `fleeing` mode — steer away from body for
+  duration/distance. All 7 test suites pass. Library + CLI build green.
 
 ### Next
 

@@ -1,19 +1,187 @@
-## Action layer (phase 0 stub).
+## Action layer — phase 2.
 ##
 ## Translates `ActionIntent` values from modes into the game-protocol
 ## button mask. Owns the persistent tactical state (`ActionState`) that
 ## survives across ticks: current A* path, motion model, jiggle counters,
 ## last emitted mask, task-hold discipline. See DESIGN.md §4.4 and §6.
 ##
-## Phase 0: `applyIntent` returns 0 (no-op) regardless of input, and does
-## not update `ActionState`. Phase 2 wires in A*, momentum-aware steering,
-## jiggle, and edge-triggered cursor/button handling. The signature here
-## is final; mode handlers can already produce real intents without the
-## action layer being done.
+## Phase 2 implements:
+##   - A* pathfinding on the 952×534 walk mask (4-connected, unit cost,
+##     Manhattan heuristic). Path recomputed only when goal changes or
+##     stuck detection triggers a re-plan.
+##   - Discipline-aware button mask generation:
+##     - `DisciplineNormal`    — A* path following + direction buttons
+##     - `DisciplineTaskHold`  — hold ButtonA only, no movement
+##     - `DisciplineKillStrike`— steer toward target + ButtonA on contact
+##     - `DisciplineReport`    — steer toward target + ButtonA in range
+##     - `DisciplineNoOp`      — mask 0
+##   - Stuck detection and perpendicular jiggle.
+##   - Ghost straight-line steering (no walk mask).
+##   - Meeting cursor/button handling.
 
 import types
-# `constants` is pulled in transitively via `types` (it re-exports it).
-# Phase 2 uses `ButtonUp`/`ButtonDown`/etc. here directly.
+import perception/data
+import perception/geometry
+
+# ---------------------------------------------------------------------------
+# Tuning constants (action-layer specific)
+# ---------------------------------------------------------------------------
+
+const
+  PathLookahead = 18     ## Steps ahead in the A* path to aim at.
+  StuckThreshold = 8     ## Frames of zero velocity before jiggle fires.
+  JiggleDuration = 6     ## Ticks of perpendicular movement during jiggle.
+  KillStrikeRange = 16   ## World-pixel distance for kill-strike ButtonA.
+  ReportRange = 20       ## World-pixel distance for report ButtonA.
+
+# ---------------------------------------------------------------------------
+# A* pathfinding
+# ---------------------------------------------------------------------------
+
+proc passable(wm: openArray[uint8], x, y: int): bool {.inline.} =
+  ## True when world pixel (x, y) is walkable and in bounds.
+  ## Uses one-pixel margin on the far edges (matching modulabot).
+  if x < 0 or y < 0: return false
+  if x + 1 >= MapWidth or y + 1 >= MapHeight: return false
+  wm[y * MapWidth + x] != 0
+
+proc findPath*(wm: openArray[uint8],
+               startX, startY, goalX, goalY: int): seq[Point] =
+  ## Standard A* on the walk mask. Returns the path from the step
+  ## *after* start through goal inclusive, one Point per pixel.
+  ## Returns empty if no path exists or either endpoint is impassable.
+  if not passable(wm, startX, startY): return @[]
+  if not passable(wm, goalX, goalY): return @[]
+
+  let area = MapWidth * MapHeight
+  let startIdx = startY * MapWidth + startX
+  let goalIdx = goalY * MapWidth + goalX
+  if startIdx == goalIdx: return @[]
+
+  # Flat arrays for parent tracking and cost.
+  var parents = newSeq[int32](area)
+  var costs = newSeq[int32](area)
+  var closed = newSeq[bool](area)
+  for i in 0 ..< area:
+    parents[i] = -2'i32
+    costs[i] = high(int32)
+
+  parents[startIdx] = -1'i32
+  costs[startIdx] = 0'i32
+
+  # Binary heap entries: (priority, nodeIndex). Nim's built-in heapqueue
+  # isn't available without import, so we use a simple seq-based min-heap.
+  type HeapEntry = tuple[priority: int32, index: int32]
+
+  var heap: seq[HeapEntry] = @[]
+
+  # Inline heap operations for performance.
+  proc heapPush(h: var seq[HeapEntry], e: HeapEntry) =
+    h.add(e)
+    var i = h.len - 1
+    while i > 0:
+      let parent = (i - 1) div 2
+      if h[i].priority < h[parent].priority or
+         (h[i].priority == h[parent].priority and h[i].index < h[parent].index):
+        swap(h[i], h[parent])
+        i = parent
+      else:
+        break
+
+  proc heapPop(h: var seq[HeapEntry]): HeapEntry =
+    result = h[0]
+    h[0] = h[^1]
+    h.setLen(h.len - 1)
+    var i = 0
+    while true:
+      let left = 2 * i + 1
+      let right = 2 * i + 2
+      var smallest = i
+      if left < h.len and
+         (h[left].priority < h[smallest].priority or
+          (h[left].priority == h[smallest].priority and h[left].index < h[smallest].index)):
+        smallest = left
+      if right < h.len and
+         (h[right].priority < h[smallest].priority or
+          (h[right].priority == h[smallest].priority and h[right].index < h[smallest].index)):
+        smallest = right
+      if smallest == i: break
+      swap(h[i], h[smallest])
+      i = smallest
+
+  heapPush(heap, (int32(heuristic(startX, startY, goalX, goalY)), int32(startIdx)))
+
+  while heap.len > 0:
+    let entry = heapPop(heap)
+    let current = int(entry.index)
+    if closed[current]: continue
+    if current == goalIdx:
+      # Reconstruct path from goal to start.
+      var path: seq[Point] = @[]
+      var step = goalIdx
+      while step != startIdx and step >= 0:
+        path.add Point(x: step mod MapWidth, y: step div MapWidth)
+        step = int(parents[step])
+      # Reverse to get start→goal order.
+      var lo = 0
+      var hi = path.len - 1
+      while lo < hi:
+        swap(path[lo], path[hi])
+        inc lo
+        dec hi
+      return path
+
+    closed[current] = true
+    let cx = current mod MapWidth
+    let cy = current div MapWidth
+    let curCost = costs[current]
+
+    # 4-connected neighbours.
+    const dx = [-1'i32, 1, 0, 0]
+    const dy = [0'i32, 0, -1, 1]
+    for d in 0 ..< 4:
+      let nx = cx + int(dx[d])
+      let ny = cy + int(dy[d])
+      if nx < 0 or ny < 0 or nx + 1 >= MapWidth or ny + 1 >= MapHeight:
+        continue
+      if wm[ny * MapWidth + nx] == 0: continue
+      let ni = ny * MapWidth + nx
+      if closed[ni]: continue
+      let newCost = curCost + 1
+      if newCost >= costs[ni]: continue
+      costs[ni] = newCost
+      parents[ni] = int32(current)
+      heapPush(heap, (newCost + int32(heuristic(nx, ny, goalX, goalY)), int32(ni)))
+
+  return @[]
+
+# ---------------------------------------------------------------------------
+# Path step selection
+# ---------------------------------------------------------------------------
+
+proc choosePathStep(path: seq[Point]): (bool, Point) =
+  ## Return a short-lookahead waypoint. Returns (false, _) if path empty.
+  if path.len == 0:
+    return (false, Point(x: 0, y: 0))
+  let idx = min(path.len - 1, PathLookahead)
+  (true, path[idx])
+
+# ---------------------------------------------------------------------------
+# Direction buttons from current position to waypoint
+# ---------------------------------------------------------------------------
+
+proc steerButtons(selfX, selfY, targetX, targetY: int): uint8 {.inline.} =
+  ## Produce direction-button bits to move from self toward target.
+  var mask: uint8 = 0
+  if targetX < selfX: mask = mask or ButtonLeft
+  elif targetX > selfX: mask = mask or ButtonRight
+  if targetY < selfY: mask = mask or ButtonUp
+  elif targetY > selfY: mask = mask or ButtonDown
+  mask
+
+# ---------------------------------------------------------------------------
+# Initialization
+# ---------------------------------------------------------------------------
 
 proc initActionState*(): ActionState =
   ActionState(
@@ -38,28 +206,166 @@ proc initActionIntent*(): ActionIntent =
 
 proc noOpIntent*(): ActionIntent = initActionIntent()
 
+# ---------------------------------------------------------------------------
+# Core: applyIntent
+# ---------------------------------------------------------------------------
+
 proc applyIntent*(
     state: var ActionState,
     belief: Belief,
     intent: ActionIntent): uint8 =
-  ## Phase 0: always no-op. Phase 2 does the real work:
-  ##   - `DisciplineTaskHold`  -> hold ButtonA alone, zero motion.
-  ##   - `DisciplineKillStrike`-> drive toward intent.steerTo + ButtonA on
-  ##                              contact.
-  ##   - `DisciplineReport`    -> drive toward intent.steerTo + ButtonA in
-  ##                              report range.
-  ##   - `DisciplineNormal`    -> A* + momentum steering toward steerTo.
-  ##   - `DisciplineNoOp`      -> hold mask 0.
-  ## Meeting-mode cursor movement and chat emission also funnel through
-  ## here (DESIGN.md §7).
-  discard belief
-  discard intent
-  state.lastEmittedMask = 0'u8
-  0'u8
+  ## Translate an ActionIntent into a button mask. Handles all
+  ## discipline types, A* path following, stuck detection, jiggle,
+  ## ghost straight-line steering, and meeting cursor/button.
+
+  # --- DisciplineNoOp ---
+  if intent.discipline == DisciplineNoOp:
+    # Meeting cursor movement still works under NoOp discipline
+    # (cursor-only intents from meeting mode).
+    var mask: uint8 = 0
+    if intent.pressA: mask = mask or ButtonA
+    if intent.pressB: mask = mask or ButtonB
+    if intent.cursor == CursorLeft: mask = mask or ButtonLeft
+    elif intent.cursor == CursorRight: mask = mask or ButtonRight
+    state.lastEmittedMask = mask
+    return mask
+
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  let localized = belief.percep.localized
+
+  # --- DisciplineTaskHold ---
+  if intent.discipline == DisciplineTaskHold:
+    # Hold A, no movement.
+    let mask = ButtonA
+    inc state.taskHoldTicks
+    state.lastEmittedMask = mask
+    return mask
+
+  # --- DisciplineKillStrike ---
+  if intent.discipline == DisciplineKillStrike:
+    var mask: uint8 = 0
+    if intent.steerValid and localized:
+      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      let dist = heuristic(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      if dist <= KillStrikeRange:
+        mask = mask or ButtonA
+    state.lastEmittedMask = mask
+    return mask
+
+  # --- DisciplineReport ---
+  if intent.discipline == DisciplineReport:
+    var mask: uint8 = 0
+    if intent.steerValid and localized:
+      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      let dist = heuristic(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      if dist <= ReportRange:
+        mask = mask or ButtonA
+    state.lastEmittedMask = mask
+    return mask
+
+  # --- DisciplineNormal ---
+  # This is the main A*-backed steering path.
+  var mask: uint8 = 0
+  state.taskHoldTicks = 0
+
+  if not intent.steerValid or not localized:
+    # No destination or no camera lock — idle.
+    if intent.pressA: mask = mask or ButtonA
+    if intent.pressB: mask = mask or ButtonB
+    state.lastEmittedMask = mask
+    return mask
+
+  let goalX = intent.steerTo.x
+  let goalY = intent.steerTo.y
+
+  # Check if goal changed; recompute path if so.
+  let goalChanged = not state.currentGoalValid or
+                    state.currentGoal.x != goalX or
+                    state.currentGoal.y != goalY
+  if goalChanged:
+    state.currentGoal = Point(x: goalX, y: goalY)
+    state.currentGoalValid = true
+    state.stuckFrames = 0
+    state.jiggleTicks = 0
+    # Ghost: straight-line (no walk mask needed).
+    if belief.self.isGhost:
+      state.currentPath = @[Point(x: goalX, y: goalY)]
+    else:
+      state.currentPath = findPath(
+        referenceData.map.walkMask,
+        selfX, selfY, goalX, goalY)
+
+  # Velocity tracking for stuck detection. selfX = cameraX + PlayerWorldOff,
+  # so velocity equals the camera delta between frames.
+  let velX = belief.percep.cameraX - belief.percep.lastCameraX
+  let velY = belief.percep.cameraY - belief.percep.lastCameraY
+  state.lastVelocityX = velX
+  state.lastVelocityY = velY
+
+  # Stuck detection: if we intended to move but didn't.
+  if state.currentPath.len > 0 and velX == 0 and velY == 0 and
+     state.lastEmittedMask != 0 and
+     (state.lastEmittedMask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0:
+    inc state.stuckFrames
+  else:
+    state.stuckFrames = 0
+
+  # Jiggle: if stuck for too long, move perpendicular for a few ticks.
+  if state.jiggleTicks > 0:
+    dec state.jiggleTicks
+    # Emit perpendicular direction to the last attempted movement.
+    let lastDir = state.lastEmittedMask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)
+    if (lastDir and (ButtonLeft or ButtonRight)) != 0:
+      # Was moving horizontally — jiggle vertically.
+      mask = ButtonDown  # Arbitrary; could alternate.
+    else:
+      # Was moving vertically — jiggle horizontally.
+      mask = ButtonRight
+    if intent.pressA: mask = mask or ButtonA
+    state.lastEmittedMask = mask
+    return mask
+
+  if state.stuckFrames >= StuckThreshold:
+    # Trigger jiggle and recompute path afterward.
+    state.jiggleTicks = JiggleDuration
+    state.stuckFrames = 0
+    # Force path recompute next tick by invalidating goal.
+    state.currentGoalValid = false
+
+  # Follow path: pick a lookahead waypoint and steer toward it.
+  if state.currentPath.len > 0:
+    # Trim path: drop steps we've already passed.
+    while state.currentPath.len > 1:
+      let first = state.currentPath[0]
+      let distToFirst = heuristic(selfX, selfY, first.x, first.y)
+      if distToFirst <= 2:
+        state.currentPath.delete(0)
+      else:
+        break
+
+    let (found, waypoint) = choosePathStep(state.currentPath)
+    if found:
+      if belief.self.isGhost:
+        # Ghost: straight-line steering, ignoring walls.
+        mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
+      else:
+        mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
+
+  # Apply button overrides from the intent.
+  if intent.pressA: mask = mask or ButtonA
+  if intent.pressB: mask = mask or ButtonB
+
+  state.lastEmittedMask = mask
+  mask
+
+# ---------------------------------------------------------------------------
+# Chat emission (meeting mode)
+# ---------------------------------------------------------------------------
 
 proc emitChat*(state: var ActionState, text: string): bool =
-  ## Phase 0: drops the chat line. Phase 2: queues it for emission once
-  ## the voting phase begins, rate-limited by `MeetingChatLineGapTicks`.
+  ## Phase 2 stub: chat queuing for meeting mode. Returns true if
+  ## accepted. Full implementation deferred to phase 3 (LLM integration).
   discard state
   discard text
   false
