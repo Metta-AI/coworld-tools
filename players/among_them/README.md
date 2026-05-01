@@ -12,6 +12,7 @@ Current season: `among-them` (verify with `cogames season list`).
 | Agent | Status | Strategy |
 |---|---|---|
 | [`modulabot/`](modulabot/README.md) | v0, local tests passing | Modular scripted bot ported from the Nim `modulabot` architecture — state and pixel perception paths, crewmate task play, imposter fake-task/kill/flee, evidence-based voting. |
+| [`guided_bot/`](guided_bot/README.md) | phase 0 scaffold (no-op) | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slow asynchronous LLM guidance loop that sets active `mode` + structured params. LLM takes direct control during meetings. See `guided_bot/DESIGN.md`. |
 
 ## Conventions
 
