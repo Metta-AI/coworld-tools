@@ -141,3 +141,9 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
   don't need approval. When in doubt, ask. After an approved
   divergence, update the design doc in the same change so it stays
   accurate.
+- **Always validate with a live game after implementation.** After unit
+  tests pass, run a live local match with tracing enabled and read the
+  trace output to confirm the feature works end-to-end. Live games are
+  the ultimate test. If the feature can't be verified via traces, flag
+  that during planning and make sure the plan includes adding the
+  necessary tracing first.

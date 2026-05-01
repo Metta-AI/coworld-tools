@@ -104,6 +104,25 @@ proc switchMode(bot: var Bot, newDirective: Directive) =
   let oldMode = bot.belief.directive.mode
   let tick = bot.belief.tick
 
+  # Trace: task_abandoned if leaving task_completing during Hold/Confirm.
+  if bot.trace != nil and oldMode == ModeTaskCompleting and
+     bot.modeScratch.mode == ModeTaskCompleting and
+     (bot.modeScratch.tcPhase == TpHold or bot.modeScratch.tcPhase == TpConfirm):
+    let ti = bot.modeScratch.tcLockedTaskIndex
+    let tasks = referenceData.map.tasks
+    var payload = newJObject()
+    payload["task_index"] = newJInt(ti)
+    if ti >= 0 and ti < tasks.len:
+      payload["station_name"] = newJString(tasks[ti].name)
+    payload["reason"] = newJString("mode_switch")
+    if bot.modeScratch.tcPhase == TpHold:
+      payload["phase_at_abandon"] = newJString("hold")
+    else:
+      payload["phase_at_abandon"] = newJString("confirm")
+    payload["hold_ticks_elapsed"] = newJInt(
+      tick - bot.modeScratch.tcHoldStartTick)
+    logGameEvent(bot.trace, "task_abandoned", tick, $payload)
+
   # Trace: log mode exit before onExit runs (captures duration).
   if bot.trace != nil:
     let duration = tick - bot.trace.modeEntryTick
@@ -337,6 +356,19 @@ proc decideNextMask*(bot: var Bot): uint8 =
   # 2e. Merge task/radar scan results into belief.
   mergeTaskPercept(bot.belief, percept.taskPercept)
 
+  # 2e'. Task-state machine update (phase 6.1). Runs after
+  #      mergeTaskPercept so visibleTaskIcons and radarDots are current.
+  ensureTaskSlotsInitialized(bot.belief)
+  let holdIdx = if bot.modeScratch.mode == ModeTaskCompleting and
+                   bot.modeScratch.tcPhase == TpHold:
+                  bot.modeScratch.tcLockedTaskIndex
+                else: -1
+  let confirmIdx = if bot.modeScratch.mode == ModeTaskCompleting and
+                      bot.modeScratch.tcPhase == TpConfirm:
+                     bot.modeScratch.tcLockedTaskIndex
+                   else: -1
+  updateTaskState(bot.belief, bot.frameTick, holdIdx, confirmIdx)
+
   # 2f. Interstitial classification (phase 1.5) + voting-screen parse
   #     (phase 1.6).
   if percept.interstitial.isInterstitial:
@@ -478,6 +510,67 @@ proc decideNextMask*(bot: var Bot): uint8 =
                       bot.belief,
                       bot.belief.directive.params,
                       bot.modeScratch)
+
+  # 4a. Apply task completion from task_completing mode.
+  # The mode signals completion via scratch; we apply it to belief
+  # here to preserve the DESIGN.md §3 invariant.
+  if bot.modeScratch.mode == ModeTaskCompleting and
+     bot.modeScratch.tcCompletedTaskIndex >= 0:
+    let ci = bot.modeScratch.tcCompletedTaskIndex
+    if ci < bot.belief.tasks.slots.len:
+      bot.belief.tasks.slots[ci].state = TaskCompleted
+    # Trace: task_completed event.
+    if bot.trace != nil:
+      let tasks = referenceData.map.tasks
+      var payload = newJObject()
+      payload["task_index"] = newJInt(ci)
+      if ci < tasks.len:
+        payload["station_name"] = newJString(tasks[ci].name)
+      payload["hold_duration_ticks"] = newJInt(
+        bot.belief.tick - bot.modeScratch.tcHoldStartTick)
+      logGameEvent(bot.trace, "task_completed", bot.belief.tick, $payload)
+    bot.modeScratch.tcCompletedTaskIndex = -1
+
+  # 4b. Trace: task_started event (Navigate→Hold transition detected
+  #     by checking if we just entered Hold this tick).
+  if bot.trace != nil and
+     bot.modeScratch.mode == ModeTaskCompleting and
+     bot.modeScratch.tcPhase == TpHold and
+     bot.modeScratch.tcHoldStartTick == bot.belief.tick:
+    let ti = bot.modeScratch.tcLockedTaskIndex
+    let tasks = referenceData.map.tasks
+    var payload = newJObject()
+    payload["task_index"] = newJInt(ti)
+    if ti >= 0 and ti < tasks.len:
+      payload["station_name"] = newJString(tasks[ti].name)
+    case bot.modeScratch.tcSelectionTier
+    of TierIcon:     payload["selection_tier"] = newJString("icon")
+    of TierCheckout: payload["selection_tier"] = newJString("checkout")
+    of TierGeometry: payload["selection_tier"] = newJString("geometry")
+    logGameEvent(bot.trace, "task_started", bot.belief.tick, $payload)
+
+  # 4c. Reporting mode: give-up detection + trace events.
+  if bot.modeScratch.mode == ModeReporting:
+    # Trace: report_attempted when bot first reaches range.
+    if bot.trace != nil and bot.modeScratch.repReachedRange and
+       bot.modeScratch.repInRangeTicks <= 1:
+      var payload = newJObject()
+      payload["body_x"] = newJInt(bot.belief.directive.params.repBodyLocation.x)
+      payload["body_y"] = newJInt(bot.belief.directive.params.repBodyLocation.y)
+      payload["self_x"] = newJInt(bot.belief.percep.selfX)
+      payload["self_y"] = newJInt(bot.belief.percep.selfY)
+      logGameEvent(bot.trace, "report_attempted", bot.belief.tick, $payload)
+
+    # Give-up: switch to default directive immediately.
+    if bot.modeScratch.repGaveUp:
+      if bot.trace != nil:
+        var payload = newJObject()
+        payload["reason"] = newJString(bot.modeScratch.repGaveUpReason)
+        payload["ticks_in_mode"] = newJInt(
+          bot.belief.tick - bot.modeScratch.repEnterTick)
+        payload["reached_range"] = newJBool(bot.modeScratch.repReachedRange)
+        logGameEvent(bot.trace, "report_gave_up", bot.belief.tick, $payload)
+      switchMode(bot, defaultDirectiveFor(bot.belief))
 
   # 5. Act.
   let mask = applyIntent(bot.actionState, bot.belief, intent)

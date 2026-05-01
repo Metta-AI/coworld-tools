@@ -105,6 +105,29 @@ type
     CursorLeft
     CursorRight
 
+  TaskPhase* = enum
+    ## Sub-phase within `task_completing` mode's hold lifecycle.
+    ## See TASK_COMPLETING_DESIGN.md §3.
+    TpNavigate       ## Walking toward the target station.
+    TpHold           ## At the station, pressing A for TaskHoldTicks.
+    TpConfirm        ## A-hold finished, watching for icon disappearance.
+
+  TaskSlotState* = enum
+    ## Per-station state in `belief.tasks`. Populated by the belief-
+    ## merge stage, consumed by `task_completing` and the LLM snapshot.
+    ## See TASK_COMPLETING_DESIGN.md §4.
+    TaskNotDoing     ## No evidence this task is ours.
+    TaskCheckout     ## Radar dot matched — probably assigned.
+    TaskConfirmed    ## Icon visible at this station — definitely assigned.
+    TaskCompleted    ## Hold confirmed — icon disappeared after A-hold.
+
+  TaskSelectionTier* = enum
+    ## Which tier of evidence selected the current target.
+    ## Logged in trace events.
+    TierIcon         ## Icon visible on screen.
+    TierCheckout     ## Radar-dot checkout latch.
+    TierGeometry     ## Nearest unresolved station (weakest).
+
 # ---------------------------------------------------------------------------
 # Small point and action-intent types
 # ---------------------------------------------------------------------------
@@ -333,12 +356,19 @@ type
     lastMeetingEndTick*: int
 
   TaskSlot* = object
-    state*: uint8            ## 0 not_doing, 1 maybe, 2 mandatory, 3 completed.
-    lastSeenTick*: int
+    ## Per-task-station state in the belief. Updated by
+    ## ``updateTaskState`` in the belief-merge stage.
+    ## See TASK_COMPLETING_DESIGN.md §4.
+    state*: TaskSlotState
+    checkout*: bool          ## Radar-dot latch (persists across frames).
+    iconVisibleTick*: int    ## Last tick an icon was seen at this station.
+    iconMissCount*: int      ## Consecutive icon-absent frames while on-screen.
+    resolvedNotMine*: bool   ## Negative evidence: inspected, no icon.
 
   TaskState* = object
     slots*: seq[TaskSlot]
-    inProgressIndex*: int    ## -1 if none.
+    inProgressIndex*: int    ## -1 if none. Set by task_completing mode.
+    initialized*: bool       ## True once slots have been allocated.
 
   ChatLine* = object
     tick*: int
@@ -411,14 +441,27 @@ type
     of ModeIdle:
       idleEnterTick*: int
     of ModeTaskCompleting:
-      tcLockedTaskIndex*: int
-      tcEnterTick*: int
+      tcLockedTaskIndex*: int       ## -1 if no target locked.
+      tcEnterTick*: int             ## Tick when mode was entered.
+      tcPhase*: TaskPhase           ## Navigate / Hold / Confirm.
+      tcHoldRemaining*: int         ## Ticks left in Hold phase.
+      tcHoldStartTick*: int         ## Tick when Hold began (for trace).
+      tcConfirmDeadlineTick*: int   ## Tick when Confirm times out.
+      tcConfirmMissCount*: int      ## Consecutive icon-absent frames in Confirm.
+      tcCompletedTaskIndex*: int    ## Set on completion; bot.nim applies to belief.
+      tcLockTick*: int              ## Tick when target was locked (hysteresis).
+      tcSelectionTier*: TaskSelectionTier  ## Tier that selected the current target.
     of ModeFear:
       fearEnterTick*: int
     of ModeInvestigating:
       invDeadlineTick*: int
     of ModeReporting:
-      repEnterTick*: int
+      repEnterTick*: int             ## Tick when mode was entered.
+      repBodyMissCount*: int         ## Consecutive frames without body match.
+      repReachedRange*: bool         ## True once dist <= ReportRange.
+      repInRangeTicks*: int          ## Ticks spent in range without meeting.
+      repGaveUp*: bool               ## Set when any give-up check fires.
+      repGaveUpReason*: string       ## "body_gone" / "approach_timeout" / "in_range_timeout".
     of ModePretending:
       preFakeTargetIndex*: int
       preLoiterUntilTick*: int

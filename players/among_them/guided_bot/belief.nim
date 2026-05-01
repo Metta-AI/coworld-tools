@@ -13,6 +13,9 @@
 
 import types
 import perception
+import perception/data
+import perception/geometry
+import tuning
 
 proc initDirective*(): Directive =
   Directive(
@@ -68,7 +71,7 @@ proc initMemoryState*(): MemoryState =
   # Default-constructs the PlayerSummary array.
 
 proc initTaskState*(): TaskState =
-  TaskState(slots: @[], inProgressIndex: -1)
+  TaskState(slots: @[], inProgressIndex: -1, initialized: false)
 
 proc initSocialState*(): SocialState =
   result.recentChat = @[]
@@ -197,3 +200,118 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
   # Flag for the guidance loop.
   if voting.chatLines.len > 0:
     belief.flags.wakeReasons.incl WakeChatObserved
+
+# ---------------------------------------------------------------------------
+# Task-state machine (phase 6.1)
+# ---------------------------------------------------------------------------
+
+proc ensureTaskSlotsInitialized*(belief: var Belief) =
+  ## Lazily allocate ``belief.tasks.slots`` to match the map's task
+  ## station count. Called once on the first gameplay frame.
+  if belief.tasks.initialized:
+    return
+  let n = referenceData.map.tasks.len
+  belief.tasks.slots = newSeq[TaskSlot](n)
+  for i in 0 ..< n:
+    belief.tasks.slots[i] = TaskSlot(
+      state: TaskNotDoing,
+      checkout: false,
+      iconVisibleTick: -1,
+      iconMissCount: 0,
+      resolvedNotMine: false)
+  belief.tasks.initialized = true
+
+proc resetTaskSlots*(belief: var Belief) =
+  ## Reset all task slots to initial state. Called on round reset
+  ## (role-reveal interstitial).
+  for i in 0 ..< belief.tasks.slots.len:
+    belief.tasks.slots[i] = TaskSlot(
+      state: TaskNotDoing,
+      checkout: false,
+      iconVisibleTick: -1,
+      iconMissCount: 0,
+      resolvedNotMine: false)
+  belief.tasks.inProgressIndex = -1
+
+proc findIconForStation(stationIdx: int, station: TaskStation,
+                        icons: openArray[IconMatch],
+                        camX, camY: int): bool =
+  ## True if any visible task icon matches the given station. Reuses
+  ## the same matching logic as ``task_completing.findTaskForIcon``:
+  ## the icon's world position must fall within the station rect
+  ## (16 px margin).
+  const margin = 16
+  for icon in icons:
+    let wx = camX + icon.x + SpriteDrawOffX
+    let wy = camY + icon.y + SpriteDrawOffY
+    if wx >= station.x - margin and wx < station.x + station.w + margin and
+       wy >= station.y - margin and wy < station.y + station.h + margin:
+      return true
+  false
+
+proc updateTaskState*(belief: var Belief, tick: int,
+                      holdIndex: int, confirmIndex: int) =
+  ## Per-frame task-state update. Runs in the belief-merge stage
+  ## (after ``mergeTaskPercept``). Implements TASK_COMPLETING_DESIGN.md
+  ## §4.2 and §5 (radar checkout).
+  ##
+  ## ``holdIndex`` and ``confirmIndex`` are the task indices currently
+  ## being held or confirmed by ``task_completing`` mode (-1 if none).
+  ## These are excluded from negative-evidence pruning.
+  if not belief.tasks.initialized:
+    return
+  if belief.percep.interstitial:
+    return
+
+  let tasks = referenceData.map.tasks
+  let camX = belief.percep.cameraX
+  let camY = belief.percep.cameraY
+  let localized = belief.percep.localized
+  let isAliveImposter = belief.self.role == RoleImposter and
+                        belief.self.alive and not belief.self.isGhost
+
+  for i in 0 ..< tasks.len:
+    if i >= belief.tasks.slots.len:
+      break
+    # Skip terminal states.
+    if belief.tasks.slots[i].state == TaskCompleted:
+      continue
+    if belief.tasks.slots[i].resolvedNotMine:
+      continue
+
+    let station = tasks[i]
+
+    # --- Icon visibility check (skip for alive imposters) ---
+    if not isAliveImposter and localized:
+      let iconVisible = findIconForStation(i, station,
+                                           belief.percep.visibleTaskIcons,
+                                           camX, camY)
+      if iconVisible:
+        belief.tasks.slots[i].state = TaskConfirmed
+        belief.tasks.slots[i].iconVisibleTick = tick
+        belief.tasks.slots[i].iconMissCount = 0
+      else:
+        # Only count misses when the icon area is fully on-screen.
+        if taskIconOnScreen(station, camX, camY, TaskClearScreenMargin):
+          belief.tasks.slots[i].iconMissCount += 1
+          # Negative evidence: 24 frames of clear sight, no icon.
+          if belief.tasks.slots[i].iconMissCount >= TaskIconMissResolveFrames and
+             i != holdIndex and i != confirmIndex:
+            belief.tasks.slots[i].resolvedNotMine = true
+            belief.tasks.slots[i].checkout = false
+            belief.tasks.slots[i].state = TaskNotDoing
+        # else: off-screen or near edge — don't count.
+
+    # --- Radar-dot checkout (needs camera for projection) ---
+    if localized:
+      let (projX, projY) = projectedRadarDot(station, camX, camY)
+      var matched = false
+      for dot in belief.percep.radarDots:
+        if abs(dot.x - projX) <= RadarMatchTolerance and
+           abs(dot.y - projY) <= RadarMatchTolerance:
+          matched = true
+          break
+      if matched:
+        belief.tasks.slots[i].checkout = true
+        if belief.tasks.slots[i].state == TaskNotDoing:
+          belief.tasks.slots[i].state = TaskCheckout

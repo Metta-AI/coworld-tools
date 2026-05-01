@@ -139,3 +139,47 @@ proc heuristic*(ax, ay, bx, by: int): int {.inline.} =
   ## Manhattan distance — same name as in modulabot/geometry.py to
   ## keep consumers (A\*, sortBy distance) symmetrical.
   abs(ax - bx) + abs(ay - by)
+
+# ---------------------------------------------------------------------------
+# Task-station helpers (phase 6.1)
+# ---------------------------------------------------------------------------
+
+proc taskIconExpectedScreenPos*(station: TaskStation,
+                                camX, camY: int): (int, int) =
+  ## Expected screen position of the task icon for a station, given
+  ## the current camera. The icon renders above the station rect
+  ## centre. Mirrors ``modulabot/perception/pixel_pipeline.py``'s
+  ## ``_task_icon_expected_pos``.
+  let wx = station.x + station.w div 2
+  let wy = station.y + station.h div 2
+  let sx = wx - camX - SpriteDrawOffX
+  let sy = wy - camY - SpriteDrawOffY
+  (sx, sy)
+
+proc taskIconOnScreen*(station: TaskStation,
+                       camX, camY: int,
+                       margin: int): bool =
+  ## True when the task icon's expected position is fully inside the
+  ## screen bounds with ``margin`` pixels of clearance on each edge.
+  ## Used to gate icon-miss counting: we only count a miss when we're
+  ## confident the icon *would* be visible if it existed.
+  let (sx, sy) = taskIconExpectedScreenPos(station, camX, camY)
+  # The icon sprite is SpriteSize x SpriteSize. Check that the full
+  # sprite rect (anchored at sx, sy) is within the margin-inset screen.
+  sx >= margin and
+  sy >= margin and
+  sx + SpriteSize <= ScreenWidth - margin and
+  sy + SpriteSize <= ScreenHeight - margin
+
+proc projectedRadarDot*(station: TaskStation,
+                        camX, camY: int): (int, int) =
+  ## Where the server would draw a radar dot for this station. The
+  ## dot is clamped to the screen border. Used for radar-dot → task
+  ## checkout matching. See TASK_COMPLETING_DESIGN.md §5.1.
+  let wx = station.x + station.w div 2
+  let wy = station.y + station.h div 2
+  let sx = wx - camX - SpriteDrawOffX
+  let sy = wy - camY - SpriteDrawOffY
+  let cx = clamp(sx, 0, ScreenWidth - 1)
+  let cy = clamp(sy, 0, ScreenHeight - 1)
+  (cx, cy)

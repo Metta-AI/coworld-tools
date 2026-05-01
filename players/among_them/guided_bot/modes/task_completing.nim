@@ -1,26 +1,29 @@
 ## Mode: `task_completing`. Crewmate default and ghost default.
 ##
-## Picks a target task from visible task icons / radar dots, navigates to
-## its world-space station rect, then holds A to complete it. Ghost variant
-## skips body reactions and uses straight-line steering (handled by the
-## action layer's ghost-aware A*). See DESIGN.md §5.7, §9.1, §12.2.
+## Phase 6.1 rewrite: three-phase hold lifecycle (Navigate → Hold →
+## Confirm) with belief-layer task state, tiered target selection,
+## and icon-disappearance completion detection.
 ##
-## Task selection strategy (phase 2, no full task-state machine yet):
-##   - If a task icon is visible on screen, target the nearest task station
-##     whose world rect contains the icon's world position.
-##   - If radar dots are visible but no task icons, pick the nearest task
-##     station in the direction of a radar dot.
-##   - If nothing is visible, hold last known target or wander toward
-##     the map centre.
-##   - Once at the station rect, switch to DisciplineTaskHold (hold A).
+## See TASK_COMPLETING_DESIGN.md for the full design.
+##
+## Navigate: A* to the target station centre.
+## Hold:     Press A for TaskHoldTicks (84) ticks.
+## Confirm:  Watch for icon disappearance (24 consecutive miss frames)
+##           or timeout (TaskConfirmWindowTicks = 48).
+##
+## Target selection uses a three-tier priority system:
+##   1. Icon-visible stations (TaskConfirmed in belief.tasks).
+##   2. Checkout-latched stations (radar-dot evidence).
+##   3. Unresolved stations (nearest by geometry).
 ##
 ## The mode respects `tcAbandonOnNearbyBody` — if true and a body is
 ## visible, the reflex system (wired in bot.nim) handles switching to
-## `reporting` mode. This mode doesn't check bodies itself; it relies on
-## the reflex.
+## `reporting` mode. This mode doesn't check bodies itself; it relies
+## on the reflex.
 
 import ../types
 import ../action
+import ../tuning
 import ../perception/data
 import ../perception/geometry
 
@@ -39,7 +42,15 @@ proc defaultParamsFor*(belief: Belief): ModeParams =
 proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
   scratch = ModeScratch(mode: ModeTaskCompleting,
                         tcLockedTaskIndex: -1,
-                        tcEnterTick: belief.tick)
+                        tcEnterTick: belief.tick,
+                        tcPhase: TpNavigate,
+                        tcHoldRemaining: 0,
+                        tcHoldStartTick: 0,
+                        tcConfirmDeadlineTick: 0,
+                        tcConfirmMissCount: 0,
+                        tcCompletedTaskIndex: -1,
+                        tcLockTick: 0,
+                        tcSelectionTier: TierGeometry)
   discard params
 
 proc onExit*(belief: Belief, scratch: var ModeScratch) =
@@ -61,42 +72,89 @@ proc isInsideTaskRect(selfX, selfY: int, ts: TaskStation): bool =
   selfX >= ts.x - margin and selfX < ts.x + ts.w + margin and
   selfY >= ts.y - margin and selfY < ts.y + ts.h + margin
 
-proc nearestTaskStation(selfX, selfY: int,
-                        tasks: openArray[TaskStation]): int =
-  ## Index of the nearest task station by Manhattan distance. Returns
-  ## -1 if the task list is empty.
+# ---------------------------------------------------------------------------
+# Target selection (3-tier, per TASK_COMPLETING_DESIGN.md §6)
+# ---------------------------------------------------------------------------
+
+proc selectTarget(belief: Belief,
+                  scratch: var ModeScratch): int =
+  ## Pick a target task station using tiered priority. Returns the
+  ## station index, or -1 if no candidates. Sets scratch.tcSelectionTier.
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  let tasks = referenceData.map.tasks
+  let nSlots = belief.tasks.slots.len
+
+  # Tier 1: icon-visible (TaskConfirmed).
   var bestDist = high(int)
-  result = -1
-  for i, ts in tasks:
-    let (cx, cy) = taskStationWorldCenter(ts)
-    let d = heuristic(selfX, selfY, cx, cy)
-    if d < bestDist:
-      bestDist = d
-      result = i
-
-proc taskIconWorldX(iconScreenX, cameraX: int): int {.inline.} =
-  ## Convert a task-icon screen X to world X.
-  cameraX + iconScreenX + SpriteDrawOffX
-
-proc taskIconWorldY(iconScreenY, cameraY: int): int {.inline.} =
-  cameraY + iconScreenY + SpriteDrawOffY
-
-proc findTaskForIcon(iconWX, iconWY: int,
-                     tasks: openArray[TaskStation]): int =
-  ## Find the task station whose rect contains (or is nearest to) the
-  ## icon's world position. Returns -1 if none found.
-  var bestDist = high(int)
-  result = -1
-  for i, ts in tasks:
-    # Check if icon is inside the task rect (with generous margin —
-    # task icons float slightly above the station).
-    const margin = 16
-    if iconWX >= ts.x - margin and iconWX < ts.x + ts.w + margin and
-       iconWY >= ts.y - margin and iconWY < ts.y + ts.h + margin:
-      let d = heuristic(iconWX, iconWY, ts.x + ts.w div 2, ts.y + ts.h div 2)
+  var bestIdx = -1
+  for i in 0 ..< tasks.len:
+    if i >= nSlots: break
+    let slot = belief.tasks.slots[i]
+    if slot.state == TaskConfirmed and not slot.resolvedNotMine:
+      let (cx, cy) = taskStationWorldCenter(tasks[i])
+      let d = heuristic(selfX, selfY, cx, cy)
       if d < bestDist:
         bestDist = d
-        result = i
+        bestIdx = i
+  if bestIdx >= 0:
+    scratch.tcSelectionTier = TierIcon
+    return bestIdx
+
+  # Tier 2: checkout-latched (radar evidence).
+  bestDist = high(int)
+  bestIdx = -1
+  for i in 0 ..< tasks.len:
+    if i >= nSlots: break
+    let slot = belief.tasks.slots[i]
+    if slot.checkout and slot.state != TaskCompleted and not slot.resolvedNotMine:
+      let (cx, cy) = taskStationWorldCenter(tasks[i])
+      let d = heuristic(selfX, selfY, cx, cy)
+      if d < bestDist:
+        bestDist = d
+        bestIdx = i
+  if bestIdx >= 0:
+    scratch.tcSelectionTier = TierCheckout
+    return bestIdx
+
+  # Tier 3: unresolved stations (geometry fallback).
+  bestDist = high(int)
+  bestIdx = -1
+  for i in 0 ..< tasks.len:
+    if i >= nSlots: break
+    let slot = belief.tasks.slots[i]
+    if slot.state != TaskCompleted and not slot.resolvedNotMine:
+      let (cx, cy) = taskStationWorldCenter(tasks[i])
+      let d = heuristic(selfX, selfY, cx, cy)
+      if d < bestDist:
+        bestDist = d
+        bestIdx = i
+  if bestIdx >= 0:
+    scratch.tcSelectionTier = TierGeometry
+    return bestIdx
+
+  -1
+
+# ---------------------------------------------------------------------------
+# Icon-match check for Confirm phase
+# ---------------------------------------------------------------------------
+
+proc iconVisibleAtStation(belief: Belief, stationIdx: int): bool =
+  ## True if any visible task icon matches the locked station.
+  let tasks = referenceData.map.tasks
+  if stationIdx < 0 or stationIdx >= tasks.len:
+    return false
+  let station = tasks[stationIdx]
+  let camX = belief.percep.cameraX
+  let camY = belief.percep.cameraY
+  const margin = 16
+  for icon in belief.percep.visibleTaskIcons:
+    let wx = camX + icon.x + SpriteDrawOffX
+    let wy = camY + icon.y + SpriteDrawOffY
+    if wx >= station.x - margin and wx < station.x + station.w + margin and
+       wy >= station.y - margin and wy < station.y + station.h + margin:
+      return true
+  false
 
 # ---------------------------------------------------------------------------
 # Decide
@@ -113,60 +171,153 @@ proc decide*(belief: Belief, params: ModeParams,
   if not localized or tasks.len == 0:
     return noOpIntent()
 
-  # --- Task selection ---
+  # Clear the completion signal (bot.nim reads and applies this).
+  scratch.tcCompletedTaskIndex = -1
+
+  # --- Target selection / hysteresis ---
   var targetIdx = scratch.tcLockedTaskIndex
 
-  # Try to pick a target from visible task icons.
-  if targetIdx < 0 and belief.percep.visibleTaskIcons.len > 0:
-    var bestDist = high(int)
-    for icon in belief.percep.visibleTaskIcons:
-      let wx = taskIconWorldX(icon.x, belief.percep.cameraX)
-      let wy = taskIconWorldY(icon.y, belief.percep.cameraY)
-      let ti = findTaskForIcon(wx, wy, tasks)
-      if ti >= 0:
-        let (cx, cy) = taskStationWorldCenter(tasks[ti])
-        let d = heuristic(selfX, selfY, cx, cy)
-        if d < bestDist:
-          bestDist = d
-          targetIdx = ti
+  # Check if locked target is still valid.
+  if targetIdx >= 0 and targetIdx < belief.tasks.slots.len:
+    let slot = belief.tasks.slots[targetIdx]
+    if slot.state == TaskCompleted or slot.resolvedNotMine:
+      # Target is done or pruned — unlock immediately.
+      targetIdx = -1
+      scratch.tcLockedTaskIndex = -1
+      scratch.tcPhase = TpNavigate
 
-  # Fallback: if still no target, pick the nearest station.
+  # If in Navigate with no target, run selection.
   if targetIdx < 0:
-    targetIdx = nearestTaskStation(selfX, selfY, tasks)
+    scratch.tcPhase = TpNavigate
+    targetIdx = selectTarget(belief, scratch)
+    if targetIdx >= 0:
+      scratch.tcLockedTaskIndex = targetIdx
+      scratch.tcLockTick = belief.tick
 
-  # Lock the target so we don't thrash between stations.
-  if targetIdx >= 0:
-    scratch.tcLockedTaskIndex = targetIdx
+  # Hysteresis: if we have a target and the commit window hasn't
+  # expired, keep it even if a better one appeared. If committed
+  # long enough, allow re-evaluation on next Navigate entry.
 
-  # No task stations at all — idle.
+  # No target at all — idle.
   if targetIdx < 0:
     return noOpIntent()
 
   let ts = tasks[targetIdx]
   let (goalX, goalY) = taskStationWorldCenter(ts)
 
-  # --- Am I at the task? ---
-  if isInsideTaskRect(selfX, selfY, ts):
-    # At the station — check if a task icon is visible (confirms we
-    # have an active task here). If so, hold A.
-    # Even without a visible icon, hold A briefly to try to interact.
+  # =======================================================================
+  # Phase: CONFIRM
+  # =======================================================================
+  if scratch.tcPhase == TpConfirm:
+    # Check icon visibility for miss counting.
+    if iconVisibleAtStation(belief, targetIdx):
+      scratch.tcConfirmMissCount = 0
+    else:
+      scratch.tcConfirmMissCount += 1
+
+    # Completion: icon absent for enough consecutive frames.
+    if scratch.tcConfirmMissCount >= TaskIconMissCompleteTicks:
+      scratch.tcCompletedTaskIndex = targetIdx
+      scratch.tcLockedTaskIndex = -1
+      scratch.tcPhase = TpNavigate
+      # Re-select on same tick (Navigate will pick a new target).
+      let newTarget = selectTarget(belief, scratch)
+      if newTarget >= 0:
+        scratch.tcLockedTaskIndex = newTarget
+        scratch.tcLockTick = belief.tick
+        let newTs = tasks[newTarget]
+        let (nx, ny) = taskStationWorldCenter(newTs)
+        return ActionIntent(
+          steerTo: Point(x: nx, y: ny),
+          steerValid: true,
+          pressA: false, pressB: false,
+          cursor: CursorNone, chat: "",
+          discipline: DisciplineNormal)
+      return noOpIntent()
+
+    # Timeout: confirm window expired without enough misses.
+    if belief.tick >= scratch.tcConfirmDeadlineTick:
+      # Clear checkout latch — the task may not be ours.
+      if targetIdx < belief.tasks.slots.len:
+        # Note: we can't write belief directly (invariant). The bot
+        # pipeline will handle this via tcCompletedTaskIndex = -1
+        # (no completion). But we DO need to clear checkout — use
+        # a sentinel to signal the bot pipeline. For now, we clear
+        # the lock and re-select. The belief-layer's iconMissCount
+        # will naturally accumulate if we revisit this station.
+        discard
+      scratch.tcLockedTaskIndex = -1
+      scratch.tcPhase = TpNavigate
+      let newTarget = selectTarget(belief, scratch)
+      if newTarget >= 0:
+        scratch.tcLockedTaskIndex = newTarget
+        scratch.tcLockTick = belief.tick
+        let newTs = tasks[newTarget]
+        let (nx, ny) = taskStationWorldCenter(newTs)
+        return ActionIntent(
+          steerTo: Point(x: nx, y: ny),
+          steerValid: true,
+          pressA: false, pressB: false,
+          cursor: CursorNone, chat: "",
+          discipline: DisciplineNormal)
+      return noOpIntent()
+
+    # Still confirming — stay still, no buttons.
     return ActionIntent(
       steerTo: Point(x: goalX, y: goalY),
       steerValid: true,
-      pressA: true,
-      pressB: false,
-      cursor: CursorNone,
-      chat: "",
-      discipline: DisciplineTaskHold
-    )
+      pressA: false, pressB: false,
+      cursor: CursorNone, chat: "",
+      discipline: DisciplineNoOp)
 
-  # --- Navigate to the task ---
+  # =======================================================================
+  # Phase: HOLD
+  # =======================================================================
+  if scratch.tcPhase == TpHold:
+    scratch.tcHoldRemaining -= 1
+    if scratch.tcHoldRemaining <= 0:
+      # Transition to Confirm.
+      scratch.tcPhase = TpConfirm
+      scratch.tcConfirmDeadlineTick = belief.tick + TaskConfirmWindowTicks
+      scratch.tcConfirmMissCount = 0
+      # First Confirm tick: stay still, watch.
+      return ActionIntent(
+        steerTo: Point(x: goalX, y: goalY),
+        steerValid: true,
+        pressA: false, pressB: false,
+        cursor: CursorNone, chat: "",
+        discipline: DisciplineNoOp)
+
+    # Still holding — press A.
+    return ActionIntent(
+      steerTo: Point(x: goalX, y: goalY),
+      steerValid: true,
+      pressA: true, pressB: false,
+      cursor: CursorNone, chat: "",
+      discipline: DisciplineTaskHold)
+
+  # =======================================================================
+  # Phase: NAVIGATE (default)
+  # =======================================================================
+
+  # Am I at the task station?
+  if isInsideTaskRect(selfX, selfY, ts):
+    # Transition to Hold.
+    scratch.tcPhase = TpHold
+    scratch.tcHoldRemaining = TaskHoldTicks
+    scratch.tcHoldStartTick = belief.tick
+    # First Hold tick: press A.
+    return ActionIntent(
+      steerTo: Point(x: goalX, y: goalY),
+      steerValid: true,
+      pressA: true, pressB: false,
+      cursor: CursorNone, chat: "",
+      discipline: DisciplineTaskHold)
+
+  # Navigate to the task.
   ActionIntent(
     steerTo: Point(x: goalX, y: goalY),
     steerValid: true,
-    pressA: false,
-    pressB: false,
-    cursor: CursorNone,
-    chat: "",
-    discipline: DisciplineNormal
-  )
+    pressA: false, pressB: false,
+    cursor: CursorNone, chat: "",
+    discipline: DisciplineNormal)

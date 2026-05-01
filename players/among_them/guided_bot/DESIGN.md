@@ -180,9 +180,13 @@ The belief state is the agent's working model of the world. It is:
    bodies, times witnessing kills, alibi evidence, vote history,
    ejected flag); per-body event; per-meeting event; sightings log.
    Pattern from `modulabot/memory.nim`.
-4. **Tasks.** Per-task state (`not_doing` / `maybe` / `mandatory` /
-   `completed`), last icon sighting, assumed-assigned set. For
-   ghosts: the task layer is the same; ghosts complete their own
+4. **Tasks.** Per-task-station state: `not_doing` / `checkout`
+   (radar-dot confirmed) / `confirmed` (icon visible) / `completed`
+   (hold confirmed, icon disappeared). Plus `checkout` latch,
+   `iconMissCount` for negative evidence, `resolvedNotMine` flag.
+   Populated by `updateTaskState` in the belief-merge stage (phase
+   6.1). See `TASK_COMPLETING_DESIGN.md` §4 for the full spec.
+   For ghosts: the task layer is the same; ghosts complete their own
    tasks (see §5.7).
 5. **Social.** Recent chat lines (speaker-attributed per modulabot's
    voting-screen OCR), accusations heard, votes cast, votes received,
@@ -350,6 +354,10 @@ idle {
 
 task_completing {
   # Crewmate default and ghost default.
+  # Phase 6.1: three-phase hold lifecycle (Navigate → Hold → Confirm)
+  # with belief-layer task state, tiered target selection, and
+  # icon-disappearance completion detection. Full spec in
+  # TASK_COMPLETING_DESIGN.md.
   target: TaskTarget       # see below
   abandon_on_nearby_body: bool   # crew: interrupt to report (default true)
 }
@@ -1129,8 +1137,20 @@ that proposes refactors to mode handlers.
   "position": [x,y] }
 { "t": tick, "kind": "kill_committed",   "victim": color, "position": [x,y] }
 { "t": tick, "kind": "kill_cooldown_ready" }
-{ "t": tick, "kind": "task_started",     "task_index": int }
-{ "t": tick, "kind": "task_completed",   "task_index": int }
+{ "t": tick, "kind": "task_started",     "task_index": int,
+  "station_name": str, "selection_tier": "icon" | "checkout" | "geometry" }
+{ "t": tick, "kind": "task_completed",   "task_index": int,
+  "station_name": str, "hold_duration_ticks": int,
+  "confirm_duration_ticks": int }
+{ "t": tick, "kind": "task_abandoned",   "task_index": int,
+  "station_name": str,
+  "reason": "confirm_timeout" | "mode_switch" | "target_invalid",
+  "phase_at_abandon": "hold" | "confirm", "hold_ticks_elapsed": int }
+{ "t": tick, "kind": "report_attempted", "body_x": int, "body_y": int,
+  "self_x": int, "self_y": int }
+{ "t": tick, "kind": "report_gave_up",
+  "reason": "body_gone" | "approach_timeout" | "in_range_timeout",
+  "ticks_in_mode": int, "reached_range": bool }
 { "t": tick, "kind": "meeting_started",  "reason": "report" | "button" }
 { "t": tick, "kind": "meeting_ended",    "ejected": color | "skip" | null,
   "vote_counts": {color: int} }

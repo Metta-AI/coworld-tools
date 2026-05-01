@@ -9,6 +9,12 @@ is a new file plus one registry entry.
 **Design doc:** [`DESIGN.md`](DESIGN.md). Load-bearing — read it before
 editing.
 
+**Implementation plan:** [`IMPL_PLAN.md`](IMPL_PLAN.md). Phase 6+
+roadmap based on a full mode audit (2026-05-01).
+
+**Fix log:** [`FIX_PLAN.md`](FIX_PLAN.md). Diagnostic findings and
+historical bug fixes.
+
 ## Status
 
 **Orbit bug fixed — bot navigates and completes tasks.** The A\*
@@ -67,6 +73,8 @@ dominated by chat OCR line count.
 | 5 | Fallback-only playability test; first submission | done |
 | — | Orbit bug fix: PathLookahead 18→4, periodic replan, stall detector | done |
 | — | Trace enhancement: decision records include mask + self position | done |
+| 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
+| 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
 
 ## Strategy
 
@@ -355,13 +363,12 @@ only ship `mettagrid` without the `bitworld` extra.
 
 ## Known gaps / next steps
 
-0. **Task-completion detection missing (highest priority).** The
-   `task_completing` mode navigates to a task station and holds A
-   indefinitely. It never detects that the task is complete (or that
-   no task exists at this station) and never selects a new target.
-   In a 30 s match the bot spends 75% of gameplay holding A at one
-   station. Fix: detect the task-icon disappearing from the HUD (or
-   impose a hold-A timeout), then re-run target selection.
+See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
+
+0. ~~**Task-completion detection missing.**~~ **DONE (phase 6.1).**
+   Three-phase hold lifecycle (Navigate → Hold → Confirm),
+   belief-layer task state with icon-miss counting and radar-dot
+   checkout latching, tiered target selection, trace events.
 1. **Imposter fallback not live-tested.** Hunting / pretending /
    fleeing defaults have not been verified against the orbit fix.
    Run an imposter-seeded local match and confirm kill-strike +

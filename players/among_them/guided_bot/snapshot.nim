@@ -182,17 +182,21 @@ proc renderSnapshot*(belief: Belief): string =
 
   # --- task_state ---
   var taskObj = newJObject()
-  var mandatoryArr = newJArray()
-  var completedArr = newJArray()
+  var stationsArr = newJArray()
   for i, slot in belief.tasks.slots:
-    if slot.state == 2: # mandatory
-      mandatoryArr.add newJInt(i)
-    elif slot.state == 3: # completed
-      completedArr.add newJInt(i)
-  taskObj["mandatory"] = mandatoryArr
-  taskObj["completed"] = completedArr
+    var sObj = newJObject()
+    sObj["index"] = newJInt(i)
+    case slot.state
+    of TaskNotDoing:  sObj["state"] = newJString("not_doing")
+    of TaskCheckout:  sObj["state"] = newJString("checkout")
+    of TaskConfirmed: sObj["state"] = newJString("confirmed")
+    of TaskCompleted: sObj["state"] = newJString("completed")
+    sObj["checkout"] = newJBool(slot.checkout)
+    sObj["resolved_not_mine"] = newJBool(slot.resolvedNotMine)
+    stationsArr.add sObj
+  taskObj["stations"] = stationsArr
   if belief.tasks.inProgressIndex >= 0:
-    taskObj["in_progress"] = newJInt(belief.tasks.inProgressIndex)
+    taskObj["in_progress_index"] = newJInt(belief.tasks.inProgressIndex)
   root["task_state"] = taskObj
 
   # --- wake_up_reasons ---

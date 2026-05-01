@@ -27,8 +27,20 @@ const
   LlmMaxCallsPerMatch*        = 120  ## Hard cap across a full match.
   LlmMinIntervalTicks*        = 12   ## Floor on LLM call frequency (~0.5s).
 
-  # --- Task-completing defaults ---------------------------------------
-  TaskHoldTicksDefault*       = 48   ## Baseline hold-A duration for completing a task.
+  # --- Task-completing lifecycle (TASK_COMPLETING_DESIGN.md §8) ------
+  TaskHoldTicks*              = 84   ## A-hold duration. Server accepts ~72; 84 pads 12 ticks.
+  TaskConfirmWindowTicks*     = 48   ## Post-hold observation window before timeout (~2s).
+  TaskIconMissCompleteTicks*  = 24   ## Consecutive icon-absent frames to confirm completion.
+  TaskIconMissResolveFrames*  = 24   ## Consecutive icon-absent frames for "not mine" pruning.
+  TaskClearScreenMargin*      = 8    ## Pixel margin for "icon area fully on-screen" check.
+  RadarMatchTolerance*        = 2    ## Chebyshev distance for radar-dot → station matching.
+  TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
 
   # --- Idle-mode wander -----------------------------------------------
   IdleWanderPeriod*           = 36   ## Ticks per direction change in idle wander (~1.5s at 24Hz).
+
+  # --- Reporting mode (REPORTING_DESIGN.md §4) -------------------------
+  ReportBodyMatchRadius*      = 30   ## World-px radius for matching visible body to target.
+  ReportBodyMissFrames*       = 36   ## Consecutive frames without body → give up (~1.5s).
+  ReportApproachTimeoutTicks* = 240  ## Give up navigating after 10s without reaching range.
+  ReportInRangeTimeoutTicks*  = 72   ## Give up pressing A after 3s in range without meeting.
