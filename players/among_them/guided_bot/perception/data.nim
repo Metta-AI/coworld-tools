@@ -91,7 +91,7 @@ const
   PaletteColorTableSize* = 16
 
   ## Bake schema version — must match
-  ## ``BAKE_SCHEMA_VERSION`` in ``tools/bake_assets.py``. Bumped on any
+  ## ``BakeSchemaVersion`` in ``tools/bake_assets.nim``. Bumped on any
   ## blob layout change. A mismatch is a compile-time assertion (see
   ## bottom of this module).
   BakeSchemaVersion* = 1
@@ -192,7 +192,7 @@ type
 
   Sprites* = object
     ## Six reference sprites sliced from spritesheet.png. Order matches
-    ## :data:`SpriteOrder` in ``tools/bake_assets.py``.
+    ## :data:`SpriteColumns` in ``tools/bake_assets.nim``.
     player*: Sprite
     body*: Sprite
     ghost*: Sprite
@@ -241,15 +241,15 @@ const
 # directory never silently mis-feeds the kernels.
 static:
   doAssert PaletteBlob.len == PaletteColorTableSize * 3,
-    "perception/data: palette.bin wrong size; re-run tools/bake_assets.py"
+    "perception/data: palette.bin wrong size; re-run tools/bake_assets.nim"
   doAssert SpritesBlob.len == 6 * SpriteSize * SpriteSize,
-    "perception/data: sprites.bin wrong size; re-run tools/bake_assets.py"
+    "perception/data: sprites.bin wrong size; re-run tools/bake_assets.nim"
   doAssert MapPixelsBlob.len == MapWidth * MapHeight,
-    "perception/data: map_pixels.bin wrong size; re-run tools/bake_assets.py"
+    "perception/data: map_pixels.bin wrong size; re-run tools/bake_assets.nim"
   doAssert WalkMaskBlob.len == MapWidth * MapHeight,
-    "perception/data: walk_mask.bin wrong size; re-run tools/bake_assets.py"
+    "perception/data: walk_mask.bin wrong size; re-run tools/bake_assets.nim"
   doAssert WallMaskBlob.len == MapWidth * MapHeight,
-    "perception/data: wall_mask.bin wrong size; re-run tools/bake_assets.py"
+    "perception/data: wall_mask.bin wrong size; re-run tools/bake_assets.nim"
 
 # ---------------------------------------------------------------------------
 # Loaders (run once at module init)

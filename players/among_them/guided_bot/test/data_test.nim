@@ -4,19 +4,20 @@
 ## decode into a :class:`ReferenceData` value with the shape and
 ## magic-number content the downstream perception kernels assume.
 ## Constants here are pinned to known-good values from the upstream
-## modulabot data (palette, player colours, shadow map, button rect,
-## task count, etc.) so any silent drift between modulabot's source
-## PNGs and our baked blobs trips a diagnostic-quality "expected /
-## got" failure rather than slipping into phase 1.2+.
+## bitworld Among Them data (palette, player colours, shadow map,
+## button rect, task count, etc.) so any silent drift between the
+## bitworld assets and our baked blobs trips a diagnostic-quality
+## "expected / got" failure rather than slipping into phase 1.2+.
 ##
 ## Run:
 ##   nim c -r -d:release --threads:on --mm:orc \
 ##       among_them/guided_bot/test/data_test.nim
 ##
-## To regenerate the baked blobs (whenever modulabot's data changes):
-##   source .venv/bin/activate
-##   PYTHONPATH=among_them \
-##       python among_them/guided_bot/tools/bake_assets.py
+## To regenerate the baked blobs (whenever the upstream bitworld
+## checkout's Among Them assets change):
+##   among_them/guided_bot/tools/bake_assets.sh
+## (Override BITWORLD_DIR to point elsewhere; defaults to
+## ~/coding/bitworld.)
 
 import std/strformat
 import ../perception/data

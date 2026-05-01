@@ -90,8 +90,10 @@ among_them/modulabot/
 ├── voting.py                # voting-screen parse: slots, cursor, chat OCR
 ├── path.py                  # A* on the walk mask, path-lookahead waypoint
 ├── trace.py                 # structured JSONL trace writer (opt-in)
-├── nim_perception/          # native Nim kernels via ctypes (sprite match,
-│                            # localize, OCR, task-icon scan)
+├── nim_perception/          # FFI surface only (lib.nim + build.py +
+│                            # ctypes loader); the kernels themselves
+│                            # live in among_them/common/perception_kernels/
+│                            # and are shared with guided_bot
 ├── perception/
 │   ├── __init__.py
 │   ├── common.py            # dispatcher: state_obs vs pixel pipeline
@@ -432,14 +434,18 @@ trace artefacts in the `phase{0,1,2,3,7}_trace/` directories.
 
 ### Nim FFI (`modulabot/nim_perception/`)
 
-The hot perception kernels are native Nim loaded via `ctypes`. Source
-lives under `common/perception_kernels/`; the library rebuilds
-on-demand (source-hash gated) on first policy import. See
-`modulabot/PERCEPTION_PERF_PLAN.md` for the design + per-phase perf
-numbers. `MODULABOT_DISABLE_NATIVE=1` forces the pure-Python
-fallback — every FFI kernel has a parity-pinned numpy implementation
-behind it (`tests/test_nim_perception.py` has parity tests over the
-275-frame fixture + synthetic OCR inputs).
+The hot perception kernels are native Nim loaded via `ctypes`. The
+kernel sources live in `among_them/common/perception_kernels/` (shared
+with guided_bot — see [`among_them/common/README.md`](../common/README.md));
+`modulabot/nim_perception/lib.nim` is the modulabot-specific FFI
+surface (`mb_*` exports + ABI version stamp), and `build.py` compiles
+the dylib with `--path:` set to the shared kernel directory. The
+library rebuilds on-demand (source-hash gated) on first policy
+import. See `modulabot/PERCEPTION_PERF_PLAN.md` for the design +
+per-phase perf numbers. `MODULABOT_DISABLE_NATIVE=1` forces the
+pure-Python fallback — every FFI kernel has a parity-pinned numpy
+implementation behind it (`tests/test_nim_perception.py` has parity
+tests over the 275-frame fixture + synthetic OCR inputs).
 
 **Bench harness**: `scripts/bench_perception.py` reports p50 / p95 /
 p99 / max / mean for each kernel + end-to-end `BotCore.step`. Run
