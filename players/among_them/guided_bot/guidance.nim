@@ -24,6 +24,7 @@ import std/json
 import types
 import tuning
 import llm
+import trace
 
 type
   Snapshot* = object
@@ -55,6 +56,7 @@ var
   snapshotChan: Channel[Snapshot]
   directiveChan: Channel[Directive]
   meetingActionChan: Channel[MeetingAction]
+  traceEventChan: Channel[string]   ## Worker → main: pre-serialized JSONL trace events.
   workerThread: Thread[void]
 
 # ---------------------------------------------------------------------------
@@ -106,6 +108,34 @@ proc guidanceWorker() {.thread.} =
     # Call the LLM (synchronous, blocks this thread only).
     let result = callLlm(req)
 
+    # Phase 4: push trace events onto the channel for the main thread
+    # to drain. We serialize to JSON strings here (thread-local) to
+    # avoid GC-safety issues with ref objects.
+    block traceEvents:
+      var ev = newJObject()
+      ev["t"] = newJInt(snap.tick)
+      if result.kind == LlmOk:
+        ev["kind"] = newJString("llm_response")
+        ev["latency_ms"] = newJInt(result.latencyMs)
+        ev["prompt_tokens"] = newJInt(result.promptTokens)
+        ev["response_tokens"] = newJInt(result.responseTokens)
+        if result.rawResponse.len > 0:
+          ev["raw_response"] = newJString(result.rawResponse)
+        ev["validation"] = newJString("ok")
+      else:
+        ev["kind"] = newJString("llm_call_failed")
+        let reason = case result.kind
+          of LlmHttpError:    "http_error"
+          of LlmTimeout:      "timeout"
+          of LlmRateLimit:    "rate_limit"
+          of LlmSchemaError:  "schema_error"
+          of LlmNoKey:        "no_key"
+          of LlmOk:           "ok"  # unreachable
+        ev["reason"] = newJString(reason)
+        if result.detail.len > 0:
+          ev["detail"] = newJString(result.detail)
+      traceEventChan.send($ev)
+
     if result.kind == LlmOk:
       if snap.isMeeting:
         # Append to meeting conversation history.
@@ -120,11 +150,32 @@ proc guidanceWorker() {.thread.} =
         )
         # Push the meeting action onto the channel.
         meetingActionChan.send(result.meetingAction)
+        # Phase 4: trace the meeting action received.
+        block:
+          var ev = newJObject()
+          ev["t"] = newJInt(snap.tick)
+          ev["kind"] = newJString("meeting_action_received")
+          var actObj = newJObject()
+          actObj["action_kind"] = newJString($result.meetingAction.kind)
+          if result.meetingAction.text.len > 0:
+            actObj["text"] = newJString(result.meetingAction.text)
+          if result.meetingAction.kind == MeetingActVote:
+            actObj["target"] = newJInt(result.meetingAction.target)
+          ev["action"] = actObj
+          traceEventChan.send($ev)
       else:
         # Push the directive onto the channel. Fill in the tick.
         var directive = result.directive
         directive.issuedAtTick = snap.tick
         directiveChan.send(directive)
+        # Phase 4: trace the directive published.
+        block:
+          var ev = newJObject()
+          ev["t"] = newJInt(snap.tick)
+          ev["kind"] = newJString("directive_published")
+          ev["mode"] = newJString($directive.mode)
+          ev["ttl_ticks"] = newJInt(directive.ttlTicks)
+          traceEventChan.send($ev)
 
     # On error, do nothing — the inner loop continues on the current
     # directive or the default. Per DESIGN.md §9.
@@ -150,6 +201,7 @@ proc startGuidance*(state: var GuidanceState) =
   snapshotChan.open()
   directiveChan.open()
   meetingActionChan.open()
+  traceEventChan.open()
 
   createThread(workerThread, guidanceWorker)
   state.running = true
@@ -166,6 +218,7 @@ proc stopGuidance*(state: var GuidanceState) =
   snapshotChan.close()
   directiveChan.close()
   meetingActionChan.close()
+  traceEventChan.close()
   state.running = false
 
 proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
@@ -193,6 +246,25 @@ proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
 
   # Track meeting state for conversation flush.
   state.inMeeting = snap.isMeeting
+
+proc drainGuidanceTraceEvents*(state: GuidanceState,
+                                traceWriter: TraceWriter) =
+  ## Drain all pending trace events from the worker thread channel and
+  ## log them via the TraceWriter. Called from the main thread in
+  ## bot.nim:decideNextMask. GC-safe: the channel carries pre-serialized
+  ## strings, not ref objects.
+  if not state.running:
+    return
+  if traceWriter == nil:
+    # Still drain the channel to prevent unbounded growth.
+    while true:
+      let (ok, _) = traceEventChan.tryRecv()
+      if not ok: break
+    return
+  while true:
+    let (ok, payload) = traceEventChan.tryRecv()
+    if not ok: break
+    logGuidanceEvent(traceWriter, payload)
 
 proc tryReceiveDirective*(state: var GuidanceState,
                           directive: var Directive): bool =

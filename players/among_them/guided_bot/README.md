@@ -11,16 +11,15 @@ editing.
 
 ## Status
 
-**Phase 3 complete — LLM guidance loop.** The bot now has a full LLM
-integration: an asynchronous worker thread calls the Anthropic Messages
-API, the inner loop receives strategic directives during gameplay, and
-meetings are LLM-driven with chat and voting. A safety-net fallback
-forces SKIP when the meeting timer runs low. The bot degrades
-gracefully when no API key is set or the LLM is unreachable.
+**Phase 4 complete — structured trace writer.** The bot now emits
+structured JSONL trace output per DESIGN.md §11, enabling post-match
+replay and offline analysis. Tracing is opt-in via environment
+variables `GUIDED_BOT_TRACE_DIR` and `GUIDED_BOT_TRACE_LEVEL`. When
+off, every trace call is near-zero-cost (nil check early return).
 
-Phase 2 (action layer + mode strategies) and phase 1 (full perception
-pipeline) remain intact underneath. All seven test suites pass; both
-CLI and library builds succeed.
+Phase 3 (LLM guidance loop), phase 2 (action layer + mode strategies),
+and phase 1 (full perception pipeline) remain intact underneath. All
+seven test suites pass; both CLI and library builds succeed.
 
 - **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
 - **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
@@ -61,7 +60,7 @@ dominated by chat OCR line count.
 | 3.4 | `bot.nim` — periodic/triggered snapshot submission + directive channel reads + TTL expiry | done |
 | 3.5 | `modes/meeting.nim` — LLM-driven meeting behavior with chat, voting, and safety-net fallback | done |
 | 3.6 | `prompts.nim` — system prompts for gameplay directives and meeting actions | done |
-| 4 | Trace writer end-to-end | not started |
+| 4 | Trace writer — structured JSONL output per DESIGN.md §11 | done |
 | 5 | Fallback-only playability test; first submission | not started |
 
 ## Strategy
@@ -240,6 +239,40 @@ among_them/guided_bot/guided_bot --port:2000 --name:gb0
 For actual gameplay, use the cogames FFI path — `cogames/amongthem_policy.py`
 loads the shared library and routes `step_batch` through it.
 
+## Tracing
+
+Structured trace output is opt-in via environment variables. When enabled,
+the bot writes JSONL streams and a manifest to the trace directory. When
+disabled (the default), every trace call is a nil-check early return with
+near-zero cost.
+
+```sh
+# Enable tracing with decisions-level detail:
+GUIDED_BOT_TRACE_DIR=/tmp/guided_bot_trace \
+GUIDED_BOT_TRACE_LEVEL=decisions \
+  among_them/guided_bot/guided_bot --port:2000
+
+# Trace levels:
+#   events     — events.jsonl only
+#   decisions  — events + decisions + modes + reflexes + guidance
+#   full       — all of the above + snapshots.jsonl + frames.bin
+```
+
+Output files per session (in `GUIDED_BOT_TRACE_DIR`):
+
+| File | Level | Content |
+|---|---|---|
+| `manifest.json` | events | Round metadata, schema version, role, start/end ticks, outcome |
+| `events.jsonl` | events | Game events: body_seen, meeting_started, role_revealed, chat_observed, game_over |
+| `decisions.jsonl` | decisions | Per-frame mode, directive source, params, branch ID, intent |
+| `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |
+| `reflexes.jsonl` | decisions | Reflex firings with trigger details |
+| `guidance.jsonl` | decisions | LLM calls: snapshot_sent, llm_response, directive_published, llm_call_failed |
+| `snapshots.jsonl` | full | Periodic full-belief JSON snapshots (~every 240 ticks) |
+| `frames.bin` | full | Raw 128x128 frame bytes for replay |
+
+See DESIGN.md §11 for the exact JSON schemas.
+
 ## Submissions
 
 See [`cogames/README.md`](cogames/README.md). Phase 2 produces real
@@ -271,19 +304,17 @@ non-NOOP actions from the first gameplay frame, so the cogames
    `matchesCrewmate` check at the known player anchor. On some frames
    the player sprite doesn't match cleanly. A future improvement is to
    carry the last known colour forward when no match fires.
-5. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
-   bodies per DESIGN.md §11.
-6. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
+5. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
    match with the LLM forcibly failing must pass validation, cast
    votes, and complete at least one task.
-7. **Hunting target memory.** The hunting mode currently only pursues
+6. **Hunting target memory.** The hunting mode currently only pursues
    crewmates visible on the current frame. A short-term memory of
    last-seen positions would improve imposter behavior.
-8. **A\* path caching.** The current implementation recomputes A\* from
+7. **A\* path caching.** The current implementation recomputes A\* from
    scratch on every goal change. Path segment caching or incremental
    repair could reduce worst-case latency.
-9. **Prompt iteration.** The system prompts in `prompts.nim` are
+8. **Prompt iteration.** The system prompts in `prompts.nim` are
    starting points. Iterate based on match performance.
-10. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
+9. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
     call to sidestep GC-safety. A thread-local pool would avoid the
     per-call overhead (negligible at <1 Hz call rate, but cleaner).

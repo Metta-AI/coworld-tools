@@ -265,6 +265,20 @@ None of this is required on day one. It's where we're heading.
   gracefully with no API key or LLM failures — scripted defaults
   keep it playing. `nim.cfg` added for curly/jsony/libcurl package
   paths. All 7 test suites pass; library + CLI builds green.
+- **guided_bot phase 4 complete.** Structured trace writer in
+  `trace.nim` emits 7 JSONL streams + `manifest.json` + optional
+  `frames.bin` per DESIGN.md §11. Opt-in via `GUIDED_BOT_TRACE_DIR`
+  + `GUIDED_BOT_TRACE_LEVEL` env vars. When off, every `log*` call
+  is a nil-check early return. Worker-thread trace events use a
+  `Channel[string]` (pre-serialized JSON) drained by the main thread
+  — no GC-safety issues. Call sites wired: `logDecision` in
+  `decideNextMask`, `logModeEntered`/`logModeExited` in `switchMode`,
+  `logReflexFired` in `reconcileDirective`, `logGameEvent` for
+  body_seen/meeting_started/role_revealed/chat_observed/game_over
+  (edge-detected in `decideNextMask`), `logGuidanceEvent` drained
+  from `guidance.nim`'s `traceEventChan`, `logSnapshot` periodic at
+  240 ticks, `logFrame` at `TraceFull`. `closeTrace` called from
+  `destroyBot`. All 7 test suites pass; library + CLI builds green.
 
 ### Next
 

@@ -11,6 +11,7 @@
 ## See DESIGN.md §4 (inner loop), §2 (persistent state ownership),
 ## §8 (guidance loop), §10 (concurrency model).
 
+import std/[os, json, strutils]
 import constants
 import types
 import belief
@@ -50,6 +51,11 @@ type
     ## Phase 3 — LLM guidance tracking.
     guidanceStarted*: bool     ## Whether the worker thread is running.
     prevPhaseForGuidance*: GamePhase ## For detecting meeting end transitions.
+    ## Phase 4 — trace edge-detection state.
+    prevBodyCount*: int        ## For detecting new bodies (body_seen event).
+    prevRole*: BotRole         ## For detecting role_revealed event.
+    prevPhaseForTrace*: GamePhase ## For detecting meeting_started / game_over.
+    prevChatLen*: int          ## For detecting new chat lines.
 
 proc initBot*(): Bot =
   result.frameTick = 0
@@ -58,22 +64,55 @@ proc initBot*(): Bot =
   result.actionState = initActionState()
   result.reflexState = initReflexState()
   result.guidance = initGuidanceState()
-  result.trace = nil
   result.localizer = initLocalizer()
   result.actorScanner = initActorScanner()
   result.lastMask = 0'u8
   result.unpacked = newSeq[uint8](FrameLen)
   result.guidanceStarted = false
   result.prevPhaseForGuidance = PhaseUnknown
+  result.prevBodyCount = 0
+  result.prevRole = RoleUnknown
+  result.prevPhaseForTrace = PhaseUnknown
+  result.prevChatLen = 0
+
+  # Phase 4: open trace writer if env vars are set.
+  let traceDir = getEnv("GUIDED_BOT_TRACE_DIR", "")
+  let traceLevelStr = getEnv("GUIDED_BOT_TRACE_LEVEL", "").toLowerAscii()
+  let traceLevel = case traceLevelStr
+    of "events":    TraceEvents
+    of "decisions": TraceDecisions
+    of "full":      TraceFull
+    else:           TraceOff
+  result.trace = openTrace(traceDir, traceLevel)
 
 proc switchMode(bot: var Bot, newDirective: Directive) =
   ## Honor `on_exit` / `on_enter` lifecycle hooks and reset scratch per
   ## DESIGN.md §5.6. Called whenever the active mode name changes (LLM
   ## directive, default fallback, or reflex switch).
   let oldMode = bot.belief.directive.mode
+  let tick = bot.belief.tick
+
+  # Trace: log mode exit before onExit runs (captures duration).
+  if bot.trace != nil:
+    let duration = tick - bot.trace.modeEntryTick
+    logModeExited(bot.trace, tick, oldMode, duration)
+
   onExit(oldMode, bot.belief, bot.modeScratch)
   bot.belief.directive = newDirective
   onEnter(newDirective.mode, bot.belief, newDirective.params, bot.modeScratch)
+
+  # Trace: log mode entry after onEnter completes.
+  if bot.trace != nil:
+    let reason = case newDirective.source
+      of SourceLlm:     "llm_directive"
+      of SourceDefault:  "default"
+      of SourceReflex:
+        if newDirective.reflexName.len > 0:
+          "reflex:" & newDirective.reflexName
+        else:
+          "reflex"
+    logModeEntered(bot.trace, tick, oldMode, newDirective.mode,
+                   newDirective.params, reason)
 
 proc ensureGuidanceStarted(bot: var Bot) =
   ## Start the guidance worker thread on the first frame, if an API
@@ -166,6 +205,10 @@ proc reconcileDirective(bot: var Bot) =
   # otherwise override to the default.
   let rx = evaluateReflexes(bot.belief, bot.reflexState)
   if rx.fired:
+    # Trace: log reflex firing before the mode switch.
+    if bot.trace != nil:
+      logReflexFired(bot.trace, bot.belief.tick, rx.reflexName,
+                     cur, rx.newDirective.mode, rx.newDirective.params)
     switchMode(bot, rx.newDirective)
     bot.belief.flags.wakeReasons.incl WakeReflexFired
     return
@@ -291,6 +334,75 @@ proc decideNextMask*(bot: var Bot): uint8 =
   if shouldSubmitSnapshot(bot):
     submitGuidanceSnapshot(bot)
 
+  # Phase 4: detect and log game events (before wake flags are cleared).
+  # Events are edge-triggered: we compare current state to previous frame.
+  if bot.trace != nil:
+    let tick = bot.belief.tick
+
+    # body_seen: new bodies appeared this frame.
+    if bot.belief.percep.visibleBodies.len > bot.prevBodyCount:
+      for i in bot.prevBodyCount ..< bot.belief.percep.visibleBodies.len:
+        let body = bot.belief.percep.visibleBodies[i]
+        var payload = newJObject()
+        payload["body_id"] = newJInt(i)
+        if bot.belief.percep.localized:
+          payload["position"] = %*[body.x, body.y]
+        logGameEvent(bot.trace, "body_seen", tick, $payload)
+
+    # meeting_started: transition into voting phase.
+    if bot.belief.self.phase == PhaseVoting and
+       bot.prevPhaseForTrace != PhaseVoting:
+      logGameEvent(bot.trace, "meeting_started", tick, "")
+
+    # role_revealed: role changed from unknown to a known role.
+    if bot.belief.self.role != RoleUnknown and
+       bot.prevRole == RoleUnknown:
+      var payload = newJObject()
+      case bot.belief.self.role
+      of RoleCrewmate: payload["role"] = newJString("crewmate")
+      of RoleImposter: payload["role"] = newJString("imposter")
+      of RoleUnknown:  discard
+      logGameEvent(bot.trace, "role_revealed", tick, $payload)
+      # Update manifest role.
+      case bot.belief.self.role
+      of RoleCrewmate: setRole(bot.trace, "crewmate")
+      of RoleImposter: setRole(bot.trace, "imposter")
+      of RoleUnknown:  discard
+
+    # chat_observed: new chat lines appeared during voting.
+    if bot.belief.social.currentMeetingChat.len > bot.prevChatLen and
+       bot.belief.self.phase == PhaseVoting:
+      for i in bot.prevChatLen ..< bot.belief.social.currentMeetingChat.len:
+        let cl = bot.belief.social.currentMeetingChat[i]
+        var payload = newJObject()
+        if cl.speakerColor >= 0:
+          payload["speaker"] = newJInt(cl.speakerColor)
+        payload["text"] = newJString(cl.text)
+        logGameEvent(bot.trace, "chat_observed", tick, $payload)
+
+    # game_over: transition to game-over phase.
+    if bot.belief.self.phase == PhaseGameOver and
+       bot.prevPhaseForTrace != PhaseGameOver:
+      logGameEvent(bot.trace, "game_over", tick, "")
+
+    # self_became_ghost: transition to ghost state.
+    if bot.belief.self.isGhost and not bot.belief.self.alive:
+      discard  # Detected via role/alive change — ghost event tracked
+               # through the existing belief merge. Would need an
+               # additional prev-ghost flag for edge detection; deferred.
+
+    # Drain guidance trace events from the channel (worker → main).
+    drainGuidanceTraceEvents(bot.guidance, bot.trace)
+
+    # Update edge-detection state for next frame.
+    bot.prevBodyCount = bot.belief.percep.visibleBodies.len
+    bot.prevRole = bot.belief.self.role
+    bot.prevPhaseForTrace = bot.belief.self.phase
+    bot.prevChatLen = bot.belief.social.currentMeetingChat.len
+
+    # Log raw frame if TraceFull.
+    logFrame(bot.trace, bot.unpacked)
+
   # Clear wake reasons after snapshot submission decision so they
   # don't accumulate across frames.
   bot.belief.flags.wakeReasons = {}
@@ -303,6 +415,11 @@ proc decideNextMask*(bot: var Bot): uint8 =
                       bot.belief,
                       bot.belief.directive.params,
                       bot.modeScratch)
+
+  # Phase 4: log the decision and periodic snapshots.
+  if bot.trace != nil:
+    logDecision(bot.trace, bot.belief, intent, "")
+    logSnapshot(bot.trace, bot.belief.tick, bot.belief)
 
   # 5. Act.
   let mask = applyIntent(bot.actionState, bot.belief, intent)
@@ -322,8 +439,12 @@ proc stepUnpackedFrame*(bot: var Bot,
   decideNextMask(bot)
 
 proc destroyBot*(bot: var Bot) =
-  ## Clean up the guidance worker thread and channels. Call this when
-  ## the match ends or the bot is being deallocated.
+  ## Clean up the guidance worker thread, channels, and trace writer.
+  ## Call this when the match ends or the bot is being deallocated.
   if bot.guidanceStarted:
     stopGuidance(bot.guidance)
     bot.guidanceStarted = false
+  # Phase 4: flush and close the trace writer.
+  if bot.trace != nil:
+    closeTrace(bot.trace)
+    bot.trace = nil
