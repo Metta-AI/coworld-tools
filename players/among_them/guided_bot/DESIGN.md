@@ -1332,6 +1332,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D19 | Phase 1 sub-plan | Port perception in 6 sub-phases (1.0 foundation → 1.6 voting). Each sub-phase is its own commit with tests. | §15 |
 | D20 | Phase 1.1 asset baking | Door #1 of the §15 choice: deterministic Nim bake tool (`tools/bake_assets.nim`) emits raw `.bin` blobs into `perception/baked/`; runtime consumes them via `staticRead`. Bake tool reads the upstream `~/coding/bitworld` checkout *directly* (using the same `bitworld/aseprite` parser the live server uses) so modulabot's data dir is no longer in the trust chain. No PNG decoder dependency in the runtime, no runtime file I/O, no nimby in the runtime build. `BakeSchemaVersion` constant pins compile-time vs. baked-dir agreement. | §15, README "Regenerating baked assets" |
 | D21 | Phase 1.2 kernel sharing | Followed §15's guidance: `perception/localize.nim` imports `among_them/common/perception_kernels/{sprite_match,localize}.nim` via `from "../../..." as kX import nil` (relative-path import, no leaked identifiers, qualified-only access). Avoids both code duplication and FFI/shared-library indirection. The kernels are pure Nim, parity-pinned by modulabot's test suite; drift on either side fails our compile or our fixture-pinned camera tests. Patch index is built in Nim (modulabot built it in numpy); scalar one-shot, cached at module level. | §15, `perception/localize.nim` header |
+| D22 | Phase 1.3 actor scan pattern | `perception/actors.nim` imports `kSpriteMatch.mb_match_actor_sprite_all` and `kSpriteMatch.mb_actor_color_index_all` via the same `from "../../..." as kSpriteMatch import nil` pattern. Orchestration mirrors modulabot's `actors.py::scan_all` ordering (role → self-colour → bodies → ghosts → crewmates). Dedup is greedy raster-order within Chebyshev radius, matching the Python `_dedup_anchors`. Actor scan runs in the bot pipeline *after* localize (needs camera for future world-coord conversion) and *before* decision/action. Detected sprites are stamped into the ignore mask for phase 1.4's task-icon scanner. New `ActorScanner` struct holds reusable match/colour buffers to avoid per-frame allocation. | §15, `perception/actors.nim` header |
 
 Further decisions get appended here as they're made.
 
@@ -1354,7 +1355,7 @@ through the pipeline, and adds fixture-based tests.
 | **1.0** | Frame unpacking, interstitial detection (black-pixel %), dynamic-pixel ignore-mask scaffolding, pipeline wire-in (`perceive` → `updateBelief` → `PerceptionState`). Fixture tests using real frames. | none | ✅ shipped |
 | **1.1** | Perception data loading — palette, player colours, sprite atlas, map/walk/wall layers, ASCII font, map.json. Baked into raw `.bin` blobs by `tools/bake_assets.nim` (reads `~/coding/bitworld` directly via the upstream `bitworld/aseprite` parser, single source of truth) and embedded into the Nim binary via `staticRead`. No PNG decoder, no nimby in the runtime. Compile-time shape asserts catch stale baked dirs. | 1.0 | ✅ shipped |
 | **1.2** | Camera localization — port of `modulabot/localize.py`'s orchestration in `perception/{geometry,localize}.nim`. Reuses `mb_score_camera`, `mb_hash_frame_patches`, `mb_vote_camera_candidates` from `among_them/common/perception_kernels/` via `from "../../common/perception_kernels/X" as kX import nil` — keeps the kernel as the single source of truth, no FFI / shared-library indirection (DESIGN.md §15 "Sharing nim_perception"). Patch-index built lazily in Nim on first non-interstitial frame. Pipeline calls `updateLocation` on gameplay frames and `reseedCameraAtHome` on interstitials. Camera-lock fixtures pinned against modulabot ground truth; smoke benchmark guards against catastrophic regressions. | 1.1 | ✅ shipped |
-| 1.3 | Actor / body / ghost scanning — wrap `mb_match_actor_sprite_all` and `mb_actor_color_index_all`. Populates `PerceptionState.visiblePlayers/visibleBodies/visibleGhosts` and `SelfState.colorIndex` / `role`. | 1.2 | |
+| **1.3** | Actor / body / ghost scanning — wraps `mb_match_actor_sprite_all` and `mb_actor_color_index_all` from `among_them/common/perception_kernels/sprite_match.nim`. Ports modulabot's `scan_all` ordering (role detection → self-colour → bodies → ghosts → crewmates). Stamps actor sprite exclusions into the ignore mask. Merges results into `SelfState.role/colorIndex` and `PerceptionState.visibleCrewmates/Bodies/Ghosts`. ~2 ms per gameplay frame. | 1.2 | ✅ shipped |
 | 1.4 | Task icon + radar dot scanning — wrap `mb_scan_task_icons`. Populates `PerceptionState.visibleTaskIcons` and the task-state machine in `Belief.tasks`. | 1.2 | |
 | 1.5 | ASCII OCR — wrap `mb_best_glyph` and `mb_text_matches`. Classifies interstitial text (`CREWMATE`, `IMPS`, `CREW WINS`, `IMPS WIN`) and chat lines. | 1.1 | |
 | 1.6 | Voting-screen parse — port `voting.py`'s grid layout, slot / cursor / self-marker / vote-dot parsing, chat OCR, speaker pips. Populates `SocialState.currentMeetingChat`, `VotingState` (TBD if needed as a separate sub-record). | 1.5 | |
@@ -1392,8 +1393,10 @@ phase-1 test suite in guided_bot specifically exercises every
 kernel guided_bot consumes, so drift shows up immediately.
 
 Phase 1.0 did not yet import any kernel; phase 1.2 adds the
-dependency on `sprite_match.nim` + `localize.nim`. Phase 1.3 / 1.5
-will add the dependency on `actors.nim` / `ocr.nim`.
+dependency on `sprite_match.nim` + `localize.nim`. Phase 1.3 adds
+the dependency on `sprite_match.nim`'s `mb_match_actor_sprite_all`
+and `mb_actor_color_index_all` (imported via `perception/actors.nim`).
+Phase 1.5 will add the dependency on `ocr.nim`.
 
 See [`among_them/common/README.md`](../common/README.md) for the
 shared-directory convention.

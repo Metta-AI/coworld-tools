@@ -110,6 +110,33 @@ type
   Point* = object
     x*, y*: int
 
+  ## Phase 1.3 actor-scan result records. Match modulabot's
+  ## ``CrewmateMatch``, ``BodyMatch``, ``GhostMatch`` in
+  ## ``modulabot/state.py``. Stored in ``PerceptionState.visible*``
+  ## seqs; cleared and rebuilt every frame by ``perception/actors.nim``.
+
+  CrewmateMatch* = object
+    ## One detected crewmate sprite. Screen coordinates ``(x, y)`` are
+    ## the sprite's top-left anchor (not the collision-box centre).
+    ## ``colorIndex`` is the dominant-tint index into ``PlayerColors``
+    ## (``-1`` if no tint pixels voted). ``flipH`` records the
+    ## orientation that matched (false = facing right).
+    x*, y*: int
+    colorIndex*: int
+    flipH*: bool
+
+  BodyMatch* = object
+    ## One detected body (dead crewmate) sprite. Bodies don't flip in
+    ## the game, so no ``flipH`` field.
+    x*, y*: int
+    colorIndex*: int
+
+  GhostMatch* = object
+    ## One detected ghost sprite. Ghosts are translucent, so no
+    ## reliable colour extraction; only anchor + flip.
+    x*, y*: int
+    flipH*: bool
+
   ActionIntent* = object
     ## What a mode wants to happen this tick. The action layer translates
     ## this into a button mask. See DESIGN.md §6.
@@ -263,8 +290,16 @@ type
     interstitialKind*: InterstitialKind
     blackPixelCount*: int    ## Cheap cache for the black-pixel detector.
     interstitialText*: string
-    visiblePlayers*: seq[Point]    ## Phase 1.3: richer records.
-    visibleBodies*: seq[Point]
+    ## Phase 1.3 actor-scan results. Populated by
+    ## ``perception/actors.scanAll``; cleared each frame.
+    visibleCrewmates*: seq[CrewmateMatch]
+    visibleBodies*: seq[BodyMatch]
+    visibleGhosts*: seq[GhostMatch]
+    ## Role / self-colour detection (phase 1.3). Updated by
+    ## ``actors.updateRole`` / ``actors.updateSelfColor``.
+    ghostIconFrames*: int  ## Consecutive frames with the ghost icon.
+    killReady*: bool       ## Kill button is lit (imposter only).
+    ## Phase 1.4 task-icon results (placeholder, populated later).
     visibleTaskIcons*: seq[int]
 
   PlayerSummary* = object

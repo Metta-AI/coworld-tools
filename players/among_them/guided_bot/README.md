@@ -11,27 +11,38 @@ editing.
 
 ## Status
 
-**Phase 1.2 — camera localization (this commit).** Compiles cleanly
-as CLI and shared library; every decision still returns no-op (action
-layer is phase 2). Phase-1.0 frame primitives + 1.1 reference data are
-still in place; phase 1.2 ports modulabot's localize orchestration to
-pure Nim, sharing the existing `mb_score_camera` /
-`mb_hash_frame_patches` / `mb_vote_camera_candidates` kernels in
-`among_them/common/perception_kernels/` via direct relative-path
-imports. The bot pipeline now populates
-`belief.percep.cameraX/Y/selfX/Y/cameraLock` after every gameplay
-frame; interstitials trigger a `reseedCameraAtHome` so the next
-gameplay frame starts from a known seed. Cold localize ~1 ms, warm
-~0 ms on the gameplay fixtures (well under the MISSION.md targets).
+**Phase 1.3 — actor / body / ghost scanning (this commit).** Compiles
+cleanly as CLI and shared library; every decision still returns no-op
+(action layer is phase 2). Phase-1.0 frame primitives, 1.1 reference
+data, and 1.2 camera localization are still in place; phase 1.3 ports
+modulabot's actor scanning orchestration to pure Nim, sharing the
+existing `mb_match_actor_sprite_all` and `mb_actor_color_index_all`
+kernels in `among_them/common/perception_kernels/sprite_match.nim`
+via direct relative-path imports. The bot pipeline now:
+
+- Detects role (crewmate / imposter / ghost) from the HUD kill-button
+  and ghost-icon sprites.
+- Identifies self-colour via single-anchor crewmate colour vote at the
+  player's known screen position.
+- Scans for other crewmates, dead bodies, and ghosts using the
+  vectorised all-anchors match kernel + greedy dedup.
+- Stamps detected sprite exclusion zones into the ignore mask (for the
+  benefit of phase 1.4 task-icon scanning and future localize
+  refinement).
+- Merges all results into the belief state (`SelfState.role`,
+  `SelfState.colorIndex`, `PerceptionState.visibleCrewmates/Bodies/Ghosts`).
+
+Scan cost: ~2 ms per gameplay frame (cold and warm) on the fixture set.
+Interstitial frames short-circuit (0 cost).
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Scaffolding, type shapes, registry, no-op pipeline, FFI + Python wrapper | ✅ shipped |
-| 1.0 | Frame unpacking, interstitial detection, ignore-mask scaffolding, fixture tests | ✅ shipped |
-| 1.1 | Perception reference data (palette, sprites, map/walk/wall, font, map.json) baked from the upstream `~/coding/bitworld` checkout (single source of truth) and embedded via `staticRead` | ✅ shipped |
-| 1.2 | Camera localization (patch-hash global + local refit + spiral fallback). Reuses modulabot's perception kernels via direct `--path:` import | ✅ shipped |
-| 1.3 | Actor / body / ghost scanning via `mb_match_actor_sprite_all` + `mb_actor_color_index_all` | next |
-| 1.4 | Task-icon + radar-dot scanning via `mb_scan_task_icons` | depends 1.2 |
+| 0 | Scaffolding, type shapes, registry, no-op pipeline, FFI + Python wrapper | done |
+| 1.0 | Frame unpacking, interstitial detection, ignore-mask scaffolding, fixture tests | done |
+| 1.1 | Perception reference data (palette, sprites, map/walk/wall, font, map.json) baked from the upstream `~/coding/bitworld` checkout (single source of truth) and embedded via `staticRead` | done |
+| 1.2 | Camera localization (patch-hash global + local refit + spiral fallback). Reuses modulabot's perception kernels via direct `--path:` import | done |
+| 1.3 | Actor / body / ghost scanning via `mb_match_actor_sprite_all` + `mb_actor_color_index_all`. Role + self-colour detection. Ignore-mask actor exclusions | done |
+| 1.4 | Task-icon + radar-dot scanning via `mb_scan_task_icons` | next |
 | 1.5 | ASCII OCR via `mb_best_glyph` + `mb_text_matches` | depends 1.1 |
 | 1.6 | Voting-screen parse | depends 1.5 |
 | 2 | Per-mode strategy (start with `task_completing`, `pretending`, `hunting`) + action layer (A\*, momentum, task-hold) | not started |
@@ -66,6 +77,7 @@ guided_bot/
     ignore.nim              # phase 1.0 — dynamic-pixel ignore mask
     geometry.nim            # phase 1.2 — camera / world coord math
     localize.nim            # phase 1.2 — camera localization orchestration
+    actors.nim              # phase 1.3 — crewmate/body/ghost scan, role, self-colour
     baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
   action.nim                # ActionIntent -> button mask
   mode_registry.nim         # mode lookup + default directive
@@ -93,6 +105,7 @@ guided_bot/
     perception_test.nim     # phase-1.0 perception fixtures + end-to-end
     data_test.nim           # phase-1.1 baked-asset shape + parity
     localize_test.nim       # phase-1.2 camera-lock pinning + benchmark
+    actors_test.nim         # phase-1.3 actor scan, role, self-colour, pipeline
     fixtures/               # raw frame dumps for the fixture tests
 ```
 
@@ -138,6 +151,12 @@ nim c -r -d:release --threads:on --mm:orc \
 # benchmark.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/localize_test.nim
+
+# Phase 1.3 — actor scan (crewmates, bodies, ghosts), role + self-colour
+# detection, ignore-mask actor exclusions, end-to-end bot pipeline,
+# fixture sweep, smoke benchmark.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/actors_test.nim
 ```
 
 Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
@@ -196,23 +215,27 @@ produce real output (phase 2+).
 
 ## Known gaps / next steps
 
-1. **Phase 1.3 — actor / body / ghost scan.** Wrap
-   `common/perception_kernels/sprite_match.nim`'s
-   `mb_match_actor_sprite_all` + `mb_actor_color_index_all`. Populate
-   `PerceptionState.visiblePlayers/visibleBodies/visibleGhosts` and
-   `SelfState.colorIndex` / `role`. Stamp per-actor exclusions into
-   the ignore mask so subsequent localize calls aren't fighting
-   sprite pixels.
-2. **Implement first real mode** (phase 2). Start with
+1. **Phase 1.4 — task-icon + radar-dot scan.** Wrap
+   `common/perception_kernels/actors.nim`'s `mb_scan_task_icons`.
+   Populate `PerceptionState.visibleTaskIcons` and the task-state
+   machine in `Belief.tasks`. Stamp task-icon exclusions into the
+   ignore mask.
+2. **Self-colour recall.** `updateSelfColor` currently uses the scalar
+   `matchesCrewmate` check at the known player anchor. On some frames
+   the player sprite doesn't match cleanly (e.g. during walking
+   transitions). A future improvement is to use the vectorised kernel
+   in a small window around the player anchor, or to carry the last
+   known colour forward when no match fires.
+3. **Implement first real mode** (phase 2). Start with
    `task_completing` since it's both the crewmate default and the
    ghost default (DESIGN.md §5.7, §9.1). Its action layer needs A\* +
    momentum; phase-2 work lives mostly in `action.nim` + that one
    mode file.
-3. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
+4. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
    into `llm.nim`, wire the worker thread in `guidance.nim`, and gate
    it on `-d:guidedBotGuidance` until the HTTP dependency is bundled.
-4. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
+5. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
    bodies per DESIGN.md §11.
-5. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
+6. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
    match with the LLM forcibly failing must pass validation, cast
    votes, and complete at least one task.

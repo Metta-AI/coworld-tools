@@ -13,12 +13,15 @@
 ##   - `tick`
 ##   - `interstitial` (kind + black-pixel count)
 ##   - `ignoreMask`   (player-centre zone + radar colour; no per-sprite
-##                     exclusions yet — those arrive in phase 1.3/1.4)
+##                     exclusions yet — those are stamped in the bot
+##                     pipeline after the actor scan)
 ##
-## Phase 1.1 will add the static reference data (map, sprites, font)
-## to a sibling `perception/data.nim` module. Phase 1.2 will add
-## camera localization that consumes `ignoreMask`. Phase 1.3+ add
-## actor / task / voting scanning.
+## Phase 1.3 adds:
+##   - `actors`       (crewmates, bodies, ghosts, role, self-colour)
+##                     via `perception/actors.scanAll`. The bot pipeline
+##                     runs `scanAll` after localize (needs camera for
+##                     future world-coord conversion) and stamps actor
+##                     exclusions into the ignore mask.
 
 import types
 export types  # re-exported so consumers of `Percept` get the shared enums.
@@ -27,18 +30,20 @@ import perception/data
 import perception/frame
 import perception/interstitial
 import perception/ignore
+import perception/actors as actorsModule
 
-export data, frame, interstitial, ignore
+export data, frame, interstitial, ignore, actorsModule
 
 type
   Percept* = object
     ## Structured output of one perception tick. Fields populated
     ## incrementally per sub-phase; phase 1.0 sets the interstitial
-    ## observation and the ignore mask, leaves the rest at their
-    ## default-zero values.
+    ## observation and the ignore mask; phase 1.3 adds the actor
+    ## percept.
     tick*: int
     interstitial*: InterstitialObservation
     ignoreMask*: IgnoreMask
+    actors*: ActorPercept
 
 proc initPercept*(): Percept =
   Percept(
@@ -48,16 +53,17 @@ proc initPercept*(): Percept =
       kind: NotInterstitial,
       blackPixelCount: 0
     ),
-    ignoreMask: initIgnoreMask()
+    ignoreMask: initIgnoreMask(),
+    actors: initActorPercept()
   )
 
 proc perceive*(frameBuf: openArray[uint8], tick: int): Percept =
-  ## Phase 1.0 perception pipeline.
+  ## Phase 1.0 perception pipeline (interstitial + ignore mask).
   ##
-  ## Ordering: interstitial detection first (cheapest; gates anything
-  ## map-dependent), ignore-mask construction second (will be consumed
-  ## by phase 1.2 localize). No sprite scans yet — those require map
-  ## and sprite data that arrives in phase 1.1.
+  ## Actor scanning (phase 1.3) is NOT called here — it's called
+  ## from the bot pipeline after localize, because scanning needs
+  ## the camera lock to compute world coordinates, and the results
+  ## feed back into the ignore mask. See ``bot.decideNextMask``.
   ##
   ## Preconditions: `frameBuf.len == FrameLen`. A wrong length is a
   ## caller bug, not a frame corruption — we assert rather than

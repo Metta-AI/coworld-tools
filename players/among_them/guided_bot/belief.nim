@@ -4,9 +4,10 @@
 ## only bumped the tick. Phase 1.0 extends `updateBelief` to merge a
 ## `Percept` (from `perception.perceive`) into the long-lived belief,
 ## specifically the interstitial fields and the derived `GamePhase`.
-## Later sub-phases merge more: camera/self-position (1.2), visible
-## actors (1.3), task state (1.4), voting/chat (1.6). See DESIGN.md
-## §4.2 and §15.
+## Phase 1.3 adds `mergeActorPercept` which copies actor-scan results
+## (crewmates, bodies, ghosts, role, self-colour) into the belief.
+## Later sub-phases merge more: task state (1.4), voting/chat (1.6).
+## See DESIGN.md §4.2 and §15.
 
 import types
 import perception
@@ -51,8 +52,11 @@ proc initPerceptionState*(): PerceptionState =
     interstitialKind: NotInterstitial,
     blackPixelCount: 0,
     interstitialText: "",
-    visiblePlayers: @[],
+    visibleCrewmates: @[],
     visibleBodies: @[],
+    visibleGhosts: @[],
+    ghostIconFrames: 0,
+    killReady: false,
     visibleTaskIcons: @[]
   )
 
@@ -121,3 +125,39 @@ proc updateBelief*(belief: var Belief, percept: Percept) =
   ## evaluation (phase 2).
   belief.tick = percept.tick
   mergePercept(belief, percept)
+
+proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
+  ## Merge phase-1.3 actor-scan results into the long-lived belief.
+  ## Called from `bot.decideNextMask` after the actor scan completes.
+  ##
+  ## Copies:
+  ##   - ``actors.crewmates/bodies/ghosts`` → ``percep.visible*``
+  ##   - Role detection → ``self.role`` / ``self.isGhost``
+  ##   - Self-colour → ``self.colorIndex``
+  ##   - Ghost-icon frame counter → ``percep.ghostIconFrames``
+  ##   - Kill-ready flag → ``percep.killReady``
+  ##
+  ## WakeReason flags: ``WakeBodySeen`` is set when newly-detected
+  ## bodies appear (count increases compared to previous frame).
+
+  # Actor lists — replace wholesale each frame.
+  belief.percep.visibleCrewmates = actors.crewmates
+  belief.percep.visibleBodies = actors.bodies
+  belief.percep.visibleGhosts = actors.ghosts
+
+  # Role / ghost detection.
+  belief.percep.ghostIconFrames = actors.ghostIconFrames
+  belief.percep.killReady = actors.killReady
+  if actors.roleUpdated:
+    belief.self.role = actors.newRole
+  if actors.isGhost:
+    belief.self.isGhost = true
+    belief.self.alive = false
+
+  # Self-colour detection.
+  if actors.selfColorUpdated and actors.newSelfColor >= 0:
+    belief.self.colorIndex = actors.newSelfColor
+
+  # Wake-up flag for new bodies.
+  if actors.bodies.len > 0:
+    belief.flags.wakeReasons.incl WakeBodySeen

@@ -1,4 +1,5 @@
-## Dynamic-pixel ignore mask. Phase 1.0 scaffolding.
+## Dynamic-pixel ignore mask. Phase 1.0 scaffolding + phase 1.3
+## actor-exclusion extensions.
 ##
 ## Camera localization scores the frame against the static map pixel-
 ## for-pixel; anything on screen that isn't map (player sprite, other
@@ -7,11 +8,11 @@
 ## localizer off-target. See `how_to_make_a_bot.md` § "What To Ignore
 ## During Map Matching".
 ##
-## This module builds that mask. Phase 1.0 populates only the always-
+## This module builds that mask. Phase 1.0 populates the always-
 ## present components (the centred-player zone + the radar palette
 ## colour). Phase 1.3 stamps per-sprite exclusions for every
-## crewmate / body / ghost / task icon the scanners found. Phase 1.4
-## adds HUD icons (kill button / ghost icon).
+## crewmate / body / ghost the actor scanners found. Phase 1.4
+## adds HUD icons (kill button / ghost icon) and task icons.
 ##
 ## The mask's representation (`IgnoreMask` in `perception/frame.nim`)
 ## is a flat `seq[uint8]` so the phase-1.2 localizer can hand it to
@@ -67,6 +68,20 @@ proc stampRadarPixels*(mask: var IgnoreMask, frame: openArray[uint8]) =
   for i in 0 ..< FrameLen:
     if frame[i] == RadarTaskColor:
       mask.data[i] = 1'u8
+
+proc stampSpriteRect*(mask: var IgnoreMask, x, y, w, h: int) =
+  ## Stamp a rectangular sprite bounding box into the ignore mask.
+  ## Used by phase 1.3 actor exclusions to mask out detected
+  ## crewmate / body / ghost sprites so a subsequent localize pass
+  ## (or phase 1.4 refinements) isn't confused by their pixels.
+  let yLo = max(0, y)
+  let yHi = min(ScreenHeight - 1, y + h - 1)
+  let xLo = max(0, x)
+  let xHi = min(ScreenWidth - 1, x + w - 1)
+  for py in yLo .. yHi:
+    let row = py * ScreenWidth
+    for px in xLo .. xHi:
+      mask.data[row + px] = 1'u8
 
 proc buildPhase10IgnoreMask*(
     maskOut: var IgnoreMask,

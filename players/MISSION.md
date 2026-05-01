@@ -226,7 +226,7 @@ None of this is required on day one. It's where we're heading.
   full 236-test suite + guided_bot's four test suites all green
   post-move. MISSION.md's repo-layout convention now explicitly
   describes `<game>/common/`.
-- **guided_bot phase 1.0 + 1.1 + 1.2 shipped.** Phase 1.0 lands
+- **guided_bot phase 1.0 + 1.1 + 1.2 + 1.3 shipped.** Phase 1.0 lands
   frame unpacking, black-pixel interstitial detection, the always-on
   ignore-mask scaffolding, and end-to-end fixture tests. Phase 1.1
   bakes the perception reference data (palette, 6 reference
@@ -244,15 +244,22 @@ None of this is required on day one. It's where we're heading.
   and `reseedCameraAtHome` on every interstitial, populating
   `belief.percep.{cameraX,cameraY,cameraScore,cameraLock,localized,
   selfX,selfY,homeX,homeY,homeSet,gameStarted,lastLocalizedTick}`.
-  Patch-index built lazily on first non-interstitial frame (~ms
-  scalar over the padded 1108×682 anchor grid). Cold-localize ~1 ms,
-  warm <1 ms on the gameplay fixtures. Tests:
-  `localize_test.nim` pins camera locks on the four gameplay
-  fixtures against modulabot's ground truth (504, 54 for three of
-  them, no-lock for the cold start); also verifies geometry math,
-  patch-index shape, reseed flow, end-to-end pipeline, and a smoke
-  benchmark. `smoke.nim`, `perception_test.nim`, `data_test.nim`
-  still green. Library build size still 1.7 MB.
+  **Phase 1.3** ports modulabot's actor scanning orchestration to
+  pure Nim (`guided_bot/perception/actors.nim`), reusing the
+  existing `mb_match_actor_sprite_all` and
+  `mb_actor_color_index_all` kernels in
+  `among_them/common/perception_kernels/sprite_match.nim`. The bot
+  pipeline now: detects role (crewmate/imposter/ghost) from HUD
+  icons; identifies self-colour; scans for other crewmates, dead
+  bodies, and ghosts; stamps detected sprite exclusion zones into
+  the ignore mask; merges all results into the belief state
+  (`SelfState.role/colorIndex`,
+  `PerceptionState.visibleCrewmates/Bodies/Ghosts`). ~2 ms per
+  gameplay frame. Tests: `actors_test.nim` pins interstitial
+  short-circuit, scan plausibility, role detection, self-colour,
+  ignore-mask growth, end-to-end pipeline, and a smoke benchmark.
+  All five test suites pass (smoke, perception, data, localize,
+  actors). Library build size still ~1.7 MB.
 
 ### Next
 
