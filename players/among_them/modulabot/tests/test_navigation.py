@@ -287,8 +287,8 @@ class NavigateToWorldGoalTests(unittest.TestCase):
         set_world_goal(bot, 150, 150)
         bot.percep.tick = 0
         action = navigate_to_world_goal(bot, game_map)
-        # Goal is SE so direct steering picks RIGHT or DOWN (dx=50, dy=50).
-        self.assertIn(action, (actions.RIGHT, actions.DOWN))
+        # Goal is SE so direct steering picks DOWN_RIGHT (dx=50, dy=50).
+        self.assertIn(action, (actions.RIGHT, actions.DOWN, actions.DOWN_RIGHT))
         self.assertFalse(bot.goal.has_path_step)  # no valid path
 
     def test_degrades_when_not_localized(self):
@@ -299,9 +299,11 @@ class NavigateToWorldGoalTests(unittest.TestCase):
         set_world_goal(bot, 100, 200)
         # Without localization, "world" coords in
         # ``_greedy_world_delta`` are relative to the screen centre.
-        # Goal at y=200 vs CENTER_Y=64 means a downward delta.
+        # Goal at (100, 200) vs (CENTER_X=64, CENTER_Y=64) means both
+        # dx=36 and dy=136 are significant → DOWN_RIGHT with 8-way
+        # steering.
         action = navigate_to_world_goal(bot, _synthetic_map())
-        self.assertEqual(action, actions.DOWN)
+        self.assertEqual(action, actions.DOWN_RIGHT)
 
     def test_degrades_when_no_game_map(self):
         """Same — passing None for game_map falls through to greedy,
@@ -408,19 +410,25 @@ class CrewmatePathingTests(unittest.TestCase):
                 f"crewmate path waypoint {(step.x, step.y)} overlaps a wall",
             )
         # And we emitted a directional action rather than NOOP.
-        self.assertIn(
-            action,
-            (
-                actions.UP,
-                actions.DOWN,
-                actions.LEFT,
-                actions.RIGHT,
-                actions.UP_A,
-                actions.DOWN_A,
-                actions.LEFT_A,
-                actions.RIGHT_A,
-            ),
+        _DIRECTIONAL = (
+            actions.UP,
+            actions.DOWN,
+            actions.LEFT,
+            actions.RIGHT,
+            actions.UP_LEFT,
+            actions.UP_RIGHT,
+            actions.DOWN_LEFT,
+            actions.DOWN_RIGHT,
+            actions.UP_A,
+            actions.DOWN_A,
+            actions.LEFT_A,
+            actions.RIGHT_A,
+            actions.UP_LEFT_A,
+            actions.UP_RIGHT_A,
+            actions.DOWN_LEFT_A,
+            actions.DOWN_RIGHT_A,
         )
+        self.assertIn(action, _DIRECTIONAL)
 
 
 # ---------------------------------------------------------------------------
@@ -477,18 +485,27 @@ class RealMapWiringTests(unittest.TestCase):
 
         # The action should be directional (the task is far away on
         # the real map; we won't be arriving inside one tick).
+        _DIRECTIONAL = (
+            actions.UP,
+            actions.DOWN,
+            actions.LEFT,
+            actions.RIGHT,
+            actions.UP_LEFT,
+            actions.UP_RIGHT,
+            actions.DOWN_LEFT,
+            actions.DOWN_RIGHT,
+            actions.UP_A,
+            actions.DOWN_A,
+            actions.LEFT_A,
+            actions.RIGHT_A,
+            actions.UP_LEFT_A,
+            actions.UP_RIGHT_A,
+            actions.DOWN_LEFT_A,
+            actions.DOWN_RIGHT_A,
+        )
         self.assertIn(
             action,
-            (
-                actions.UP,
-                actions.DOWN,
-                actions.LEFT,
-                actions.RIGHT,
-                actions.UP_A,
-                actions.DOWN_A,
-                actions.LEFT_A,
-                actions.RIGHT_A,
-            ),
+            _DIRECTIONAL,
             f"expected a directional action, got {action}",
         )
         # And a path was computed.

@@ -39,6 +39,7 @@ from ..tuning import (
     CENTER_X,
     CENTER_Y,
     CLOSE_DISTANCE,
+    JIGGLE_TICKS,
     PATH_REPLAN_INTERVAL,
     PATH_REPLAN_MOVE_THRESHOLD,
     STUCK_TICKS,
@@ -406,7 +407,7 @@ def anti_stuck_nudge(bot: Bot, intended: int) -> int:
         motion.jiggle_ticks -= 1
         return _perpendicular(intended, motion.jiggle_side)
     if motion.stuck_ticks >= STUCK_TICKS:
-        motion.jiggle_ticks = 6  # six-tick perpendicular pulse
+        motion.jiggle_ticks = JIGGLE_TICKS
         motion.jiggle_side = -motion.jiggle_side
         motion.stuck_ticks = 0
         return _perpendicular(intended, motion.jiggle_side)
@@ -422,6 +423,15 @@ _PERPENDICULAR_POSITIVE = {
     actions.DOWN_A: actions.LEFT_A,
     actions.LEFT_A: actions.UP_A,
     actions.RIGHT_A: actions.DOWN_A,
+    # Diagonals: clockwise 90° rotation
+    actions.UP_LEFT: actions.UP_RIGHT,
+    actions.UP_RIGHT: actions.DOWN_RIGHT,
+    actions.DOWN_RIGHT: actions.DOWN_LEFT,
+    actions.DOWN_LEFT: actions.UP_LEFT,
+    actions.UP_LEFT_A: actions.UP_RIGHT_A,
+    actions.UP_RIGHT_A: actions.DOWN_RIGHT_A,
+    actions.DOWN_RIGHT_A: actions.DOWN_LEFT_A,
+    actions.DOWN_LEFT_A: actions.UP_LEFT_A,
 }
 
 _PERPENDICULAR_NEGATIVE = {
@@ -433,6 +443,15 @@ _PERPENDICULAR_NEGATIVE = {
     actions.DOWN_A: actions.RIGHT_A,
     actions.LEFT_A: actions.DOWN_A,
     actions.RIGHT_A: actions.UP_A,
+    # Diagonals: counter-clockwise 90° rotation
+    actions.UP_LEFT: actions.DOWN_LEFT,
+    actions.UP_RIGHT: actions.UP_LEFT,
+    actions.DOWN_RIGHT: actions.UP_RIGHT,
+    actions.DOWN_LEFT: actions.DOWN_RIGHT,
+    actions.UP_LEFT_A: actions.DOWN_LEFT_A,
+    actions.UP_RIGHT_A: actions.UP_LEFT_A,
+    actions.DOWN_RIGHT_A: actions.UP_RIGHT_A,
+    actions.DOWN_LEFT_A: actions.DOWN_RIGHT_A,
 }
 
 
@@ -539,14 +558,12 @@ def navigate_to_world_goal(
 
     1. Recompute the A\\* path when :func:`_should_replan` says so
        (goal moved, plan is stale, we drifted far from the anchor).
-    2. Select a lookahead waypoint via
-       :func:`~modulabot.path.choose_path_step`.
-    3. Convert the waypoint delta from world → screen-space and emit
-       :func:`~modulabot.actions.direction_to`. We can skip the
-       explicit screen projection — the pathfinder and the
-       ``direction_to`` helper both only care about signed deltas,
-       and ``dx_screen = waypoint_world_x - player_world_x`` is
-       exactly the same sign/magnitude as the screen-space equivalent.
+    2. Advance a lookahead waypoint along the stored path based on
+       the bot's *current* position — not just the plan-time anchor.
+       This eliminates NOOP gaps where the bot reaches the old
+       cached waypoint and idles until the next replan.
+    3. Convert the waypoint delta from world -> screen-space and emit
+       :func:`~modulabot.actions.direction_to`.
     4. On unreachable (path is empty), fall back to straight-line
        world-delta steering — the wall might open up after a few
        ticks, and the anti-stuck jiggle handles the meantime.
@@ -570,14 +587,15 @@ def navigate_to_world_goal(
         g.path_plan_tick = percep.tick
         g.path_plan_self_x = player_world_x(percep)
         g.path_plan_self_y = player_world_y(percep)
-        if new_path:
-            step = path_mod.choose_path_step(new_path)
-            g.has_path_step = bool(step.found)
-            if g.has_path_step:
-                g.path_step_x = step.x
-                g.path_step_y = step.y
-        else:
+        if not new_path:
             g.has_path_step = False
+
+    # Advance the waypoint along the stored path every tick. This
+    # finds the closest point on the path to our current position
+    # and looks PATH_LOOKAHEAD steps ahead, so the target stays
+    # meaningful as we move rather than going stale between replans.
+    if g.path:
+        _advance_along_path(bot)
 
     if g.has_path_step:
         # Waypoint steering uses a tight deadband (the waypoint is
@@ -591,6 +609,41 @@ def navigate_to_world_goal(
     # Unreachable or A\* failed: aim at the goal directly and let the
     # anti-stuck jiggle deal with walls.
     return _greedy_world_delta(bot, g.world_x, g.world_y, deadband)
+
+
+def _advance_along_path(bot: Bot) -> None:
+    """Update the cached waypoint by finding our position on the stored path.
+
+    Scans the stored A\\* path for the closest point to the bot's
+    current world position, then looks :data:`~modulabot.path.PATH_LOOKAHEAD`
+    steps ahead. This is called every tick so the waypoint tracks our
+    progress smoothly — the expensive A\\* is only recomputed on the
+    replan cadence but the waypoint never goes stale.
+    """
+    g = bot.goal
+    path = g.path
+    if not path:
+        g.has_path_step = False
+        return
+
+    px = player_world_x(bot.percep)
+    py = player_world_y(bot.percep)
+
+    # Find closest point on the stored path.
+    best_dist = 1 << 30
+    best_idx = 0
+    for i, step in enumerate(path):
+        d = abs(step.x - px) + abs(step.y - py)
+        if d < best_dist:
+            best_dist = d
+            best_idx = i
+
+    # Look ahead from our closest point.
+    lookahead_idx = min(len(path) - 1, best_idx + path_mod.PATH_LOOKAHEAD)
+    step = path[lookahead_idx]
+    g.has_path_step = True
+    g.path_step_x = step.x
+    g.path_step_y = step.y
 
 
 def _greedy_world_delta(

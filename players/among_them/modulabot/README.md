@@ -390,7 +390,7 @@ the plan. Brief:
 | ASCII glyph OCR (`best_glyph`, `text_matches`) | ✅ | ✅ Nim FFI — font packed once per process, scalar scan with early-exit | — |
 | ASCII phrase search (`find_text`) | ✅ | ✅ numpy `sliding_window_view` (already <2 ms, rarely called) | — |
 | A\* pathfinding on walk mask | ✅ | ✅ — `find_path` / `path_distance` / `goal_distance` / `choose_path_step`; **wired into policies** via `navigate_to_world_goal`; ~10 ms typical real-map step | — |
-| Motion / momentum steering | ✅ | minimal anti-stuck jiggle only | low |
+| Motion / momentum steering | ✅ | 8-way diagonal movement + continuous waypoint advancement + anti-stuck jiggle (12-tick threshold, 8-tick jiggle) | medium — no momentum model yet |
 | HUD task-list (assignment-list) parsing | ✅ | ❌ not yet | medium — would obsolete radar-dot inference |
 | Witness-kill detection (Among Us animation) | ✅ | ❌ not yet | medium — would strengthen voting evidence |
 

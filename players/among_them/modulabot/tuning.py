@@ -77,8 +77,11 @@ KILL_RANGE = 18
 RADAR_DEADBAND = 4
 
 #: Consecutive ticks of zero-velocity-while-holding-direction before we
-#: trigger the anti-stuck jiggle.
-STUCK_TICKS = 20
+#: trigger the anti-stuck jiggle. At 24 Hz, 12 ticks is half a second —
+#: responsive enough to avoid long wall-grinding pauses while still
+#: filtering out momentary zero-velocity blips (e.g. hitting a corner
+#: mid-diagonal where one axis briefly stalls).
+STUCK_TICKS = 12
 
 #: Duration in ticks of the perpendicular jiggle when we decide we're stuck.
 JIGGLE_TICKS = 8

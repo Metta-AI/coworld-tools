@@ -117,6 +117,18 @@ UP_B = _idx("up", "b")
 DOWN_B = _idx("down", "b")
 LEFT_B = _idx("left", "b")
 RIGHT_B = _idx("right", "b")
+UP_LEFT = _idx("up", "left")
+UP_RIGHT = _idx("up", "right")
+DOWN_LEFT = _idx("down", "left")
+DOWN_RIGHT = _idx("down", "right")
+UP_LEFT_A = _idx("up", "left", "a")
+UP_RIGHT_A = _idx("up", "right", "a")
+DOWN_LEFT_A = _idx("down", "left", "a")
+DOWN_RIGHT_A = _idx("down", "right", "a")
+UP_LEFT_B = _idx("up", "left", "b")
+UP_RIGHT_B = _idx("up", "right", "b")
+DOWN_LEFT_B = _idx("down", "left", "b")
+DOWN_RIGHT_B = _idx("down", "right", "b")
 
 
 # ---------------------------------------------------------------------------
@@ -125,17 +137,27 @@ RIGHT_B = _idx("right", "b")
 
 
 def direction_to(dx: int, dy: int, deadband: int = 0) -> int:
-    """Return the cardinal-direction action best matching ``(dx, dy)``.
+    """Return the best 8-way action matching ``(dx, dy)``.
 
-    Breaks ties on the axis with the larger absolute delta. Returns :data:`NOOP`
-    if both deltas are within ``deadband`` (so near-centred targets don't cause
-    thrashing). Diagonals are *not* returned — they're available as separate
-    actions but every Nim-era policy we're porting uses 4-way movement. Add a
-    ``direction_to_diagonal`` helper later if a policy wants it.
+    Returns :data:`NOOP` if both deltas are within ``deadband`` (so
+    near-centred targets don't cause thrashing).  When both axes need
+    more than 1 pixel of travel a diagonal is returned — this is
+    strictly better than cardinal movement when the target is off-axis,
+    because the BitWorld sim applies full per-tick speed on each pressed
+    axis simultaneously.  Falls back to a cardinal when only one axis
+    has meaningful displacement (avoids jitter on axis-aligned
+    approaches).
     """
     if abs(dx) <= deadband and abs(dy) <= deadband:
         return NOOP
-    if abs(dx) >= abs(dy):
+    ax, ay = abs(dx), abs(dy)
+    # Both axes need real travel → diagonal
+    if ax > 1 and ay > 1:
+        if dx > 0:
+            return DOWN_RIGHT if dy > 0 else UP_RIGHT
+        return DOWN_LEFT if dy > 0 else UP_LEFT
+    # One axis dominant → cardinal
+    if ax >= ay:
         return RIGHT if dx > 0 else LEFT
     return DOWN if dy > 0 else UP
 
@@ -143,38 +165,39 @@ def direction_to(dx: int, dy: int, deadband: int = 0) -> int:
 def press_a_while(direction: int) -> int:
     """Return the action that presses A while holding ``direction``.
 
-    ``direction`` must be one of :data:`NOOP`/:data:`UP`/:data:`DOWN`/
-    :data:`LEFT`/:data:`RIGHT`. Anything else returns :data:`A` without the
-    directional component (same as pressing A alone). We deliberately don't
-    support pressing A while diagonal — holding A while moving in the Nim bot
-    means "complete the task I'm standing on", and that only makes sense on a
-    cardinal approach.
+    Supports both cardinal and diagonal inputs. Anything unrecognised
+    returns :data:`A` without the directional component.
     """
-    if direction == UP:
-        return UP_A
-    if direction == DOWN:
-        return DOWN_A
-    if direction == LEFT:
-        return LEFT_A
-    if direction == RIGHT:
-        return RIGHT_A
-    return A
+    _A_MAP = {
+        UP: UP_A,
+        DOWN: DOWN_A,
+        LEFT: LEFT_A,
+        RIGHT: RIGHT_A,
+        UP_LEFT: UP_LEFT_A,
+        UP_RIGHT: UP_RIGHT_A,
+        DOWN_LEFT: DOWN_LEFT_A,
+        DOWN_RIGHT: DOWN_RIGHT_A,
+    }
+    return _A_MAP.get(direction, A)
 
 
 def press_b_while(direction: int) -> int:
     """Return the action that presses B while holding ``direction``.
 
     B is "report" for crewmates, unused for imposters in BitWorld's AmongThem.
+    Supports both cardinal and diagonal inputs.
     """
-    if direction == UP:
-        return UP_B
-    if direction == DOWN:
-        return DOWN_B
-    if direction == LEFT:
-        return LEFT_B
-    if direction == RIGHT:
-        return RIGHT_B
-    return B
+    _B_MAP = {
+        UP: UP_B,
+        DOWN: DOWN_B,
+        LEFT: LEFT_B,
+        RIGHT: RIGHT_B,
+        UP_LEFT: UP_LEFT_B,
+        UP_RIGHT: UP_RIGHT_B,
+        DOWN_LEFT: DOWN_LEFT_B,
+        DOWN_RIGHT: DOWN_RIGHT_B,
+    }
+    return _B_MAP.get(direction, B)
 
 
 def buttons_for(action: int) -> tuple[str, ...]:
@@ -206,6 +229,18 @@ __all__ = [
     "DOWN_B",
     "LEFT_B",
     "RIGHT_B",
+    "UP_LEFT",
+    "UP_RIGHT",
+    "DOWN_LEFT",
+    "DOWN_RIGHT",
+    "UP_LEFT_A",
+    "UP_RIGHT_A",
+    "DOWN_LEFT_A",
+    "DOWN_RIGHT_A",
+    "UP_LEFT_B",
+    "UP_RIGHT_B",
+    "DOWN_LEFT_B",
+    "DOWN_RIGHT_B",
     "direction_to",
     "press_a_while",
     "press_b_while",
