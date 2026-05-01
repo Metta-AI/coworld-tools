@@ -19,6 +19,17 @@
 > of budget; voting/meeting p99 is 20 %. All phases tested for byte-parity
 > against the numpy fallback path; `MODULABOT_DISABLE_NATIVE=1` remains a
 > one-switch rollback.
+>
+> **Update 2026-05-01 — note for future profiling.** The crewmate task
+> fix (`CREWMATE_TASK_FIX_PLAN.md` Phase 6) added a per-frame
+> negative-evidence pass that calls `maybe_matches_sprite` for every
+> task whose strict match missed and whose inspection rect is fully
+> on-screen. Worst-case ~32 tasks × 27 fuzzy-match positions ≈ 864
+> calls per frame in pure Python. Hasn't shown up as a budget problem
+> yet (early-exits on `misses > MAYBE_MISSES`), but if a future bench
+> reveals creep, port `mb_task_icon_maybe_visible` to Nim and add it
+> to the existing `mb_scan_task_icons` FFI call site for a single
+> bulk-call surface.
 
 ## 1. Problem framing
 
@@ -286,11 +297,11 @@ Mirror the upstream pattern (`players/modulabot/build_modulabot.py` +
   --out:libmodulabot_perception.{dylib,so} lib.nim`.
 - **New file**: `among_them/modulabot/nim_perception/lib.nim` — the FFI;
   imports existing Nim sources via `--path:` (symlink or copy relevant Nim
-  files into `nim_perception/src/`).
+  files into `common/perception_kernels/`).
 - **Source vendoring**: rather than depend on `~/coding/bitworld/...`,
   copy the 7 Nim files (`sprite_match.nim`, `actors.nim`, `localize.nim`,
   `frame.nim`, `ascii.nim`, `pixelfonts.nim`, `geometry.nim`,
-  `types.nim`) into `nim_perception/src/` at port time. This keeps the
+  `types.nim`) into `common/perception_kernels/` at port time. This keeps the
   submission bundle self-contained (`cogames ship -f modulabot` remains
   valid) and avoids a cross-repo dependency when the bitworld Nim bot
   drifts. Add a comment at the top of each copied file pointing at its

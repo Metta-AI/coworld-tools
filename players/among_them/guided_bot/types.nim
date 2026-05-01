@@ -35,6 +35,28 @@ type
     PhaseVoting
     PhaseGameOver
 
+  InterstitialKind* = enum
+    ## Which specific interstitial we're looking at. Phase 1.0 detects
+    ## only the black/not-black split and parks everything non-black
+    ## under `NotInterstitial`; phase 1.5 (OCR) classifies the text
+    ## content into the remaining variants.
+    NotInterstitial
+    InterstitialUnknown   ## Is black enough to be an interstitial; text unread.
+    InterstitialRoleReveal
+    InterstitialVoting
+    InterstitialVoteResult
+    InterstitialGameOver
+
+  CameraLock* = enum
+    ## Quality / source of the most recent camera lock. Mirrors the
+    ## ``CameraLock`` enum in ``modulabot/state.py``. Phase 1.2
+    ## populates this; downstream consumers use it to gauge how much
+    ## to trust ``camera_x`` / ``camera_y`` (e.g. local-frame locks
+    ## are tighter than spiral-fallback global locks).
+    NoLock
+    LocalFrameMapLock      ## Cheap local refit succeeded.
+    FrameMapLock           ## Patch-search or spiral-fallback succeeded.
+
   ModeName* = enum
     ## The full mode enum. See DESIGN.md §5.4.
     ##
@@ -203,19 +225,47 @@ type
     alive*: bool
     killCooldownRemaining*: int
     knownImposterColors*: seq[int]
-    homeX*, homeY*: int
-    homeSet*: bool
     phase*: GamePhase
+    ## Note: home position lives on PerceptionState (phase 1.2). See
+    ## ``PerceptionState.homeX/homeY/homeSet``. Keeping it on the
+    ## perception side mirrors modulabot's split — the home memory is
+    ## a *camera* concept, not a role / alive concept, and it gets
+    ## reseeded by ``localize.reseedCameraAtHome`` after interstitials.
 
   PerceptionState* = object
-    ## Phase 1 fills this in. Empty placeholders for now.
+    ## Phase 1 fills this in incrementally across sub-phases. Phase
+    ## 1.0 populates the interstitial fields. Phase 1.2 populates
+    ## camera-lock fields (`cameraX`/`cameraY`, `localized`,
+    ## `cameraScore`, `cameraLock`, `selfX`/`selfY`, plus the home /
+    ## seeded helpers below). Later sub-phases add visible actors,
+    ## task icons, voting-screen parse. See DESIGN.md §15 for the
+    ## phase breakdown.
+    ##
+    ## Camera-lock fields (phase 1.2):
     cameraX*, cameraY*: int
+    lastCameraX*, lastCameraY*: int  ## Previous-frame camera, used as
+                                      ## the local-refit seed.
+    cameraScore*: int        ## Most recent camera score (Python ordering).
+    cameraLock*: CameraLock  ## Quality / source of the current lock.
     localized*: bool
-    selfX*, selfY*: int
-    visiblePlayers*: seq[Point]    ## Phase 1: richer records.
+    lastLocalizedTick*: int  ## Tick of the most recent successful lock.
+    selfX*, selfY*: int      ## Inferred player world position when
+                              ## `localized` is true.
+    ## Camera-seed memory (phase 1.2). Populated on the first lock so
+    ## post-interstitial reseeds start from a known-good camera.
+    homeX*, homeY*: int
+    homeSet*: bool
+    gameStarted*: bool       ## False until the first successful lock;
+                              ## forces spiral fallback to start at the
+                              ## button rather than at stale state.
+    ## Interstitial fields (phase 1.0).
+    interstitial*: bool
+    interstitialKind*: InterstitialKind
+    blackPixelCount*: int    ## Cheap cache for the black-pixel detector.
+    interstitialText*: string
+    visiblePlayers*: seq[Point]    ## Phase 1.3: richer records.
     visibleBodies*: seq[Point]
     visibleTaskIcons*: seq[int]
-    interstitialText*: string
 
   PlayerSummary* = object
     lastSeenTick*: int

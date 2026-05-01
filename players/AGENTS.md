@@ -63,9 +63,9 @@ Conventions (from `MISSION.md`):
 All commands assume the repo root as cwd unless noted.
 
 ```bash
-# Tests for modulabot (191 tests, ~3s, must be green)
+# Tests for modulabot (236 tests, ~16s, must be green)
 PYTHONPATH=among_them .venv/bin/python -m unittest discover \
-    -s among_them/modulabot/tests -v
+    -s among_them/modulabot/tests
 
 # Run a single test module
 PYTHONPATH=among_them .venv/bin/python -m unittest \

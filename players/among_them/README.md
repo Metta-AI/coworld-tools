@@ -11,7 +11,7 @@ Current season: `among-them` (verify with `cogames season list`).
 
 | Agent | Status | Strategy |
 |---|---|---|
-| [`modulabot/`](modulabot/README.md) | v0, local tests passing | Modular scripted bot ported from the Nim `modulabot` architecture — state and pixel perception paths, crewmate task play, imposter fake-task/kill/flee, evidence-based voting. |
+| [`modulabot/`](modulabot/README.md) | full perception + crewmate task lifecycle complete; 236 tests passing | Modular scripted bot ported from the Nim `modulabot` architecture — pixel-mode perception (sprite matching, camera localization, voting parser, A\*), crewmate task selection / approach / hold / server-confirmed completion (with radar-dot evidence + icon-miss negative-evidence pruning), imposter fake-task/kill/flee, evidence-based voting. See [`modulabot/CREWMATE_TASK_FIX_PLAN.md`](modulabot/CREWMATE_TASK_FIX_PLAN.md) for the recent task-lifecycle fix work (Phases 0-4 + 6-7, Apr–May 2026). |
 | [`guided_bot/`](guided_bot/README.md) | phase 0 scaffold (no-op) | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slow asynchronous LLM guidance loop that sets active `mode` + structured params. LLM takes direct control during meetings. See `guided_bot/DESIGN.md`. |
 
 ## Conventions
@@ -45,12 +45,15 @@ than copied unless we need to:
 
 ## Running tests
 
-Each agent ships its own tests. For modulabot:
+Each agent ships its own tests. For modulabot, run from the repo root:
 
 ```bash
-cd among_them
-PYTHONPATH=. python -m unittest discover -s modulabot/tests -v
+PYTHONPATH=among_them .venv/bin/python -m unittest discover \
+    -s among_them/modulabot/tests
 ```
+
+Expected: 236 tests, 0 failures, 0 expected failures (with the Nim FFI
+loaded; ``MODULABOT_DISABLE_NATIVE=1`` skips a handful of parity tests).
 
 ## Running a local episode
 

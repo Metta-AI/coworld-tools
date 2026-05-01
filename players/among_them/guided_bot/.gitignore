@@ -19,3 +19,6 @@ __pycache__/
 
 # Test binaries.
 /test/smoke
+/test/perception_test
+/test/data_test
+/test/localize_test

@@ -11,6 +11,7 @@ import constants
 import types
 import belief
 import perception
+import perception/localize
 import action
 import mode_registry
 import guidance
@@ -28,6 +29,9 @@ type
     actionState*: ActionState
     guidance*: GuidanceState
     trace*: TraceWriter
+    localizer*: Localizer  ## Phase 1.2 — camera localization scratch
+                            ## (vote buffer). Patch index is module-
+                            ## level, shared across bots.
     lastMask*: uint8
     unpacked*: seq[uint8]
 
@@ -38,6 +42,7 @@ proc initBot*(): Bot =
   result.actionState = initActionState()
   result.guidance = initGuidanceState()
   result.trace = nil
+  result.localizer = initLocalizer()
   result.lastMask = 0'u8
   result.unpacked = newSeq[uint8](FrameLen)
 
@@ -67,18 +72,33 @@ proc reconcileDirective(bot: var Bot) =
     return
 
 proc decideNextMask*(bot: var Bot): uint8 =
-  ## One full inner-loop step. Phase 0: perception is empty, belief
-  ## update just increments the tick, decide routes to the current mode
-  ## (ModeIdle by default), action layer returns 0. See DESIGN.md §4.
+  ## One full inner-loop step. Phase 1.2: perception returns a real
+  ## `Percept` (interstitial observation + ignore mask); belief update
+  ## merges it; localize updates camera state on non-interstitial
+  ## frames; decide routes to the current mode; action layer returns
+  ## 0. See DESIGN.md §4.
   inc bot.frameTick
 
-  # 1. Perceive.
-  let percept = perceive(bot.unpacked)
-  discard percept  # Phase 1 merges into belief.
+  # 1. Perceive — returns a structured observation of this frame.
+  let percept = perceive(bot.unpacked, bot.frameTick)
 
-  # 2. Update belief (and, phase 2, read directive channel + evaluate reflexes).
-  updateBelief(bot.belief, bot.unpacked)
-  bot.belief.tick = bot.frameTick
+  # 2. Update belief with the percept (and, phase 2, read directive
+  #    channel + evaluate reflexes).
+  updateBelief(bot.belief, percept)
+
+  # 2a. Camera localization (phase 1.2). Skip on interstitials —
+  #     localize can't produce a sensible answer when the framebuffer
+  #     is mostly black, and running it wastes ~5 ms. On the *first*
+  #     gameplay frame after an interstitial, reseed the camera so
+  #     local refit starts from the right place.
+  if percept.interstitial.isInterstitial:
+    bot.localizer.reseedCameraAtHome(bot.belief.percep)
+  else:
+    bot.localizer.updateLocation(
+      bot.belief.percep,
+      bot.unpacked,
+      percept.ignoreMask.data,
+      bot.frameTick)
 
   # 3. Reconcile directive against current state (ghost / legality).
   reconcileDirective(bot)

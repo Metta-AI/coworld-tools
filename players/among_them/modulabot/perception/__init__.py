@@ -1,16 +1,24 @@
 """Perception layer: observation → :class:`~modulabot.state.Perception`.
 
-Two paths depending on what the cogames BitWorld shim feeds us:
+Three paths depending on what the cogames BitWorld shim feeds us:
 
+- :mod:`modulabot.perception.pixel_pipeline` is the **production
+  path**: full pixel perception (sprite matching, camera localization,
+  voting parser, task-icon scanning, radar projection, icon-miss
+  negative-evidence pruning). Runs whenever ``reference_data`` is
+  available — i.e. always in tournament play where observations are
+  ``(4, 128, 128) uint8 kind=pixels``.
 - :mod:`modulabot.perception.state_obs` parses *structured* state
   observations (phase / header / grid / players / bodies / tasks).
-  Preferred when available: we get high-signal features for free.
-- :mod:`modulabot.perception.pixel_obs` falls back to pixel heuristics
-  on the 128x128 4-bit indexed frame. Fewer signals, but still enough to
-  move toward radar targets and detect interstitials.
+  Used by the training-harness `BitWorldVecEnv` path; not exercised
+  in tournament play. Kept for offline evaluation + tests.
+- :mod:`modulabot.perception.pixel_obs` is a minimal pixel fallback
+  for tests / sessions without ``reference_data`` (no sprite
+  matching, no localization, just interstitial + radar centroid).
 
-The public entrypoint is :func:`update_perception`, which dispatches on the
-observation shape and calls the appropriate backend. Everything else in this
+The public entrypoint is :func:`update_perception`
+(:mod:`modulabot.perception.common`), which dispatches on observation
+shape + the presence of ``reference_data``. Everything else in this
 package is internal.
 """
 

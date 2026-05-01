@@ -1,19 +1,24 @@
 """Pixel-observation fallback perception.
 
-We cannot faithfully reproduce the Nim bot's map localization and sprite
-recognition in pure Python here — that's ~4000 lines of careful visual-client
-work, and the cogames state-obs path makes almost all of it unnecessary. This
-module implements just enough pixel reasoning to keep the bot moving:
+A minimal pixel path used when callers don't supply a
+``ReferenceData`` bundle. Doesn't run in tournament play — the
+production pipeline is :mod:`modulabot.perception.pixel_pipeline`,
+which has full sprite matching, camera localization, voting parser,
+task-icon scanning, and the radar/checkout/icon-miss machinery
+documented in ``CREWMATE_TASK_FIX_PLAN.md``.
+
+This module implements just enough pixel reasoning to keep tests
+moving when those heavy dependencies are unavailable:
 
 - Interstitial detection (≥30% black pixels ⇒ voting/result screen).
-- Radar-dot direction: scan the screen periphery for the task-radar palette
-  colour and aim toward its centroid.
-- Kill-icon detection: a corner-of-HUD heuristic. If the kill icon is on,
-  we're an imposter.
+- Radar-dot direction: scan the screen periphery for the task-radar
+  palette colour and aim toward its centroid.
+- Kill-icon detection: a corner-of-HUD heuristic. If the kill icon
+  is on, we're an imposter.
 
-Everything else (player positions, bodies, tasks-in-view) stays empty when we
-take the pixel path. Policies must tolerate that — see
-:meth:`modulabot.policies.base.Policy.fallback_action`.
+Everything else (player positions, bodies, tasks-in-view) stays
+empty when we take this fallback path. Policies must tolerate that —
+see :meth:`modulabot.policies.base.Policy.fallback_action`.
 """
 
 from __future__ import annotations

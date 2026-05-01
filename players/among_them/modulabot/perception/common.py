@@ -1,8 +1,16 @@
 """Perception dispatcher and shared helpers.
 
-:func:`update_perception` routes an observation to either the state-obs or
-pixel-obs backend based on shape. Callers should not import the backends
-directly.
+:func:`update_perception` is the **fallback** entrypoint used when
+:class:`~modulabot.bot.BotCore` was constructed without a
+``ReferenceData`` bundle (i.e. without sprites, map, font). It routes
+to either the state-obs or minimal-pixel backend based on the
+observation shape.
+
+In tournament play `BotCore` always has `reference_data` and goes
+through :mod:`modulabot.perception.pixel_pipeline` directly, bypassing
+this module entirely. The production code path is documented in
+``modulabot/README.md``; ``common.py`` is kept for tests and any
+training-harness consumer that wants a no-FFI cheap path.
 
 Observation-shape conventions (matching the ``bitworld_among_them_cyborg``
 reference policy and the cogames BitWorld shim):

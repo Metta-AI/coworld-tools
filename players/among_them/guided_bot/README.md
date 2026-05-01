@@ -11,15 +11,29 @@ editing.
 
 ## Status
 
-**Phase 0 — scaffolding (this commit).** Compiles cleanly as CLI and
-shared library; every decision returns no-op. Mode registry wired for
-the full v0 enum (11 modes); belief state + directive + action intent
-types all declared. LLM and guidance loop are stubs.
+**Phase 1.2 — camera localization (this commit).** Compiles cleanly
+as CLI and shared library; every decision still returns no-op (action
+layer is phase 2). Phase-1.0 frame primitives + 1.1 reference data are
+still in place; phase 1.2 ports modulabot's localize orchestration to
+pure Nim, sharing the existing `mb_score_camera` /
+`mb_hash_frame_patches` / `mb_vote_camera_candidates` kernels in
+`among_them/common/perception_kernels/` via direct relative-path
+imports. The bot pipeline now populates
+`belief.percep.cameraX/Y/selfX/Y/cameraLock` after every gameplay
+frame; interstitials trigger a `reseedCameraAtHome` so the next
+gameplay frame starts from a known seed. Cold localize ~1 ms, warm
+~0 ms on the gameplay fixtures (well under the MISSION.md targets).
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Scaffolding, type shapes, registry, no-op pipeline, FFI + Python wrapper | ✅ shipped |
-| 1 | Perception (wire in modulabot's localize / sprite / task / voting parse) | not started |
+| 1.0 | Frame unpacking, interstitial detection, ignore-mask scaffolding, fixture tests | ✅ shipped |
+| 1.1 | Perception reference data (palette, sprites, map/walk/wall, font, map.json) baked from the upstream `~/coding/bitworld` checkout (single source of truth) and embedded via `staticRead` | ✅ shipped |
+| 1.2 | Camera localization (patch-hash global + local refit + spiral fallback). Reuses modulabot's perception kernels via direct `--path:` import | ✅ shipped |
+| 1.3 | Actor / body / ghost scanning via `mb_match_actor_sprite_all` + `mb_actor_color_index_all` | next |
+| 1.4 | Task-icon + radar-dot scanning via `mb_scan_task_icons` | depends 1.2 |
+| 1.5 | ASCII OCR via `mb_best_glyph` + `mb_text_matches` | depends 1.1 |
+| 1.6 | Voting-screen parse | depends 1.5 |
 | 2 | Per-mode strategy (start with `task_completing`, `pretending`, `hunting`) + action layer (A\*, momentum, task-hold) | not started |
 | 3 | Guidance worker thread + `llm.nim` HTTP client (adapted from `bitworld/ais/claude.nim`) + meeting mode direct-control | not started |
 | 4 | Trace writer end-to-end (manifest + events + decisions + modes + guidance + reflexes + snapshots) | not started |
@@ -44,7 +58,15 @@ guided_bot/
   tuning.nim                # cross-cutting tunable knobs
   bot.nim                   # initBot, decideNextMask, pipeline
   belief.nim                # initBelief, updateBelief
-  perception.nim            # phase-1 home for modulabot perception modules
+  perception.nim            # phase-1 perception orchestrator
+  perception/
+    data.nim                # phase 1.1 — palette, sprites, map, font (baked)
+    frame.nim               # phase 1.0 — bit unpack + pixel helpers
+    interstitial.nim        # phase 1.0 — black-pixel screen detector
+    ignore.nim              # phase 1.0 — dynamic-pixel ignore mask
+    geometry.nim            # phase 1.2 — camera / world coord math
+    localize.nim            # phase 1.2 — camera localization orchestration
+    baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
   action.nim                # ActionIntent -> button mask
   mode_registry.nim         # mode lookup + default directive
   reflex.nim                # reflex evaluation (phase 2)
@@ -59,11 +81,19 @@ guided_bot/
     sabotage_watching.nim  meeting.nim
   ffi/lib.nim               # FFI exports (gated by -d:guidedBotLibrary)
   build_guided_bot.py       # on-demand Nim build helper
+  tools/
+    bake_assets.nim         # regenerate perception/baked/ from upstream bitworld
+    bake_assets.sh          # wrapper that wires nim --path: flags
   cogames/
     amongthem_policy.py     # cogames MultiAgentPolicy wrapper
     ship.sh                 # dry-run / upload / ship convenience wrapper
     README.md
-  test/smoke.nim            # phase-0 smoke test
+  test/
+    smoke.nim               # phase-0 pipeline smoke test
+    perception_test.nim     # phase-1.0 perception fixtures + end-to-end
+    data_test.nim           # phase-1.1 baked-asset shape + parity
+    localize_test.nim       # phase-1.2 camera-lock pinning + benchmark
+    fixtures/               # raw frame dumps for the fixture tests
 ```
 
 ## Building
@@ -86,16 +116,58 @@ nim c -d:release --opt:speed --app:lib -d:guidedBotLibrary \
 python3 among_them/guided_bot/build_guided_bot.py
 ```
 
-## Smoke test
+## Tests
 
 ```sh
+# Phase 0 smoke — pipeline shape, ghost override, default directives.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/smoke.nim
+
+# Phase 1.0 — frame unpacking, interstitial detection, ignore mask,
+# end-to-end perceive() + updateBelief() against fixture frames.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/perception_test.nim
+
+# Phase 1.1 — palette / sprite / map / font shape, magic-number checks,
+# parity pins against modulabot's source data.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/data_test.nim
+
+# Phase 1.2 — camera math, patch index, fixture-pinned camera locks
+# (matches modulabot ground truth), pipeline + reseed flow, smoke
+# benchmark.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/localize_test.nim
 ```
 
-Expected output: `OK`. Tests: `initBot` shape, `decideNextMask` returns
-0 on a zero frame, default-directive routing (alive imposter →
-`ModeHunting`, ghost override → `ModeTaskCompleting`).
+Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
+plus a non-zero exit on a regression.
+
+## Regenerating baked assets
+
+`perception/baked/*.bin` are deterministic outputs of
+`tools/bake_assets.nim` against the upstream bitworld checkout
+(`~/coding/bitworld`, override with `BITWORLD_DIR`). The tool is Nim
+so it can use the same `bitworld/aseprite` parser the live server
+uses to render `skeld2.aseprite` and `tiny5.aseprite` — no Python
+aseprite library required, and no risk of the modulabot snapshot
+drifting from upstream.
+
+Re-run when the upstream Among Them assets change:
+
+```sh
+among_them/guided_bot/tools/bake_assets.sh
+# or override the source dir:
+BITWORLD_DIR=/path/to/bitworld among_them/guided_bot/tools/bake_assets.sh
+```
+
+Requirements: `nim` + `nimby`-installed `pixie` and `zippy` (already
+available on any machine that's built bitworld). The `guided_bot`
+runtime binary itself does not depend on either.
+
+Bump `BakeSchemaVersion` in both `tools/bake_assets.nim` and
+`perception/data.nim` on any layout change so a stale baked dir
+trips the compile-time shape asserts.
 
 ## Running (phase 0)
 
@@ -124,8 +196,13 @@ produce real output (phase 2+).
 
 ## Known gaps / next steps
 
-1. **Wire perception** (phase 1). `perception.nim` is the single place
-   to drop modulabot's localize/sprite/task/voting stack.
+1. **Phase 1.3 — actor / body / ghost scan.** Wrap
+   `common/perception_kernels/sprite_match.nim`'s
+   `mb_match_actor_sprite_all` + `mb_actor_color_index_all`. Populate
+   `PerceptionState.visiblePlayers/visibleBodies/visibleGhosts` and
+   `SelfState.colorIndex` / `role`. Stamp per-actor exclusions into
+   the ignore mask so subsequent localize calls aren't fighting
+   sprite pixels.
 2. **Implement first real mode** (phase 2). Start with
    `task_completing` since it's both the crewmate default and the
    ghost default (DESIGN.md §5.7, §9.1). Its action layer needs A\* +

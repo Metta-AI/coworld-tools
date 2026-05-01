@@ -5,7 +5,7 @@
 > If you're touching strategy, directory layout, or submission workflow, touch
 > this file too. Stale missions are worse than no mission.
 >
-> Last reviewed: 2026-04-30
+> Last reviewed: 2026-05-01
 
 ---
 
@@ -56,6 +56,9 @@ personal_cogs/
 │                           # available games/seasons
 ├── <game_name>/
 │   ├── README.md           # game-level notes, conventions, shared code
+│   ├── common/             # code two or more agents under this game share
+│   │   ├── README.md       # what's here and who consumes it
+│   │   └── <subdir>/       # e.g. perception_kernels/, proto/, traces/
 │   └── <agent_name>/
 │       ├── README.md       # agent-specific notes: strategy, status, scores
 │       ├── policy.py       # or nim sources + FFI wrapper, per pattern
@@ -69,8 +72,11 @@ personal_cogs/
 - One agent per directory. No monorepo-style shared `main.py` at the root.
 - Each agent directory has a `README.md` that answers: what strategy, what's
   the current leaderboard score, what's known broken, what's next.
-- If two agents share substantial code, extract it to a `<game>/common/` or
-  `<game>/<family>/` subdir. Don't copy-paste identical Nim sources.
+- If two agents share substantial code, extract it to a `<game>/common/`
+  subdirectory and have each agent import from there. Don't reach into one
+  agent's tree from another. Don't speculatively grow `common/` either —
+  the bar is at least two real consumers (e.g. modulabot + guided_bot
+  sharing `among_them/common/perception_kernels/`).
 - Game-of-the-week work goes in the game's directory, not at the root.
 
 ## Working practices
@@ -139,7 +145,7 @@ None of this is required on day one. It's where we're heading.
 
 > Update this section whenever priorities shift. Don't let it rot.
 
-**As of 2026-04-30:**
+**As of 2026-05-01:**
 
 - **Game of the week / primary target:** Among Them (BitWorld social
   deduction). The `among-them` season has disappeared from
@@ -161,10 +167,11 @@ None of this is required on day one. It's where we're heading.
   through Nim ctypes bindings in `modulabot/nim_perception/`.
   `scan_all` runs in ~2.5 ms on gameplay frames (was ~8.6 ms numpy
   / ~400 ms scalar). Cold localize ~0.9 ms. Voting-chat OCR
-  ~8.6 ms. 211 tests pass (15 parity-pinned between Nim and
-  numpy); visual debug overlay at `scripts/debug_overlay.py`;
-  benchmark harness at `scripts/bench_perception.py`. Remaining
-  known gap: walking-pose crewmate recall is lower than Nim's.
+  ~8.6 ms. **236 tests pass** (parity-pinned between Nim and
+  numpy on the 275-frame fixture); visual debug overlay at
+  `scripts/debug_overlay.py`; benchmark harness at
+  `scripts/bench_perception.py`. Remaining known gap: walking-pose
+  crewmate recall is lower than Nim's.
 - **Trace writer shipped.** `modulabot/trace.py` emits session
   manifest + per-agent `events.jsonl` + `decisions.jsonl` when
   `trace_dir` / `MODULABOT_TRACE_DIR` is set. Non-perturbing
@@ -196,41 +203,103 @@ None of this is required on day one. It's where we're heading.
   ~90 ms. Pure Python; could be vectorised further if it becomes
   a per-frame bottleneck (expected case is once-per-goal-change,
   not per-tick).
-- **Perception moved to Nim via ctypes** (this session). The hot
+- **Perception moved to Nim via ctypes**. The hot
   pixel kernels (sprite matching, camera scoring, patch hashing,
   bulk patch-vote lookup, task-icon scanning, OCR glyph picks)
   now run as native code in `modulabot/nim_perception/`, dispatched
   through numpy fallbacks so `MODULABOT_DISABLE_NATIVE=1` still
   works. End-to-end `BotCore.step` gameplay p50: 9.0 ms → 2.6 ms
   (3.4×); cold localize 4.7 ms → 0.9 ms (5.2×); voting-chat OCR
-  24.9 ms → 8.6 ms (2.9×). 211 tests pass, 15 of them parity-pins
-  between Nim and numpy across the 275-frame fixture. See
+  24.9 ms → 8.6 ms (2.9×). All Nim paths parity-pinned vs. numpy
+  across the 275-frame fixture. See
   `modulabot/PERCEPTION_PERF_PLAN.md` for the phase-by-phase plan
   and results.
+- **`among_them/common/perception_kernels/` extracted.** The Nim
+  perception kernels (`sprite_match.nim`, `localize.nim`, `actors.nim`,
+  `ocr.nim`) used to live at `among_them/modulabot/nim_perception/src/`
+  and guided_bot reached into modulabot's tree to import them. Now
+  they live at `among_them/common/perception_kernels/` and both
+  agents are clean consumers: modulabot's `lib.nim` + `build.py` add
+  `--path:` to compile the FFI dylib; guided_bot uses
+  `from "../../common/perception_kernels/X" as kX import nil`. New
+  `among_them/common/README.md` documents the convention. Modulabot's
+  full 236-test suite + guided_bot's four test suites all green
+  post-move. MISSION.md's repo-layout convention now explicitly
+  describes `<game>/common/`.
+- **guided_bot phase 1.0 + 1.1 + 1.2 shipped.** Phase 1.0 lands
+  frame unpacking, black-pixel interstitial detection, the always-on
+  ignore-mask scaffolding, and end-to-end fixture tests. Phase 1.1
+  bakes the perception reference data (palette, 6 reference
+  sprites, Skeld map raster + walk/wall masks, tiny5 pixel font,
+  map.json metadata) directly from the upstream `~/coding/bitworld`
+  checkout via a Nim tool (`guided_bot/tools/bake_assets.nim` +
+  `bake_assets.sh` wrapper); blobs embed into the Nim binary via
+  `staticRead`. **Phase 1.2** ports modulabot's localize
+  orchestration to pure Nim (`guided_bot/perception/{geometry,
+  localize}.nim`), reusing the existing
+  `mb_score_camera`/`mb_hash_frame_patches`/`mb_vote_camera_candidates`
+  kernels in `among_them/common/perception_kernels/` via direct
+  relative-path imports (`from "..." as kLocalize import nil`). The
+  bot pipeline now runs camera localization on every gameplay frame
+  and `reseedCameraAtHome` on every interstitial, populating
+  `belief.percep.{cameraX,cameraY,cameraScore,cameraLock,localized,
+  selfX,selfY,homeX,homeY,homeSet,gameStarted,lastLocalizedTick}`.
+  Patch-index built lazily on first non-interstitial frame (~ms
+  scalar over the padded 1108×682 anchor grid). Cold-localize ~1 ms,
+  warm <1 ms on the gameplay fixtures. Tests:
+  `localize_test.nim` pins camera locks on the four gameplay
+  fixtures against modulabot's ground truth (504, 54 for three of
+  them, no-lock for the cold start); also verifies geometry math,
+  patch-index shape, reseed flow, end-to-end pipeline, and a smoke
+  benchmark. `smoke.nim`, `perception_test.nim`, `data_test.nim`
+  still green. Library build size still 1.7 MB.
 
 ### Next
 
+0. **Crewmate task-selection fix (Phases 0-4 + 6-7 complete, 2026-04-30
+   to 2026-05-01).** Five-bug fix to the pixel-pipeline → crewmate
+   flow: gated `arrow_visible` on radar match (Phase 1), gated
+   `active` on assignment evidence (Phase 2), replaced the fake
+   84-tick hold-completion timer with a server-confirmed
+   hold→confirming state machine (Phase 3), batched minor cleanups
+   (Phase 4), added icon-miss negative-evidence pruning so the bot
+   learns which ~32 of 40 tasks aren't its (Phase 6), and flipped
+   confirmation priority to icon-first to eliminate the ~22%
+   sibling-completion false-positive rate that `task_progress` had
+   (Phase 7). Plan + per-phase results at
+   `among_them/modulabot/CREWMATE_TASK_FIX_PLAN.md`. Tests:
+   **236/236 pass, 0 expected failures**. Comparison traces
+   archived at `phase{0,1,2,3,7}_trace/`. Outstanding:
+   half-implemented `TaskState` machine (filed as TODO in the plan).
+
 1. **Submission attempt** once a live season comes back. Dry-run
    the cogames ship command, confirm validation gate passes
-   without `--skip-validation` (patrol fallback should emit a
-   non-NOOP action on the first gameplay frame).
+   without `--skip-validation`. The pixel pipeline emits
+   non-NOOP actions on the first gameplay frame (task selection
+   fires as soon as the localizer locks and any assignment
+   evidence is visible).
 2. **Post-submission iteration** — stand up the trace-based outer
    loop (feed `events.jsonl` + `decisions.jsonl` into an LLM
    harness), start A/B'ing tuning constants, gather real-meeting
    captures to replace the synthetic voting frames in
    `test_voting.py` / `test_pixel_pipeline.py`.
-3. **Known perception gaps**:
-   - Walking-pose crewmate recall is still lower than the Nim bot's;
-     try loosening the stable/body-pixel floors in
+3. **Known gaps**:
+   - **`TaskState` machine half-wired** in pixel mode (only
+     `NOT_DOING` and `COMPLETED` populated; selection logic
+     reads other flags directly). Filed as TODO in
+     `among_them/modulabot/CREWMATE_TASK_FIX_PLAN.md § TaskState
+     machine cleanup`. Doesn't affect correctness; cleanup
+     estimated 1-2 hours.
+   - **HUD task-list parsing not done.** Would replace the
+     radar-dot inference path with ground-truth assignment
+     reads. Filed as a follow-up in
+     `among_them/modulabot/README.md § Future work`.
+   - **Walking-pose crewmate recall** is still lower than the
+     Nim bot's; try loosening the stable/body-pixel floors in
      `sprite_match.CREWMATE_MIN_*`.
    - `update_role` occasionally mis-fires IMPOSTER on crewmate
      frames (kill-button shaded match is loose). Tighter match
      budget or requiring the IMPS reveal would fix it.
-   - Task-icon → task-index matching in
-     `pixel_pipeline._populate_tasks_from_camera` uses a simple
-     screen-distance check; under occlusion this may mis-attribute
-     icons. Compare against the Nim `tasks.nim` approach if the
-     task-pick policy starts getting confused.
 
 ## How to get unstuck
 

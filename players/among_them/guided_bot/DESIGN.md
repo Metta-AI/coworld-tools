@@ -1329,5 +1329,72 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D16 | LLM conversation history | Stateful across a meeting's calls; stateless across gameplay calls. | §7.3, §8.5 |
 | D17 | Vote soft-lock | `confirm_vote` is irrevocable; subsequent re-votes are ignored within the same meeting. | §7.5 |
 | D18 | Reflex evaluation stage | Update-belief, not decide, so target mode's `decide` runs same tick. | §4.2, §5.8 |
+| D19 | Phase 1 sub-plan | Port perception in 6 sub-phases (1.0 foundation → 1.6 voting). Each sub-phase is its own commit with tests. | §15 |
+| D20 | Phase 1.1 asset baking | Door #1 of the §15 choice: deterministic Nim bake tool (`tools/bake_assets.nim`) emits raw `.bin` blobs into `perception/baked/`; runtime consumes them via `staticRead`. Bake tool reads the upstream `~/coding/bitworld` checkout *directly* (using the same `bitworld/aseprite` parser the live server uses) so modulabot's data dir is no longer in the trust chain. No PNG decoder dependency in the runtime, no runtime file I/O, no nimby in the runtime build. `BakeSchemaVersion` constant pins compile-time vs. baked-dir agreement. | §15, README "Regenerating baked assets" |
+| D21 | Phase 1.2 kernel sharing | Followed §15's guidance: `perception/localize.nim` imports `among_them/common/perception_kernels/{sprite_match,localize}.nim` via `from "../../..." as kX import nil` (relative-path import, no leaked identifiers, qualified-only access). Avoids both code duplication and FFI/shared-library indirection. The kernels are pure Nim, parity-pinned by modulabot's test suite; drift on either side fails our compile or our fixture-pinned camera tests. Patch index is built in Nim (modulabot built it in numpy); scalar one-shot, cached at module level. | §15, `perception/localize.nim` header |
 
 Further decisions get appended here as they're made.
+
+---
+
+## 15. Phase 1 sub-plan (perception port)
+
+Phase 1 was originally scoped as a single commit: "wire in modulabot's
+localize / sprite / task / voting parse." That's ~4.5 kLOC of Python
+(or ~2.8 kLOC of Nim in `bitworld/among_them/players/modulabot/`).
+Doing it in one commit would be rushed and poorly tested. Breaking
+it into sub-phases lets each one land fully tested and documented.
+
+Each sub-phase is a self-contained commit that extends the real
+`Percept` and `PerceptionState` fields, wires new perception code
+through the pipeline, and adds fixture-based tests.
+
+| Sub | Scope | Deps | Status |
+|---|---|---|---|
+| **1.0** | Frame unpacking, interstitial detection (black-pixel %), dynamic-pixel ignore-mask scaffolding, pipeline wire-in (`perceive` → `updateBelief` → `PerceptionState`). Fixture tests using real frames. | none | ✅ shipped |
+| **1.1** | Perception data loading — palette, player colours, sprite atlas, map/walk/wall layers, ASCII font, map.json. Baked into raw `.bin` blobs by `tools/bake_assets.nim` (reads `~/coding/bitworld` directly via the upstream `bitworld/aseprite` parser, single source of truth) and embedded into the Nim binary via `staticRead`. No PNG decoder, no nimby in the runtime. Compile-time shape asserts catch stale baked dirs. | 1.0 | ✅ shipped |
+| **1.2** | Camera localization — port of `modulabot/localize.py`'s orchestration in `perception/{geometry,localize}.nim`. Reuses `mb_score_camera`, `mb_hash_frame_patches`, `mb_vote_camera_candidates` from `among_them/common/perception_kernels/` via `from "../../common/perception_kernels/X" as kX import nil` — keeps the kernel as the single source of truth, no FFI / shared-library indirection (DESIGN.md §15 "Sharing nim_perception"). Patch-index built lazily in Nim on first non-interstitial frame. Pipeline calls `updateLocation` on gameplay frames and `reseedCameraAtHome` on interstitials. Camera-lock fixtures pinned against modulabot ground truth; smoke benchmark guards against catastrophic regressions. | 1.1 | ✅ shipped |
+| 1.3 | Actor / body / ghost scanning — wrap `mb_match_actor_sprite_all` and `mb_actor_color_index_all`. Populates `PerceptionState.visiblePlayers/visibleBodies/visibleGhosts` and `SelfState.colorIndex` / `role`. | 1.2 | |
+| 1.4 | Task icon + radar dot scanning — wrap `mb_scan_task_icons`. Populates `PerceptionState.visibleTaskIcons` and the task-state machine in `Belief.tasks`. | 1.2 | |
+| 1.5 | ASCII OCR — wrap `mb_best_glyph` and `mb_text_matches`. Classifies interstitial text (`CREWMATE`, `IMPS`, `CREW WINS`, `IMPS WIN`) and chat lines. | 1.1 | |
+| 1.6 | Voting-screen parse — port `voting.py`'s grid layout, slot / cursor / self-marker / vote-dot parsing, chat OCR, speaker pips. Populates `SocialState.currentMeetingChat`, `VotingState` (TBD if needed as a separate sub-record). | 1.5 | |
+
+### Sharing perception kernels via `among_them/common/`
+
+`among_them/common/perception_kernels/*.nim` is pure Nim,
+self-contained (no bitworld imports), stateless kernels with
+parity-pinned numpy fallbacks. Both modulabot and guided_bot consume
+them directly:
+
+- **modulabot** wires them into its FFI surface via
+  [`modulabot/nim_perception/lib.nim`](../modulabot/nim_perception/lib.nim)
+  + a Python ctypes loader; modulabot's
+  [`build.py`](../modulabot/nim_perception/build.py) compiles the
+  dylib with `--path:` set to the shared directory.
+- **guided_bot** (phase 1.2+) imports them directly via
+  `from "../../common/perception_kernels/X" as kX import nil` — no
+  FFI roundtrip, qualified-only access to keep namespaces clean.
+
+Rationale:
+
+- No code duplication between agents.
+- Neither agent reaches into the other's tree; the shared dir is the
+  *only* place these kernels live.
+- A change to one of the kernels is a single diff that benefits both
+  agents simultaneously, and the parity tests live with the kernels'
+  one canonical implementation (modulabot owns the parity oracle
+  because it has the numpy fallback).
+
+Risk: the kernels evolve under modulabot's parity tests. If guided_bot
+depends on a specific kernel shape and the kernel signature changes,
+guided_bot breaks silently until its tests catch it. The
+phase-1 test suite in guided_bot specifically exercises every
+kernel guided_bot consumes, so drift shows up immediately.
+
+Phase 1.0 did not yet import any kernel; phase 1.2 adds the
+dependency on `sprite_match.nim` + `localize.nim`. Phase 1.3 / 1.5
+will add the dependency on `actors.nim` / `ocr.nim`.
+
+See [`among_them/common/README.md`](../common/README.md) for the
+shared-directory convention.
+

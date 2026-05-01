@@ -3,8 +3,15 @@
 Adapted from ``~/coding/bitworld/among_them/players/modulabot/build_modulabot.py``
 but scoped down to perception kernels only and without the ``nimby``
 lock-file dependency — we don't pull in any upstream Nim packages (only
-the vendored sources under ``src/``), so a plain ``nim c`` invocation
-suffices.
+the vendored kernel sources under ``among_them/common/perception_kernels/``),
+so a plain ``nim c`` invocation suffices.
+
+The kernel sources live in ``among_them/common/perception_kernels/`` so
+guided_bot (and any future agent) can import them too without reaching
+into modulabot's tree. ``lib.nim`` here is the modulabot-specific FFI
+surface (the ``mb_*`` exports the Python loader binds to); it imports
+the kernels via Nim's ``--path:`` resolution against
+:data:`KERNELS_DIR`.
 
 The caller protocol matches the upstream build helper:
 
@@ -38,8 +45,15 @@ from pathlib import Path
 ABI_VERSION = 6
 
 HERE = Path(__file__).resolve().parent
-SRC_DIR = HERE / "src"
 LIB_NIM = HERE / "lib.nim"
+
+#: Shared kernel directory. Both modulabot (here) and guided_bot
+#: (via ``among_them/guided_bot/perception/localize.nim``) consume the
+#: same ``.nim`` files. Layout (with this file at
+#: ``among_them/modulabot/nim_perception/build.py``):
+#:   parents[0] = modulabot
+#:   parents[1] = among_them   ← the one we want
+KERNELS_DIR = HERE.parents[1] / "common" / "perception_kernels"
 
 
 class NativeBuildDisabled(RuntimeError):
@@ -68,18 +82,22 @@ def _sidecar_path(lib_path: Path) -> Path:
 
 
 def _hash_sources() -> str:
-    """Return a SHA256 of every Nim source file under the package.
+    """Return a SHA256 of every Nim source file the build consumes.
 
-    Sorted by relative path so the hash is platform-stable; hashing
-    content (not mtime) so rebuilds only happen on real edits.
+    Hashes :data:`LIB_NIM` plus every ``.nim`` under the shared kernel
+    directory (:data:`KERNELS_DIR`). Sorted by absolute path so the
+    hash is platform-stable; hashing content (not mtime) so rebuilds
+    only happen on real edits. Path keys are namespaced as ``lib/`` /
+    ``kernels/`` so a kernel and a lib file with the same basename
+    don't collide.
     """
     h = hashlib.sha256()
-    paths: list[Path] = [LIB_NIM]
-    if SRC_DIR.exists():
-        paths.extend(sorted(SRC_DIR.rglob("*.nim")))
-    for path in sorted(paths):
-        rel = path.relative_to(HERE)
-        h.update(str(rel).encode("utf-8"))
+    entries: list[tuple[str, Path]] = [("lib/" + LIB_NIM.name, LIB_NIM)]
+    if KERNELS_DIR.exists():
+        for path in sorted(KERNELS_DIR.rglob("*.nim")):
+            entries.append(("kernels/" + path.name, path))
+    for key, path in sorted(entries):
+        h.update(key.encode("utf-8"))
         h.update(b"\0")
         h.update(path.read_bytes())
         h.update(b"\0")
@@ -109,6 +127,12 @@ def _run_nim(lib_path: Path) -> None:
     # scoped to this package so we don't pollute the modulabot root.
     cache_dir = HERE / "nimcache"
     cache_dir.mkdir(exist_ok=True)
+    if not KERNELS_DIR.exists():
+        raise NativeBuildDisabled(
+            f"Shared perception-kernel directory not found: {KERNELS_DIR}. "
+            "Expected at among_them/common/perception_kernels/. "
+            "Did the kernels move? Check git history."
+        )
     cmd = [
         nim,
         "c",
@@ -118,7 +142,7 @@ def _run_nim(lib_path: Path) -> None:
         "--mm:orc",
         "--threads:off",
         f"--nimcache:{cache_dir}",
-        f"--path:{SRC_DIR}",
+        f"--path:{KERNELS_DIR}",
         f"--out:{lib_path}",
         str(LIB_NIM),
     ]

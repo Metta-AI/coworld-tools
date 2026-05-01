@@ -1,0 +1,39 @@
+{
+  "agents": {
+    "0": {
+      "counters": {
+        "bodies_seen_first": 0,
+        "branch_transitions": 5,
+        "chats_sent": 0,
+        "events_emitted": 5,
+        "kills_executed": 0,
+        "ticks_total": 462,
+        "votes_cast": 0
+      },
+      "phase_final": "playing",
+      "role_final": "crewmate",
+      "self_color_final": 0
+    }
+  },
+  "bot_name": "modulabot",
+  "ended_reason": "process_exit",
+  "ended_unix_ms": 1777612276185,
+  "harness_meta": {},
+  "pid": 55723,
+  "schema_version": 1,
+  "session_id": "2026-05-01T05-10-56Z-55723",
+  "started_unix_ms": 1777612256123,
+  "summary_counters": {
+    "bodies_seen_first": 0,
+    "branch_transitions": 5,
+    "chats_sent": 0,
+    "events_emitted": 5,
+    "kills_executed": 0,
+    "ticks_total": 462,
+    "votes_cast": 0
+  },
+  "trace_settings": {
+    "level": "decisions",
+    "snapshot_period_ticks": null
+  }
+}

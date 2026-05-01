@@ -1,10 +1,24 @@
 """Shared helpers for policy modules.
 
-The Nim bot pushes most of these into ``tasks.nim`` / ``motion.nim`` /
-``path.nim``. We collapse them here because cogames hands us screen-space
-positions directly — no A* or world↔camera conversion needed — and because
-both the crewmate and imposter policies want the same ``move_toward`` /
-``press_a_when_close`` shape.
+The Nim bot splits these across ``tasks.nim`` / ``motion.nim`` /
+``path.nim`` / ``policy.nim``. We collapse them here because both
+the crewmate and imposter policies want the same primitives —
+movement intent, A\\* navigation wiring, anti-stuck nudge,
+task-tier selection, body-priority ordering.
+
+Key entry points:
+
+- :class:`Policy` — abstract base; each role policy implements
+  ``decide()``.
+- :func:`best_actionable_task` — the four-tier task selection
+  with hysteresis. See its docstring for the full ordering and
+  the assignment-evidence semantics added by Phases 1-3 of
+  ``CREWMATE_TASK_FIX_PLAN.md``.
+- :func:`navigate_to_world_goal` — A\\* over the walk mask
+  (`path.py`) when localized; greedy world-delta fallback
+  otherwise.
+- :func:`anti_stuck_nudge`, :func:`set_world_goal`,
+  :func:`world_pos_from_screen` — utilities the policies share.
 
 ``decide()`` is the one-method contract. Policies should mutate state
 (``Bot.goal``, ``Bot.motion``, ``Bot.tasks.hold_ticks``, etc.) freely and
@@ -168,18 +182,30 @@ def best_actionable_task(bot: Bot) -> TaskInfo | None:
     3. A task with ``arrow_visible`` — chase the arrow offscreen.
     4. Otherwise ``None`` — let the policy fall through to patrol.
 
-    Within each tier we take the closest to screen centre.
+    Within each tier we take the closest to screen centre. ``active``
+    ties prefer ``icon_visible`` over checkout-only (Phase 4.2 of
+    CREWMATE_TASK_FIX_PLAN.md).
 
-    **Target hysteresis.** Every unresolved task is always in the
-    candidate list (the pixel adapter paints an ``arrow_visible=True``
-    stub for every off-screen station), so naive ``min()`` over tiers
-    can flip the chosen task frame-to-frame when perception flickers:
-    a sprite match missing for one tick drops a station from ``icons``
-    into ``arrows``; crossing a rect boundary toggles ``active``;
-    walking a pixel changes which arrow is "closest to centre" when
-    all arrows are pinned to screen edges. Each flip invalidates the
-    A\\* path in ``set_world_goal``, and the crewmate stalls in
-    indecisive back-and-forth instead of actually walking anywhere.
+    **Assignment evidence (Phase 1/2 of the fix plan).** Tier 3 is
+    not "every off-screen task on the map"; it's only tasks with a
+    matching yellow radar dot at the projected screen-edge position
+    (or a previously-latched ``bot.tasks.checkout[i]``). Tier 1 is
+    not "any rect intersection"; the pixel adapter further requires
+    ``icon_visible or checkout[i]`` before setting ``active=True``.
+    These gates are what stop the bot from chasing every task on the
+    map indiscriminately.
+
+    **In-flight confirmation gate (Phase 3).** A task with
+    ``bot.tasks.confirming_index == idx`` is in the post-hold
+    confirmation window; ``_keep`` filters it out so the policy
+    doesn't loop back into ``_begin_hold`` while
+    ``_check_hold_confirmation`` waits on the server signal.
+
+    **Target hysteresis.** Even with the gates above, perception can
+    still flicker (sprite-match miss for one tick, dot momentarily
+    absent), so a naive ``min()`` over tiers can flip the chosen
+    target frame-to-frame. Each flip invalidates the A\\* path in
+    ``set_world_goal``, leaving the crewmate stalled.
 
     Fix: if we committed to a task on a previous tick and it's still a
     valid unresolved candidate, keep it for at least
@@ -206,6 +232,16 @@ def best_actionable_task(bot: Bot) -> TaskInfo | None:
             return False
         if info.index < len(tasks.resolved) and tasks.resolved[info.index]:
             return False
+        # Phase 3: a task with a pending server-side confirmation is
+        # "in flight" — we already pressed A for
+        # :data:`~modulabot.tuning.TASK_HOLD_TICKS` ticks, released,
+        # and are now watching for the server to acknowledge. Don't
+        # re-select it; that would clobber ``confirming_via_icon``
+        # and restart the timer. ``_check_hold_confirmation`` will
+        # either mark it resolved (filtered by the line above) or
+        # un-latch it (drops out of tier 3) when it resolves.
+        if info.index == tasks.confirming_index:
+            return False
         return not (info.index < len(tasks.states) and tasks.states[info.index].value == 3)
 
     candidates = [info for info in percep.tasks if _keep(info)]
@@ -229,12 +265,19 @@ def best_actionable_task(bot: Bot) -> TaskInfo | None:
     # Always take a free active task, even over a committed target
     # — we're standing on it; pressing A costs nothing.
     if actives:
-        # But prefer the committed one if *it* is the active one, so
-        # the chosen_since_tick window doesn't reset gratuitously.
+        # Phase 4.2 tiebreak ordering, applied in priority order:
+        # (a) the committed task wins so the chosen_since_tick window
+        #     doesn't reset gratuitously when we're already going for
+        #     it; (b) icon-visible actives outrank checkout-only
+        #     actives because the icon is direct server-rendered
+        #     evidence of assignment, while checkout is a weaker
+        #     "we saw a dot here at some point" inference.
         for info in actives:
             if info.index == tasks.chosen_index:
                 return info
-        chosen = _pick_best(actives)
+        icon_actives = [info for info in actives if info.icon_visible]
+        pool = icon_actives if icon_actives else actives
+        chosen = _pick_best(pool)
         tasks.chosen_index = chosen.index
         tasks.chosen_since_tick = percep.tick
         return chosen

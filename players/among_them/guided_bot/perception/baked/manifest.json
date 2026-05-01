@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "source": {
+    "bitworld_dir": "/Users/jamesboggs/coding/bitworld",
+    "files": {
+      "palette": "/Users/jamesboggs/coding/bitworld/clients/data/pallete.png",
+      "map_json": "/Users/jamesboggs/coding/bitworld/among_them/map.json",
+      "map_aseprite": "/Users/jamesboggs/coding/bitworld/among_them/skeld2.aseprite",
+      "spritesheet_png": "/Users/jamesboggs/coding/bitworld/among_them/spritesheet.png",
+      "font_aseprite": "/Users/jamesboggs/coding/bitworld/among_them/tiny5.aseprite"
+    }
+  },
+  "screen": {
+    "width": 128,
+    "height": 128
+  },
+  "map": {
+    "width": 952,
+    "height": 534
+  },
+  "sprite": {
+    "size": 12,
+    "atlas_columns": [
+      0,
+      1,
+      6,
+      4,
+      3,
+      7
+    ],
+    "transparent_index": 255
+  },
+  "files": [
+    {
+      "name": "palette.bin",
+      "size": 48,
+      "sha256": "DD57108A47E5C3CFE8ADB0E5E7FCECDC98522096"
+    },
+    {
+      "name": "sprites.bin",
+      "size": 864,
+      "sha256": "3F4E20180D286DD1B8FD1FB3435C77CC899E1854"
+    },
+    {
+      "name": "map_pixels.bin",
+      "size": 508368,
+      "sha256": "4EFC5B9BC0DB1440D3C8520A488475738458D338"
+    },
+    {
+      "name": "walk_mask.bin",
+      "size": 508368,
+      "sha256": "EBA637B008DF200833F452DCCB730ECEBE48F5E2"
+    },
+    {
+      "name": "wall_mask.bin",
+      "size": 508368,
+      "sha256": "828E0C8FAE36A06B1A7E1F96839184CC1C2D85C3"
+    },
+    {
+      "name": "font.bin",
+      "size": 1779,
+      "sha256": "492BD596A55D16A8E3D46A89A79E42B2BD36FA24"
+    },
+    {
+      "name": "map.json",
+      "size": 9065,
+      "sha256": "7D18A19FEB08F6ECA53F172635CA38450F563828"
+    }
+  ]
+}

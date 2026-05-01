@@ -8,11 +8,29 @@ The guiding principle is: group by *concern*, not by *when it's mutated*. Each
 module that operates on one of these sub-records owns its mutation — perception
 writes to ``Perception``, the imposter policy writes to ``ImposterState``, etc.
 
-We deliberately do NOT replicate the Nim ``Sprites`` / ``Paths`` / ``FrameIO``
-sub-records here. They existed in Nim because the bot was a direct WebSocket
-client parsing pixel frames on its own. Inside cogames we receive observations
-preprocessed by the environment, so those concerns either disappear (Paths,
-Sprites) or collapse into whatever the cogames harness hands us (FrameIO).
+What lives here vs. elsewhere:
+
+- **Here (`state.py`)**: per-bot mutable state — ``Perception``, ``Motion``,
+  ``Tasks``, ``Goal``, ``Identity``, ``Evidence``, ``ImposterState``,
+  ``VotingState``, ``ChatState``, ``Diag`` — plus the screen-space sighting
+  records the perception layer emits (``PlayerSighting``, ``BodySighting``,
+  ``TaskInfo``, ``CrewmateMatch``, ``BodyMatch``, ``GhostMatch``,
+  ``IconMatch``, ``RadarDotMatch``).
+- **`data.py`**: round-static reference artefacts (``GameMap``, ``Sprite`` /
+  ``Sprites``, palette, font). The Nim bot's ``Sprites`` / ``Paths`` /
+  ``FrameIO`` sub-records partially live there because they're load-once
+  inputs, not per-tick state.
+- **Module-local**: small caches that don't need cross-frame persistence —
+  ``localize.Localizer`` keeps its patch index there, ``voting.py`` keeps
+  parse caches on ``VotingState`` (here).
+
+The four-state ``TaskState`` enum (``NOT_DOING / MAYBE / MANDATORY /
+COMPLETED``) is currently only fully populated by the state-obs path; the
+pixel pipeline effectively uses only ``NOT_DOING`` + ``COMPLETED`` (via
+``Tasks.resolved``). Selection logic in ``base.best_actionable_task`` reads
+``icon_visible / arrow_visible / active / checkout`` directly. See
+``CREWMATE_TASK_FIX_PLAN.md § TaskState machine cleanup`` for the cleanup
+TODO; not blocking but worth doing.
 """
 
 from __future__ import annotations
@@ -58,6 +76,17 @@ class TaskState(Enum):
     - ``MAYBE``: radar or checkout evidence; worth visiting but don't hold.
     - ``MANDATORY``: task icon visible or confirmed on our list.
     - ``COMPLETED``: finished; leave it alone unless it reappears.
+
+    .. note::
+       Pixel mode currently uses only ``NOT_DOING`` and ``COMPLETED``;
+       the ``MAYBE`` / ``MANDATORY`` transitions are populated only by
+       the state-obs path. Selection logic in
+       :func:`~modulabot.policies.base.best_actionable_task` reads the
+       ``TaskInfo.icon_visible`` / ``arrow_visible`` / ``active`` /
+       ``Tasks.checkout`` flags directly. See
+       ``CREWMATE_TASK_FIX_PLAN.md § TaskState machine cleanup`` for
+       the cleanup TODO. Doesn't affect correctness; the field is
+       dead weight in pixel-mode traces.
     """
 
     NOT_DOING = 0
@@ -128,22 +157,55 @@ class BodySighting:
 
 @dataclass(slots=True)
 class TaskInfo:
-    """One task station as reported by the state observation.
+    """One task station as reported by perception this tick.
 
-    Flag semantics match the BitWorld state-observation format used by the
-    cogames cyborg baseline policy — see :mod:`modulabot.perception.state_obs`
-    for the bit layout.
+    Rebuilt every frame by the perception layer; reset on each call to
+    :func:`~modulabot.perception.pixel_pipeline._populate_tasks_from_camera`
+    or the state-obs equivalent. Persistent task belief state lives on
+    :class:`Tasks` (per-task lists indexed by ``index``).
+
+    Flag semantics in pixel mode (post-CREWMATE_TASK_FIX_PLAN.md):
+
+    - ``icon_visible`` — strict sprite match for the task icon at the
+      projected position. Server-rendered ground truth: only present
+      for tasks assigned to *this* player.
+    - ``arrow_visible`` — task is off-screen AND a yellow radar dot
+      lies within :data:`~modulabot.tuning.RADAR_MATCH_TOLERANCE` of
+      the projected screen-edge position, **or** the per-task
+      ``checkout`` latch was set on a prior tick (Phase 1).
+    - ``active`` — ``active_rect`` AND (``icon_visible`` OR
+      ``checkout[i]``). Triggers an A-hold (Phase 2).
+    - ``active_rect`` — raw rect-intersection (player world pos
+      inside the task rectangle). Diagnostic-only; selection
+      ignores it.
+    - ``state`` — mirror of ``bot.tasks.states[i]``. See
+      :class:`TaskState` for the half-implemented status of this
+      field in pixel mode.
+
+    State-obs path uses the BitWorld state-observation bit layout
+    directly — see :mod:`modulabot.perception.state_obs`.
     """
 
     index: int = -1
-    x: int = 0  # task-rect top-left, screen-space
+    #: Screen-space target. When ``icon_visible`` is True this is the
+    #: rect top-left; when off-screen this mirrors ``arrow_x/y``
+    #: (Phase 4.1) so callers that miss the ``icon_visible`` gate
+    #: read the screen-edge target instead of ``(0, 0)``.
+    x: int = 0
     y: int = 0
-    arrow_x: int = 0  # radar arrow direction (when offscreen)
+    arrow_x: int = 0  # screen-edge projection of the icon, when off-screen
     arrow_y: int = 0
     state: TaskState = TaskState.NOT_DOING
     icon_visible: bool = False
     arrow_visible: bool = False
     active: bool = False  # currently holding A would complete it
+    #: Raw "player world position is inside this task's rectangle"
+    #: flag, without the assignment-evidence gate that ``active`` now
+    #: applies. Kept separate so traces / diagnostics can still show
+    #: "standing in rect N but no icon/radar evidence it's ours" —
+    #: useful when debugging mis-assigned holds. ``active`` is
+    #: ``active_rect and (icon_visible or checkout[i])`` post-Phase-2.
+    active_rect: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +350,16 @@ class Perception:
     #: interstitials so the localizer knows to run a full global search
     #: rather than trying a local refit from stale state.
     game_started: bool = False
-    #: Task progress fraction 0..1 (from state-obs header). Unreliable in
-    #: pixel-only mode — leave at 0.0.
+    #: Task progress fraction 0..1. Read from the BitWorld
+    #: state-observation header byte (`state_obs.py`); pixel mode
+    #: currently leaves this at 0.0 because we don't parse the
+    #: HUD progress bar yet. The crewmate hold-confirmation
+    #: (`crewmate._check_hold_confirmation`) uses this as the
+    #: fallback signal for checkout-only holds (Phase 7) — meaning
+    #: in pure pixel mode, checkout-only holds rely entirely on
+    #: the deadline-timeout path. Documented there. Adding
+    #: progress-bar OCR is a future improvement filed in the
+    #: README's "Future work" section.
     task_progress: float = 0.0
 
     # Pixel-mode raw matches (screen coords).
@@ -335,14 +405,103 @@ class Motion:
 
 @dataclass(slots=True)
 class Tasks:
-    """Task-state bookkeeping. Sizes match ``Perception.tasks``."""
+    """Task-state bookkeeping for the crewmate task lifecycle.
+
+    All per-task lists are aligned by ``index`` and grow lazily to
+    ``len(game_map.tasks)`` on the first pixel-pipeline tick. The
+    state-obs path (`perception/state_obs.py`) maintains the same
+    invariant on its own resize path.
+
+    The selection / approach / hold / confirm flow is documented in
+    ``CREWMATE_TASK_FIX_PLAN.md``. In brief:
+
+    - ``resolved[i]`` is the only "this task is permanently out" latch.
+      Set by either (a) ``crewmate._mark_confirmed`` after a
+      server-confirmed completion (Phase 3/7) or (b) the icon-miss
+      negative-evidence latch in ``_populate_tasks_from_camera``
+      (Phase 6) when the bot has clear LoS to the rect with no icon
+      and no fuzzy match for ``ICON_MISS_THRESHOLD`` consecutive
+      frames. ``best_actionable_task._keep`` filters resolved tasks
+      out of the candidate set.
+    - ``checkout[i]`` is the radar-dot "we saw evidence this is
+      ours" latch (Phase 1). Set on first dot match; cleared on
+      confirmation timeout (Phase 3) or negative-evidence latch
+      (Phase 6).
+    - ``hold_*`` track the in-progress A-hold.
+    - ``confirming_*`` track the post-hold server-confirmation
+      window (Phase 3/7).
+    - ``icon_misses[i]`` is the per-task negative-evidence counter
+      (Phase 6).
+    """
 
     states: list[TaskState] = field(default_factory=list)
-    # Per-task latch: once MANDATORY and completed at least once, record it
-    # so we don't re-navigate to the same station forever.
+    #: One-way latch: once True, the task drops out of the candidate
+    #: set for the rest of the round. Set by either
+    #: :meth:`~modulabot.policies.crewmate.CrewmatePolicy._mark_confirmed`
+    #: after a server-confirmed completion, or by the Phase 6
+    #: icon-miss negative-evidence pass in
+    #: :func:`~modulabot.perception.pixel_pipeline._populate_tasks_from_camera`
+    #: (clear LoS + no icon + no fuzzy match for
+    #: :data:`~modulabot.tuning.ICON_MISS_THRESHOLD` consecutive
+    #: frames → "not assigned to us"). State-obs path has its own
+    #: equivalent transition. See CREWMATE_TASK_FIX_PLAN.md Phase 3
+    #: / Phase 6.
     resolved: list[bool] = field(default_factory=list)
+    #: Per-task "server has told us this task exists on our list" latch,
+    #: set the first time a yellow radar dot matches the task's
+    #: projected screen-edge position. Survives momentary dot loss
+    #: (the server hides dots whenever the icon comes on-screen), but
+    #: is cleared on either (a) confirmation timeout in
+    #: :meth:`~modulabot.policies.crewmate.CrewmatePolicy._check_hold_confirmation`
+    #: or (b) the Phase 6 icon-miss negative-evidence latch firing.
+    #: Mirrors ``bot.tasks.checkout`` in the Nim reference. Populated
+    #: by :func:`~modulabot.perception.pixel_pipeline._populate_tasks_from_camera`;
+    #: consumed by the ``arrow_visible`` gate (Phase 1) and the
+    #: ``active`` gate (Phase 2 of CREWMATE_TASK_FIX_PLAN.md).
+    checkout: list[bool] = field(default_factory=list)
     hold_ticks: int = 0
     hold_index: int = -1
+    #: Tick at which the current hold started. Phase-3 confirmation
+    #: uses this as the anchor for ``pre_hold_progress``.
+    hold_start_tick: int = 0
+    #: Snapshot of ``bot.percep.task_progress`` captured at hold
+    #: start. Phase-3 confirmation marks the task resolved if
+    #: ``percep.task_progress > pre_hold_progress + epsilon`` at any
+    #: point during the confirmation window.
+    pre_hold_progress: float = 0.0
+    #: Task index we're currently waiting for server confirmation on
+    #: (hold has ended, A-button released, watching for the icon to
+    #: disappear or ``task_progress`` to advance). ``-1`` when no
+    #: confirmation is pending. Phase 3 of CREWMATE_TASK_FIX_PLAN.md.
+    confirming_index: int = -1
+    #: Tick after which we give up on the current confirmation and
+    #: clear both ``confirming_index`` and ``checkout[idx]`` so the
+    #: task either drops out of the candidate set or gets re-verified
+    #: by a fresh radar dot.
+    confirming_deadline: int = -1
+    #: Consecutive-frame icon-miss counter used for icon-disappearance
+    #: confirmation. Only incremented while the task is still
+    #: rect-inside (bot hasn't walked away) AND the hold was
+    #: originally triggered by a visible icon. Resets to zero on any
+    #: icon-visible frame.
+    confirming_miss_count: int = 0
+    #: True when the pending confirmation was started by an icon-
+    #: visible hold (as opposed to a checkout/radar-only hold).
+    #: Determines whether the icon-miss signal is usable — a
+    #: checkout-only hold can't use icon-miss because the icon might
+    #: never have been rendered in the first place.
+    confirming_via_icon: bool = False
+    #: Per-task counter of consecutive frames the task showed
+    #: "clear view, no icon, no fuzzy match". Used by Phase 6 of
+    #: CREWMATE_TASK_FIX_PLAN.md (icon-miss negative-evidence
+    #: pruning) to latch ``resolved[i] = True`` once
+    #: :data:`~modulabot.tuning.ICON_MISS_THRESHOLD` is reached.
+    #: Lazy-grown alongside ``states`` / ``resolved`` / ``checkout``
+    #: in :func:`~modulabot.perception.pixel_pipeline._populate_tasks_from_camera`.
+    #: Resets to zero on any positive (strict or fuzzy) match,
+    #: and is *not* incremented while the task is held or confirming
+    #: (Phase 3 owns the icon-disappearance signal in those windows).
+    icon_misses: list[int] = field(default_factory=list)
     #: Index of the task the crewmate policy committed to on a previous
     #: tick. Kept across frames so ``best_actionable_task`` can stick
     #: with a target instead of re-scoring every tick — without this,

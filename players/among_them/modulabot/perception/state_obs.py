@@ -1,5 +1,14 @@
 """State-observation parser for the cogames BitWorld AmongThem shim.
 
+.. warning::
+   This path is **not** exercised in tournament play. The cogames
+   ``BitWorldRunner`` hardcodes ``observation_kind="pixels"`` for
+   Among Them; structured state observations only come through the
+   training-harness ``BitWorldVecEnv`` path. Kept for offline
+   evaluation, the test suite, and any future training work that
+   wants to share the policy layer. The production path is
+   :mod:`~modulabot.perception.pixel_pipeline`.
+
 Layout (matches the ``bitworld_among_them_cyborg`` reference policy
 constants):
 
@@ -287,7 +296,14 @@ def _parse_tasks(frame: np.ndarray, percep: Perception, bot: Bot) -> None:
     if len(bot.tasks.states) != expected:
         bot.tasks.states = [t.state for t in percep.tasks]
         bot.tasks.resolved = [False] * expected
+        bot.tasks.checkout = [False] * expected
+        bot.tasks.icon_misses = [0] * expected
     else:
+        if len(bot.tasks.checkout) != expected:
+            # Keep checkout list aligned; no-op under normal replay.
+            bot.tasks.checkout = [False] * expected
+        if len(bot.tasks.icon_misses) != expected:
+            bot.tasks.icon_misses = [0] * expected
         for i, info in enumerate(percep.tasks):
             # Sticky: once resolved/completed, stay that way; otherwise follow
             # the perception's current read.
