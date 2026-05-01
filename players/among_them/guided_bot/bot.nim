@@ -22,6 +22,8 @@ import perception/data
 import perception/actors
 import perception/ignore
 import perception/localize
+import perception/ocr
+import perception/voting
 import action
 import mode_registry
 import guidance
@@ -163,6 +165,26 @@ proc decideNextMask*(bot: var Bot): uint8 =
 
   # 2e. Merge task/radar scan results into belief.
   mergeTaskPercept(bot.belief, percept.taskPercept)
+
+  # 2f. Interstitial classification (phase 1.5) + voting-screen parse
+  #     (phase 1.6). Both run on interstitial frames only. The voting
+  #     parser is tried first; if it succeeds, the frame is a voting
+  #     screen. Otherwise, OCR classifies the interstitial banner.
+  if percept.interstitial.isInterstitial:
+    # Try voting parse first.
+    percept.votingParse = parseVotingScreen(
+      bot.unpacked,
+      referenceData.sprites,
+      bot.belief.self.colorIndex)
+    if percept.votingParse.valid:
+      bot.belief.self.phase = PhaseVoting
+      bot.belief.percep.interstitialKind = InterstitialVoting
+    else:
+      # Classify interstitial banner via OCR.
+      let kind = classifyInterstitial(bot.unpacked)
+      if kind != InterstitialUnknown:
+        bot.belief.percep.interstitialKind = kind
+    mergeVotingPercept(bot.belief, percept.votingParse)
 
   # 3. Reconcile directive against current state (ghost / legality).
   reconcileDirective(bot)

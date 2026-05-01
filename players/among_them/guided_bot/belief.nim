@@ -7,8 +7,8 @@
 ## Phase 1.3 adds `mergeActorPercept` which copies actor-scan results
 ## (crewmates, bodies, ghosts, role, self-colour) into the belief.
 ## Phase 1.4 adds `mergeTaskPercept` which copies task-icon and
-## radar-dot scan results into the belief.
-## Later sub-phases merge more: voting/chat (1.6).
+## radar-dot scan results into the belief. Phase 1.6 adds
+## `mergeVotingPercept` which copies voting-screen parse results.
 ## See DESIGN.md §4.2 and §15.
 
 import types
@@ -177,3 +177,23 @@ proc mergeTaskPercept*(belief: var Belief, taskPercept: TaskPercept) =
   ## latching, icon-miss pruning) is policy-layer logic for phase 2.
   belief.percep.visibleTaskIcons = taskPercept.taskIcons
   belief.percep.radarDots = taskPercept.radarDots
+
+proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
+  ## Merge phase-1.6 voting-screen parse results into the belief.
+  ## Called from `bot.decideNextMask` after the voting parse completes.
+  ##
+  ## Copies chat lines into ``social.currentMeetingChat`` (replacing
+  ## the previous frame's lines). Phase and interstitial-kind updates
+  ## are handled directly in the bot pipeline (they need to gate
+  ## voting vs. banner classification).
+  if not voting.valid:
+    return
+  belief.social.currentMeetingChat = @[]
+  for cl in voting.chatLines:
+    belief.social.currentMeetingChat.add ChatLine(
+      tick: belief.tick,
+      speakerColor: cl.speakerColor,
+      text: cl.text)
+  # Flag for the guidance loop.
+  if voting.chatLines.len > 0:
+    belief.flags.wakeReasons.incl WakeChatObserved

@@ -24,3 +24,4 @@ __pycache__/
 /test/localize_test
 /test/actors_test
 /test/tasks_test
+/test/ocr_voting_test

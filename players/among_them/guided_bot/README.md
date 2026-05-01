@@ -11,38 +11,38 @@ editing.
 
 ## Status
 
-**Phase 1.4 — task-icon + radar-dot scanning (this commit).** Compiles
-cleanly as CLI and shared library; every decision still returns no-op
-(action layer is phase 2). Phases 1.0 through 1.3 are in place;
-phase 1.4 adds task-icon scanning (wrapping `mb_scan_task_icons` from
-`among_them/common/perception_kernels/actors.nim`) and radar-dot
-scanning (pure Nim, yellow periphery-ring pixels with Chebyshev-1
-dedup). The bot pipeline now:
+**Phase 1 complete — full perception pipeline.** Compiles cleanly as
+CLI and shared library; every decision still returns no-op (action
+layer is phase 2). The perception pipeline covers all six sub-phases:
 
-- Scans for task-icon sprites at each task station's expected screen
-  position (3-bob x 7x7 search grid), producing `IconMatch` hits.
-  Only runs when localized and not an alive imposter.
-- Scans for yellow radar dots in the 2-pixel screen-edge border ring,
-  deduplicating adjacent hits.
-- Stamps task-icon exclusion zones into the ignore mask.
-- Merges results into the belief state
-  (`PerceptionState.visibleTaskIcons/radarDots`).
+- **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
+- **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
+- **1.2** Camera localization (~1 ms cold, <1 ms warm).
+- **1.3** Actor scanning — crewmates, bodies, ghosts, role, self-colour (~2 ms).
+- **1.4** Task-icon + radar-dot scanning (~0.1 ms).
+- **1.5** ASCII OCR — `textMatches`, `bestGlyph`, `findText`, interstitial
+  banner classification (~12 ms for full-frame `findText` sweep).
+- **1.6** Voting-screen parse — grid layout, slot parsing (alive/dead +
+  colour), cursor/self-marker/vote-dot detection, SKIP text check,
+  chat OCR with speaker attribution.
 
-Scan cost: ~0.1 ms per gameplay frame (task icons + radar dots combined).
+Total per-frame perception cost (gameplay): ~5 ms. Interstitial
+classification: ~12 ms (banner OCR sweep). Voting parse: variable,
+dominated by chat OCR line count.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Scaffolding, type shapes, registry, no-op pipeline, FFI + Python wrapper | done |
 | 1.0 | Frame unpacking, interstitial detection, ignore-mask scaffolding, fixture tests | done |
-| 1.1 | Perception reference data (palette, sprites, map/walk/wall, font, map.json) baked from the upstream `~/coding/bitworld` checkout (single source of truth) and embedded via `staticRead` | done |
-| 1.2 | Camera localization (patch-hash global + local refit + spiral fallback). Reuses modulabot's perception kernels via direct `--path:` import | done |
-| 1.3 | Actor / body / ghost scanning via `mb_match_actor_sprite_all` + `mb_actor_color_index_all`. Role + self-colour detection. Ignore-mask actor exclusions | done |
-| 1.4 | Task-icon scanning via `mb_scan_task_icons` + radar-dot scanning (pure Nim). Ignore-mask task-icon exclusions | done |
-| 1.5 | ASCII OCR via `mb_best_glyph` + `mb_text_matches` | next |
-| 1.6 | Voting-screen parse | depends 1.5 |
-| 2 | Per-mode strategy (start with `task_completing`, `pretending`, `hunting`) + action layer (A\*, momentum, task-hold) | not started |
-| 3 | Guidance worker thread + `llm.nim` HTTP client (adapted from `bitworld/ais/claude.nim`) + meeting mode direct-control | not started |
-| 4 | Trace writer end-to-end (manifest + events + decisions + modes + guidance + reflexes + snapshots) | not started |
+| 1.1 | Perception reference data baked from upstream `~/coding/bitworld` checkout via `staticRead` | done |
+| 1.2 | Camera localization (patch-hash global + local refit + spiral fallback) | done |
+| 1.3 | Actor / body / ghost scanning + role + self-colour detection + ignore-mask exclusions | done |
+| 1.4 | Task-icon scanning via `mb_scan_task_icons` + radar-dot scanning | done |
+| 1.5 | ASCII OCR — `mb_best_glyph` + `mb_text_matches` + `findText` + interstitial classification | done |
+| 1.6 | Voting-screen parse — grid layout, slot/cursor/vote-dot parsing, chat OCR + speaker attribution | done |
+| 2 | Per-mode strategy (start with `task_completing`, `pretending`, `hunting`) + action layer (A\*, momentum, task-hold) | next |
+| 3 | Guidance worker thread + `llm.nim` HTTP client + meeting mode direct-control | not started |
+| 4 | Trace writer end-to-end | not started |
 | 5 | Fallback-only playability test; first submission | not started |
 
 ## Strategy
@@ -74,6 +74,8 @@ guided_bot/
     localize.nim            # phase 1.2 — camera localization orchestration
     actors.nim              # phase 1.3 — crewmate/body/ghost scan, role, self-colour
     tasks.nim               # phase 1.4 — task-icon scan (mb_scan_task_icons) + radar dots
+    ocr.nim                 # phase 1.5 — pixel-font OCR (mb_best_glyph, textMatches, findText)
+    voting.nim              # phase 1.6 — voting-screen parse (grid, slots, chat OCR)
     baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
   action.nim                # ActionIntent -> button mask
   mode_registry.nim         # mode lookup + default directive
@@ -103,6 +105,7 @@ guided_bot/
     localize_test.nim       # phase-1.2 camera-lock pinning + benchmark
     actors_test.nim         # phase-1.3 actor scan, role, self-colour, pipeline
     tasks_test.nim          # phase-1.4 task-icon scan, radar dots, pipeline
+    ocr_voting_test.nim     # phase-1.5/1.6 OCR, voting parse, pipeline
     fixtures/               # raw frame dumps for the fixture tests
 ```
 
@@ -160,6 +163,12 @@ nim c -r -d:release --threads:on --mm:orc \
 # pipeline, fixture sweep, smoke benchmark.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/tasks_test.nim
+
+# Phase 1.5/1.6 — font packing, textMatches, bestGlyph, readRun,
+# findText, classifyInterstitial, voting grid layout, end-to-end
+# pipeline fixture sweep, smoke benchmarks.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/ocr_voting_test.nim
 ```
 
 Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
@@ -218,29 +227,26 @@ produce real output (phase 2+).
 
 ## Known gaps / next steps
 
-1. **Phase 1.5 — ASCII OCR.** Wrap `mb_best_glyph` and `mb_text_matches`
-   from `among_them/common/perception_kernels/ocr.nim`. Classify
-   interstitial text (`CREWMATE`, `IMPS`, `CREW WINS`, `IMPS WIN`) and
-   chat lines. Needed for voting-screen parse (1.6) and role-reveal
-   classification.
-2. **Self-colour recall.** `updateSelfColor` currently uses the scalar
-   `matchesCrewmate` check at the known player anchor. On some frames
-   the player sprite doesn't match cleanly (e.g. during walking
-   transitions). A future improvement is to use the vectorised kernel
-   in a small window around the player anchor, or to carry the last
-   known colour forward when no match fires.
-3. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
-   produced by phase 1.4 are not yet consumed by a task-state machine
-   (icon→task assignment, checkout latching, icon-miss pruning). That's
-   policy-layer logic for phase 2.
-4. **Implement first real mode** (phase 2). Start with
+1. **Implement first real mode** (phase 2). Start with
    `task_completing` since it's both the crewmate default and the
    ghost default (DESIGN.md §5.7, §9.1). Its action layer needs A\* +
    momentum; phase-2 work lives mostly in `action.nim` + that one
    mode file.
+2. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
+   from phase 1.4 are not yet consumed by a task-state machine
+   (icon→task assignment, checkout latching, icon-miss pruning). That's
+   policy-layer logic for phase 2.
+3. **Self-colour recall.** `updateSelfColor` currently uses the scalar
+   `matchesCrewmate` check at the known player anchor. On some frames
+   the player sprite doesn't match cleanly. A future improvement is to
+   carry the last known colour forward when no match fires.
+4. **`classifyInterstitial` perf.** `findText` does a full-frame sweep
+   (~12 ms) per banner. This could be optimized by restricting the Y
+   search range to the known banner region or by implementing the numpy
+   sliding-window approach in Nim. Not a bottleneck since it only runs
+   on interstitial frames.
 5. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
-   into `llm.nim`, wire the worker thread in `guidance.nim`, and gate
-   it on `-d:guidedBotGuidance` until the HTTP dependency is bundled.
+   into `llm.nim`, wire the worker thread in `guidance.nim`.
 6. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
    bodies per DESIGN.md §11.
 7. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full

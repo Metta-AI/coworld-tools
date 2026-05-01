@@ -38,20 +38,25 @@ import perception/interstitial
 import perception/ignore
 import perception/actors as actorsModule
 import perception/tasks as tasksModule
+import perception/ocr as ocrModule
+import perception/voting as votingModule
 
-export data, frame, interstitial, ignore, actorsModule, tasksModule
+export data, frame, interstitial, ignore, actorsModule, tasksModule, ocrModule, votingModule
 
 type
   Percept* = object
     ## Structured output of one perception tick. Fields populated
     ## incrementally per sub-phase; phase 1.0 sets the interstitial
     ## observation and the ignore mask; phase 1.3 adds the actor
-    ## percept; phase 1.4 adds task-icon and radar-dot percepts.
+    ## percept; phase 1.4 adds task-icon and radar-dot percepts;
+    ## phase 1.5 refines interstitial classification via OCR;
+    ## phase 1.6 adds voting-screen parse.
     tick*: int
     interstitial*: InterstitialObservation
     ignoreMask*: IgnoreMask
     actors*: ActorPercept
     taskPercept*: TaskPercept
+    votingParse*: VotingParse
 
 proc initPercept*(): Percept =
   Percept(
@@ -63,7 +68,8 @@ proc initPercept*(): Percept =
     ),
     ignoreMask: initIgnoreMask(),
     actors: initActorPercept(),
-    taskPercept: initTaskPercept()
+    taskPercept: initTaskPercept(),
+    votingParse: initVotingParse()
   )
 
 proc perceive*(frameBuf: openArray[uint8], tick: int): Percept =
