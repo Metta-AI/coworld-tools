@@ -27,12 +27,32 @@ from types import ModuleType
 
 import numpy as np
 
-from mettagrid.bitworld import (
-    BITWORLD_ACTION_COUNT,
-    BITWORLD_ACTION_NAMES,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
-)
+# BitWorld constants — try the bitworld package first, fall back to
+# inline values so the policy works in Docker images that only have
+# mettagrid (no bitworld extra).
+try:
+    from mettagrid.bitworld import (
+        BITWORLD_ACTION_COUNT,
+        BITWORLD_ACTION_NAMES,
+        SCREEN_HEIGHT,
+        SCREEN_WIDTH,
+    )
+except ImportError:
+    SCREEN_WIDTH = 128
+    SCREEN_HEIGHT = 128
+    BITWORLD_ACTION_NAMES = (
+        "noop", "a", "b",
+        "up", "up+a", "up+b",
+        "down", "down+a", "down+b",
+        "left", "left+a", "left+b",
+        "right", "right+a", "right+b",
+        "up+left", "up+left+a", "up+left+b",
+        "up+right", "up+right+a", "up+right+b",
+        "down+left", "down+left+a", "down+left+b",
+        "down+right", "down+right+a", "down+right+b",
+    )
+    BITWORLD_ACTION_COUNT = len(BITWORLD_ACTION_NAMES)
+
 from mettagrid.policy.policy import AgentPolicy, MultiAgentPolicy
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import Action, AgentObservation
@@ -112,7 +132,7 @@ class AmongThemPolicy(MultiAgentPolicy):
 
     short_names = ["amongthem_guided_bot"]
 
-    def __init__(self, policy_env_info: PolicyEnvInterface, device: str = "cpu"):
+    def __init__(self, policy_env_info: PolicyEnvInterface, device: str = "cpu", **kwargs):
         super().__init__(policy_env_info, device=device)
         if tuple(policy_env_info.action_names) != BITWORLD_ACTION_NAMES:
             raise ValueError(

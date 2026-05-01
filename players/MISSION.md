@@ -280,36 +280,84 @@ None of this is required on day one. It's where we're heading.
   240 ticks, `logFrame` at `TraceFull`. `closeTrace` called from
   `destroyBot`. All 7 test suites pass; library + CLI builds green.
 
+- **guided_bot phase 5 complete.** Fallback-only playability test and
+  submission preparation. Key changes: (a) stale-default re-evaluation
+  in `bot.nim:reconcileDirective` — when the bot is in ModeIdle on a
+  default directive and the role is now known, it transitions to the
+  appropriate gameplay mode (task_completing / hunting) immediately.
+  This is the mechanism that passes the cogames 10-step validation
+  gate. (b) A\* node limit (30K) in `action.nim:findPath` to prevent
+  unbounded search on unreachable goals. (c) Fixture-replay fallback
+  test (`test/fallback_test.nim`) — 8th test suite proving non-NOOP
+  within 10 frames, mode transitions, no crash, no LLM directive
+  leakage. (d) Docker-compatible `mettagrid.bitworld` import fallback
+  in `amongthem_policy.py`. (e) `**kwargs` in policy `__init__` for
+  script compatibility. All 8 test suites pass; library build green.
+  **Blocker found:** spiral localization takes ~11s/frame on
+  pre-game/lobby frames that don't match the map, reducing live-play
+  throughput to ~2 fps (100% noop). Needs a spiral radius cap.
+  **Season blocker:** `among-them` appears in `cogames season list`
+  but returns 404 on API access.
+
+- **guided_bot action-table fix + idle wander (2026-05-01).**
+  `ffi/lib.nim:TrainableMasks` had 22/27 entries in wrong order
+  (direction-first vs the canonical direction+modifier grouping in
+  `mettagrid.bitworld.BITWORLD_ACTION_MASKS`). Every directional action
+  the Nim bot produced was garbled when sent to the server. Fixed by
+  reordering the table; added a compile-time assertion (`CanonicalMasks`
+  + `static:` block) and a Python-side unit test
+  (`test/test_action_table.py`) to prevent future drift. Also added
+  `DisciplineWander` (raw direction buttons without A\*/localization)
+  and rewired `ModeIdle` to emit movement on non-interstitial frames.
+
+- **guided_bot orbit bug fix + trace enhancements (2026-05-01).**
+  The A\* path-following logic had a compound bug that caused the bot
+  to orbit in a ±5 px area indefinitely instead of reaching its goal.
+  `PathLookahead=18` selected a waypoint 18 single-pixel A\* steps
+  ahead; combined with ~2 px camera-localization jitter, the path
+  trimming (drop steps within Manhattan distance ≤ 2) consumed steps
+  unpredictably, placing the waypoint past corridor turns or behind
+  walls. `steerButtons` then aimed straight at the off-axis waypoint,
+  hit walls, and reversed — creating a stable orbit.
+  **Fix (action.nim):** (a) `PathLookahead` reduced from 18 to 4 so
+  the waypoint stays tightly on the A\* corridor through turns.
+  (b) Periodic path recomputation every `ReplanIntervalTicks=24`
+  (~1 s) so camera-noise drift in the path trimming self-corrects.
+  (c) Stall detector: if Manhattan distance to goal hasn't decreased
+  in `StallProgressTicks=48` (~2 s), force a replan.
+  **Trace enhancement (trace.nim, bot.nim):** `logDecision` now
+  includes the final button mask (`mask`), self position
+  (`self_x`, `self_y`), and `localized` flag. The log call was moved
+  to after `applyIntent` so the mask is available.
+  **Result:** 30 s local match with seed 42 — bot navigates from
+  spawn (564, 120) to task station (631, 60) in ~137 ticks, then
+  holds A for the remaining 400 ticks (75% of gameplay in TaskHold).
+  Previously the bot orbited at (574, 85) for the entire game.
+
 ### Next
 
-0. **Crewmate task-selection fix (Phases 0-4 + 6-7 complete, 2026-04-30
-   to 2026-05-01).** Five-bug fix to the pixel-pipeline → crewmate
-   flow: gated `arrow_visible` on radar match (Phase 1), gated
-   `active` on assignment evidence (Phase 2), replaced the fake
-   84-tick hold-completion timer with a server-confirmed
-   hold→confirming state machine (Phase 3), batched minor cleanups
-   (Phase 4), added icon-miss negative-evidence pruning so the bot
-   learns which ~32 of 40 tasks aren't its (Phase 6), and flipped
-   confirmation priority to icon-first to eliminate the ~22%
-   sibling-completion false-positive rate that `task_progress` had
-   (Phase 7). Plan + per-phase results at
-   `among_them/modulabot/CREWMATE_TASK_FIX_PLAN.md`. Tests:
-   **236/236 pass, 0 expected failures**. Comparison traces
-   archived at `phase{0,1,2,3,7}_trace/`. Outstanding:
-   half-implemented `TaskState` machine (filed as TODO in the plan).
-
-1. **Submission attempt** once a live season comes back. Dry-run
-   the cogames ship command, confirm validation gate passes
-   without `--skip-validation`. The pixel pipeline emits
-   non-NOOP actions on the first gameplay frame (task selection
-   fires as soon as the localizer locks and any assignment
-   evidence is visible).
-2. **Post-submission iteration** — stand up the trace-based outer
+0. **Task-completion detection missing.** The `task_completing` mode
+   navigates to a task station and holds A indefinitely. It never
+   detects that the task is complete (or that no task is assigned at
+   this station) and never selects the next station. The bot spends
+   75% of a match holding A at one station. Fix: detect the task-icon
+   disappearing, or impose a hold-A timeout, then re-select a new
+   target. This is the single biggest gameplay improvement remaining
+   for the crewmate fallback.
+1. **Imposter fallback coverage.** The hunting/pretending fallback
+   defaults have not been live-tested since the orbit fix. Run an
+   imposter-seeded local match, confirm the kill-strike and cover
+   behaviors work, and tune `hunMaxWitnesses` / `preLoiterTicks`.
+2. **Submission attempt** once a live Among Them season is accessible.
+   The bot now passes the 10-step validation gate on live frames
+   (localization locks, actions are non-noop). Season blocker:
+   `among-them` returned 404 on API access as of 2026-05-01.
+3. **Post-submission iteration** — stand up the trace-based outer
    loop (feed `events.jsonl` + `decisions.jsonl` into an LLM
    harness), start A/B'ing tuning constants, gather real-meeting
    captures to replace the synthetic voting frames in
    `test_voting.py` / `test_pixel_pipeline.py`.
-3. **Known gaps**:
+4. **Known gaps**:
    - **`TaskState` machine half-wired** in pixel mode (only
      `NOT_DOING` and `COMPLETED` populated; selection logic
      reads other flags directly). Filed as TODO in

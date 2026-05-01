@@ -83,6 +83,31 @@ proc stampSpriteRect*(mask: var IgnoreMask, x, y, w, h: int) =
     for px in xLo .. xHi:
       mask.data[row + px] = 1'u8
 
+const
+  ## Nameplate geometry. The Among Them server renders each player's
+  ## name above its sprite using the PICO-8 font (~5px tall, ~4px
+  ## per glyph + 1px spacing). Nameplates are centred horizontally
+  ## on the sprite and drawn a few pixels above the sprite's top
+  ## edge. We use generous margins so variable-length names and
+  ## slight vertical jitter are covered.
+  NameplateHeight* = 7     ## px above sprite top to cover text + gap.
+  NameplateHalfWidth* = 40 ## px to each side of sprite centre.
+                            ## Covers names up to ~20 chars.
+
+proc stampNameplateRect*(mask: var IgnoreMask, spriteX, spriteY, spriteW: int) =
+  ## Stamp a rectangular nameplate exclusion zone above a detected
+  ## actor sprite. The zone is centred on the sprite and extends
+  ## upward to cover the player-name text the server renders.
+  let cx = spriteX + spriteW div 2
+  let xLo = max(0, cx - NameplateHalfWidth)
+  let xHi = min(ScreenWidth - 1, cx + NameplateHalfWidth)
+  let yHi = max(0, spriteY - 1)
+  let yLo = max(0, spriteY - NameplateHeight)
+  for py in yLo .. yHi:
+    let row = py * ScreenWidth
+    for px in xLo .. xHi:
+      mask.data[row + px] = 1'u8
+
 proc buildPhase10IgnoreMask*(
     maskOut: var IgnoreMask,
     frame: openArray[uint8]) =

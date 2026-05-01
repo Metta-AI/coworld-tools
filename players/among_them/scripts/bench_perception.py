@@ -14,7 +14,7 @@ interstitial). Honours ``MODULABOT_DISABLE_NATIVE=1`` so we can compare
 numpy-fallback vs. Nim side-by-side by running the script twice.
 
 The fixture (``modulabot/tests/fixtures_frames.npy``) holds 275 real
-gameplay frames captured via ``scripts/capture_frames.py``. We skip
+gameplay frames captured via ``scripts/capture.py``. We skip
 voting kernels' fixture runs for now because no captured voting frame
 exists; a synthetic frame is constructed instead so the OCR kernel
 still gets exercised.
@@ -32,12 +32,11 @@ from typing import Callable
 
 import numpy as np
 
-# Make ``modulabot`` importable whether the script is run from the repo
-# root or from ``among_them/``.
-_HERE = Path(__file__).resolve().parent
-_AMONG_THEM = _HERE.parent
-if str(_AMONG_THEM) not in sys.path:
-    sys.path.insert(0, str(_AMONG_THEM))
+from _lib import setup_pythonpath
+
+setup_pythonpath()
+
+_AMONG_THEM = Path(__file__).resolve().parent.parent
 
 from modulabot.actors import scan_all  # noqa: E402
 from modulabot.bot import BotCore  # noqa: E402
@@ -47,10 +46,10 @@ from modulabot.localize import Localizer, score_camera  # noqa: E402
 from modulabot.state import Bot, Phase  # noqa: E402
 from modulabot import voting as voting_mod  # noqa: E402
 
-# Voting synthetic frame builder lives in the test module — we reimport
-# it here instead of duplicating the 60-line constructor.
-sys.path.insert(0, str(_AMONG_THEM / "modulabot" / "tests"))
-from test_pixel_pipeline import _build_voting_frame  # type: ignore  # noqa: E402
+# Voting synthetic frame builder lives in the test module.  Import via
+# the test package path (modulabot.tests is a proper package) so we
+# don't need a separate sys.path hack.
+from modulabot.tests.test_pixel_pipeline import _build_voting_frame  # type: ignore  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

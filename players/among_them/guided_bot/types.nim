@@ -88,6 +88,9 @@ type
     DisciplineTaskHold
     DisciplineKillStrike
     DisciplineReport
+    DisciplineWander  ## Emit raw direction buttons toward steerTo without
+                      ## A* or localization. Used by idle mode to move
+                      ## before the localizer has locked.
 
   MeetingActionKind* = enum
     MeetingActNone
@@ -388,6 +391,10 @@ type
     stuckFrames*: int
     jiggleTicks*: int
     taskHoldTicks*: int
+    ## Periodic path recompute and stall detection (fixes orbit bug).
+    lastReplanTick*: int          ## Tick of last A* path computation.
+    bestGoalDist*: int            ## Best Manhattan distance to goal seen.
+    bestGoalDistTick*: int        ## Tick when bestGoalDist was set.
 
 # ---------------------------------------------------------------------------
 # Mode scratch state

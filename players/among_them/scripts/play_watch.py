@@ -34,39 +34,45 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import signal
 import sys
 import time
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import websocket
 
-# Import modulabot from the sibling package + debug_overlay from scripts/.
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))  # among_them/ so modulabot imports work
-sys.path.insert(0, str(HERE))  # scripts/ so debug_overlay imports work
+from _lib import (
+    add_client_args,
+    add_output_args,
+    add_policy_args,
+    add_session_args,
+    build_env_info,
+    button_mask_for_action,
+    derive_player_name,
+    parse_policy_kwargs,
+    resolve_policy,
+    setup_pythonpath,
+    setup_trace_env,
+    write_captured_frames,
+)
+
+setup_pythonpath()
 
 from mettagrid.bitworld import (  # noqa: E402
-    BITWORLD_ACTION_MASKS,
     BITWORLD_ACTION_NAMES,
-    BITWORLD_DEFAULT_FRAME_STACK,
     pack_input_packet,
 )
 from mettagrid.runner.bitworld_runner import (  # noqa: E402
-    BitWorldConfig,
+    BitWorldRuntime,
     PlayerConnection,
-    _build_bitworld_env_interface,
     _connect_websocket,
     _receive_player_frame,
     _stack_observation,
 )
 
 from modulabot.data import load_reference_data  # noqa: E402
-from modulabot.policy import AmongThemPolicy  # noqa: E402
 
 # Re-use the exact renderer from the offline overlay so the live view
 # is visually identical (and fixes in one land in both).
@@ -88,19 +94,12 @@ log = logging.getLogger("play_watch")
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Modulabot + live debug overlay window."
+        description="Connect to a running server with a live debug overlay window."
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=2000)
-    parser.add_argument("--name", default="modulabot-watch")
-    parser.add_argument("--duration", type=float, default=900.0)
-    parser.add_argument(
-        "--frame-stack", type=int, default=BITWORLD_DEFAULT_FRAME_STACK
-    )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--trace-dir", default=None)
-    parser.add_argument("--trace-level", default="decisions", choices=("off", "events", "decisions"))
-    parser.add_argument("--capture-frames", default=None)
+    add_client_args(parser)
+    add_policy_args(parser)
+    add_session_args(parser)
+    add_output_args(parser)
     parser.add_argument(
         "--render-every",
         type=int,
@@ -115,23 +114,27 @@ def main() -> int:
         help="Pixel zoom factor for the frame display (4 = 512x512 window).",
     )
     args = parser.parse_args()
+    # Default name for the watch script differs from the generic default.
+    if args.name is None:
+        args.name = derive_player_name(args) + "w"
 
-    if args.trace_dir:
-        os.environ["MODULABOT_TRACE_DIR"] = args.trace_dir
-        os.environ["MODULABOT_TRACE_LEVEL"] = args.trace_level
-        log.info("Trace enabled: %s (%s)", args.trace_dir, args.trace_level)
+    setup_trace_env(args.trace_dir, args.trace_level)
 
     # ---------------- WebSocket + policy setup ---------------------
-    config = BitWorldConfig(host=args.host, port=args.port, connect_timeout_s=5.0)
-    log.info("Connecting to ws://%s:%d as %s…", args.host, args.port, args.name)
+    config = BitWorldRuntime(host=args.host, port=args.port)
+    log.info("Connecting to ws://%s:%d as %s...", args.host, args.port, args.name)
     try:
-        ws = _connect_websocket(config, "/player", args.name, player_name=args.name)
+        ws = _connect_websocket(config, "/player", args.name, player_name=args.name,
+                                connect_timeout_s=args.connect_timeout)
     except ConnectionError as exc:
         log.error("Failed to connect: %s", exc)
         return 1
 
-    env_info = _build_bitworld_env_interface(frame_stack=args.frame_stack, num_agents=1)
-    policy = AmongThemPolicy(env_info, seed=args.seed)
+    env_info = build_env_info(frame_stack=args.frame_stack, num_agents=1)
+    policy_kwargs = parse_policy_kwargs(args.policy_kwarg)
+    if "seed" not in policy_kwargs:
+        policy_kwargs["seed"] = str(args.seed)
+    policy = resolve_policy(args.policy, env_info, policy_kwargs=policy_kwargs)
     conn = PlayerConnection(ws=ws, player_index=0, address=args.name)
     data = load_reference_data()
     log.info("Policy instantiated; env=%s", env_info.observation_shape)
@@ -228,10 +231,8 @@ def main() -> int:
             action_index = int(actions_out[0])
             action_counts[action_index] += 1
 
-            # Direct table lookup matches what bitworld_runner._policy_action_masks_and_chats
-            # does — skips the action-name round-trip that the hand-rolled
-            # helper used to perform.
-            mask = int(BITWORLD_ACTION_MASKS[action_index])
+            # Use the canonical button mask lookup from _lib.
+            mask = button_mask_for_action(action_index)
             try:
                 ws.send(pack_input_packet(mask), opcode=websocket.ABNF.OPCODE_BINARY)
             except Exception as exc:  # noqa: BLE001
@@ -281,17 +282,17 @@ def main() -> int:
             )
 
         if args.capture_frames and captured:
-            out = Path(args.capture_frames)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            arr = np.stack(captured, axis=0).astype(np.uint8)
-            np.save(out, arr)
-            log.info("Wrote %d frames to %s (%.1f MB).", len(captured), out, arr.nbytes / 1e6)
+            from _lib import AgentResult
+
+            r = AgentResult(captured_frames=captured)
+            write_captured_frames(args.capture_frames, [r], 1)
 
         try:
             ws.close()
         except Exception:
             pass
-        policy.close(reason="session_end")
+        if hasattr(policy, "close"):
+            policy.close(reason="session_end")
         try:
             root.destroy()
         except Exception:

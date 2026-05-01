@@ -1,6 +1,6 @@
-# guided_bot — Design Report (v0.4)
+# guided_bot — Design Report (v0.5)
 
-> **Status:** phases 0–3 implemented. Phase 0 scaffolded the type
+> **Status:** phases 0–5 implemented. Phase 0 scaffolded the type
 > system and no-op pipeline. Phase 1 (1.0–1.6) built the full
 > perception pipeline. Phase 2 (2.0–2.7) built the action layer (A*,
 > button masks, stuck detection) and six mode handlers
@@ -12,7 +12,15 @@
 > submits snapshots periodically/on-trigger and reads directives,
 > `modes/meeting.nim` executes LLM-driven chat/vote actions with a
 > safety-net fallback, and `prompts.nim` holds system prompts.
-> Phases 4–5 (trace, playability test) are not started.
+> Phase 4 added the structured trace writer (7 JSONL streams +
+> manifest). Phase 5 added fallback-only playability: a stale-default
+> re-evaluation in `reconcileDirective` that transitions idle→gameplay
+> modes on role detection, an A\* node limit (30K) to prevent
+> unbounded search, fixture-replay fallback tests (8th test suite),
+> and a Docker-compatible `mettagrid.bitworld` import fallback.
+> **Blocker for live play:** the spiral localization fallback takes
+> ~11s/frame on non-matching frames; needs a radius cap (see
+> README.md § Known gaps).
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
 > eventually consume this file. This doc describes the *shape* of the
@@ -603,7 +611,7 @@ The output of every mode. A small, flat record:
 - `press_b: bool`
 - `cursor: left | right | none` — meeting-screen cursor movement.
 - `chat: string | none` — meeting mode only.
-- `discipline: normal | task_hold | kill_strike | report | no_op`
+- `discipline: normal | task_hold | kill_strike | report | wander | no_op`
   — hint to the action layer.
 
 (`facing: direction | none` was in the original design for cases
@@ -612,6 +620,71 @@ in phase 2.)
 
 The action layer translates this into a button mask. The mode never
 touches a button bit directly.
+
+### 6.1. `DisciplineWander`
+
+Added to support the idle-mode pre-localization wander. Emits raw
+direction buttons without A\*, walk-mask checks, stuck detection, or
+localization gates. When `steer_valid` is true, steers toward
+`steer_to` using whatever (possibly stale) self-position the bot has.
+When `steer_valid` is false, cycles through cardinal directions based
+on a tick-modulo phase encoded in `steer_to.x` (0=up, 1=right,
+2=down, 3=left).
+
+Purpose: the bot must physically move during the window between game
+start and the first successful camera lock so the localizer sees fresh
+map pixels. All other disciplines either gate on `localized` or
+require A\* paths, making them useless before the localizer fires.
+
+### 6.2. FFI action-index contract
+
+The Nim FFI (`ffi/lib.nim`) maps button masks to action indices via
+`TrainableMasks`. The Python harness maps those indices back to masks
+via `mettagrid.bitworld.BITWORLD_ACTION_MASKS`. **These two tables
+must have identical ordering.** The canonical pattern is: for each
+direction group `{none, up, down, left, right, up+left, up+right,
+down+left, down+right}`, emit `{bare, +A, +B}` — 9 directions × 3
+modifiers = 27 actions. A compile-time assertion in `ffi/lib.nim`
+enforces this; a Python unit test
+(`test/test_action_table.py`) cross-checks the `mettagrid` package.
+
+### 6.3. A\* path replan and stall recovery
+
+The `DisciplineNormal` path through `applyIntent` runs A\* on the
+952×534 walk mask (4-connected, Manhattan heuristic, 30K node cap).
+The path is a sequence of single-pixel steps from the current
+self-position to the goal.
+
+**Path following** trims steps the bot has passed (Manhattan distance
+≤ 2 from current self-position), then picks a lookahead waypoint at
+`path[min(path.len-1, PathLookahead)]` and feeds it to `steerButtons`
+for a direction-button mask.
+
+**Problem discovered (2026-05-01):** Camera localization has ~2 px
+frame-to-frame jitter. This jitter corrupts the path-trimming state:
+the bot's estimated position wobbles, trimming eats different steps
+each tick, and the lookahead waypoint ends up past corridor turns or
+behind walls. `steerButtons` then aims straight at the off-axis
+waypoint, hits walls, and reverses — creating a stable orbit (±5 px,
+indefinite). The original `PathLookahead=18` amplified the problem by
+choosing waypoints far enough ahead to cross wall boundaries.
+
+**Fix:** Three mechanisms work together:
+
+1. **`PathLookahead = 4`** (was 18). The waypoint stays within 4
+   single-pixel A\* steps of the path front, keeping it tightly on
+   the corridor even through turns.
+
+2. **Periodic replan** every `ReplanIntervalTicks = 24` (~1 s at
+   24 Hz). Recomputes A\* from the current estimated self-position
+   regardless of whether the goal changed. This clears any corruption
+   accumulated in the trimmed path state due to position noise.
+
+3. **Stall detector.** Tracks the best (lowest) Manhattan distance to
+   goal seen so far (`bestGoalDist`) and the tick it was set. If
+   `StallProgressTicks = 48` (~2 s) elapse without the distance
+   decreasing, forces a replan. Catches edge cases the periodic timer
+   misses (e.g. bot stuck in a corner for exactly one replan cycle).
 
 ---
 

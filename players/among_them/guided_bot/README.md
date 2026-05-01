@@ -11,15 +11,18 @@ editing.
 
 ## Status
 
-**Phase 4 complete — structured trace writer.** The bot now emits
-structured JSONL trace output per DESIGN.md §11, enabling post-match
-replay and offline analysis. Tracing is opt-in via environment
-variables `GUIDED_BOT_TRACE_DIR` and `GUIDED_BOT_TRACE_LEVEL`. When
-off, every trace call is near-zero-cost (nil check early return).
+**Orbit bug fixed — bot navigates and completes tasks.** The A\*
+path-following oscillation bug that caused the bot to orbit ±5 px
+indefinitely has been resolved (see changelog below). In a 30 s local
+match the bot now reaches its target task station in ~137 ticks and
+holds A for the remainder of the game. Localization locks reliably on
+live gameplay frames (100% lock rate after the initial interstitial
+window).
 
-Phase 3 (LLM guidance loop), phase 2 (action layer + mode strategies),
-and phase 1 (full perception pipeline) remain intact underneath. All
-seven test suites pass; both CLI and library builds succeed.
+Phase 4 (structured trace writer), phase 3 (LLM guidance loop),
+phase 2 (action layer + mode strategies), and phase 1 (full
+perception pipeline) remain intact underneath. All eight test suites
+pass; both CLI and library builds succeed.
 
 - **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
 - **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
@@ -61,7 +64,9 @@ dominated by chat OCR line count.
 | 3.5 | `modes/meeting.nim` — LLM-driven meeting behavior with chat, voting, and safety-net fallback | done |
 | 3.6 | `prompts.nim` — system prompts for gameplay directives and meeting actions | done |
 | 4 | Trace writer — structured JSONL output per DESIGN.md §11 | done |
-| 5 | Fallback-only playability test; first submission | not started |
+| 5 | Fallback-only playability test; first submission | done |
+| — | Orbit bug fix: PathLookahead 18→4, periodic replan, stall detector | done |
+| — | Trace enhancement: decision records include mask + self position | done |
 
 ## Strategy
 
@@ -127,6 +132,8 @@ guided_bot/
     actors_test.nim         # phase-1.3 actor scan, role, self-colour, pipeline
     tasks_test.nim          # phase-1.4 task-icon scan, radar dots, pipeline
     ocr_voting_test.nim     # phase-1.5/1.6 OCR, voting parse, pipeline
+    fallback_test.nim       # phase-5 fallback-only playability
+    test_action_table.py    # Python: BITWORLD_ACTION_MASKS ordering guard
     fixtures/               # raw frame dumps for the fixture tests
 ```
 
@@ -193,6 +200,18 @@ nim c -r -d:release --threads:on --mm:orc \
 # pipeline fixture sweep, smoke benchmarks.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/ocr_voting_test.nim
+
+# Phase 5 — fallback-only playability: validation gate (non-NOOP
+# within 10 frames), mode transitions, no-crash full sequence,
+# default-directive-source invariant.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/fallback_test.nim
+
+# Python — action-table ordering guard. Verifies BITWORLD_ACTION_MASKS
+# matches the canonical direction×modifier formula that ffi/lib.nim's
+# TrainableMasks relies on.
+PYTHONPATH=among_them .venv/bin/python -m unittest \
+    among_them.guided_bot.test.test_action_table -v
 ```
 
 Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
@@ -264,7 +283,7 @@ Output files per session (in `GUIDED_BOT_TRACE_DIR`):
 |---|---|---|
 | `manifest.json` | events | Round metadata, schema version, role, start/end ticks, outcome |
 | `events.jsonl` | events | Game events: body_seen, meeting_started, role_revealed, chat_observed, game_over |
-| `decisions.jsonl` | decisions | Per-frame mode, directive source, params, branch ID, intent |
+| `decisions.jsonl` | decisions | Per-frame mode, directive source, params, intent, final button mask, self position, localized flag |
 | `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |
 | `reflexes.jsonl` | decisions | Reflex firings with trigger details |
 | `guidance.jsonl` | decisions | LLM calls: snapshot_sent, llm_response, directive_published, llm_call_failed |
@@ -275,46 +294,134 @@ See DESIGN.md §11 for the exact JSON schemas.
 
 ## Submissions
 
-See [`cogames/README.md`](cogames/README.md). Phase 2 produces real
-non-NOOP actions from the first gameplay frame, so the cogames
-10-step dry-run validation gate should pass without
-`--skip-validation`.
+See [`cogames/README.md`](cogames/README.md). Phase 5 added fallback-only
+playability: the bot emits non-NOOP actions from tick 1 on gameplay frames
+(passes the cogames 10-step validation gate on fixture data). A Docker
+dry-run against `beta-cvc` confirmed the FFI bundle loads and the Nim
+library compiles; the `among-them` season returns 404 on API access
+despite appearing in `cogames season list` (phantom entry as of
+2026-05-01).
+
+The `mettagrid.bitworld` import is now optional in `amongthem_policy.py`
+(inline fallback constants) so the policy loads in Docker images that
+only ship `mettagrid` without the `bitworld` extra.
 
 ## Submission log
 
 | Date | Policy name | Season | Dry-run | Leaderboard |
 |---|---|---|---|---|
-| _none yet_ | | | | |
+| 2026-05-01 | jamesboggs-guided-bot-fallback-test | among-them | **blocked**: season 404 | — |
+| 2026-05-01 | jamesboggs-guided-bot-dryrun | beta-cvc (fallback) | import fixed, Nim build attempted | — |
+
+## Change log (recent)
+
+**2026-05-01 — orbit bug fix + trace enhancements**
+
+- **`action.nim`:** Fixed the A\* path-following oscillation bug.
+  `PathLookahead` reduced from 18 to 4 so the waypoint stays on the
+  A\* corridor through turns. Added periodic path recomputation every
+  `ReplanIntervalTicks=24` (~1 s) and a stall detector that forces
+  replan when distance to goal hasn't decreased in
+  `StallProgressTicks=48` (~2 s). See DESIGN.md §6.3 for the full
+  analysis.
+- **`trace.nim` / `bot.nim`:** `logDecision` now includes the final
+  button mask (`mask`), self position (`self_x`, `self_y`), and
+  `localized` flag. The log call moved from before `applyIntent` to
+  after so the mask is available.
+- **`types.nim`:** `ActionState` gained three fields for
+  replan/stall tracking: `lastReplanTick`, `bestGoalDist`,
+  `bestGoalDistTick`.
+
+**2026-05-01 — action-table fix + idle wander + compile-time guard**
+
+- **`ffi/lib.nim`:** `TrainableMasks` reordered to match
+  `mettagrid.bitworld.BITWORLD_ACTION_MASKS`. The old ordering
+  (direction-first: noop/a/b/up/down/left/right/up+a/...) had 22 of
+  27 entries misaligned with the Python-side table (direction+modifier:
+  noop/a/b/up/up+a/up+b/down/...). This caused every non-trivial
+  action the Nim bot produced to be garbled when sent to the game
+  server. Compile-time assertion (`CanonicalMasks` + `static:` block)
+  added to prevent future drift.
+- **`test/test_action_table.py`:** Python-side guard that verifies
+  `BITWORLD_ACTION_MASKS` itself follows the canonical
+  direction×modifier formula.
+- **`types.nim` / `action.nim` / `tuning.nim` / `modes/idle.nim`:**
+  New `DisciplineWander` — raw directional movement without A\* or
+  localization. Idle mode now cycles through cardinal directions on
+  non-interstitial frames instead of returning noop. Helps the
+  localizer see fresh map pixels and passes the cogames 10-step gate.
+- **`DESIGN.md`:** §6.1 (`DisciplineWander`) and §6.2 (FFI
+  action-index contract) added.
 
 ## Known gaps / next steps
 
-1. **Integration test with live LLM** (phase 3 follow-up). Run a full
+0. **Task-completion detection missing (highest priority).** The
+   `task_completing` mode navigates to a task station and holds A
+   indefinitely. It never detects that the task is complete (or that
+   no task exists at this station) and never selects a new target.
+   In a 30 s match the bot spends 75% of gameplay holding A at one
+   station. Fix: detect the task-icon disappearing from the HUD (or
+   impose a hold-A timeout), then re-run target selection.
+1. **Imposter fallback not live-tested.** Hunting / pretending /
+   fleeing defaults have not been verified against the orbit fix.
+   Run an imposter-seeded local match and confirm kill-strike +
+   cover behaviors work.
+2. **Localization reliability (design-level).** The camera localization pipeline has
+   three tiers: local refit (fast, ~0.1 ms), patch-hash vote (fast,
+   ~5 ms), and spiral scan (capped at `SpiralMaxRadius=120` px,
+   ~60 ms worst-case). The spiral cap was added in phase 5 to
+   prevent ~11s hangs on non-matching frames. But the deeper problem
+   is that the spiral fires at all — it means both faster tiers
+   failed. Improvements to pursue:
+   - **Pre-game / lobby frame rejection.** The interstitial detector
+     only flags high-black-pixel-count frames. Lobby screens have
+     coloured content and are NOT flagged, so the localizer wastes
+     time on them. A lightweight classifier (e.g. dominant-colour
+     histogram, known lobby-sprite check, or map-pixel sample
+     agreement ratio) that gates `updateLocation` would eliminate
+     these calls entirely.
+   - **Patch index coverage.** `locateByPatches` should be the
+     dominant cold-localize path — it runs in ~5 ms and uses
+     spatial hashing to narrow candidates. If it's failing on real
+     gameplay frames, the likely cause is ignore-mask over-coverage
+     (too many patches marked invalid) or hash collisions in
+     featureless regions. Auditing the patch validity rate on the
+     fixture frames and loosening the ignore mask in the first few
+     frames (before actor exclusions are populated) would help.
+   - **Spiral seeding.** When the spiral does run, its seed position
+     determines how quickly it converges. Currently it seeds from
+     the last known camera or the button position. Seeding from
+     the best patch-vote candidate (even if below the vote
+     threshold) would centre the spiral closer to the truth.
+2. **Pre-game frame detection.** The interstitial detector only flags
+   high-black-pixel-count frames. Lobby/setup frames have colored
+   content and are NOT flagged, so the localizer runs the spiral on
+   them. Extending the detector to reject non-map frames would
+   prevent wasted spiral calls.  (Overlaps with item 1.)
+3. **Integration test with live LLM** (phase 3 follow-up). Run a full
    local match with `ANTHROPIC_API_KEY` set and verify the bot changes
    behavior mid-match based on LLM directives.
-2. **Meeting cursor precision.** The meeting mode uses repeated
+4. **Meeting cursor precision.** The meeting mode uses repeated
    CursorRight as a brute-force approach. A future improvement is to
    read the actual cursor position from the voting parse and navigate
    precisely to the target slot.
-3. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
+5. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
    from phase 1.4 are consumed by `task_completing` for basic
    nearest-station selection, but there is no full task-state machine
    yet (icon->task assignment latching, icon-miss pruning, mandatory
    vs completed tracking). That's a quality-of-play improvement.
-4. **Self-colour recall.** `updateSelfColor` currently uses the scalar
+6. **Self-colour recall.** `updateSelfColor` currently uses the scalar
    `matchesCrewmate` check at the known player anchor. On some frames
    the player sprite doesn't match cleanly. A future improvement is to
    carry the last known colour forward when no match fires.
-5. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
-   match with the LLM forcibly failing must pass validation, cast
-   votes, and complete at least one task.
-6. **Hunting target memory.** The hunting mode currently only pursues
+7. **Hunting target memory.** The hunting mode currently only pursues
    crewmates visible on the current frame. A short-term memory of
    last-seen positions would improve imposter behavior.
-7. **A\* path caching.** The current implementation recomputes A\* from
+8. **A\* path caching.** The current implementation recomputes A\* from
    scratch on every goal change. Path segment caching or incremental
    repair could reduce worst-case latency.
-8. **Prompt iteration.** The system prompts in `prompts.nim` are
+9. **Prompt iteration.** The system prompts in `prompts.nim` are
    starting points. Iterate based on match performance.
-9. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
+10. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
     call to sidestep GC-safety. A thread-local pool would avoid the
     per-call overhead (negligible at <1 Hz call rate, but cleaner).

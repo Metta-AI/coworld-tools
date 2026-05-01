@@ -289,9 +289,11 @@ proc closeTrace*(trace: TraceWriter) =
 # ---------------------------------------------------------------------------
 
 proc logDecision*(trace: TraceWriter, belief: Belief,
-                  intent: ActionIntent, branchId: string) =
+                  intent: ActionIntent, branchId: string,
+                  mask: uint8 = 0) =
   ## Log one decision record to decisions.jsonl (DESIGN.md section 11.3).
-  ## Called once per frame from bot.nim:decideNextMask after decide().
+  ## Called once per frame from bot.nim:decideNextMask after applyIntent()
+  ## so the final button mask is available.
   if trace == nil or trace.level < TraceDecisions:
     return
 
@@ -306,6 +308,11 @@ proc logDecision*(trace: TraceWriter, belief: Belief,
   rec["params"] = paramsToJson(belief.directive.params)
   rec["branch_id"] = newJString(branchId)
   rec["intent"] = intentToJson(intent)
+  rec["mask"] = newJInt(int(mask))
+  # Self position for correlating with camera localization.
+  rec["self_x"] = newJInt(belief.percep.selfX)
+  rec["self_y"] = newJInt(belief.percep.selfY)
+  rec["localized"] = newJBool(belief.percep.localized)
   if belief.directive.reasoning.len > 0:
     rec["reason"] = newJString(belief.directive.reasoning)
   trace.decisionsFile.writeLine($rec)

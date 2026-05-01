@@ -42,7 +42,7 @@
 ## over the padded ~600×1100 map. Subsequent localize calls reuse the
 ## index.
 
-import std/[algorithm]
+import std/[algorithm, os, strformat]
 
 import ../constants
 import ../types
@@ -97,6 +97,17 @@ const
   ## Minimum patch votes for a camera offset to be considered.
   PatchMinVotes* = 3
 
+  ## Maximum spiral search radius in pixels. The uncapped radius
+  ## can reach ~800px on Skeld2 (952×534 map), scanning ~680K
+  ## positions at ~1.7 µs each = ~11 seconds. A 48px cap limits
+  ## the scan to ~5.8K positions (~10 ms worst-case). This is
+  ## enough to recover from small camera drift when the local refit
+  ## missed (its window is only 17×17 = ±8 px). On frames where
+  ## the true camera is farther away (cold start, lobby), the
+  ## spiral gives up quickly — the patch search will find it on
+  ## the next frame that has enough map-matching content.
+  SpiralMaxRadius* = 48
+
 # Static asserts: kernel-side constants must agree with ours.
 static:
   doAssert kLocalize.PatchSize == PatchSize,
@@ -107,6 +118,19 @@ static:
   doAssert kLocalize.PatchHashSeed == PatchHashSeed
   doAssert kSpriteMatch.ScreenWidth == ScreenWidth
   doAssert kSpriteMatch.ScreenHeight == ScreenHeight
+
+# ---------------------------------------------------------------------------
+# Diagnostics — opt-in via GUIDED_BOT_LOCALIZE_DEBUG=1
+# ---------------------------------------------------------------------------
+
+let localizeDebug* = getEnv("GUIDED_BOT_LOCALIZE_DEBUG", "") != ""
+  ## When true, localization logs per-frame outcomes and periodic
+  ## aggregate summaries to stderr. Enable via
+  ## ``GUIDED_BOT_LOCALIZE_DEBUG=1`` (any non-empty value).
+
+const
+  ## How often (in frames) to print the aggregate localization summary.
+  LocalizeDiagPeriod* = 120  # ~5 seconds at 24 Hz.
 
 # ---------------------------------------------------------------------------
 # Camera score record — same shape as modulabot's ``CameraScore``
@@ -360,16 +384,37 @@ proc scoreBetter(newSc, bestSc: CameraScore): bool {.inline.} =
 # ---------------------------------------------------------------------------
 
 type
+  LocalizeDiag* = object
+    ## Per-bot aggregate localization diagnostics. Counters are
+    ## cumulative over the bot's lifetime; the periodic summary
+    ## reports deltas since the last print.
+    attempts*: int         ## Frames where updateLocation was called.
+    successes*: int        ## Frames where localized == true after.
+    localRefitOk*: int    ## Successes via local refit (tier 1).
+    patchOk*: int         ## Successes via patch search (tier 2).
+    spiralOk*: int        ## Successes via spiral fallback (tier 3).
+    failures*: int        ## Frames where all tiers failed.
+    interstitialSkips*: int ## Frames skipped (interstitial).
+    ## Snapshot of the counters at the last periodic print, so we
+    ## can report per-window deltas.
+    lastPrintTick*: int
+    lastAttempts*: int
+    lastSuccesses*: int
+    lastFailures*: int
+
   Localizer* = object
     ## One :class:`Localizer` per :class:`Bot`. Holds a reference to
     ## the shared module-level patch index plus per-bot scratch state
     ## (vote buffer, touched list — both consumed by the kernel and
     ## otherwise transparent to callers).
     votes*: seq[uint16]   ## Persistent vote-accumulator scratch.
+    diag*: LocalizeDiag   ## Diagnostic counters (always maintained;
+                          ## only printed when localizeDebug is true).
 
 proc initLocalizer*(): Localizer =
   ## Cheap. Lazy-allocates the patch index on first ``updateLocation``.
-  Localizer(votes: @[])
+  result.votes = @[]
+  result.diag = LocalizeDiag(lastPrintTick: -LocalizeDiagPeriod)
 
 # ---------------------------------------------------------------------------
 # Locator strategies
@@ -494,9 +539,11 @@ proc locateBySpiral(
   let hiY = maxCameraY()
   seedX = max(loX, min(hiX, seedX))
   seedY = max(loY, min(hiY, seedY))
-  let maxRadius = max(
-    max(abs(seedX - loX), abs(seedX - hiX)),
-    max(abs(seedY - loY), abs(seedY - hiY)))
+  let maxRadius = min(
+    SpiralMaxRadius,
+    max(
+      max(abs(seedX - loX), abs(seedX - hiX)),
+      max(abs(seedY - loY), abs(seedY - hiY))))
 
   var best = NoScore
   var bestX = seedX
@@ -550,8 +597,44 @@ proc locateByFrame(
     tick: int): bool =
   ## Global search: patches first, spiral fallback.
   if locateByPatches(self, perception, frame, mapPixels, ignoreMask, tick):
+    inc self.diag.patchOk
+    if localizeDebug:
+      stderr.writeLine &"[localize t={tick}] tier2-patch OK  cam=({perception.cameraX},{perception.cameraY}) self=({perception.selfX},{perception.selfY}) err={perception.cameraScore}"
     return true
-  locateBySpiral(self, perception, frame, mapPixels, ignoreMask, tick)
+  if locateBySpiral(self, perception, frame, mapPixels, ignoreMask, tick):
+    inc self.diag.spiralOk
+    if localizeDebug:
+      stderr.writeLine &"[localize t={tick}] tier3-spiral OK  cam=({perception.cameraX},{perception.cameraY}) self=({perception.selfX},{perception.selfY}) err={perception.cameraScore}"
+    return true
+  false
+
+# ---------------------------------------------------------------------------
+# Diagnostic summary (must precede updateLocation for forward-ref)
+# ---------------------------------------------------------------------------
+
+proc printDiagSummary*(self: var Localizer, tick: int) =
+  ## Print a periodic aggregate summary to stderr. No-op unless
+  ## ``localizeDebug`` is true and enough ticks have elapsed since
+  ## the last print.
+  if not localizeDebug:
+    return
+  if tick - self.diag.lastPrintTick < LocalizeDiagPeriod:
+    return
+
+  let dAttempts = self.diag.attempts - self.diag.lastAttempts
+  let dSuccesses = self.diag.successes - self.diag.lastSuccesses
+  let dFailures = self.diag.failures - self.diag.lastFailures
+  let pct = if dAttempts > 0: (dSuccesses * 100) div dAttempts else: 0
+
+  stderr.writeLine &"[localize t={tick}] === SUMMARY (last {LocalizeDiagPeriod} frames) ==="
+  stderr.writeLine &"[localize t={tick}]   attempts={dAttempts} ok={dSuccesses} fail={dFailures} rate={pct}%"
+  stderr.writeLine &"[localize t={tick}]   cumulative: attempts={self.diag.attempts} ok={self.diag.successes} fail={self.diag.failures} skips={self.diag.interstitialSkips}"
+  stderr.writeLine &"[localize t={tick}]   tiers: local={self.diag.localRefitOk} patch={self.diag.patchOk} spiral={self.diag.spiralOk}"
+
+  self.diag.lastPrintTick = tick
+  self.diag.lastAttempts = self.diag.attempts
+  self.diag.lastSuccesses = self.diag.successes
+  self.diag.lastFailures = self.diag.failures
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -579,16 +662,34 @@ proc updateLocation*(
   ## ``cameraScore``, ``cameraLock``, ``selfX/Y``, ``lastLocalizedTick``.
   ## On failure, leaves the camera fields at their previous values
   ## with ``localized=false``; callers should treat them as stale.
+  inc self.diag.attempts
+
   perception.lastCameraX = perception.cameraX
   perception.lastCameraY = perception.cameraY
 
   let mapPixels = referenceData.map.mapPixels
+  let hadLock = perception.localized
 
   if perception.localized:
     if locateNearFrame(self, perception, frame, mapPixels, ignoreMask, tick):
+      inc self.diag.successes
+      inc self.diag.localRefitOk
+      if localizeDebug:
+        stderr.writeLine &"[localize t={tick}] tier1-local OK  cam=({perception.cameraX},{perception.cameraY}) self=({perception.selfX},{perception.selfY}) score={perception.cameraScore}"
+      self.printDiagSummary(tick)
       return
-  discard locateByFrame(
-    self, perception, frame, mapPixels, ignoreMask, tick)
+
+  if locateByFrame(self, perception, frame, mapPixels, ignoreMask, tick):
+    inc self.diag.successes
+    # Tier-specific counter already incremented inside locateByFrame.
+    self.printDiagSummary(tick)
+    return
+
+  # All tiers failed.
+  inc self.diag.failures
+  if localizeDebug:
+    stderr.writeLine &"[localize t={tick}] FAILED  hadLock={hadLock} gameStarted={perception.gameStarted} homeSet={perception.homeSet} cam=({perception.cameraX},{perception.cameraY}) score={perception.cameraScore}"
+  self.printDiagSummary(tick)
 
 proc reseedCameraAtHome*(
     self: var Localizer,
@@ -597,6 +698,7 @@ proc reseedCameraAtHome*(
   ## Called after interstitials when we want the next localization
   ## pass to start from a known-good seed instead of stale state.
   ## Mirrors ``modulabot/localize.py::Localizer.reseed_camera_at_home``.
+  inc self.diag.interstitialSkips
   if perception.homeSet:
     perception.cameraX = cameraXForWorld(perception.homeX)
     perception.cameraY = cameraYForWorld(perception.homeY)

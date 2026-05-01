@@ -29,3 +29,6 @@ const
 
   # --- Task-completing defaults ---------------------------------------
   TaskHoldTicksDefault*       = 48   ## Baseline hold-A duration for completing a task.
+
+  # --- Idle-mode wander -----------------------------------------------
+  IdleWanderPeriod*           = 36   ## Ticks per direction change in idle wander (~1.5s at 24Hz).

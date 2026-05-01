@@ -4,11 +4,12 @@
 ## (`guidedbot_*`). The Python wrapper in `cogames/amongthem_policy.py`
 ## loads this shared library via ctypes.
 ##
-## Phase 0: handles + frame dimensions are validated, but every step
-## returns action index 0 (idle) because `decideNextMask` returns 0.
-## Phase 1+ doesn't need to change this file — once `decideNextMask`
-## returns real masks, the existing `actionIndexForMask` lookup
-## translates them into the cogames action table.
+## `actionIndexForMask` maps a button mask to the index in
+## `TrainableMasks`. That index is the action index the Python side
+## looks up in `mettagrid.bitworld.BITWORLD_ACTION_MASKS` to recover
+## the mask to send to the server. **The two tables must be in the
+## same order.** A compile-time assertion enforces this; see the
+## `CanonicalMasks` block below.
 ##
 ## Bump `GuidedBotAbiVersion` below (and
 ## `build_guided_bot.py:GUIDED_BOT_ABI_VERSION`) whenever the FFI
@@ -21,35 +22,62 @@ when defined(guidedBotLibrary):
 
   const GuidedBotAbiVersion* = 1
 
+  ## Action-index table. Ordering must match
+  ## `mettagrid.bitworld.BITWORLD_ACTION_MASKS` exactly. Pattern:
+  ## for each direction group {none, up, down, left, right, up+left,
+  ## up+right, down+left, down+right}, emit {bare, +A, +B}.
   const TrainableMasks = [
-    0'u8,
-    ButtonA,
-    ButtonB,
-    ButtonUp,
-    ButtonDown,
-    ButtonLeft,
-    ButtonRight,
-    ButtonUp or ButtonA,
-    ButtonDown or ButtonA,
-    ButtonLeft or ButtonA,
-    ButtonRight or ButtonA,
-    ButtonUp or ButtonB,
-    ButtonDown or ButtonB,
-    ButtonLeft or ButtonB,
-    ButtonRight or ButtonB,
-    ButtonUp or ButtonLeft,
-    ButtonUp or ButtonRight,
-    ButtonDown or ButtonLeft,
-    ButtonDown or ButtonRight,
-    ButtonUp or ButtonLeft or ButtonA,
-    ButtonUp or ButtonRight or ButtonA,
-    ButtonDown or ButtonLeft or ButtonA,
-    ButtonDown or ButtonRight or ButtonA,
-    ButtonUp or ButtonLeft or ButtonB,
-    ButtonUp or ButtonRight or ButtonB,
-    ButtonDown or ButtonLeft or ButtonB,
-    ButtonDown or ButtonRight or ButtonB,
+    0'u8,                                        #  0: noop
+    ButtonA,                                     #  1: a
+    ButtonB,                                     #  2: b
+    ButtonUp,                                    #  3: up
+    ButtonUp or ButtonA,                         #  4: up+a
+    ButtonUp or ButtonB,                         #  5: up+b
+    ButtonDown,                                  #  6: down
+    ButtonDown or ButtonA,                       #  7: down+a
+    ButtonDown or ButtonB,                       #  8: down+b
+    ButtonLeft,                                  #  9: left
+    ButtonLeft or ButtonA,                       # 10: left+a
+    ButtonLeft or ButtonB,                       # 11: left+b
+    ButtonRight,                                 # 12: right
+    ButtonRight or ButtonA,                      # 13: right+a
+    ButtonRight or ButtonB,                      # 14: right+b
+    ButtonUp or ButtonLeft,                      # 15: up+left
+    ButtonUp or ButtonLeft or ButtonA,           # 16: up+left+a
+    ButtonUp or ButtonLeft or ButtonB,           # 17: up+left+b
+    ButtonUp or ButtonRight,                     # 18: up+right
+    ButtonUp or ButtonRight or ButtonA,          # 19: up+right+a
+    ButtonUp or ButtonRight or ButtonB,          # 20: up+right+b
+    ButtonDown or ButtonLeft,                    # 21: down+left
+    ButtonDown or ButtonLeft or ButtonA,         # 22: down+left+a
+    ButtonDown or ButtonLeft or ButtonB,         # 23: down+left+b
+    ButtonDown or ButtonRight,                   # 24: down+right
+    ButtonDown or ButtonRight or ButtonA,        # 25: down+right+a
+    ButtonDown or ButtonRight or ButtonB,        # 26: down+right+b
   ]
+
+  # Compile-time assertion: derive the canonical table from the
+  # direction × modifier pattern and verify element-wise equality.
+  # This catches ordering drift the moment anyone edits TrainableMasks
+  # or the button constants.
+  const CanonicalMasks = block:
+    var res: array[27, uint8]
+    let dirs: array[9, uint8] = [
+      0'u8, ButtonUp, ButtonDown, ButtonLeft, ButtonRight,
+      ButtonUp or ButtonLeft, ButtonUp or ButtonRight,
+      ButtonDown or ButtonLeft, ButtonDown or ButtonRight]
+    let mods: array[3, uint8] = [0'u8, ButtonA, ButtonB]
+    for i in 0 ..< 9:
+      for j in 0 ..< 3:
+        res[i * 3 + j] = dirs[i] or mods[j]
+    res
+
+  static:
+    doAssert TrainableMasks.len == CanonicalMasks.len,
+      "TrainableMasks length mismatch vs canonical BITWORLD table"
+    for i in 0 ..< TrainableMasks.len:
+      doAssert TrainableMasks[i] == CanonicalMasks[i],
+        "TrainableMasks[" & $i & "] mismatch"
 
   type GuidedBotPolicy = ref object
     bots: seq[Bot]

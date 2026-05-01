@@ -9,7 +9,7 @@ The capture lives at ``tests/fixtures_frames.npy`` — 275 frames of real
 Among Them gameplay. Regenerate with::
 
     cd among_them
-    PYTHONPATH=. python scripts/capture_frames.py \\
+    PYTHONPATH=. python scripts/capture.py \
         --duration 12 --output modulabot/tests/fixtures_frames.npy
 
 We intentionally test *counts* and *roles* rather than exact match

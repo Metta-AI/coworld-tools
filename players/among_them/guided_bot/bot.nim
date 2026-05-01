@@ -11,7 +11,7 @@
 ## See DESIGN.md §4 (inner loop), §2 (persistent state ownership),
 ## §8 (guidance loop), §10 (concurrency model).
 
-import std/[os, json, strutils]
+import std/[os, json, strutils, strformat]
 import constants
 import types
 import belief
@@ -56,6 +56,12 @@ type
     prevRole*: BotRole         ## For detecting role_revealed event.
     prevPhaseForTrace*: GamePhase ## For detecting meeting_started / game_over.
     prevChatLen*: int          ## For detecting new chat lines.
+    ## Phase 5 — interstitial OCR cache. classifyInterstitial is a
+    ## full-frame OCR sweep (~22 ms). We cache the result across
+    ## consecutive interstitial frames so the sweep runs at most once
+    ## per interstitial run.
+    interstitialClassified*: bool  ## True once we've run OCR on this run.
+    cachedInterstitialKind*: InterstitialKind  ## Cached classification.
 
 proc initBot*(): Bot =
   result.frameTick = 0
@@ -74,6 +80,8 @@ proc initBot*(): Bot =
   result.prevRole = RoleUnknown
   result.prevPhaseForTrace = PhaseUnknown
   result.prevChatLen = 0
+  result.interstitialClassified = false
+  result.cachedInterstitialKind = InterstitialUnknown
 
   # Phase 4: open trace writer if env vars are set.
   let traceDir = getEnv("GUIDED_BOT_TRACE_DIR", "")
@@ -84,6 +92,10 @@ proc initBot*(): Bot =
     of "full":      TraceFull
     else:           TraceOff
   result.trace = openTrace(traceDir, traceLevel)
+
+  # Localization diagnostics: announce if debug logging is enabled.
+  if localizeDebug:
+    stderr.writeLine "[localize] diagnostics ENABLED (GUIDED_BOT_LOCALIZE_DEBUG)"
 
 proc switchMode(bot: var Bot, newDirective: Directive) =
   ## Honor `on_exit` / `on_enter` lifecycle hooks and reset scratch per
@@ -191,14 +203,29 @@ proc checkDirectiveTtl(bot: var Bot) =
       switchMode(bot, defaultDirectiveFor(bot.belief))
 
 proc reconcileDirective(bot: var Bot) =
-  ## Per-tick check. Honors the ghost override (§5.7), illegality
-  ## fallback (§4.3), and reflex evaluation (§5.8).
+  ## Per-tick check. Honors the ghost override (§5.7), stale-default
+  ## re-evaluation, reflex evaluation (§5.8), and illegality fallback
+  ## (§4.3).
   let cur = bot.belief.directive.mode
 
   # Ghost override. Always forces task_completing regardless of LLM.
   if bot.belief.self.isGhost and cur != ModeTaskCompleting:
     switchMode(bot, defaultDirectiveFor(bot.belief))
     return
+
+  # Stale-default re-evaluation (§9.1 fallback path). When the bot is
+  # running on a default directive in ModeIdle and the role is now known
+  # (crewmate or imposter), the original "unknown role" default is stale.
+  # Re-evaluate so the bot transitions to task_completing or hunting
+  # immediately on role detection — without waiting for the LLM. This
+  # is the mechanism that passes the cogames 10-step validation gate.
+  if cur == ModeIdle and
+     bot.belief.directive.source == SourceDefault and
+     bot.belief.self.role != RoleUnknown:
+    let better = defaultDirectiveFor(bot.belief)
+    if better.mode != cur:
+      switchMode(bot, better)
+      return
 
   # Reflex evaluation (§5.8). Runs before illegality so reflexes
   # can install a legal directive that the illegality check would
@@ -234,17 +261,11 @@ proc decideNextMask*(bot: var Bot): uint8 =
   # 2. Update belief with the percept.
   updateBelief(bot.belief, percept)
 
-  # 2a. Camera localization (phase 1.2). Skip on interstitials.
-  if percept.interstitial.isInterstitial:
-    bot.localizer.reseedCameraAtHome(bot.belief.percep)
-  else:
-    bot.localizer.updateLocation(
-      bot.belief.percep,
-      bot.unpacked,
-      percept.ignoreMask.data,
-      bot.frameTick)
-
-  # 2b. Actor scan (phase 1.3).
+  # 2a. Actor scan (phase 1.3) — runs BEFORE localization so that
+  #     other-player sprite and nameplate exclusions are in the ignore
+  #     mask when the localizer scores the frame. Without this,
+  #     crowded spawn areas (many visible players) push the error
+  #     count above the localizer's budget and prevent any lock.
   percept.actors = scanAll(
     bot.actorScanner,
     bot.belief.percep,
@@ -253,21 +274,47 @@ proc decideNextMask*(bot: var Bot): uint8 =
     bot.unpacked,
     percept.interstitial.isInterstitial)
 
-  # Stamp actor sprite exclusions into the ignore mask.
+  # Stamp actor sprite + nameplate exclusions into the ignore mask.
+  # Sprite rects cover the detected sprite bounding box. Nameplate
+  # rects cover the player-name text rendered by the server above
+  # each sprite (PICO-8 font ~5px tall, centered horizontally;
+  # names up to ~15 chars ≈ 60px wide). We use a generous margin
+  # so variable-length names and slight position jitter are covered.
   let spriteW = referenceData.sprites.player.width
   let spriteH = referenceData.sprites.player.height
   for cm in percept.actors.crewmates:
     stampSpriteRect(percept.ignoreMask, cm.x, cm.y, spriteW, spriteH)
+    stampNameplateRect(percept.ignoreMask, cm.x, cm.y, spriteW)
   let bodyW = referenceData.sprites.body.width
   let bodyH = referenceData.sprites.body.height
   for bm in percept.actors.bodies:
     stampSpriteRect(percept.ignoreMask, bm.x, bm.y, bodyW, bodyH)
+    # Bodies don't have nameplates.
   let ghostW = referenceData.sprites.ghost.width
   let ghostH = referenceData.sprites.ghost.height
   for gm in percept.actors.ghosts:
     stampSpriteRect(percept.ignoreMask, gm.x, gm.y, ghostW, ghostH)
+    # Ghosts don't have nameplates.
 
-  # 2c. Merge actor scan results into belief.
+  # 2b. Camera localization (phase 1.2). Skip on interstitials.
+  #     Runs after actor exclusions so crowded frames don't break
+  #     the error budget.
+  if percept.interstitial.isInterstitial:
+    bot.localizer.reseedCameraAtHome(bot.belief.percep)
+  else:
+    let wasLocalized = bot.belief.percep.localized
+    bot.localizer.updateLocation(
+      bot.belief.percep,
+      bot.unpacked,
+      percept.ignoreMask.data,
+      bot.frameTick)
+    # One-shot diagnostic: log the very first successful localization.
+    if localizeDebug and bot.belief.percep.localized and not wasLocalized and
+       bot.localizer.diag.successes == 1:
+      stderr.writeLine &"[localize t={bot.frameTick}] FIRST LOCK  cam=({bot.belief.percep.cameraX},{bot.belief.percep.cameraY}) self=({bot.belief.percep.selfX},{bot.belief.percep.selfY})"
+
+  # 2c. Merge actor scan results into belief (needs camera for world
+  #     coords, so stays after localization).
   mergeActorPercept(bot.belief, percept.actors)
 
   # 2d. Task-icon + radar-dot scan (phase 1.4).
@@ -293,6 +340,9 @@ proc decideNextMask*(bot: var Bot): uint8 =
   # 2f. Interstitial classification (phase 1.5) + voting-screen parse
   #     (phase 1.6).
   if percept.interstitial.isInterstitial:
+    # Voting parse is cheap (early-exits on the SKIP text check),
+    # so run it every interstitial frame — the voting screen can
+    # appear mid-run after a role-reveal interstitial.
     percept.votingParse = parseVotingScreen(
       bot.unpacked,
       referenceData.sprites,
@@ -300,11 +350,24 @@ proc decideNextMask*(bot: var Bot): uint8 =
     if percept.votingParse.valid:
       bot.belief.self.phase = PhaseVoting
       bot.belief.percep.interstitialKind = InterstitialVoting
+      # Voting is a new sub-phase — reset the OCR cache so a
+      # subsequent non-voting interstitial gets re-classified.
+      bot.interstitialClassified = false
     else:
-      let kind = classifyInterstitial(bot.unpacked)
-      if kind != InterstitialUnknown:
-        bot.belief.percep.interstitialKind = kind
+      # classifyInterstitial is a full-frame OCR sweep (~22 ms).
+      # Cache the result across consecutive interstitial frames.
+      # The banner text doesn't change within a single
+      # interstitial run, so one sweep is enough.
+      if not bot.interstitialClassified:
+        let kind = classifyInterstitial(bot.unpacked)
+        bot.cachedInterstitialKind = kind
+        bot.interstitialClassified = true
+      if bot.cachedInterstitialKind != InterstitialUnknown:
+        bot.belief.percep.interstitialKind = bot.cachedInterstitialKind
     mergeVotingPercept(bot.belief, percept.votingParse)
+  else:
+    # Leaving interstitial phase — reset the cache for the next run.
+    bot.interstitialClassified = false
 
   # Phase 3: flush meeting conversation when leaving voting phase.
   if bot.prevPhaseForGuidance == PhaseVoting and
@@ -416,13 +479,15 @@ proc decideNextMask*(bot: var Bot): uint8 =
                       bot.belief.directive.params,
                       bot.modeScratch)
 
-  # Phase 4: log the decision and periodic snapshots.
-  if bot.trace != nil:
-    logDecision(bot.trace, bot.belief, intent, "")
-    logSnapshot(bot.trace, bot.belief.tick, bot.belief)
-
   # 5. Act.
   let mask = applyIntent(bot.actionState, bot.belief, intent)
+
+  # Phase 4: log the decision and periodic snapshots. Runs after
+  # applyIntent so the final button mask is included in the trace.
+  if bot.trace != nil:
+    logDecision(bot.trace, bot.belief, intent, "", mask)
+    logSnapshot(bot.trace, bot.belief.tick, bot.belief)
+
   bot.lastMask = mask
   mask
 

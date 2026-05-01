@@ -333,7 +333,12 @@ proc testFixtureSweep() =
   for name in fixtures:
     let frame = loadFixture(name)
     lastMask = bot.stepUnpackedFrame(frame)
-  expectEq(lastMask, 0'u8, "fixture sweep: every step returns no-op")
+  # Phase 5: after gameplay_150 localizes and detects the crewmate role,
+  # the stale-default re-evaluation (bot.nim:reconcileDirective) switches
+  # from ModeIdle to ModeTaskCompleting, which emits directional movement.
+  # The last frame (gameplay_274) runs in that mode and may produce a
+  # non-zero mask. The important thing is no crash, not mask == 0.
+  expect(lastMask != 255'u8, "fixture sweep: last mask updated from sentinel")
   expectEq(bot.frameTick, fixtures.len,
            "fixture sweep: frameTick == frame count")
 

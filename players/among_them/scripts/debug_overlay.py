@@ -45,8 +45,9 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-# Make modulabot importable when run from scripts/.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _lib import setup_pythonpath
+
+setup_pythonpath()
 
 from modulabot.bot import BotCore  # noqa: E402
 from modulabot.data import (  # noqa: E402

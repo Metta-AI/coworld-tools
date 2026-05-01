@@ -28,11 +28,22 @@ import perception/geometry
 # ---------------------------------------------------------------------------
 
 const
-  PathLookahead = 18     ## Steps ahead in the A* path to aim at.
+  PathLookahead = 4      ## Steps ahead in the A* path to aim at. Kept small
+                         ## so the waypoint stays tightly on the A* corridor
+                         ## through turns. Larger values (18+) overshoot
+                         ## corners and cause oscillation.
   StuckThreshold = 8     ## Frames of zero velocity before jiggle fires.
   JiggleDuration = 6     ## Ticks of perpendicular movement during jiggle.
   KillStrikeRange = 16   ## World-pixel distance for kill-strike ButtonA.
   ReportRange = 20       ## World-pixel distance for report ButtonA.
+  MaxAstarNodes = 30_000 ## Upper bound on nodes expanded before A* gives
+                         ## up. The 952x534 map has ~508K cells; capping at
+                         ## 30K keeps worst-case latency <10 ms while still
+                         ## finding any reasonable cross-map path.
+  ReplanIntervalTicks = 24  ## Recompute A* path every N ticks to recover
+                            ## from position-noise drift (~1s at 24Hz).
+  StallProgressTicks = 48   ## If distance-to-goal hasn't decreased in N
+                            ## ticks, force path recompute (~2s at 24Hz).
 
 # ---------------------------------------------------------------------------
 # A* pathfinding
@@ -111,10 +122,17 @@ proc findPath*(wm: openArray[uint8],
 
   heapPush(heap, (int32(heuristic(startX, startY, goalX, goalY)), int32(startIdx)))
 
+  var nodesExpanded = 0
   while heap.len > 0:
     let entry = heapPop(heap)
     let current = int(entry.index)
     if closed[current]: continue
+    inc nodesExpanded
+    if nodesExpanded > MaxAstarNodes:
+      # Safety cap: prevent runaway expansion on unreachable or very
+      # distant goals. The caller gets an empty path and falls back to
+      # straight-line steering or idle.
+      return @[]
     if current == goalIdx:
       # Reconstruct path from goal to start.
       var path: seq[Point] = @[]
@@ -191,7 +209,10 @@ proc initActionState*(): ActionState =
     lastVelocityX: 0, lastVelocityY: 0,
     stuckFrames: 0,
     jiggleTicks: 0,
-    taskHoldTicks: 0
+    taskHoldTicks: 0,
+    lastReplanTick: 0,
+    bestGoalDist: high(int),
+    bestGoalDistTick: 0
   )
 
 proc initActionIntent*(): ActionIntent =
@@ -227,6 +248,34 @@ proc applyIntent*(
     if intent.pressB: mask = mask or ButtonB
     if intent.cursor == CursorLeft: mask = mask or ButtonLeft
     elif intent.cursor == CursorRight: mask = mask or ButtonRight
+    state.lastEmittedMask = mask
+    return mask
+
+  # --- DisciplineWander ---
+  # Raw directional movement without A*, localization, or stuck
+  # detection. Used by idle mode to move before the localizer locks.
+  # If steerValid, steer toward the target using the (possibly stale)
+  # selfX/selfY. Otherwise cycle through cardinal directions based on
+  # the tick counter embedded in steerTo.x (which idle mode sets to
+  # the direction phase).
+  if intent.discipline == DisciplineWander:
+    var mask: uint8 = 0
+    if intent.steerValid:
+      # Steer toward steerTo using whatever position we have (may be
+      # stale, but any movement helps the localizer).
+      let sx = belief.percep.selfX
+      let sy = belief.percep.selfY
+      mask = steerButtons(sx, sy, intent.steerTo.x, intent.steerTo.y)
+    else:
+      # Tick-based cardinal cycling. steerTo.x carries the phase (0-3).
+      case intent.steerTo.x
+      of 0: mask = ButtonUp
+      of 1: mask = ButtonRight
+      of 2: mask = ButtonDown
+      of 3: mask = ButtonLeft
+      else: mask = ButtonUp
+    if intent.pressA: mask = mask or ButtonA
+    if intent.pressB: mask = mask or ButtonB
     state.lastEmittedMask = mask
     return mask
 
@@ -278,16 +327,30 @@ proc applyIntent*(
 
   let goalX = intent.steerTo.x
   let goalY = intent.steerTo.y
+  let curGoalDist = heuristic(selfX, selfY, goalX, goalY)
 
-  # Check if goal changed; recompute path if so.
+  # Decide whether to (re)compute the A* path. Triggers:
+  #   1. Goal changed (new task station, new target).
+  #   2. Periodic replan every ReplanIntervalTicks to recover from
+  #      position-noise drift that corrupts path trimming.
+  #   3. Progress stall: distance hasn't decreased in StallProgressTicks.
   let goalChanged = not state.currentGoalValid or
                     state.currentGoal.x != goalX or
                     state.currentGoal.y != goalY
-  if goalChanged:
+  let periodicReplan = belief.tick - state.lastReplanTick >= ReplanIntervalTicks
+  let progressStall = belief.tick - state.bestGoalDistTick >= StallProgressTicks and
+                      state.bestGoalDistTick > 0
+  let needReplan = goalChanged or periodicReplan or progressStall or
+                   state.currentPath.len == 0
+
+  if needReplan:
     state.currentGoal = Point(x: goalX, y: goalY)
     state.currentGoalValid = true
     state.stuckFrames = 0
     state.jiggleTicks = 0
+    state.lastReplanTick = belief.tick
+    state.bestGoalDist = curGoalDist
+    state.bestGoalDistTick = belief.tick
     # Ghost: straight-line (no walk mask needed).
     if belief.self.isGhost:
       state.currentPath = @[Point(x: goalX, y: goalY)]
@@ -295,6 +358,11 @@ proc applyIntent*(
       state.currentPath = findPath(
         referenceData.map.walkMask,
         selfX, selfY, goalX, goalY)
+  else:
+    # Track progress toward goal for stall detection.
+    if curGoalDist < state.bestGoalDist:
+      state.bestGoalDist = curGoalDist
+      state.bestGoalDistTick = belief.tick
 
   # Velocity tracking for stuck detection. selfX = cameraX + PlayerWorldOff,
   # so velocity equals the camera delta between frames.
@@ -330,8 +398,8 @@ proc applyIntent*(
     # Trigger jiggle and recompute path afterward.
     state.jiggleTicks = JiggleDuration
     state.stuckFrames = 0
-    # Force path recompute next tick by invalidating goal.
-    state.currentGoalValid = false
+    # Force path recompute next tick.
+    state.lastReplanTick = 0
 
   # Follow path: pick a lookahead waypoint and steer toward it.
   if state.currentPath.len > 0:
@@ -346,11 +414,7 @@ proc applyIntent*(
 
     let (found, waypoint) = choosePathStep(state.currentPath)
     if found:
-      if belief.self.isGhost:
-        # Ghost: straight-line steering, ignoring walls.
-        mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
-      else:
-        mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
+      mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
 
   # Apply button overrides from the intent.
   if intent.pressA: mask = mask or ButtonA
