@@ -6,7 +6,9 @@
 ## specifically the interstitial fields and the derived `GamePhase`.
 ## Phase 1.3 adds `mergeActorPercept` which copies actor-scan results
 ## (crewmates, bodies, ghosts, role, self-colour) into the belief.
-## Later sub-phases merge more: task state (1.4), voting/chat (1.6).
+## Phase 1.4 adds `mergeTaskPercept` which copies task-icon and
+## radar-dot scan results into the belief.
+## Later sub-phases merge more: voting/chat (1.6).
 ## See DESIGN.md §4.2 and §15.
 
 import types
@@ -57,7 +59,8 @@ proc initPerceptionState*(): PerceptionState =
     visibleGhosts: @[],
     ghostIconFrames: 0,
     killReady: false,
-    visibleTaskIcons: @[]
+    visibleTaskIcons: @[],
+    radarDots: @[]
   )
 
 proc initMemoryState*(): MemoryState =
@@ -161,3 +164,16 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   # Wake-up flag for new bodies.
   if actors.bodies.len > 0:
     belief.flags.wakeReasons.incl WakeBodySeen
+
+proc mergeTaskPercept*(belief: var Belief, taskPercept: TaskPercept) =
+  ## Merge phase-1.4 task/radar scan results into the long-lived belief.
+  ## Called from `bot.decideNextMask` after the task/radar scan completes.
+  ##
+  ## Copies:
+  ##   - ``taskPercept.taskIcons`` → ``percep.visibleTaskIcons``
+  ##   - ``taskPercept.radarDots`` → ``percep.radarDots``
+  ##
+  ## The higher-level task-state machine (icon→task assignment, checkout
+  ## latching, icon-miss pruning) is policy-layer logic for phase 2.
+  belief.percep.visibleTaskIcons = taskPercept.taskIcons
+  belief.percep.radarDots = taskPercept.radarDots

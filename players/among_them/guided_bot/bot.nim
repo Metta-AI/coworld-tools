@@ -82,17 +82,18 @@ proc reconcileDirective(bot: var Bot) =
     return
 
 proc decideNextMask*(bot: var Bot): uint8 =
-  ## One full inner-loop step. Phase 1.3: perception returns a
+  ## One full inner-loop step. Phase 1.4: perception returns a
   ## `Percept` (interstitial observation + ignore mask); belief update
   ## merges it; localize updates camera state on non-interstitial
   ## frames; actor scan detects crewmates/bodies/ghosts and updates
-  ## role/self-colour; actor exclusions are stamped into the ignore
-  ## mask; decide routes to the current mode; action layer returns 0.
-  ## See DESIGN.md §4.
+  ## role/self-colour; task-icon and radar-dot scans find on-screen
+  ## task icons and screen-edge radar pips; actor + task-icon
+  ## exclusions are stamped into the ignore mask; decide routes to
+  ## the current mode; action layer returns 0. See DESIGN.md §4.
   inc bot.frameTick
 
   # 1. Perceive — returns a structured observation of this frame
-  #    (interstitial + ignore mask; actors are added in step 2b).
+  #    (interstitial + ignore mask; actors + tasks added in steps 2b/2d).
   var percept = perceive(bot.unpacked, bot.frameTick)
 
   # 2. Update belief with the percept (and, phase 2, read directive
@@ -124,10 +125,7 @@ proc decideNextMask*(bot: var Bot): uint8 =
     bot.unpacked,
     percept.interstitial.isInterstitial)
 
-  # Stamp actor sprite exclusions into the ignore mask. These don't
-  # affect the localize pass that already ran (which used the phase-1.0
-  # mask), but they refine the mask for phase 1.4 task-icon scanning
-  # and for any future second-pass localize refinement.
+  # Stamp actor sprite exclusions into the ignore mask.
   let spriteW = referenceData.sprites.player.width
   let spriteH = referenceData.sprites.player.height
   for cm in percept.actors.crewmates:
@@ -143,6 +141,28 @@ proc decideNextMask*(bot: var Bot): uint8 =
 
   # 2c. Merge actor scan results into belief.
   mergeActorPercept(bot.belief, percept.actors)
+
+  # 2d. Task-icon + radar-dot scan (phase 1.4). Runs after localize
+  #     (task icons need camera offset) and after actors (role
+  #     determines whether task-icon scan is skipped for imposters).
+  percept.taskPercept = scanTasksAndRadar(
+    bot.unpacked,
+    referenceData.sprites,
+    bot.belief.percep.cameraX,
+    bot.belief.percep.cameraY,
+    bot.belief.percep.localized,
+    percept.interstitial.isInterstitial,
+    bot.belief.self.role == RoleImposter,
+    bot.belief.self.isGhost)
+
+  # Stamp task-icon exclusions into the ignore mask.
+  let taskW = referenceData.sprites.task.width
+  let taskH = referenceData.sprites.task.height
+  for ti in percept.taskPercept.taskIcons:
+    stampSpriteRect(percept.ignoreMask, ti.x, ti.y, taskW, taskH)
+
+  # 2e. Merge task/radar scan results into belief.
+  mergeTaskPercept(bot.belief, percept.taskPercept)
 
   # 3. Reconcile directive against current state (ghost / legality).
   reconcileDirective(bot)

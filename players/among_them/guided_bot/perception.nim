@@ -22,6 +22,12 @@
 ##                     runs `scanAll` after localize (needs camera for
 ##                     future world-coord conversion) and stamps actor
 ##                     exclusions into the ignore mask.
+##
+## Phase 1.4 adds:
+##   - `taskPercept`  (task-icon matches, radar-dot matches) via
+##                     `perception/tasks.scanTasksAndRadar`. Runs after
+##                     localize + actors; needs camera lock for task-icon
+##                     scanning, radar dots are camera-independent.
 
 import types
 export types  # re-exported so consumers of `Percept` get the shared enums.
@@ -31,19 +37,21 @@ import perception/frame
 import perception/interstitial
 import perception/ignore
 import perception/actors as actorsModule
+import perception/tasks as tasksModule
 
-export data, frame, interstitial, ignore, actorsModule
+export data, frame, interstitial, ignore, actorsModule, tasksModule
 
 type
   Percept* = object
     ## Structured output of one perception tick. Fields populated
     ## incrementally per sub-phase; phase 1.0 sets the interstitial
     ## observation and the ignore mask; phase 1.3 adds the actor
-    ## percept.
+    ## percept; phase 1.4 adds task-icon and radar-dot percepts.
     tick*: int
     interstitial*: InterstitialObservation
     ignoreMask*: IgnoreMask
     actors*: ActorPercept
+    taskPercept*: TaskPercept
 
 proc initPercept*(): Percept =
   Percept(
@@ -54,7 +62,8 @@ proc initPercept*(): Percept =
       blackPixelCount: 0
     ),
     ignoreMask: initIgnoreMask(),
-    actors: initActorPercept()
+    actors: initActorPercept(),
+    taskPercept: initTaskPercept()
   )
 
 proc perceive*(frameBuf: openArray[uint8], tick: int): Percept =

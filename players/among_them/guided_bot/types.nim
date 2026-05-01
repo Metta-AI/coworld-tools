@@ -137,6 +137,20 @@ type
     x*, y*: int
     flipH*: bool
 
+  ## Phase 1.4 task-icon and radar-dot result records. Match
+  ## modulabot's ``IconMatch`` and ``RadarDotMatch`` in
+  ## ``modulabot/state.py``. Stored in ``PerceptionState.visible*``
+  ## seqs; cleared and rebuilt every frame by ``perception/tasks.nim``.
+
+  IconMatch* = object
+    ## One detected task-icon sprite. Screen coordinates ``(x, y)``
+    ## are the sprite's top-left anchor.
+    x*, y*: int
+
+  RadarDotMatch* = object
+    ## One deduped yellow radar dot in the screen-edge periphery ring.
+    x*, y*: int
+
   ActionIntent* = object
     ## What a mode wants to happen this tick. The action layer translates
     ## this into a button mask. See DESIGN.md §6.
@@ -299,8 +313,10 @@ type
     ## ``actors.updateRole`` / ``actors.updateSelfColor``.
     ghostIconFrames*: int  ## Consecutive frames with the ghost icon.
     killReady*: bool       ## Kill button is lit (imposter only).
-    ## Phase 1.4 task-icon results (placeholder, populated later).
-    visibleTaskIcons*: seq[int]
+    ## Phase 1.4 task-icon + radar-dot scan results. Populated by
+    ## ``perception/tasks.scanTasksAndRadar``; cleared each frame.
+    visibleTaskIcons*: seq[IconMatch]
+    radarDots*: seq[RadarDotMatch]
 
   PlayerSummary* = object
     lastSeenTick*: int

@@ -226,40 +226,26 @@ None of this is required on day one. It's where we're heading.
   full 236-test suite + guided_bot's four test suites all green
   post-move. MISSION.md's repo-layout convention now explicitly
   describes `<game>/common/`.
-- **guided_bot phase 1.0 + 1.1 + 1.2 + 1.3 shipped.** Phase 1.0 lands
-  frame unpacking, black-pixel interstitial detection, the always-on
-  ignore-mask scaffolding, and end-to-end fixture tests. Phase 1.1
-  bakes the perception reference data (palette, 6 reference
-  sprites, Skeld map raster + walk/wall masks, tiny5 pixel font,
-  map.json metadata) directly from the upstream `~/coding/bitworld`
-  checkout via a Nim tool (`guided_bot/tools/bake_assets.nim` +
-  `bake_assets.sh` wrapper); blobs embed into the Nim binary via
-  `staticRead`. **Phase 1.2** ports modulabot's localize
-  orchestration to pure Nim (`guided_bot/perception/{geometry,
-  localize}.nim`), reusing the existing
-  `mb_score_camera`/`mb_hash_frame_patches`/`mb_vote_camera_candidates`
-  kernels in `among_them/common/perception_kernels/` via direct
-  relative-path imports (`from "..." as kLocalize import nil`). The
-  bot pipeline now runs camera localization on every gameplay frame
-  and `reseedCameraAtHome` on every interstitial, populating
-  `belief.percep.{cameraX,cameraY,cameraScore,cameraLock,localized,
-  selfX,selfY,homeX,homeY,homeSet,gameStarted,lastLocalizedTick}`.
-  **Phase 1.3** ports modulabot's actor scanning orchestration to
-  pure Nim (`guided_bot/perception/actors.nim`), reusing the
+- **guided_bot phase 1.0 + 1.1 + 1.2 + 1.3 + 1.4 shipped.** Phase 1.0
+  lands frame unpacking, black-pixel interstitial detection, the
+  always-on ignore-mask scaffolding, and end-to-end fixture tests.
+  Phase 1.1 bakes the perception reference data directly from the
+  upstream `~/coding/bitworld` checkout via a Nim tool; blobs embed
+  into the Nim binary via `staticRead`. **Phase 1.2** ports
+  modulabot's localize orchestration to pure Nim, reusing the
+  existing camera-scoring and patch-hashing kernels in
+  `among_them/common/perception_kernels/`. **Phase 1.3** ports
+  modulabot's actor scanning orchestration to pure Nim, reusing the
   existing `mb_match_actor_sprite_all` and
-  `mb_actor_color_index_all` kernels in
-  `among_them/common/perception_kernels/sprite_match.nim`. The bot
-  pipeline now: detects role (crewmate/imposter/ghost) from HUD
-  icons; identifies self-colour; scans for other crewmates, dead
-  bodies, and ghosts; stamps detected sprite exclusion zones into
-  the ignore mask; merges all results into the belief state
-  (`SelfState.role/colorIndex`,
-  `PerceptionState.visibleCrewmates/Bodies/Ghosts`). ~2 ms per
-  gameplay frame. Tests: `actors_test.nim` pins interstitial
-  short-circuit, scan plausibility, role detection, self-colour,
-  ignore-mask growth, end-to-end pipeline, and a smoke benchmark.
-  All five test suites pass (smoke, perception, data, localize,
-  actors). Library build size still ~1.7 MB.
+  `mb_actor_color_index_all` kernels. The bot pipeline now detects
+  role, identifies self-colour, and scans for crewmates, bodies,
+  and ghosts (~2 ms). **Phase 1.4** adds task-icon scanning
+  (wrapping `mb_scan_task_icons` from the shared kernels) and
+  radar-dot scanning (pure Nim, yellow periphery-ring pixels with
+  Chebyshev-1 dedup). Task icons and radar dots are stamped into
+  the ignore mask and merged into the belief state (~0.1 ms).
+  Tests: six test suites pass (smoke, perception, data, localize,
+  actors, tasks). Library build size still ~1.7 MB.
 
 ### Next
 

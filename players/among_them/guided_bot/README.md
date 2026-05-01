@@ -11,29 +11,24 @@ editing.
 
 ## Status
 
-**Phase 1.3 — actor / body / ghost scanning (this commit).** Compiles
+**Phase 1.4 — task-icon + radar-dot scanning (this commit).** Compiles
 cleanly as CLI and shared library; every decision still returns no-op
-(action layer is phase 2). Phase-1.0 frame primitives, 1.1 reference
-data, and 1.2 camera localization are still in place; phase 1.3 ports
-modulabot's actor scanning orchestration to pure Nim, sharing the
-existing `mb_match_actor_sprite_all` and `mb_actor_color_index_all`
-kernels in `among_them/common/perception_kernels/sprite_match.nim`
-via direct relative-path imports. The bot pipeline now:
+(action layer is phase 2). Phases 1.0 through 1.3 are in place;
+phase 1.4 adds task-icon scanning (wrapping `mb_scan_task_icons` from
+`among_them/common/perception_kernels/actors.nim`) and radar-dot
+scanning (pure Nim, yellow periphery-ring pixels with Chebyshev-1
+dedup). The bot pipeline now:
 
-- Detects role (crewmate / imposter / ghost) from the HUD kill-button
-  and ghost-icon sprites.
-- Identifies self-colour via single-anchor crewmate colour vote at the
-  player's known screen position.
-- Scans for other crewmates, dead bodies, and ghosts using the
-  vectorised all-anchors match kernel + greedy dedup.
-- Stamps detected sprite exclusion zones into the ignore mask (for the
-  benefit of phase 1.4 task-icon scanning and future localize
-  refinement).
-- Merges all results into the belief state (`SelfState.role`,
-  `SelfState.colorIndex`, `PerceptionState.visibleCrewmates/Bodies/Ghosts`).
+- Scans for task-icon sprites at each task station's expected screen
+  position (3-bob x 7x7 search grid), producing `IconMatch` hits.
+  Only runs when localized and not an alive imposter.
+- Scans for yellow radar dots in the 2-pixel screen-edge border ring,
+  deduplicating adjacent hits.
+- Stamps task-icon exclusion zones into the ignore mask.
+- Merges results into the belief state
+  (`PerceptionState.visibleTaskIcons/radarDots`).
 
-Scan cost: ~2 ms per gameplay frame (cold and warm) on the fixture set.
-Interstitial frames short-circuit (0 cost).
+Scan cost: ~0.1 ms per gameplay frame (task icons + radar dots combined).
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -42,8 +37,8 @@ Interstitial frames short-circuit (0 cost).
 | 1.1 | Perception reference data (palette, sprites, map/walk/wall, font, map.json) baked from the upstream `~/coding/bitworld` checkout (single source of truth) and embedded via `staticRead` | done |
 | 1.2 | Camera localization (patch-hash global + local refit + spiral fallback). Reuses modulabot's perception kernels via direct `--path:` import | done |
 | 1.3 | Actor / body / ghost scanning via `mb_match_actor_sprite_all` + `mb_actor_color_index_all`. Role + self-colour detection. Ignore-mask actor exclusions | done |
-| 1.4 | Task-icon + radar-dot scanning via `mb_scan_task_icons` | next |
-| 1.5 | ASCII OCR via `mb_best_glyph` + `mb_text_matches` | depends 1.1 |
+| 1.4 | Task-icon scanning via `mb_scan_task_icons` + radar-dot scanning (pure Nim). Ignore-mask task-icon exclusions | done |
+| 1.5 | ASCII OCR via `mb_best_glyph` + `mb_text_matches` | next |
 | 1.6 | Voting-screen parse | depends 1.5 |
 | 2 | Per-mode strategy (start with `task_completing`, `pretending`, `hunting`) + action layer (A\*, momentum, task-hold) | not started |
 | 3 | Guidance worker thread + `llm.nim` HTTP client (adapted from `bitworld/ais/claude.nim`) + meeting mode direct-control | not started |
@@ -78,6 +73,7 @@ guided_bot/
     geometry.nim            # phase 1.2 — camera / world coord math
     localize.nim            # phase 1.2 — camera localization orchestration
     actors.nim              # phase 1.3 — crewmate/body/ghost scan, role, self-colour
+    tasks.nim               # phase 1.4 — task-icon scan (mb_scan_task_icons) + radar dots
     baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
   action.nim                # ActionIntent -> button mask
   mode_registry.nim         # mode lookup + default directive
@@ -106,6 +102,7 @@ guided_bot/
     data_test.nim           # phase-1.1 baked-asset shape + parity
     localize_test.nim       # phase-1.2 camera-lock pinning + benchmark
     actors_test.nim         # phase-1.3 actor scan, role, self-colour, pipeline
+    tasks_test.nim          # phase-1.4 task-icon scan, radar dots, pipeline
     fixtures/               # raw frame dumps for the fixture tests
 ```
 
@@ -157,6 +154,12 @@ nim c -r -d:release --threads:on --mm:orc \
 # fixture sweep, smoke benchmark.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/actors_test.nim
+
+# Phase 1.4 — task-icon scan (mb_scan_task_icons), radar-dot scan,
+# imposter skip, ignore-mask task-icon exclusions, end-to-end bot
+# pipeline, fixture sweep, smoke benchmark.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/tasks_test.nim
 ```
 
 Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
@@ -215,27 +218,31 @@ produce real output (phase 2+).
 
 ## Known gaps / next steps
 
-1. **Phase 1.4 — task-icon + radar-dot scan.** Wrap
-   `common/perception_kernels/actors.nim`'s `mb_scan_task_icons`.
-   Populate `PerceptionState.visibleTaskIcons` and the task-state
-   machine in `Belief.tasks`. Stamp task-icon exclusions into the
-   ignore mask.
+1. **Phase 1.5 — ASCII OCR.** Wrap `mb_best_glyph` and `mb_text_matches`
+   from `among_them/common/perception_kernels/ocr.nim`. Classify
+   interstitial text (`CREWMATE`, `IMPS`, `CREW WINS`, `IMPS WIN`) and
+   chat lines. Needed for voting-screen parse (1.6) and role-reveal
+   classification.
 2. **Self-colour recall.** `updateSelfColor` currently uses the scalar
    `matchesCrewmate` check at the known player anchor. On some frames
    the player sprite doesn't match cleanly (e.g. during walking
    transitions). A future improvement is to use the vectorised kernel
    in a small window around the player anchor, or to carry the last
    known colour forward when no match fires.
-3. **Implement first real mode** (phase 2). Start with
+3. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
+   produced by phase 1.4 are not yet consumed by a task-state machine
+   (icon→task assignment, checkout latching, icon-miss pruning). That's
+   policy-layer logic for phase 2.
+4. **Implement first real mode** (phase 2). Start with
    `task_completing` since it's both the crewmate default and the
    ghost default (DESIGN.md §5.7, §9.1). Its action layer needs A\* +
    momentum; phase-2 work lives mostly in `action.nim` + that one
    mode file.
-4. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
+5. **LLM worker** (phase 3). Adapt `bitworld/src/bitworld/ais/claude.nim`
    into `llm.nim`, wire the worker thread in `guidance.nim`, and gate
    it on `-d:guidedBotGuidance` until the HTTP dependency is bundled.
-5. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
+6. **Trace** (phase 4). `trace.nim` has stable signatures; fill the
    bodies per DESIGN.md §11.
-6. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
+7. **Fallback-only playability** (phase 5). DESIGN.md §9.2 — a full
    match with the LLM forcibly failing must pass validation, cast
    votes, and complete at least one task.
