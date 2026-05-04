@@ -221,6 +221,12 @@ nim c -r -d:release --threads:on --mm:orc \
 # TrainableMasks relies on.
 PYTHONPATH=among_them .venv/bin/python -m unittest \
     among_them.guided_bot.test.test_action_table -v
+
+# Live integration test — runs full games against the Nim server with
+# fillers, checks traces for correct role detection, mode entry, and
+# manifest finalization. Requires server + filler binaries. ~3 minutes.
+PYTHONPATH=among_them .venv/bin/python \
+    among_them/guided_bot/test/live_test.py --keep-traces
 ```
 
 Each prints `OK` and exits 0 on success, or `FAIL: <label> ...` lines
