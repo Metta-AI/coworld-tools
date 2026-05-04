@@ -87,7 +87,7 @@ Also reproduces with seed 7 (default role).
 
 ---
 
-## BUG: Imposter role never detected (2026-05-04, HIGH)
+## BUG: Imposter role never detected (2026-05-04, HIGH) — TENTATIVELY FIXED
 
 `role_revealed` always reports `crewmate`, even with `--force-role
 imposter`. The bot enters `task_completing` instead of
@@ -99,32 +99,50 @@ Observed in 5/5 live runs across 4 seeds, including 2 runs with
 
 ### Root cause
 
-`updateRole` (`perception/actors.nim:415-461`) has an aggressive
-crewmate-default fallback at lines 456-460 that fires on the first
-post-interstitial gameplay frame when `prevRole == RoleUnknown` and
-neither the kill button nor ghost icon is found. **No debounce** —
-a single frame is enough to latch `RoleCrewmate` permanently.
+**Wrong kill-button HUD coordinates.** `KillIconX` / `KillIconY`
+were set to `(109, 110)` (bottom-right) but the server renders
+the kill button at `(1, 115)` (bottom-left). Every other bot in
+the ecosystem (modulabot, nottoodumb, evidencebot_v2, italkalot,
+ivotewell, cogames-agents baseline) uses `(1, 115)`. The server
+source confirms: `sim.nim:3490-3497` sets `iconX = 1`,
+`iconY = ScreenHeight - SpriteSize - 1 = 115`.
 
-Two compounding failures:
+The guided_bot was matching its baked kill-button sprite against
+arbitrary background pixels 108 px to the right of the actual icon.
+It never found the kill button on ANY frame, so the crewmate
+default at `actors.nim:458` fired on the first gameplay frame and
+latched permanently.
 
-**Failure A — Timing race.** The kill button HUD may not be rendered
-on the first gameplay frame after the interstitial ends.
+The TODO previously hypothesized two causes:
+- Failure A (timing race) — not the cause.
+- Failure B (sprite mismatch) — not the cause.
 
-**Failure B — Kill button sprite mismatch.** `matchesSprite` (max 4
-misses, `actors.nim:288-291`) and `matchesSpriteShadowed` (max 5
-misses, `actors.nim:293-317`) both check a fixed position
-`(KillIconX=109, KillIconY=110)`. If the baked `killButton` sprite
-doesn't match what the server renders (position offset, palette
-drift, shadow map error), every frame fails silently.
+The actual failure is simpler: **wrong position constant**.
 
-Once `RoleCrewmate` is latched, subsequent frames cannot flip it: the
-else branch at line 458 only fires for `RoleUnknown`. The kill button
-check at lines 451-455 would set `RoleImposter` if it matched — but
-it never does.
+### Fix (2026-05-04)
 
-Note: the ghost icon check has a debounce
-(`GhostIconFrameThreshold=2`, line 64) but the crewmate default does
-not.
+Changed `perception/actors.nim:74-75` from:
+```nim
+KillIconX* = 109
+KillIconY* = 110
+```
+to:
+```nim
+KillIconX* = 1
+KillIconY* = ScreenHeight - SpriteSize - 1  ## = 115
+```
+
+This also fixes ghost-icon detection, which uses the same
+`KillIconX, KillIconY` HUD slot.
+
+### Secondary issue (not yet fixed)
+
+The `classifyInterstitial` OCR correctly detects "IMPS" during the
+role-reveal interstitial, but this `InterstitialRoleReveal`
+classification is **never consumed for role inference**. The only
+role-setting path is the per-frame kill-button HUD check. Adding
+an OCR-based role fallback would make the system more robust, but
+is not required now that the coordinates are correct.
 
 ### Reproduction
 
@@ -135,31 +153,20 @@ PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
     --duration 30 --seed 100 --force-role imposter
 ```
 
-Check `events.jsonl` — will show `role_revealed: crewmate`.
-
-### Outstanding questions
-
-- Is this a timing issue (Failure A) or a sprite mismatch (Failure B)?
-  Need to capture the actual pixels at `(109, 110)` on the first few
-  gameplay frames of an imposter match and compare against the baked
-  sprite.
-- Does modulabot correctly detect imposter on the same seed? If yes,
-  the server flag works and the bug is guided_bot-specific.
+Check `events.jsonl` — should now show `role_revealed: imposter`.
 
 ### Key code paths
 
+- Kill button constants: `perception/actors.nim:74-75`
 - `updateRole`: `perception/actors.nim:415-461`
-- Kill button constants: `actors.nim:65, 74-75`
-- `matchesSprite`: `actors.nim:284-291`
-- `matchesSpriteShadowed`: `actors.nim:293-317`
-- Crewmate default: `actors.nim:456-460`
-- Ghost debounce: `actors.nim:431-442` (has threshold), crewmate (no threshold)
-- Role latch in belief: `belief.nim:161-162`
-- Default directive from role: `mode_registry.nim:96-116`
+- `matchesSprite`: `perception/actors.nim:284-291`
+- `matchesSpriteShadowed`: `perception/actors.nim:293-317`
+- Server rendering: `bitworld/among_them/sim.nim:3490-3497`
+- modulabot reference: `modulabot/frame.py:52-53`
 
 ---
 
-## BUG: Trace manifest never finalized (2026-05-04, LOW)
+## BUG: Trace manifest never finalized (2026-05-04, LOW) — TENTATIVELY FIXED
 
 All trace `manifest.json` files show `"closed": false`. The
 `end_tick`, `outcome`, and `role` fields are absent.
@@ -174,3 +181,20 @@ All trace `manifest.json` files show `"closed": false`. The
    runs instead).
 3. The Nim global `GuidedBotPolicies` (`ffi/lib.nim:85`) holds
    references, and `destroyBot` is not registered as a GC finalizer.
+
+### Fix (2026-05-04)
+
+Three-layer fix mirroring `modulabot/policy.py:267-284`:
+
+1. **`ffi/lib.nim`**: Added `guidedbot_destroy_policy(handle)` export
+   that iterates all bots in the policy and calls `destroyBot` on
+   each, then nils the slot (idempotent on repeated calls).
+
+2. **`cogames/amongthem_policy.py`**: Added `close()` method that
+   calls the new FFI export, plus a `__del__` best-effort finalizer
+   for scripts that exit without calling `close()` explicitly.
+
+3. **Graceful degradation**: The Python side discovers the destroy
+   export via `getattr(..., None)` so old libraries without the
+   export don't crash — they just get the old behavior (unfinalised
+   manifests).

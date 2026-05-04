@@ -156,8 +156,14 @@ class AmongThemPolicy(MultiAgentPolicy):
             ctypes.c_void_p,
         ]
         self._lib.guidedbot_step_batch.restype = None
+        # Destroy export — optional (additive FFI, may be absent in old libs).
+        self._destroy_fn = getattr(self._lib, "guidedbot_destroy_policy", None)
+        if self._destroy_fn is not None:
+            self._destroy_fn.argtypes = [ctypes.c_int]
+            self._destroy_fn.restype = None
         self._num_agents = max(1, int(policy_env_info.num_agents))
         self._handle = int(self._lib.guidedbot_new_policy(self._num_agents))
+        self._closed = False
         self._last_actions = np.zeros(self._num_agents, dtype=np.int32)
 
     def agent_policy(self, agent_id: int) -> AgentPolicy:
@@ -187,6 +193,29 @@ class AmongThemPolicy(MultiAgentPolicy):
         if 0 <= agent_id < self._last_actions.shape[0]:
             return int(self._last_actions[agent_id])
         return 0
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Tear down the Nim policy: stops guidance worker, flushes traces.
+
+        Safe to call multiple times.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._destroy_fn is not None:
+            self._destroy_fn(self._handle)
+
+    def __del__(self) -> None:
+        # Best-effort finalizer so traces get flushed even if close()
+        # is never called explicitly.  Mirrors modulabot/policy.py.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _ensure_agent_count(self, count: int) -> None:
         if count <= self._num_agents:

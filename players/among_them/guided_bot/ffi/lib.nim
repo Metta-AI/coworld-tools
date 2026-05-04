@@ -152,3 +152,17 @@ when defined(guidedBotLibrary):
       )
       let mask = policy.bots[agentId].stepUnpackedFramePtr(frame, rowLen)
       outs[row] = actionIndexForMask(mask)
+
+  proc guidedbot_destroy_policy*(handle: cint) {.exportc, dynlib.} =
+    ## Tear down a policy: call destroyBot on each bot (stops guidance
+    ## worker, flushes and closes trace writer), then release the slot.
+    ## Safe to call multiple times — subsequent calls on the same handle
+    ## are no-ops.
+    if handle < 0 or int(handle) >= GuidedBotPolicies.len:
+      return
+    let policy = GuidedBotPolicies[int(handle)]
+    if policy.isNil:
+      return
+    for i in 0 ..< policy.bots.len:
+      destroyBot(policy.bots[i])
+    GuidedBotPolicies[int(handle)] = nil

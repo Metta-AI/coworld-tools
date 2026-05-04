@@ -1154,6 +1154,15 @@ that proposes refactors to mode handlers.
 | `snapshots.jsonl` | Periodic full belief-state snapshots (every N ticks and on major events). |
 | `frames.bin` (optional) | Raw unpacked frames for replay. Opt-in via CLI flag; default on during local runs, off in submission. |
 
+The manifest is written with `"closed": false` on `openTrace` and
+rewritten with `"closed": true` (plus `end_tick`, `outcome`, `role`)
+when `closeTrace` runs. In the FFI path, `guidedbot_destroy_policy`
+iterates all bots and calls `destroyBot`, which calls `closeTrace`.
+The Python `AmongThemPolicy.close()` method (or its `__del__`
+fallback) invokes the FFI export. Scripts should call
+`policy.close()` at end of run; the `__del__` finalizer is a
+best-effort safety net only.
+
 ### 11.2 `events.jsonl` event kinds (starter set)
 
 ```

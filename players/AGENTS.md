@@ -151,3 +151,26 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
   the ultimate test. If the feature can't be verified via traces, flag
   that during planning and make sure the plan includes adding the
   necessary tracing first.
+
+---
+
+## Temporary verification notes
+
+> Remove each item once its condition is resolved.
+
+- **Trace manifest finalization** (2026-05-04): The next time you run
+  `play_local.py` with tracing enabled (`GUIDED_BOT_TRACE_DIR=...`),
+  check that `manifest.json` has `"closed": true`. If it does, update
+  `among_them/guided_bot/TODO.md` § "BUG: Trace manifest never
+  finalized" from TENTATIVELY FIXED to FIXED. If it does not, change
+  it to INCOMPLETE and explicitly mention the failure in your next
+  response to the user.
+
+- **Imposter role detection** (2026-05-04): The next time you run
+  `play_local.py` with `--force-role imposter` and tracing enabled,
+  check that `events.jsonl` contains `"role_revealed"` with
+  `"role": "imposter"`. If it does, update
+  `among_them/guided_bot/TODO.md` § "BUG: Imposter role never
+  detected" from TENTATIVELY FIXED to FIXED. If it does not, change
+  it to INCOMPLETE and explicitly mention the failure in your next
+  response to the user.

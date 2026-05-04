@@ -70,9 +70,11 @@ const
   GhostSearchRadius* = 1
 
   ## Screen-space kill-button / ghost-icon HUD anchor. Must match
-  ## modulabot's ``KILL_ICON_X`` / ``KILL_ICON_Y``.
-  KillIconX* = 109
-  KillIconY* = 110
+  ## modulabot's ``KILL_ICON_X`` / ``KILL_ICON_Y`` and the server
+  ## rendering at ``sim.nim:3490`` (``iconX = 1``,
+  ## ``iconY = ScreenHeight - SpriteSize - 1``).
+  KillIconX* = 1
+  KillIconY* = ScreenHeight - SpriteSize - 1  ## = 115
 
 # Static asserts: kernel-side constants must agree with ours.
 static:

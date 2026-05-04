@@ -6,8 +6,8 @@
 ##   - ``scanAll`` short-circuits on interstitials (empty lists).
 ##   - ``scanAll`` on gameplay frames produces non-crashing results
 ##     with plausible actor counts.
-##   - ``updateRole`` detects the correct role on gameplay frames (no
-##     ghost icon, no kill button → crewmate by default).
+##   - ``updateRole`` detects the correct role on gameplay frames (kill
+##     button present → imposter in these fixtures).
 ##   - ``updateSelfColor`` extracts a valid colour index on gameplay
 ##     frames where the player sprite is visible.
 ##   - Actor-exclusion ignore-mask stamping adds bits beyond the
@@ -132,12 +132,12 @@ proc testGameplayScanPlausibility() =
            &"body y={bm.y} in bounds")
 
 # ---------------------------------------------------------------------------
-# 3. Role detection — default to crewmate (no kill button in fixtures)
+# 3. Role detection — imposter (kill button present in fixtures)
 # ---------------------------------------------------------------------------
 
 proc testRoleDetection() =
-  ## The gameplay fixtures are from a crewmate's POV (no kill button).
-  ## updateRole should set role to Crewmate.
+  ## The gameplay fixtures are from an imposter's POV (kill button
+  ## visible at the HUD slot). updateRole should set role to Imposter.
   var scanner = initActorScanner()
   let prevPercep = initPerceptionState()
   let prevSelf = initSelfState()
@@ -149,8 +149,8 @@ proc testRoleDetection() =
     let result = scanAll(scanner, prevPercep, prevSelf, sprites, frame,
                          isInterstitial = false)
     if result.roleUpdated:
-      expectEq(result.newRole, RoleCrewmate,
-               &"{name}: role is crewmate (no kill button)")
+      expectEq(result.newRole, RoleImposter,
+               &"{name}: role is imposter (kill button present)")
     expect(not result.isGhost, &"{name}: not a ghost")
 
 # ---------------------------------------------------------------------------
@@ -253,9 +253,9 @@ proc testBotPipelineActors() =
 
   # Gameplay frame — actors should be populated.
   discard bot.stepUnpackedFrame(loadFixture("gameplay_150.bin"))
-  # Role should be set (crewmate default from these fixtures).
-  expectEq(bot.belief.self.role, RoleCrewmate,
-           "pipeline: role is crewmate after gameplay")
+  # Role should be set (imposter — kill button visible in these fixtures).
+  expectEq(bot.belief.self.role, RoleImposter,
+           "pipeline: role is imposter after gameplay")
   expect(not bot.belief.self.isGhost,
          "pipeline: not a ghost after gameplay")
 
