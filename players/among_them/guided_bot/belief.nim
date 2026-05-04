@@ -63,7 +63,11 @@ proc initPerceptionState*(): PerceptionState =
     ghostIconFrames: 0,
     killReady: false,
     visibleTaskIcons: @[],
-    radarDots: @[]
+    radarDots: @[],
+    votingValid: false,
+    votingCursor: -1,
+    votingSelfSlot: -1,
+    votingPlayerCount: 0
   )
 
 proc initMemoryState*(): MemoryState =
@@ -190,7 +194,17 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
   ## are handled directly in the bot pipeline (they need to gate
   ## voting vs. banner classification).
   if not voting.valid:
+    # Clear voting fields when parse fails (frame is not a voting screen).
+    belief.percep.votingValid = false
+    belief.percep.votingCursor = -1
+    belief.percep.votingSelfSlot = -1
+    belief.percep.votingPlayerCount = 0
     return
+  # Copy voting parse results into perception state.
+  belief.percep.votingValid = true
+  belief.percep.votingCursor = voting.cursor
+  belief.percep.votingSelfSlot = voting.selfSlot
+  belief.percep.votingPlayerCount = voting.playerCount
   belief.social.currentMeetingChat = @[]
   for cl in voting.chatLines:
     belief.social.currentMeetingChat.add ChatLine(

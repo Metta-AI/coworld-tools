@@ -75,6 +75,7 @@ dominated by chat OCR line count.
 | — | Trace enhancement: decision records include mask + self position | done |
 | 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
+| 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
 
 ## Strategy
 

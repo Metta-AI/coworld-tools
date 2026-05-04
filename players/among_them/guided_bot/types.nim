@@ -343,6 +343,12 @@ type
     ## ``perception/tasks.scanTasksAndRadar``; cleared each frame.
     visibleTaskIcons*: seq[IconMatch]
     radarDots*: seq[RadarDotMatch]
+    ## Phase 1.6 / 6.3 voting-screen parse results. Populated by
+    ## ``mergeVotingPercept``; cleared on non-voting frames.
+    votingValid*: bool       ## True when the current frame has a valid parse.
+    votingCursor*: int       ## Current cursor slot, playerCount=SKIP, -1=unknown.
+    votingSelfSlot*: int     ## Our slot index, -1=unknown.
+    votingPlayerCount*: int  ## Number of players in the grid.
 
   PlayerSummary* = object
     lastSeenTick*: int
@@ -480,3 +486,7 @@ type
       meetEnterTick*: int
       meetVoteConfirmed*: bool
       meetPendingActions*: seq[MeetingAction]
+      meetVoteTarget*: int         ## Target slot for cursor nav, -1 = none.
+      meetCursorMoveTicks*: int    ## Ticks remaining on current cursor hold.
+      meetCursorDir*: CursorDir    ## Direction being held.
+      meetLastLlmActionTick*: int  ## Tick of last LLM action received.

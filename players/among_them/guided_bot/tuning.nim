@@ -22,6 +22,9 @@ const
   # --- Meeting mode ----------------------------------------------------
   MeetingFallbackTicksLeft*   = 100  ## If no vote confirmed with <N ticks left, force skip.
   MeetingChatLineGapTicks*    = 12   ## Min ticks between chat packets (rate-limit self).
+  MeetingDurationEstimateTicks* = 600 ## Conservative estimate of meeting duration (~25s at 24Hz).
+  MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote SKIP after 15s with no LLM action.
+  MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor direction per step.
 
   # --- Call-rate caps (LLM) -------------------------------------------
   LlmMaxCallsPerMatch*        = 120  ## Hard cap across a full match.

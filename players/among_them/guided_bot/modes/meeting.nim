@@ -1,30 +1,19 @@
 ## Mode: `meeting`. LLM in direct control via a queue of
 ## `MeetingAction` values (see DESIGN.md §7).
 ##
-## Phase 3 implementation: the meeting mode reads MeetingAction values
-## from the guidance worker's channel and executes them at game tempo:
-##   - `speak` → emits chat text
-##   - `vote` → moves cursor toward target slot
-##   - `confirm_vote` → presses A to finalize vote (irrevocable per §7.5)
-##   - `unvote` → re-selects before confirmation
-##   - `wait` → idle until next trigger
+## Phase 6.3 rewrite: cursor-aware vote navigation using the voting
+## parse's cursor position, timer fix (600 ticks default), and
+## auto-vote delay for the no-LLM path. Chat emission remains a stub
+## (deferred to FFI plumbing phase). See MEETING_DESIGN.md.
 ##
 ## Safety-net fallback (DESIGN.md §7.7): if `MeetingFallbackTicksLeft`
-## ticks remain and no vote has been confirmed, the mode forces SKIP.
-## This is a structural backstop; the LLM cannot override it.
-##
-## Between actions, the mode emits no-ops until the next action arrives
-## from the channel or a trigger fires.
-##
-## The meeting-action channel is read from `bot.guidance` which is
-## passed indirectly — the action queue lives on `ModeScratch.
-## meetPendingActions` and is populated by the bot pipeline calling
-## `tryReceiveMeetingAction` each tick.
+## ticks remain and no vote has been confirmed, the mode navigates to
+## SKIP and confirms. This is a structural backstop; the LLM cannot
+## override it.
 
 import ../types
 import ../action
 import ../tuning
-import ../guidance
 
 const Name* = ModeMeeting
 
@@ -39,7 +28,11 @@ proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
   scratch = ModeScratch(mode: ModeMeeting,
                         meetEnterTick: belief.tick,
                         meetVoteConfirmed: false,
-                        meetPendingActions: @[])
+                        meetPendingActions: @[],
+                        meetVoteTarget: -1,
+                        meetCursorMoveTicks: 0,
+                        meetCursorDir: CursorNone,
+                        meetLastLlmActionTick: -1)
   discard params
 
 proc onExit*(belief: Belief, scratch: var ModeScratch) =
@@ -47,34 +40,94 @@ proc onExit*(belief: Belief, scratch: var ModeScratch) =
   discard scratch
 
 # ---------------------------------------------------------------------------
-# Meeting cursor navigation helpers
+# Cursor navigation helpers
 # ---------------------------------------------------------------------------
 
-const
-  ## Approximate number of ticks to hold a cursor direction before the
-  ## game registers the move. The game processes cursor input at its
-  ## own rate; we emit the direction for a few ticks to be safe.
-  CursorHoldTicks = 3
+proc ringSize(playerCount: int): int {.inline.} =
+  ## Total positions in the voting ring: player slots + SKIP.
+  playerCount + 1
 
-  ## How many CursorRight presses to reach SKIP from any position
-  ## (worst case: wrap around all 8 player slots). We use repeated
-  ## CursorRight as a brute-force approach when we don't know exact
-  ## cursor position.
-  MaxCursorSteps = 10
+proc shortestCursorDir(current, target, ring: int): CursorDir =
+  ## Compute the shortest direction to move from `current` to `target`
+  ## in a wrapped ring of `ring` positions. Returns CursorNone if
+  ## already on target.
+  if current == target:
+    return CursorNone
+  if ring <= 1:
+    return CursorNone
+  # Distance going right (positive direction).
+  let rightDist = (target - current + ring) mod ring
+  # Distance going left.
+  let leftDist = (current - target + ring) mod ring
+  if rightDist <= leftDist:
+    CursorRight
+  else:
+    CursorLeft
+
+proc targetSlotForAction(action: MeetingAction,
+                         playerCount: int): int =
+  ## Map a MeetingActVote target to a slot index.
+  ## target == -1 → SKIP (slot playerCount).
+  ## target >= 0 → color index (== slot index in Among Them).
+  if action.target < 0:
+    playerCount  # SKIP
+  else:
+    action.target
 
 # ---------------------------------------------------------------------------
-# Vote-target cursor navigation
+# Vote navigation intent
 # ---------------------------------------------------------------------------
 
-proc cursorDirectionForTarget(targetColorIndex: int,
-                              playerCount: int): CursorDir =
-  ## Determine which direction to move the cursor to reach the target.
-  ## targetColorIndex == -1 means SKIP (the last slot).
-  ## Without exact cursor position tracking, we move right toward the
-  ## target. SKIP is always the rightmost position.
-  # Simple strategy: always move right. SKIP is past all player slots.
-  # The cursor wraps, so repeated right will cycle through all options.
-  CursorRight
+proc cursorMoveIntent(dir: CursorDir): ActionIntent =
+  ActionIntent(
+    steerValid: false,
+    pressA: false, pressB: false,
+    cursor: dir,
+    chat: "",
+    discipline: DisciplineNoOp)
+
+proc confirmVoteIntent(): ActionIntent =
+  ActionIntent(
+    steerValid: false,
+    pressA: true, pressB: false,
+    cursor: CursorNone,
+    chat: "",
+    discipline: DisciplineNoOp)
+
+# ---------------------------------------------------------------------------
+# Navigate-to-slot state machine
+# ---------------------------------------------------------------------------
+
+proc navigateToSlot(belief: Belief, scratch: var ModeScratch,
+                    targetSlot: int): ActionIntent =
+  ## Drive the cursor toward `targetSlot`. Returns the intent for this
+  ## tick. Uses multi-tick holds for reliable cursor movement.
+  let cursor = belief.percep.votingCursor
+  let pc = belief.percep.votingPlayerCount
+  let ring = ringSize(pc)
+
+  scratch.meetVoteTarget = targetSlot
+
+  # If cursor position is unknown, fall back to CursorRight.
+  if cursor < 0 or pc <= 0:
+    return cursorMoveIntent(CursorRight)
+
+  # Already on target?
+  if cursor == targetSlot:
+    return noOpIntent()  # Caller will handle confirm.
+
+  # If we're in the middle of a multi-tick cursor hold, continue.
+  if scratch.meetCursorMoveTicks > 0:
+    scratch.meetCursorMoveTicks -= 1
+    return cursorMoveIntent(scratch.meetCursorDir)
+
+  # Compute direction and start a new cursor hold.
+  let dir = shortestCursorDir(cursor, targetSlot, ring)
+  if dir == CursorNone:
+    return noOpIntent()
+  scratch.meetCursorDir = dir
+  scratch.meetCursorMoveTicks = MeetingCursorHoldTicks - 1  # -1 because this tick counts.
+  cursorMoveIntent(dir)
 
 # ---------------------------------------------------------------------------
 # Main decide logic
@@ -82,7 +135,6 @@ proc cursorDirectionForTarget(targetColorIndex: int,
 
 proc decide*(belief: Belief, params: ModeParams,
              scratch: var ModeScratch): ActionIntent =
-  ## Phase 3: LLM-driven meeting behavior with safety-net fallback.
   discard params
 
   # If vote already confirmed, just idle (§7.5 soft-lock).
@@ -90,104 +142,91 @@ proc decide*(belief: Belief, params: ModeParams,
     return noOpIntent()
 
   let ticksInMeeting = belief.tick - scratch.meetEnterTick
+  let pc = belief.percep.votingPlayerCount
+  let cursor = belief.percep.votingCursor
 
   # --- Safety-net fallback (DESIGN.md §7.7) ---
-  # Estimate meeting timer: typical voteTimerTicks = 1200 (~50s).
-  # We don't have the exact timer, so use ticks-in-meeting as proxy.
-  # If we've been in the meeting for a long time and haven't voted,
-  # force SKIP. The MeetingFallbackTicksLeft constant is the safety
-  # margin measured from the *end* of the typical meeting duration.
-  const typicalMeetingDuration = 1200  # ~50s at 24Hz
-  let estimatedTicksLeft = typicalMeetingDuration - ticksInMeeting
+  # Use the configurable estimate instead of the old hardcoded 1200.
+  let estimatedTicksLeft = MeetingDurationEstimateTicks - ticksInMeeting
 
   if estimatedTicksLeft <= MeetingFallbackTicksLeft and
      not scratch.meetVoteConfirmed:
-    # Force vote SKIP: move cursor right (toward SKIP) and confirm.
-    if estimatedTicksLeft > MeetingFallbackTicksLeft - 24:
-      # Phase 1: move cursor toward SKIP.
-      return ActionIntent(
-        steerValid: false,
-        pressA: false,
-        pressB: false,
-        cursor: CursorRight,
-        chat: "",
-        discipline: DisciplineNoOp
-      )
-    else:
-      # Phase 2: press A to confirm the fallback vote.
+    # Navigate to SKIP and confirm.
+    let skipSlot = if pc > 0: pc else: 8  # Fallback if playerCount unknown.
+
+    # If cursor is on SKIP, confirm.
+    if cursor >= 0 and cursor == skipSlot:
       scratch.meetVoteConfirmed = true
-      return ActionIntent(
-        steerValid: false,
-        pressA: true,
-        pressB: false,
-        cursor: CursorNone,
-        chat: "",
-        discipline: DisciplineNoOp
-      )
+      return confirmVoteIntent()
+
+    # Navigate toward SKIP.
+    return navigateToSlot(belief, scratch, skipSlot)
+
+  # --- Auto-vote delay (no-LLM path) ---
+  # If no LLM action has arrived and enough time has passed, vote SKIP.
+  if scratch.meetLastLlmActionTick < 0 and
+     ticksInMeeting >= MeetingAutoVoteDelayTicks and
+     not scratch.meetVoteConfirmed:
+    let skipSlot = if pc > 0: pc else: 8
+
+    if cursor >= 0 and cursor == skipSlot:
+      scratch.meetVoteConfirmed = true
+      return confirmVoteIntent()
+
+    return navigateToSlot(belief, scratch, skipSlot)
 
   # --- Process pending LLM meeting actions ---
-  # Pop an action from the queue if available.
   if scratch.meetPendingActions.len > 0:
     let action = scratch.meetPendingActions[0]
     scratch.meetPendingActions.delete(0)
+    scratch.meetLastLlmActionTick = belief.tick
 
     case action.kind
     of MeetingActSpeak:
-      # Emit chat text. The action layer handles the actual chat
-      # packet emission. We put the text in the intent's chat field.
+      # Chat emission is a stub (deferred). Put text on intent anyway
+      # so it's ready when the FFI pipeline is wired.
       return ActionIntent(
         steerValid: false,
-        pressA: false,
-        pressB: false,
+        pressA: false, pressB: false,
         cursor: CursorNone,
         chat: action.text,
-        discipline: DisciplineNoOp
-      )
+        discipline: DisciplineNoOp)
 
     of MeetingActVote:
-      # Move cursor toward the target. We emit CursorRight to cycle
-      # toward the target slot. The exact navigation depends on
-      # cursor position tracking (which we approximate).
-      # Store the vote target for subsequent ticks to continue moving.
-      return ActionIntent(
-        steerValid: false,
-        pressA: false,
-        pressB: false,
-        cursor: CursorRight,
-        chat: "",
-        discipline: DisciplineNoOp
-      )
+      # Start navigating toward the target slot.
+      let targetSlot = targetSlotForAction(action, pc)
+      scratch.meetVoteTarget = targetSlot
+      # If already on target, just wait for confirm.
+      if cursor >= 0 and cursor == targetSlot:
+        return noOpIntent()
+      return navigateToSlot(belief, scratch, targetSlot)
 
     of MeetingActConfirmVote:
-      # Press A to confirm the current vote selection.
       scratch.meetVoteConfirmed = true
-      return ActionIntent(
-        steerValid: false,
-        pressA: true,
-        pressB: false,
-        cursor: CursorNone,
-        chat: "",
-        discipline: DisciplineNoOp
-      )
+      return confirmVoteIntent()
 
     of MeetingActUnvote:
-      # Press B to deselect (if the game supports it).
+      # Press B to deselect.
+      scratch.meetVoteTarget = -1
       return ActionIntent(
         steerValid: false,
-        pressA: false,
-        pressB: true,
+        pressA: false, pressB: true,
         cursor: CursorNone,
         chat: "",
-        discipline: DisciplineNoOp
-      )
+        discipline: DisciplineNoOp)
 
     of MeetingActWait:
-      # Explicit wait — do nothing until next action arrives.
       return noOpIntent()
 
     of MeetingActNone:
       return noOpIntent()
 
+  # --- Continue cursor navigation if a vote target is pending ---
+  if scratch.meetVoteTarget >= 0:
+    if cursor >= 0 and cursor == scratch.meetVoteTarget:
+      # Arrived at target. Wait for confirm action from LLM.
+      return noOpIntent()
+    return navigateToSlot(belief, scratch, scratch.meetVoteTarget)
+
   # --- No pending actions, no fallback needed yet ---
-  # Idle until the LLM sends the next action.
   noOpIntent()
