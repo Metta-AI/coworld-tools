@@ -149,10 +149,10 @@ proc paramsToJson(params: ModeParams): JsonNode =
     result["loiter_ticks"] = newJInt(params.preLoiterTicks)
     result["may_swap_on_witness"] = newJBool(params.preMaySwapOnWitness)
   of ModeHunting:
-    result["preferred_target"] = newJInt(params.hunPreferredTarget)
-    result["max_witnesses"] = newJInt(params.hunMaxWitnesses)
-    result["opportunistic"] = newJBool(params.hunOpportunistic)
-    result["cover_mode"] = newJString(modeStr(params.hunCoverMode))
+    result["preferred_target"] = newJInt(params.huntPreferredTarget)
+    result["max_witnesses"] = newJInt(params.huntMaxWitnesses)
+    result["opportunistic"] = newJBool(params.huntOpportunistic)
+    result["cover_mode"] = newJString(modeStr(params.huntCoverMode))
   of ModeFleeing:
     result["away_from"] = %*[params.fleeAwayFrom.x, params.fleeAwayFrom.y]
     result["min_distance"] = newJInt(params.fleeMinDistance)

@@ -53,3 +53,4 @@ const
   HuntMemoryTicks*            = 48   ## Pursue last-known position for ~2s after losing visual.
   HuntKillConfirmTicks*       = 12   ## Check for kill success within ~0.5s of striking.
   HuntKillConfirmRadius*      = 30   ## World-px radius for matching body to strike target.
+  HuntKillStrikeRange*        = 20   ## World-px distance for pressing A (matches server KillRange).

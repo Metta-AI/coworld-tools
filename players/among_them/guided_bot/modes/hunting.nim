@@ -16,9 +16,13 @@
 ##   - Otherwise, patrol between task stations (cover behavior) to
 ##     find isolated crewmates.
 ##
-## The kill strike uses DisciplineKillStrike: the action layer steers
-## toward the target and presses A when in range (within KillStrikeRange
-## pixels, now 20 to match the server's KillRange).
+## Kill flow:
+##   1. Target acquired (visible, killReady, witnesses ok) → pursue
+##      with DisciplineKillStrike (action layer presses A at ≤20px).
+##   2. Once within HuntKillStrikeRange → record strike state, start
+##      confirmation timer.
+##   3. During confirm window: watch for new body + killReady→false.
+##   4. Confirmed → drop to cover. Missed → resume patrol.
 
 import ../types
 import ../action
@@ -34,26 +38,26 @@ proc isLegalFor*(belief: Belief): bool =
 proc defaultParamsFor*(belief: Belief): ModeParams =
   discard belief
   ModeParams(mode: ModeHunting,
-             hunPreferredTarget: -1,
-             hunMaxWitnesses: 0,
-             hunOpportunistic: true,
-             hunCoverMode: ModePretending)
+             huntPreferredTarget: -1,
+             huntMaxWitnesses: 0,
+             huntOpportunistic: true,
+             huntCoverMode: ModePretending)
 
 proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
   scratch = ModeScratch(mode: ModeHunting,
-                        hunTargetColor: params.hunPreferredTarget,
-                        hunLastSightingTick: 0,
-                        hunEnterTick: belief.tick,
-                        hunLastSeenX: 0,
-                        hunLastSeenY: 0,
-                        hunCoverTargetIndex: -1,
-                        hunCoverLoiterUntilTick: 0,
-                        hunStrikeTick: -1,
-                        hunStrikeTargetX: 0,
-                        hunStrikeTargetY: 0,
-                        hunPreStrikeBodyCount: 0,
-                        hunPreStrikeKillReady: false,
-                        hunKillConfirmed: false)
+                        huntTargetColor: params.huntPreferredTarget,
+                        huntLastSightingTick: 0,
+                        huntEnterTick: belief.tick,
+                        huntLastSeenX: 0,
+                        huntLastSeenY: 0,
+                        huntCoverTargetIndex: -1,
+                        huntCoverLoiterUntilTick: 0,
+                        huntStrikeTick: -1,
+                        huntStrikeTargetX: 0,
+                        huntStrikeTargetY: 0,
+                        huntPreStrikeBodyCount: 0,
+                        huntPreStrikeKillReady: false,
+                        huntKillConfirmed: false)
 
 proc onExit*(belief: Belief, scratch: var ModeScratch) =
   discard belief
@@ -143,58 +147,60 @@ proc decide*(belief: Belief, params: ModeParams,
   let witnessCount = belief.percep.visibleCrewmates.len
 
   # =======================================================================
-  # Kill confirmation check (runs before new pursuit decisions)
+  # Kill confirmation check (runs only after A was pressed — strike sent)
   # =======================================================================
-  if scratch.hunStrikeTick >= 0:
-    let elapsed = belief.tick - scratch.hunStrikeTick
+  if scratch.huntStrikeTick >= 0:
+    let elapsed = belief.tick - scratch.huntStrikeTick
     if elapsed <= HuntKillConfirmTicks:
       let gotBody = bodyNearTarget(belief,
-                                   scratch.hunStrikeTargetX,
-                                   scratch.hunStrikeTargetY,
-                                   scratch.hunPreStrikeBodyCount)
-      let cooldownReset = scratch.hunPreStrikeKillReady and not killReady
+                                   scratch.huntStrikeTargetX,
+                                   scratch.huntStrikeTargetY,
+                                   scratch.huntPreStrikeBodyCount)
+      let cooldownReset = scratch.huntPreStrikeKillReady and not killReady
       if gotBody and cooldownReset:
         # Kill confirmed. Drop to cover, wait out cooldown.
-        scratch.hunKillConfirmed = true
-        scratch.hunStrikeTick = -1
-        scratch.hunTargetColor = -1
+        scratch.huntKillConfirmed = true
+        scratch.huntStrikeTick = -1
+        scratch.huntTargetColor = -1
         # Fall through to cover behavior below.
       else:
-        # Still waiting for confirmation — keep pressing A at target.
+        # Still waiting for confirmation — keep DisciplineKillStrike
+        # at the target position so we stay close if kill didn't land.
         return ActionIntent(
-          steerTo: Point(x: scratch.hunStrikeTargetX,
-                         y: scratch.hunStrikeTargetY),
+          steerTo: Point(x: scratch.huntStrikeTargetX,
+                         y: scratch.huntStrikeTargetY),
           steerValid: true,
           pressA: false, pressB: false,
           cursor: CursorNone, chat: "",
           discipline: DisciplineKillStrike)
     else:
       # Confirm window expired — kill missed or not confirmed.
-      scratch.hunStrikeTick = -1
+      scratch.huntStrikeTick = -1
 
   # =======================================================================
-  # Look for a kill target
+  # Look for a kill target — pursue with DisciplineKillStrike
   # =======================================================================
 
   # Check preferred target first.
-  if params.hunPreferredTarget >= 0 and killReady:
+  if params.huntPreferredTarget >= 0 and killReady:
     for cm in belief.percep.visibleCrewmates:
-      if cm.colorIndex == params.hunPreferredTarget:
+      if cm.colorIndex == params.huntPreferredTarget:
         let otherWitnesses = witnessCount - 1
-        if otherWitnesses <= params.hunMaxWitnesses:
+        if otherWitnesses <= params.huntMaxWitnesses:
           let targetWX = visibleCrewmateWorldX(belief.percep.cameraX, cm.x)
           let targetWY = visibleCrewmateWorldY(belief.percep.cameraY, cm.y)
-          scratch.hunTargetColor = cm.colorIndex
-          scratch.hunLastSightingTick = belief.tick
-          scratch.hunLastSeenX = targetWX
-          scratch.hunLastSeenY = targetWY
-          # Record strike state for confirmation.
-          if scratch.hunStrikeTick < 0:
-            scratch.hunStrikeTick = belief.tick
-            scratch.hunStrikeTargetX = targetWX
-            scratch.hunStrikeTargetY = targetWY
-            scratch.hunPreStrikeBodyCount = belief.percep.visibleBodies.len
-            scratch.hunPreStrikeKillReady = killReady
+          scratch.huntTargetColor = cm.colorIndex
+          scratch.huntLastSightingTick = belief.tick
+          scratch.huntLastSeenX = targetWX
+          scratch.huntLastSeenY = targetWY
+          # Check if we just entered kill range → start confirm timer.
+          let dist = heuristic(selfX, selfY, targetWX, targetWY)
+          if dist <= HuntKillStrikeRange and scratch.huntStrikeTick < 0:
+            scratch.huntStrikeTick = belief.tick
+            scratch.huntStrikeTargetX = targetWX
+            scratch.huntStrikeTargetY = targetWY
+            scratch.huntPreStrikeBodyCount = belief.percep.visibleBodies.len
+            scratch.huntPreStrikeKillReady = killReady
           return ActionIntent(
             steerTo: Point(x: targetWX, y: targetWY),
             steerValid: true,
@@ -203,21 +209,22 @@ proc decide*(belief: Belief, params: ModeParams,
             discipline: DisciplineKillStrike)
 
   # Opportunistic: if any lone crewmate and kill is ready.
-  if params.hunOpportunistic and killReady and witnessCount == 1:
+  if params.huntOpportunistic and killReady and witnessCount == 1:
     let cm = belief.percep.visibleCrewmates[0]
     let targetWX = visibleCrewmateWorldX(belief.percep.cameraX, cm.x)
     let targetWY = visibleCrewmateWorldY(belief.percep.cameraY, cm.y)
-    scratch.hunTargetColor = cm.colorIndex
-    scratch.hunLastSightingTick = belief.tick
-    scratch.hunLastSeenX = targetWX
-    scratch.hunLastSeenY = targetWY
-    # Record strike state for confirmation.
-    if scratch.hunStrikeTick < 0:
-      scratch.hunStrikeTick = belief.tick
-      scratch.hunStrikeTargetX = targetWX
-      scratch.hunStrikeTargetY = targetWY
-      scratch.hunPreStrikeBodyCount = belief.percep.visibleBodies.len
-      scratch.hunPreStrikeKillReady = killReady
+    scratch.huntTargetColor = cm.colorIndex
+    scratch.huntLastSightingTick = belief.tick
+    scratch.huntLastSeenX = targetWX
+    scratch.huntLastSeenY = targetWY
+    # Check if we just entered kill range → start confirm timer.
+    let dist = heuristic(selfX, selfY, targetWX, targetWY)
+    if dist <= HuntKillStrikeRange and scratch.huntStrikeTick < 0:
+      scratch.huntStrikeTick = belief.tick
+      scratch.huntStrikeTargetX = targetWX
+      scratch.huntStrikeTargetY = targetWY
+      scratch.huntPreStrikeBodyCount = belief.percep.visibleBodies.len
+      scratch.huntPreStrikeKillReady = killReady
     return ActionIntent(
       steerTo: Point(x: targetWX, y: targetWY),
       steerValid: true,
@@ -228,22 +235,22 @@ proc decide*(belief: Belief, params: ModeParams,
   # =======================================================================
   # Target memory — pursue last-known position
   # =======================================================================
-  if scratch.hunTargetColor >= 0 and
-     scratch.hunLastSightingTick > 0 and
-     belief.tick - scratch.hunLastSightingTick <= HuntMemoryTicks:
+  if scratch.huntTargetColor >= 0 and
+     scratch.huntLastSightingTick > 0 and
+     belief.tick - scratch.huntLastSightingTick <= HuntMemoryTicks:
     # Target was recently visible — steer toward last-known position.
     # Use DisciplineNormal (not kill-strike) since we can't kill what
     # we can't see.
     return ActionIntent(
-      steerTo: Point(x: scratch.hunLastSeenX, y: scratch.hunLastSeenY),
+      steerTo: Point(x: scratch.huntLastSeenX, y: scratch.huntLastSeenY),
       steerValid: true,
       pressA: false, pressB: false,
       cursor: CursorNone, chat: "",
       discipline: DisciplineNormal)
 
   # Memory expired — clear target.
-  scratch.hunTargetColor = -1
-  scratch.hunStrikeTick = -1
+  scratch.huntTargetColor = -1
+  scratch.huntStrikeTick = -1
 
   # =======================================================================
   # Cover patrol — station-to-station rotation
@@ -253,31 +260,31 @@ proc decide*(belief: Belief, params: ModeParams,
     return noOpIntent()
 
   # Currently loitering at a station?
-  if scratch.hunCoverLoiterUntilTick > 0 and
-     belief.tick < scratch.hunCoverLoiterUntilTick:
+  if scratch.huntCoverLoiterUntilTick > 0 and
+     belief.tick < scratch.huntCoverLoiterUntilTick:
     return noOpIntent()
 
   # Loiter finished — pick a new station.
-  if scratch.hunCoverLoiterUntilTick > 0 and
-     belief.tick >= scratch.hunCoverLoiterUntilTick:
-    scratch.hunCoverTargetIndex = -1
-    scratch.hunCoverLoiterUntilTick = 0
+  if scratch.huntCoverLoiterUntilTick > 0 and
+     belief.tick >= scratch.huntCoverLoiterUntilTick:
+    scratch.huntCoverTargetIndex = -1
+    scratch.huntCoverLoiterUntilTick = 0
 
   # No cover target — pick one.
-  if scratch.hunCoverTargetIndex < 0:
-    scratch.hunCoverTargetIndex = pickCoverStation(
-      selfX, selfY, scratch.hunCoverTargetIndex)
+  if scratch.huntCoverTargetIndex < 0:
+    scratch.huntCoverTargetIndex = pickCoverStation(
+      selfX, selfY, scratch.huntCoverTargetIndex)
 
-  if scratch.hunCoverTargetIndex < 0:
+  if scratch.huntCoverTargetIndex < 0:
     return noOpIntent()
 
   # Am I at the cover station?
-  if isAtStation(selfX, selfY, scratch.hunCoverTargetIndex):
-    scratch.hunCoverLoiterUntilTick = belief.tick + HuntCoverLoiterTicks
+  if isAtStation(selfX, selfY, scratch.huntCoverTargetIndex):
+    scratch.huntCoverLoiterUntilTick = belief.tick + HuntCoverLoiterTicks
     return noOpIntent()
 
   # Navigate to cover station.
-  let ts = tasks[scratch.hunCoverTargetIndex]
+  let ts = tasks[scratch.huntCoverTargetIndex]
   ActionIntent(
     steerTo: Point(x: ts.passableCX, y: ts.passableCY),
     steerValid: true,

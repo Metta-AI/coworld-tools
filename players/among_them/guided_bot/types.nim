@@ -252,10 +252,10 @@ type
       preLoiterTicks*: int
       preMaySwapOnWitness*: bool
     of ModeHunting:
-      hunPreferredTarget*: int     ## -1 = opportunistic.
-      hunMaxWitnesses*: int
-      hunOpportunistic*: bool
-      hunCoverMode*: ModeName      ## ModePretending or ModeIdle.
+      huntPreferredTarget*: int     ## -1 = opportunistic.
+      huntMaxWitnesses*: int
+      huntOpportunistic*: bool
+      huntCoverMode*: ModeName      ## ModePretending or ModeIdle.
     of ModeFleeing:
       fleeAwayFrom*: Point
       fleeMinDistance*: int
@@ -475,19 +475,19 @@ type
       preLoiterUntilTick*: int
       preEnterTick*: int
     of ModeHunting:
-      hunTargetColor*: int              ## Color of pursuit target.
-      hunLastSightingTick*: int         ## Tick target was last seen.
-      hunEnterTick*: int                ## Tick mode was entered.
-      hunLastSeenX*: int                ## World X of last sighting.
-      hunLastSeenY*: int                ## World Y of last sighting.
-      hunCoverTargetIndex*: int         ## Station index for cover patrol (-1 = none).
-      hunCoverLoiterUntilTick*: int     ## Loiter deadline at cover station.
-      hunStrikeTick*: int               ## Tick when kill-strike A was first pressed (-1 = none).
-      hunStrikeTargetX*: int            ## World X of target at strike time.
-      hunStrikeTargetY*: int            ## World Y of target at strike time.
-      hunPreStrikeBodyCount*: int       ## Visible body count before strike.
-      hunPreStrikeKillReady*: bool      ## killReady state before strike.
-      hunKillConfirmed*: bool           ## Set true on kill confirmation (for trace).
+      huntTargetColor*: int              ## Color of pursuit target.
+      huntLastSightingTick*: int         ## Tick target was last seen.
+      huntEnterTick*: int                ## Tick mode was entered.
+      huntLastSeenX*: int                ## World X of last sighting.
+      huntLastSeenY*: int                ## World Y of last sighting.
+      huntCoverTargetIndex*: int         ## Station index for cover patrol (-1 = none).
+      huntCoverLoiterUntilTick*: int     ## Loiter deadline at cover station.
+      huntStrikeTick*: int               ## Tick when kill-strike A was first pressed (-1 = none).
+      huntStrikeTargetX*: int            ## World X of target at strike time.
+      huntStrikeTargetY*: int            ## World Y of target at strike time.
+      huntPreStrikeBodyCount*: int       ## Visible body count before strike.
+      huntPreStrikeKillReady*: bool      ## killReady state before strike.
+      huntKillConfirmed*: bool           ## Set true on kill confirmation (for trace).
     of ModeFleeing:
       fleeUntilTick*: int
     of ModeAlibiBuilding:

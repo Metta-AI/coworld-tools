@@ -246,8 +246,8 @@ proc parseDirectiveFromJson(raw: string): (bool, Directive) =
                   if ok: m else: ModePretending
                 else: ModePretending
     params = ModeParams(mode: ModeHunting,
-                       hunPreferredTarget: pref, hunMaxWitnesses: maxW,
-                       hunOpportunistic: opp, hunCoverMode: cover)
+                       huntPreferredTarget: pref, huntMaxWitnesses: maxW,
+                       huntOpportunistic: opp, huntCoverMode: cover)
 
   of ModePretending:
     var target = TaskTarget(kind: TgtNearestMandatory)

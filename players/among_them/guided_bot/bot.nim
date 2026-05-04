@@ -587,22 +587,22 @@ proc decideNextMask*(bot: var Bot): uint8 =
 
   # 4d. Hunting mode: kill trace events.
   if bot.trace != nil and bot.modeScratch.mode == ModeHunting:
-    # kill_attempted: hunStrikeTick was just set this tick.
-    if bot.modeScratch.hunStrikeTick == bot.belief.tick:
+    # kill_attempted: huntStrikeTick was just set this tick.
+    if bot.modeScratch.huntStrikeTick == bot.belief.tick:
       var payload = newJObject()
-      payload["target_color"] = newJInt(bot.modeScratch.hunTargetColor)
+      payload["target_color"] = newJInt(bot.modeScratch.huntTargetColor)
       payload["distance"] = newJInt(
-        abs(bot.belief.percep.selfX - bot.modeScratch.hunStrikeTargetX) +
-        abs(bot.belief.percep.selfY - bot.modeScratch.hunStrikeTargetY))
+        abs(bot.belief.percep.selfX - bot.modeScratch.huntStrikeTargetX) +
+        abs(bot.belief.percep.selfY - bot.modeScratch.huntStrikeTargetY))
       payload["witnesses"] = newJInt(bot.belief.percep.visibleCrewmates.len - 1)
       logGameEvent(bot.trace, "kill_attempted", bot.belief.tick, $payload)
 
     # kill_confirmed: flag set by the mode.
-    if bot.modeScratch.hunKillConfirmed:
+    if bot.modeScratch.huntKillConfirmed:
       var payload = newJObject()
-      payload["target_color"] = newJInt(bot.modeScratch.hunTargetColor)
+      payload["target_color"] = newJInt(bot.modeScratch.huntTargetColor)
       logGameEvent(bot.trace, "kill_confirmed", bot.belief.tick, $payload)
-      bot.modeScratch.hunKillConfirmed = false
+      bot.modeScratch.huntKillConfirmed = false
 
   # 5. Act.
   let mask = applyIntent(bot.actionState, bot.belief, intent)

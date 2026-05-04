@@ -161,10 +161,10 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState): ReflexResu
     result.newDirective = Directive(
       mode: ModeHunting,
       params: ModeParams(mode: ModeHunting,
-                         hunPreferredTarget: target.colorIndex,
-                         hunMaxWitnesses: 0,
-                         hunOpportunistic: false,
-                         hunCoverMode: ModePretending),
+                         huntPreferredTarget: target.colorIndex,
+                         huntMaxWitnesses: 0,
+                         huntOpportunistic: false,
+                         huntCoverMode: ModePretending),
       source: SourceReflex,
       issuedAtTick: tick,
       ttlTicks: 120,  # ~5s.
