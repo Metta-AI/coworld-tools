@@ -17,18 +17,14 @@ historical bug fixes.
 
 ## Status
 
-**Orbit bug fixed — bot navigates and completes tasks.** The A\*
-path-following oscillation bug that caused the bot to orbit ±5 px
-indefinitely has been resolved (see changelog below). In a 30 s local
-match the bot now reaches its target task station in ~137 ticks and
-holds A for the remainder of the game. Localization locks reliably on
-live gameplay frames (100% lock rate after the initial interstitial
-window).
+**Phase 6 (mode completeness) in progress.** The bot completes
+multiple tasks per match (2-5 in 30s), navigates reliably, and has
+a full hold lifecycle with completion detection. All eight test
+suites pass; library builds succeed. Live-verified: crewmate task
+completing works end-to-end across multiple seeds.
 
-Phase 4 (structured trace writer), phase 3 (LLM guidance loop),
-phase 2 (action layer + mode strategies), and phase 1 (full
-perception pipeline) remain intact underneath. All eight test suites
-pass; both CLI and library builds succeed.
+Phases 1–5 (perception, action, LLM guidance, tracing, fallback
+playability) remain intact underneath.
 
 - **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
 - **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
@@ -367,70 +363,53 @@ only ship `mettagrid` without the `bitworld` extra.
 
 See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
 
-0. ~~**Task-completion detection missing.**~~ **DONE (phase 6.1).**
-   Three-phase hold lifecycle (Navigate → Hold → Confirm),
-   belief-layer task state with icon-miss counting and radar-dot
-   checkout latching, tiered target selection, trace events.
-1. **Imposter fallback not live-tested.** Hunting / pretending /
-   fleeing defaults have not been verified against the orbit fix.
-   Run an imposter-seeded local match and confirm kill-strike +
-   cover behaviors work.
-2. **Localization reliability (design-level).** The camera localization pipeline has
-   three tiers: local refit (fast, ~0.1 ms), patch-hash vote (fast,
-   ~5 ms), and spiral scan (capped at `SpiralMaxRadius=120` px,
-   ~60 ms worst-case). The spiral cap was added in phase 5 to
-   prevent ~11s hangs on non-matching frames. But the deeper problem
-   is that the spiral fires at all — it means both faster tiers
-   failed. Improvements to pursue:
-   - **Pre-game / lobby frame rejection.** The interstitial detector
-     only flags high-black-pixel-count frames. Lobby screens have
-     coloured content and are NOT flagged, so the localizer wastes
-     time on them. A lightweight classifier (e.g. dominant-colour
-     histogram, known lobby-sprite check, or map-pixel sample
-     agreement ratio) that gates `updateLocation` would eliminate
-     these calls entirely.
-   - **Patch index coverage.** `locateByPatches` should be the
-     dominant cold-localize path — it runs in ~5 ms and uses
-     spatial hashing to narrow candidates. If it's failing on real
-     gameplay frames, the likely cause is ignore-mask over-coverage
-     (too many patches marked invalid) or hash collisions in
-     featureless regions. Auditing the patch validity rate on the
-     fixture frames and loosening the ignore mask in the first few
-     frames (before actor exclusions are populated) would help.
-   - **Spiral seeding.** When the spiral does run, its seed position
-     determines how quickly it converges. Currently it seeds from
-     the last known camera or the button position. Seeding from
-     the best patch-vote candidate (even if below the vote
-     threshold) would centre the spiral closer to the truth.
-2. **Pre-game frame detection.** The interstitial detector only flags
-   high-black-pixel-count frames. Lobby/setup frames have colored
-   content and are NOT flagged, so the localizer runs the spiral on
-   them. Extending the detector to reject non-map frames would
-   prevent wasted spiral calls.  (Overlaps with item 1.)
-3. **Integration test with live LLM** (phase 3 follow-up). Run a full
-   local match with `ANTHROPIC_API_KEY` set and verify the bot changes
-   behavior mid-match based on LLM directives.
-4. **Meeting cursor precision.** The meeting mode uses repeated
-   CursorRight as a brute-force approach. A future improvement is to
-   read the actual cursor position from the voting parse and navigate
-   precisely to the target slot.
-5. **Task-state machine.** The raw `IconMatch` / `RadarDotMatch` lists
-   from phase 1.4 are consumed by `task_completing` for basic
-   nearest-station selection, but there is no full task-state machine
-   yet (icon->task assignment latching, icon-miss pruning, mandatory
-   vs completed tracking). That's a quality-of-play improvement.
-6. **Self-colour recall.** `updateSelfColor` currently uses the scalar
-   `matchesCrewmate` check at the known player anchor. On some frames
-   the player sprite doesn't match cleanly. A future improvement is to
-   carry the last known colour forward when no match fires.
-7. **Hunting target memory.** The hunting mode currently only pursues
-   crewmates visible on the current frame. A short-term memory of
-   last-seen positions would improve imposter behavior.
-8. **A\* path caching.** The current implementation recomputes A\* from
-   scratch on every goal change. Path segment caching or incremental
-   repair could reduce worst-case latency.
-9. **Prompt iteration.** The system prompts in `prompts.nim` are
-   starting points. Iterate based on match performance.
-10. **CurlPool reuse.** The LLM client creates a fresh CurlPool per
-    call to sidestep GC-safety. A thread-local pool would avoid the
-    per-call overhead (negligible at <1 Hz call rate, but cleaner).
+### Done (phase 6.1–6.4)
+
+- ~~Task-completion detection~~ → 3-phase hold lifecycle, belief task
+  state, radar checkout, tiered selection. Live-verified.
+- ~~Reporting give-up~~ → body-visibility check, approach/in-range
+  timeouts. Structurally verified (no body encounters in test seeds).
+- ~~Meeting cursor~~ → position-aware shortest-path navigation, timer
+  fix (600 not 1200), auto-vote delay. Structurally verified (no
+  meetings occur in test matches).
+- ~~Hunting cover~~ → station patrol, target memory, kill confirmation.
+  Structurally verified (can't get imposter role in `play_local.py`).
+
+### Blocked on live-verification infrastructure
+
+- **Per-agent trace directories.** `play_match.py` shares one trace
+  dir across all agents — individual imposter traces are overwritten.
+  `play_local.py` always assigns slot 0 (crewmate). Need either
+  per-agent trace subdirs or a `--role` override to verify: imposter
+  hunting/killing, body→reporting→meeting pipeline, meeting voting.
+- **Meeting mode end-to-end.** Cursor navigation and timer fix are
+  correct but have never run against a live voting screen. Blocked
+  until imposters kill and crewmates report.
+
+### Remaining implementation (IMPL_PLAN.md)
+
+- **6.5 `pretending` fake A-press** — imposter stands idle at
+  stations (behavioral tell). Small fix.
+- **6.6 `fleeing` cleanup** — no-op after flee, flee target in walls.
+  Trivial.
+- **6.7 Reflex scope** — body reflexes only fire from one mode each.
+  Trivial.
+- **Chat emission** — requires Nim→C FFI→Python plumbing. Medium.
+- **Phase 7 stub modes** — `fear`, `investigating`, `alibi_building`.
+  LLM-only, not on critical path.
+
+### Lower-priority gaps (carried forward)
+
+- **Localization reliability.** Spiral fallback fires on lobby frames
+  (interstitial detector misses colored non-map content). Pre-game
+  frame rejection would eliminate wasted spiral calls.
+- **Self-colour recall.** `updateSelfColor` drops the colour on
+  frames where the player sprite doesn't match cleanly. Carry the
+  last known colour forward.
+- **A\* path caching.** Recomputes from scratch on every goal change.
+- **Prompt iteration.** System prompts in `prompts.nim` are starting
+  points.
+- **CurlPool reuse.** Fresh pool per LLM call; thread-local pool
+  would be cleaner.
+- **Modulabot report bug.** Presses B instead of A for reports;
+  server ignores B for crewmates. Not blocking guided_bot.

@@ -5,7 +5,7 @@
 > If you're touching strategy, directory layout, or submission workflow, touch
 > this file too. Stale missions are worse than no mission.
 >
-> Last reviewed: 2026-05-01
+> Last reviewed: 2026-05-04
 
 ---
 
@@ -145,7 +145,7 @@ None of this is required on day one. It's where we're heading.
 
 > Update this section whenever priorities shift. Don't let it rot.
 
-**As of 2026-05-01:**
+**As of 2026-05-04:**
 
 - **Game of the week / primary target:** Among Them (BitWorld social
   deduction). The `among-them` season has disappeared from
@@ -330,50 +330,66 @@ None of this is required on day one. It's where we're heading.
   (`self_x`, `self_y`), and `localized` flag. The log call was moved
   to after `applyIntent` so the mask is available.
   **Result:** 30 s local match with seed 42 — bot navigates from
-  spawn (564, 120) to task station (631, 60) in ~137 ticks, then
-  holds A for the remaining 400 ticks (75% of gameplay in TaskHold).
-  Previously the bot orbited at (574, 85) for the entire game.
+  spawn (564, 120) to task station (631, 60) in ~137 ticks. With
+  phase 6.1's hold lifecycle, the bot now completes the task and
+  moves to the next station (2-5 tasks per match). Previously the
+  bot orbited at (574, 85) for the entire game.
+
+- **guided_bot phase 6.1–6.4 (mode completeness, 2026-05-04).**
+  Phase 6.1: `task_completing` hold lifecycle — 3-phase state machine
+  (Navigate/Hold/Confirm), belief-layer task state with icon-miss
+  counting and radar-dot checkout latching, tiered target selection,
+  trace events. Bot completes 2-5 tasks per 30s match (was 0).
+  Phase 6.2: `reporting` give-up — body-visibility check, approach
+  timeout, in-range timeout.
+  Phase 6.3: `meeting` cursor navigation + timer fix — position-aware
+  shortest-path ring navigation, timer corrected from 1200→600 ticks,
+  auto-vote SKIP after 360 ticks with no LLM action. Chat deferred.
+  Phase 6.4: `hunting` cover patrol + kill confirmation — station-to-
+  station rotation, 2s target memory, body+cooldown kill confirmation,
+  KillStrikeRange 16→20.
+  All 8 test suites pass; library builds green. Crewmate task
+  completing live-verified. Imposter/meeting/reporting verification
+  blocked on per-agent trace infrastructure (see IMPL_PLAN.md).
 
 ### Next
 
-0. **Task-completion detection missing.** The `task_completing` mode
-   navigates to a task station and holds A indefinitely. It never
-   detects that the task is complete (or that no task is assigned at
-   this station) and never selects the next station. The bot spends
-   75% of a match holding A at one station. Fix: detect the task-icon
-   disappearing, or impose a hold-A timeout, then re-select a new
-   target. This is the single biggest gameplay improvement remaining
-   for the crewmate fallback.
-1. **Imposter fallback coverage.** The hunting/pretending fallback
-   defaults have not been live-tested since the orbit fix. Run an
-   imposter-seeded local match, confirm the kill-strike and cover
-   behaviors work, and tune `hunMaxWitnesses` / `preLoiterTicks`.
-2. **Submission attempt** once a live Among Them season is accessible.
-   The bot now passes the 10-step validation gate on live frames
-   (localization locks, actions are non-noop). Season blocker:
-   `among-them` returned 404 on API access as of 2026-05-01.
-3. **Post-submission iteration** — stand up the trace-based outer
-   loop (feed `events.jsonl` + `decisions.jsonl` into an LLM
-   harness), start A/B'ing tuning constants, gather real-meeting
-   captures to replace the synthetic voting frames in
-   `test_voting.py` / `test_pixel_pipeline.py`.
-4. **Known gaps**:
-   - **`TaskState` machine half-wired** in pixel mode (only
-     `NOT_DOING` and `COMPLETED` populated; selection logic
-     reads other flags directly). Filed as TODO in
-     `among_them/modulabot/CREWMATE_TASK_FIX_PLAN.md § TaskState
-     machine cleanup`. Doesn't affect correctness; cleanup
-     estimated 1-2 hours.
-   - **HUD task-list parsing not done.** Would replace the
-     radar-dot inference path with ground-truth assignment
-     reads. Filed as a follow-up in
-     `among_them/modulabot/README.md § Future work`.
-   - **Walking-pose crewmate recall** is still lower than the
-     Nim bot's; try loosening the stable/body-pixel floors in
-     `sprite_match.CREWMATE_MIN_*`.
-   - `update_role` occasionally mis-fires IMPOSTER on crewmate
-     frames (kill-button shaded match is loose). Tighter match
-     budget or requiring the IMPS reveal would fix it.
+- **guided_bot phase 6 (mode completeness) in progress.** Phases
+  6.1–6.4 complete: task-completion lifecycle, reporting give-up,
+  meeting cursor/timer, hunting patrol + kill confirmation. See
+  `guided_bot/IMPL_PLAN.md` for the full roadmap.
+  Remaining: 6.5 (pretending fake A-press), 6.6 (fleeing cleanup),
+  6.7 (reflex scope widening), then phase 7 (stub modes).
+- **Live-verification infrastructure gap.** `play_local.py` always
+  assigns the policy agent to slot 0 (crewmate). `play_match.py`
+  shares one trace dir across all agents, so individual imposter
+  traces are overwritten. This blocks end-to-end verification of:
+  imposter hunting/killing, body reporting triggering meetings,
+  meeting voting behavior. Next infra task: add per-agent trace
+  subdirectories to `play_match.py` (or a `--role` flag to
+  `play_local.py`).
+- **Meeting mode partially verified.** Cursor navigation and timer
+  fix are structurally correct (compiles, tests pass) but no
+  meetings have occurred in any local match to exercise the code.
+  Blocked on the live-verification gap above.
+- **Chat emission deferred.** Requires Nim buffer → C FFI export →
+  Python `bitworld_chat_messages()` pipeline. See
+  `guided_bot/MEETING_DESIGN.md` §1.4.
+- **Submission attempt** once a live Among Them season is accessible.
+  The bot passes the 10-step validation gate. Season blocker:
+  `among-them` returned 404 on API access as of 2026-05-01.
+- **Known modulabot bug:** modulabot presses B for body reports
+  (`crewmate.py:104`) but the server uses A (`sim.nim:2202`).
+  Modulabot's body reports never trigger meetings. Not blocking
+  guided_bot (which uses A correctly) but worth fixing separately.
+- **Known gaps** (carried forward):
+  - **HUD task-list parsing not done.** Would replace the
+    radar-dot inference path with ground-truth assignment reads.
+  - **Walking-pose crewmate recall** is still lower than the
+    Nim bot's; try loosening the stable/body-pixel floors in
+    `sprite_match.CREWMATE_MIN_*`.
+  - `update_role` occasionally mis-fires IMPOSTER on crewmate
+    frames (kill-button shaded match is loose).
 
 ## How to get unstuck
 

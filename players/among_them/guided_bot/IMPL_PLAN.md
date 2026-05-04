@@ -5,7 +5,7 @@
 > 2026-05-01. Update this file as items are completed or priorities
 > shift.
 >
-> Last reviewed: 2026-05-01
+> Last reviewed: 2026-05-04
 
 ---
 
@@ -233,3 +233,52 @@ stub until needed.
 | 7.2 | `investigating` implementation | P3 | Medium | Open |
 | 7.3 | `alibi_building` implementation | P3 | Medium | Open |
 | 7.4 | `sabotage_watching` | P3 | — | Deferred |
+
+---
+
+## Infrastructure blockers
+
+### Per-agent trace directories
+
+`play_match.py` sets a single `GUIDED_BOT_TRACE_DIR` env var shared
+by all agents in the process. Each agent's `initBot` opens the same
+trace dir and overwrites the other agents' files. Only the last
+agent's trace survives.
+
+`play_local.py` always assigns the policy agent to player slot 0,
+which is always crewmate (imposters are assigned to higher slots).
+
+**Impact:** Can't verify imposter behavior (hunting kills, cover
+patrol), body→reporting→meeting pipeline, or meeting voting
+end-to-end.
+
+**Fix options:**
+- Add per-agent subdirectory support: `GUIDED_BOT_TRACE_DIR=/tmp/trace`
+  → each agent writes to `/tmp/trace/agent_N/`. Requires the FFI
+  layer to pass the agent index to `initBot`.
+- Add a `--role` or `--slot` flag to `play_local.py` to control
+  which slot the policy agent connects to.
+- Use the `play_match.py` script with per-agent env var overrides
+  (would require subprocess-per-agent architecture).
+
+### Repeated task-hold pattern
+
+Observed in live traces (seeds 2, 13): some task stations cycle
+Hold→Confirm timeout→re-select→Hold indefinitely without ever
+completing. The icon remains visible through the hold, so the confirm
+phase sees the icon on every frame and the miss count never reaches
+24. After the confirm window expires, the station is re-selected
+(it's the nearest icon-visible station) and the cycle repeats.
+
+**Likely cause:** Some task stations may require multiple A-holds
+to complete (multi-step tasks), or the server's interaction rect
+doesn't overlap the bot's estimated position despite
+`isInsideTaskRect` returning true.
+
+**Impact:** The bot wastes time cycling at one station instead of
+moving on. The confirm timeout (48 ticks) limits the damage, but
+the station gets re-selected immediately.
+
+**Potential fix:** Track how many hold cycles have been attempted at
+a given station. After N failed cycles (e.g. 3), mark it as
+`resolvedNotMine` and move on.
