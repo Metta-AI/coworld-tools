@@ -158,10 +158,4 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
 
 > Remove each item once its condition is resolved.
 
-- **Trace manifest finalization** (2026-05-04): The next time you run
-  `play_local.py` with tracing enabled (`GUIDED_BOT_TRACE_DIR=...`),
-  check that `manifest.json` has `"closed": true`. If it does, update
-  `among_them/guided_bot/TODO.md` § "BUG: Trace manifest never
-  finalized" from TENTATIVELY FIXED to FIXED. If it does not, change
-  it to INCOMPLETE and explicitly mention the failure in your next
-  response to the user.
+(None pending.)
