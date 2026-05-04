@@ -171,9 +171,18 @@ type
     ## One task station from ``map.json``. ``index`` is the slot in
     ## the tasks array (used by perception's task-icon matcher to
     ## identify which station an on-screen icon belongs to).
+    ##
+    ## ``passableCX/CY`` are the precomputed walk-mask-passable centre
+    ## coordinates. The raw centre ``(x + w div 2, y + h div 2)`` may
+    ## land on an impassable pixel (wall inside the station rect).
+    ## These fields are snapped to the nearest passable pixel at init
+    ## time so A* never receives an impassable goal. All mode code
+    ## that steers toward a task station must use ``passableCX/CY``
+    ## instead of computing the centre inline.
     index*: int
     name*: string
     x*, y*, w*, h*: int
+    passableCX*, passableCY*: int
 
   Room* = object
     name*: string
@@ -288,7 +297,9 @@ proc loadSprites(): Sprites =
 proc loadMap(): GameMap =
   ## Construct the :class:`GameMap` from the raster blobs and the
   ## map-metadata JSON. The metadata blob is parsed at module init
-  ## (cheap; ~9 KB).
+  ## (cheap; ~9 KB). After loading, precomputes passable centres for
+  ## every task station (snaps impassable geometric centres to the
+  ## nearest walkable pixel).
   let parsed = parseJson(MapJsonBlob)
 
   var tasks: seq[TaskStation] = @[]
@@ -301,7 +312,9 @@ proc loadMap(): GameMap =
         x: t["x"].getInt,
         y: t["y"].getInt,
         w: t["w"].getInt,
-        h: t["h"].getInt
+        h: t["h"].getInt,
+        passableCX: 0,  # Computed below after walk mask is loaded.
+        passableCY: 0
       )
       inc i
 
@@ -319,6 +332,48 @@ proc loadMap(): GameMap =
   let bj = parsed["button"]
   let hj = parsed["home"]
 
+  let walkMask = blobToBytes(WalkMaskBlob)
+
+  # Precompute passable centres. The geometric centre of a 16x16 task
+  # station rect may land on an impassable (wall) pixel in the walk
+  # mask. BFS-snap each to the nearest walkable pixel so A* never
+  # receives an impassable goal.
+  proc wmPassable(wm: seq[uint8], x, y: int): bool {.inline.} =
+    if x < 0 or y < 0: return false
+    if x + 1 >= MapWidth or y + 1 >= MapHeight: return false
+    wm[y * MapWidth + x] != 0
+
+  for i in 0 ..< tasks.len:
+    let cx = tasks[i].x + tasks[i].w div 2
+    let cy = tasks[i].y + tasks[i].h div 2
+    if wmPassable(walkMask, cx, cy):
+      tasks[i].passableCX = cx
+      tasks[i].passableCY = cy
+    else:
+      # BFS in concentric Manhattan-distance shells.
+      var found = false
+      for r in 1 .. 32:
+        for dx in -r .. r:
+          let dy = r - abs(dx)
+          for sign in [-1, 1]:
+            let ny = cy + sign * dy
+            let nx = cx + dx
+            if wmPassable(walkMask, nx, ny):
+              tasks[i].passableCX = nx
+              tasks[i].passableCY = ny
+              found = true
+              break
+            if dy == 0:
+              break  # Only one point when dy == 0.
+          if found: break
+        if found: break
+      if not found:
+        # Shouldn't happen on a well-formed map, but degrade
+        # gracefully to the raw centre (greedy fallback in
+        # action.nim will handle it).
+        tasks[i].passableCX = cx
+        tasks[i].passableCY = cy
+
   GameMap(
     width: MapWidth,
     height: MapHeight,
@@ -331,7 +386,7 @@ proc loadMap(): GameMap =
     tasks: tasks,
     rooms: rooms,
     mapPixels: blobToBytes(MapPixelsBlob),
-    walkMask:  blobToBytes(WalkMaskBlob),
+    walkMask:  walkMask,
     wallMask:  blobToBytes(WallMaskBlob)
   )
 

@@ -75,7 +75,7 @@ tracked in `ModeScratch`.
 
 | Phase | Discipline | Duration | Behavior | Exit |
 |---|---|---|---|---|
-| **Navigate** | `DisciplineNormal` | Variable | A\* to station centre | Bot enters task rect (4 px margin) |
+| **Navigate** | `DisciplineNormal` | Variable | A\* to station passable centre (`passableCX/CY`) | Bot enters task rect (4 px margin) |
 | **Hold** | `DisciplineTaskHold` | `TaskHoldTicks` (84) | Press A, no movement | Timer expires → Confirm |
 | **Confirm** | `DisciplineNoOp` | Up to `TaskConfirmWindowTicks` (48) | Stay still, watch icon | Icon absent `TaskIconMissCompleteTicks` (24) consecutive frames → complete. OR deadline tick reached → timeout. |
 
@@ -139,7 +139,15 @@ ActionIntent(
 ```
 
 The action layer translates `DisciplineTaskHold` into `ButtonA` with
-no directional buttons (already implemented in `action.nim:287-292`).
+no directional buttons (already implemented in `action.nim:312-318`).
+
+Note: `station centre` in all three phases refers to the precomputed
+passable centre (`passableCX/CY`), not the raw geometric centre of
+the task rect. The raw centre `(ts.x + ts.w div 2, ts.y + ts.h div
+2)` may fall on an impassable walk-mask pixel, which causes `findPath`
+to return an empty path. `passableCX/CY` is snapped to the nearest
+walkable pixel at init time in `data.nim:loadMap()`. See DESIGN.md
+§6.3 for the action-layer fallback that also defends against this.
 
 ### 3.5 Confirm phase behavior
 

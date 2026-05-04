@@ -68,8 +68,9 @@ New tuning constants:
   between icon-visible and pure-nearest fallback.
 - Hold timeout as backstop for unassigned stations.
 
-**Diagnostic note:** See `FIX_PLAN.md` § "Task-completion detection
-missing" for the full root-cause analysis and hypothesis set.
+**Diagnostic note:** The original root-cause analysis and hypothesis
+set was in the former `FIX_PLAN.md` (removed). The task-completion
+detection issue is now resolved (phase 6.1).
 
 ### 6.2 `reporting` — success detection + retry (P1)
 
@@ -171,7 +172,8 @@ kill, `DisciplineKillStrike`.
 **Fix:**
 - When flee timer expires, switch to cover behavior (walk to a
   nearby task station) instead of going idle.
-- Clamp the flee target to the nearest passable tile.
+- Clamp the flee target to the nearest passable tile. (`snapToPassable`
+  in `action.nim` is available for this; see the A\* noop-lock fix.)
 
 ### 6.7 Reflex scope — widen body reflexes (P3)
 

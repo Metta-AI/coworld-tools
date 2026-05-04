@@ -72,8 +72,8 @@ proc decide*(belief: Belief, params: ModeParams,
     for i in 0 ..< tasks.len:
       let idx = (offset + i) mod tasks.len
       let ts = tasks[idx]
-      let cx = ts.x + ts.w div 2
-      let cy = ts.y + ts.h div 2
+      let cx = ts.passableCX
+      let cy = ts.passableCY
       let d = heuristic(selfX, selfY, cx, cy)
       # Pick a station that's not too close (we just left one) and
       # not too far (stay efficient).
@@ -84,8 +84,8 @@ proc decide*(belief: Belief, params: ModeParams,
 
   let ti = scratch.preFakeTargetIndex
   let ts = tasks[ti]
-  let goalX = ts.x + ts.w div 2
-  let goalY = ts.y + ts.h div 2
+  let goalX = ts.passableCX
+  let goalY = ts.passableCY
 
   # --- Am I at the station? ---
   const margin = 8

@@ -188,6 +188,12 @@ The belief state is the agent's working model of the world. It is:
    6.1). See `TASK_COMPLETING_DESIGN.md` §4 for the full spec.
    For ghosts: the task layer is the same; ghosts complete their own
    tasks (see §5.7).
+   The static `TaskStation` record in `data.nim` carries precomputed
+   `passableCX/passableCY` — the geometric centre snapped to the
+   nearest walkable pixel at init time. All modes that steer toward
+   task stations use these instead of computing the raw centre inline,
+   so A\* never receives an impassable goal (see §6.3 for the full
+   rationale).
 5. **Social.** Recent chat lines (speaker-attributed per modulabot's
    voting-screen OCR), accusations heard, votes cast, votes received,
    most-recent meeting transcript.
@@ -300,7 +306,9 @@ frame ──► perceive ──► update belief ──► decide ──► act
   - Task-hold state (currently holding A for task completion?).
 - Recomputes A\* only when `steer_to` changes or the current path is
   invalidated (per tick cost is therefore bounded; long paths are
-  amortized).
+  amortized). When A\* returns an empty path (impassable or unreachable
+  goal), falls back to straight-line greedy steering toward the goal
+  with the anti-stuck jiggle handling wall collisions (see §6.3).
 - Translates the `discipline` hint into a movement policy:
   `normal` = momentum steering; `task_hold` = hold A only, no
   movement; `kill_strike` = direct line, press A on contact;
@@ -693,6 +701,25 @@ choosing waypoints far enough ahead to cross wall boundaries.
    `StallProgressTicks = 48` (~2 s) elapse without the distance
    decreasing, forces a replan. Catches edge cases the periodic timer
    misses (e.g. bot stuck in a corner for exactly one replan cycle).
+
+4. **Greedy-steering fallback (2026-05-04).** When `findPath` returns
+   an empty path (goal impassable, unreachable, or node cap exceeded),
+   the waypoint-following block is skipped and `mask` would stay 0 —
+   permanently freezing the bot. The fallback calls
+   `steerButtons(selfX, selfY, goalX, goalY)` directly whenever
+   `mask == 0 and currentPath.len == 0`, providing at least
+   straight-line movement toward the goal. The anti-stuck jiggle
+   handles wall collisions. This mirrors modulabot's
+   `policies/base.py` fallback.
+
+5. **Stuck detector scope fix (2026-05-04).** The stuck detector
+   originally required `currentPath.len > 0`, which prevented it
+   from firing when the path *was* the problem (empty). The greedy
+   fallback now ensures `lastEmittedMask` has direction bits even
+   without a path, so the condition was simplified to: velocity is
+   zero AND `lastEmittedMask` has direction bits. This covers both
+   "path following but physically stuck" and "greedy fallback but
+   hitting a wall."
 
 ---
 

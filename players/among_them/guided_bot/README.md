@@ -12,8 +12,8 @@ editing.
 **Implementation plan:** [`IMPL_PLAN.md`](IMPL_PLAN.md). Phase 6+
 roadmap based on a full mode audit (2026-05-01).
 
-**Fix log:** [`FIX_PLAN.md`](FIX_PLAN.md). Diagnostic findings and
-historical bug fixes.
+**Open bugs:** [`TODO.md`](TODO.md). Known issues and reproduction
+steps.
 
 ## Status
 
@@ -73,6 +73,7 @@ dominated by chat OCR line count.
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
 | 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
+| — | A\* noop-lock fix: passable task centres, greedy fallback, stuck detector scope | done |
 
 ## Strategy
 
@@ -95,7 +96,8 @@ guided_bot/
   belief.nim                # initBelief, updateBelief
   perception.nim            # phase-1 perception orchestrator
   perception/
-    data.nim                # phase 1.1 — palette, sprites, map, font (baked)
+    data.nim                # phase 1.1 — palette, sprites, map, font (baked);
+                            #   TaskStation.passableCX/CY precomputed here
     frame.nim               # phase 1.0 — bit unpack + pixel helpers
     interstitial.nim        # phase 1.0 — black-pixel screen detector
     ignore.nim              # phase 1.0 — dynamic-pixel ignore mask
@@ -106,7 +108,8 @@ guided_bot/
     ocr.nim                 # phase 1.5 — pixel-font OCR (mb_best_glyph, textMatches, findText)
     voting.nim              # phase 1.6 — voting-screen parse (grid, slots, chat OCR)
     baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
-  action.nim                # ActionIntent -> button mask (A*, stuck detect, jiggle)
+  action.nim                # ActionIntent -> button mask (A*, stuck detect,
+                            #   jiggle, greedy fallback, snapToPassable)
   mode_registry.nim         # mode lookup + default directive
   reflex.nim                # reflex evaluation (edge-triggered mode switches)
   guidance.nim              # worker-thread + channels (phase 3)
@@ -320,6 +323,35 @@ only ship `mettagrid` without the `bitworld` extra.
 | 2026-05-01 | jamesboggs-guided-bot-dryrun | beta-cvc (fallback) | import fixed, Nim build attempted | — |
 
 ## Change log (recent)
+
+**2026-05-04 — A\* noop-lock fix**
+
+- **`perception/data.nim`:** `TaskStation` gained `passableCX`,
+  `passableCY` fields — the geometric centre snapped to the nearest
+  walkable pixel on the baked walk mask at init time. Some task station
+  centres (computed as `ts.x + ts.w div 2, ts.y + ts.h div 2`) fall
+  on impassable wall pixels, causing `findPath` to return an empty path
+  and the bot to freeze permanently at mask=0. All three modes that
+  steer toward task stations now use the precomputed passable centres.
+- **`action.nim`:** (a) `snapToPassable` exported helper — BFS
+  nearest-passable pixel search (Manhattan shells, radius 32).
+  (b) Greedy-steering fallback in the `DisciplineNormal` path — when
+  `findPath` returns empty, `steerButtons(self, goal)` fires as a
+  last resort so the bot never freezes. (c) Stuck detector no longer
+  requires `currentPath.len > 0`; fires whenever `lastEmittedMask`
+  has direction bits but velocity is zero, covering both path-following
+  and greedy-fallback stuck scenarios.
+- **`modes/task_completing.nim`:** `taskStationWorldCenter` returns
+  `passableCX/CY` instead of the raw geometric centre.
+- **`modes/pretending.nim`:** Inline centre computations replaced with
+  `passableCX/CY`.
+- **`modes/hunting.nim`:** `pickCoverStation` and cover-patrol steer
+  target use `passableCX/CY`.
+- **Result:** Seeds 100 and 7 (both 50% repro of the noop-lock) now
+  show active navigation for the full 30 s match. Zero sustained
+  mask=0 runs after the pre-game interstitial. See TODO.md for full
+  root-cause analysis. See DESIGN.md §6.3 for the updated action-layer
+  behavior.
 
 **2026-05-01 — orbit bug fix + trace enhancements**
 

@@ -57,6 +57,31 @@ proc passable(wm: openArray[uint8], x, y: int): bool {.inline.} =
   if x + 1 >= MapWidth or y + 1 >= MapHeight: return false
   wm[y * MapWidth + x] != 0
 
+proc snapToPassable*(wm: openArray[uint8], x, y: int): (bool, int, int) =
+  ## Find the nearest passable pixel to (x, y) via BFS in concentric
+  ## Manhattan-distance shells. Returns (true, px, py) on success, or
+  ## (false, x, y) if nothing passable exists within the search radius.
+  ## Used at init time to precompute passable task-station centres, and
+  ## as a defense-in-depth fallback for any steer target that lands on
+  ## an impassable pixel.
+  if passable(wm, x, y):
+    return (true, x, y)
+  const MaxRadius = 32  ## Task stations are 16x16; nearest walkable is
+                        ## almost always within a few pixels.
+  for r in 1 .. MaxRadius:
+    for dx in -r .. r:
+      let dy = r - abs(dx)
+      # Check both +dy and -dy (the two points at this Manhattan distance
+      # on the current ring).
+      for sign in [-1, 1]:
+        let ny = y + sign * dy
+        let nx = x + dx
+        if passable(wm, nx, ny):
+          return (true, nx, ny)
+        if dy == 0:
+          break  # Only one point when dy == 0; avoid checking it twice.
+  (false, x, y)
+
 proc findPath*(wm: openArray[uint8],
                startX, startY, goalX, goalY: int): seq[Point] =
   ## Standard A* on the walk mask. Returns the path from the step
@@ -372,8 +397,15 @@ proc applyIntent*(
   state.lastVelocityX = velX
   state.lastVelocityY = velY
 
-  # Stuck detection: if we intended to move but didn't.
-  if state.currentPath.len > 0 and velX == 0 and velY == 0 and
+  # Stuck detection: if we intended to move but didn't. Two cases:
+  #   1. Had a path + emitted direction buttons but velocity was zero
+  #      (physically stuck against a wall).
+  #   2. Had a valid steer target but A* returned an empty path AND
+  #      the greedy fallback emitted direction buttons but velocity
+  #      was still zero. The greedy fallback (below) ensures
+  #      lastEmittedMask has direction bits even without a path, so
+  #      case 1's condition now covers both scenarios.
+  if velX == 0 and velY == 0 and
      state.lastEmittedMask != 0 and
      (state.lastEmittedMask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0:
     inc state.stuckFrames
@@ -416,6 +448,14 @@ proc applyIntent*(
     let (found, waypoint) = choosePathStep(state.currentPath)
     if found:
       mask = steerButtons(selfX, selfY, waypoint.x, waypoint.y)
+
+  # Greedy-steering fallback: if A* returned an empty path (goal
+  # impassable, unreachable, or node cap exceeded), steer directly
+  # toward the goal and let the anti-stuck jiggle handle walls.
+  # Mirrors modulabot's ``policies/base.py`` fallback. Without this,
+  # an empty path leaves mask at 0 and the bot freezes permanently.
+  if mask == 0 and state.currentPath.len == 0:
+    mask = steerButtons(selfX, selfY, goalX, goalY)
 
   # Apply button overrides from the intent.
   if intent.pressA: mask = mask or ButtonA

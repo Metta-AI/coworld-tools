@@ -29,7 +29,7 @@ The imposter default mode. Three paths in `decide()`:
   (set but never read).
 - `hunEnterTick`: tick when mode was entered.
 
-### 1.3 Action layer (`action.nim:295-303`)
+### 1.3 Action layer (`action.nim:320-329`)
 
 `DisciplineKillStrike` steers toward the target and ORs `ButtonA`
 every tick while `dist <= KillStrikeRange (16)`. The server's actual
@@ -70,7 +70,9 @@ Replace the static "walk to nearest station" cover with a patrol
 loop that mirrors pretending's station rotation:
 
 1. Pick a task station (not too close, not the last one visited).
-2. Navigate there via `DisciplineNormal`.
+2. Navigate there via `DisciplineNormal` (using the station's
+   precomputed passable centre `passableCX/CY` as the steer target,
+   so A\* never receives an impassable goal).
 3. On arrival, loiter for `HuntCoverLoiterTicks` (72, ~3s).
 4. After loiter, pick a new station and repeat.
 

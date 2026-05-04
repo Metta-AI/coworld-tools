@@ -352,6 +352,21 @@ None of this is required on day one. It's where we're heading.
   completing live-verified. Imposter/meeting/reporting verification
   blocked on per-agent trace infrastructure (see IMPL_PLAN.md).
 
+- **guided_bot A\* noop-lock fix (2026-05-04).** `findPath` returned
+  an empty path when the task-station geometric centre fell on an
+  impassable walk-mask pixel. The empty path caused `mask=0` permanently
+  (50% of tested seeds). Three-layer fix: (a) `TaskStation.passableCX/CY`
+  — precomputed walk-mask-snapped centres in `data.nim:loadMap()`, used
+  by `task_completing`, `pretending`, and `hunting` cover patrol.
+  (b) Greedy-steering fallback in `action.nim`'s `DisciplineNormal`
+  path — `steerButtons(self, goal)` fires when A\* returns empty, so
+  the bot never freezes. (c) Stuck-detector scope fix — removed the
+  `currentPath.len > 0` guard so the jiggle mechanism fires on
+  greedy-fallback stuck scenarios too. Live-verified on seeds 100 and
+  7 (both previously locked). See `guided_bot/TODO.md` for the full
+  root-cause analysis and `guided_bot/DESIGN.md` §6.3 for the updated
+  action-layer behavior.
+
 ### Next
 
 - **guided_bot phase 6 (mode completeness) in progress.** Phases

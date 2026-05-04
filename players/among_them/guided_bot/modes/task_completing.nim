@@ -62,8 +62,10 @@ proc onExit*(belief: Belief, scratch: var ModeScratch) =
 # ---------------------------------------------------------------------------
 
 proc taskStationWorldCenter(ts: TaskStation): (int, int) =
-  ## World-space centre of a task station rect.
-  (ts.x + ts.w div 2, ts.y + ts.h div 2)
+  ## Passable world-space centre of a task station. Uses the
+  ## precomputed walk-mask-snapped coordinates so A* never receives
+  ## an impassable goal.
+  (ts.passableCX, ts.passableCY)
 
 proc isInsideTaskRect(selfX, selfY: int, ts: TaskStation): bool =
   ## True when the player's world position is inside the station rect

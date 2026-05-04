@@ -78,8 +78,8 @@ proc pickCoverStation(selfX, selfY: int, currentIdx: int): int =
     if idx == currentIdx:
       continue
     let ts = tasks[idx]
-    let cx = ts.x + ts.w div 2
-    let cy = ts.y + ts.h div 2
+    let cx = ts.passableCX
+    let cy = ts.passableCY
     let d = heuristic(selfX, selfY, cx, cy)
     if d > 30 and d < bestDist:
       bestDist = d
@@ -90,8 +90,8 @@ proc pickCoverStation(selfX, selfY: int, currentIdx: int): int =
     for i in 0 ..< tasks.len:
       if i == currentIdx: continue
       let ts = tasks[i]
-      let cx = ts.x + ts.w div 2
-      let cy = ts.y + ts.h div 2
+      let cx = ts.passableCX
+      let cy = ts.passableCY
       let d = heuristic(selfX, selfY, cx, cy)
       if d > maxDist:
         maxDist = d
@@ -279,7 +279,7 @@ proc decide*(belief: Belief, params: ModeParams,
   # Navigate to cover station.
   let ts = tasks[scratch.hunCoverTargetIndex]
   ActionIntent(
-    steerTo: Point(x: ts.x + ts.w div 2, y: ts.y + ts.h div 2),
+    steerTo: Point(x: ts.passableCX, y: ts.passableCY),
     steerValid: true,
     pressA: false, pressB: false,
     cursor: CursorNone, chat: "",

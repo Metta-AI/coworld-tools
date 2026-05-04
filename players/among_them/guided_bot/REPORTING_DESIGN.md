@@ -23,7 +23,7 @@ The mode is minimal:
   Otherwise no-op.
 - No lifecycle, no state machine, no checks.
 
-### 1.2 Action layer (`action.nim:305-314`)
+### 1.2 Action layer (`action.nim:331-340`)
 
 `DisciplineReport` steers toward the target and ORs in `ButtonA`
 every tick while Manhattan distance ≤ `ReportRange = 20` px. This
@@ -55,7 +55,10 @@ the reflex system handles it automatically.
 
 2. **No approach timeout.** If A\* can't find a path to the body
    (body is in an unreachable location, or the walk mask is wrong),
-   the bot navigates fruitlessly until TTL.
+   the bot navigates fruitlessly until TTL. (Partially mitigated by
+   the greedy-steering fallback in `action.nim` — the bot will at
+   least move toward the body in a straight line instead of freezing.
+   See DESIGN.md §6.3.)
 
 3. **No in-range timeout.** If the bot reaches report range and
    presses A but nothing happens (e.g. the body was just barely
