@@ -96,6 +96,26 @@ The `policy.py` contract:
 - Optional module-level `AGENT_ID` and `DESCRIPTION` constants for
   metadata (shown by `run_agents.py --list`)
 
+### Perception Module
+
+Python agents can use the shared `perception/` module for frame parsing:
+
+```python
+from perception import parse_frame
+from perception.types import View
+
+result = parse_frame(raw_frame_bytes)
+if result.view == View.PLAYING:
+    for dot in result.overworld.minimap_dots:
+        print(f"Player at ({dot.world_x}, {dot.world_y})")
+```
+
+Stateless, single-frame-in / symbolic-out. Handles all 9 game views:
+lobby, role reveal, playing, hostage select, chatroom, global chat,
+info screen, hostage exchange, and reveal/game over. See
+[docs/DESIGN_perception.md](docs/DESIGN_perception.md) for the full
+design and `perception/types.py` for output dataclass definitions.
+
 ## Agents
 
 ### [baseline](agents/baseline/)
