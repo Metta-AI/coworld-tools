@@ -225,7 +225,7 @@ stub until needed.
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
 | 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; **live verification blocked** — no meetings occur in local matches because imposters don't kill; revisit after 6.4/6.5) |
-| 6.4 | `hunting` cover + memory | P2 | Small-medium | Open |
+| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (live verification blocked — `play_local.py` always assigns crewmate to slot 0; need per-agent trace dirs in `play_match.py` to verify imposter behavior) |
 | 6.5 | `pretending` fake A-press | P2 | Small | Open |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | Open |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |

@@ -76,6 +76,7 @@ dominated by chat OCR line count.
 | 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
 | 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
+| 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
 
 ## Strategy
 

@@ -47,3 +47,9 @@ const
   ReportBodyMissFrames*       = 36   ## Consecutive frames without body → give up (~1.5s).
   ReportApproachTimeoutTicks* = 240  ## Give up navigating after 10s without reaching range.
   ReportInRangeTimeoutTicks*  = 72   ## Give up pressing A after 3s in range without meeting.
+
+  # --- Hunting mode (HUNTING_DESIGN.md §4) -----------------------------
+  HuntCoverLoiterTicks*       = 72   ## Loiter at each cover station ~3s before moving.
+  HuntMemoryTicks*            = 48   ## Pursue last-known position for ~2s after losing visual.
+  HuntKillConfirmTicks*       = 12   ## Check for kill success within ~0.5s of striking.
+  HuntKillConfirmRadius*      = 30   ## World-px radius for matching body to strike target.

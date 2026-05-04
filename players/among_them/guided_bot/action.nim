@@ -34,7 +34,8 @@ const
                          ## corners and cause oscillation.
   StuckThreshold = 8     ## Frames of zero velocity before jiggle fires.
   JiggleDuration = 6     ## Ticks of perpendicular movement during jiggle.
-  KillStrikeRange = 16   ## World-pixel distance for kill-strike ButtonA.
+  KillStrikeRange = 20   ## World-pixel distance for kill-strike ButtonA.
+                         ## Matches the server's KillRange (sim.nim).
   ReportRange = 20       ## World-pixel distance for report ButtonA.
   MaxAstarNodes = 30_000 ## Upper bound on nodes expanded before A* gives
                          ## up. The 952x534 map has ~508K cells; capping at

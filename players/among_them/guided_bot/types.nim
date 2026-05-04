@@ -473,9 +473,19 @@ type
       preLoiterUntilTick*: int
       preEnterTick*: int
     of ModeHunting:
-      hunTargetColor*: int
-      hunLastSightingTick*: int
-      hunEnterTick*: int
+      hunTargetColor*: int              ## Color of pursuit target.
+      hunLastSightingTick*: int         ## Tick target was last seen.
+      hunEnterTick*: int                ## Tick mode was entered.
+      hunLastSeenX*: int                ## World X of last sighting.
+      hunLastSeenY*: int                ## World Y of last sighting.
+      hunCoverTargetIndex*: int         ## Station index for cover patrol (-1 = none).
+      hunCoverLoiterUntilTick*: int     ## Loiter deadline at cover station.
+      hunStrikeTick*: int               ## Tick when kill-strike A was first pressed (-1 = none).
+      hunStrikeTargetX*: int            ## World X of target at strike time.
+      hunStrikeTargetY*: int            ## World Y of target at strike time.
+      hunPreStrikeBodyCount*: int       ## Visible body count before strike.
+      hunPreStrikeKillReady*: bool      ## killReady state before strike.
+      hunKillConfirmed*: bool           ## Set true on kill confirmation (for trace).
     of ModeFleeing:
       fleeUntilTick*: int
     of ModeAlibiBuilding:
