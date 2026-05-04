@@ -180,8 +180,8 @@ proc testClassifyInterstitial() =
   var crew = newSeq[uint8](FrameLen)
   renderTextOnFrame(crew, "CREWMATE", 30, 50)
   let crewKind = classifyInterstitial(crew, maxErrors = 0)
-  expectEq(crewKind, InterstitialRoleReveal,
-           "CREWMATE banner: classifyInterstitial = RoleReveal")
+  expectEq(crewKind, InterstitialRoleRevealCrewmate,
+           "CREWMATE banner: classifyInterstitial = RoleRevealCrewmate")
 
   # Synthetic frame with "IMPS WIN" banner.
   var win = newSeq[uint8](FrameLen)

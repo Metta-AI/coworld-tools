@@ -42,7 +42,9 @@ type
     ## content into the remaining variants.
     NotInterstitial
     InterstitialUnknown   ## Is black enough to be an interstitial; text unread.
-    InterstitialRoleReveal
+    InterstitialRoleReveal          ## Generic (kept for backward compat).
+    InterstitialRoleRevealCrewmate  ## "CREWMATE" banner detected.
+    InterstitialRoleRevealImposter  ## "IMPS" banner detected.
     InterstitialVoting
     InterstitialVoteResult
     InterstitialGameOver

@@ -147,11 +147,18 @@ PYTHONPATH=among_them python among_them/scripts/play_local.py \
 | `--max-ticks` | derived | From `--duration` if omitted. |
 | `--seed` | 42 | Policy RNG seed (also seeds server role shuffle). |
 | `--imposter-count` | 2 | Number of imposters. |
-| `--force-role` | off | `crewmate` or `imposter` — pins the first player slot via the server's `"slots"` config. |
+| `--force-role` | off | `crewmate` or `imposter` — pins the first player slot via the server's `"slots"` config. **Not 100% reliable** due to a connection-order race with fillers; use known-good seeds instead (see below). |
 | `--trace-dir` | off | Sets `MODULABOT_TRACE_DIR`. |
 | `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
 | `--metrics-out` | off | Per-tick JSONL. |
 | `--capture-frames` | off | Frame `.npy` dump. |
+
+**`--force-role` reliability note:** The flag has a race condition —
+filler bots may claim slot 0 before the policy bot's first game tick
+is processed. To reliably test a specific role, use known seeds:
+- **Imposter seeds** (with `--force-role imposter`): 50, 100
+- **Crewmate seeds** (any seed without `--force-role`, or seeds 1,
+  7, 42, 99, 200 which ignore the flag)
 
 Expected output: ~450 frames over 20 seconds, observation shape
 `(4, 128, 128)`, action mix showing directional movement + A-presses.

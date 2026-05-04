@@ -262,8 +262,8 @@ const
   InterstitialBanners*: array[4, tuple[text: string, kind: InterstitialKind]] = [
     ("CREW WIN", InterstitialGameOver),
     ("IMPS WIN", InterstitialGameOver),
-    ("CREWMATE", InterstitialRoleReveal),
-    ("IMPS", InterstitialRoleReveal),
+    ("CREWMATE", InterstitialRoleRevealCrewmate),
+    ("IMPS", InterstitialRoleRevealImposter),
   ]
 
 proc classifyInterstitial*(

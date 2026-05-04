@@ -198,7 +198,7 @@ class AmongThemPolicy(MultiAgentPolicy):
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def close(self) -> None:
+    def close(self, *, reason: str = "session_end") -> None:
         """Tear down the Nim policy: stops guidance worker, flushes traces.
 
         Safe to call multiple times.

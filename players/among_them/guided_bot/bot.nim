@@ -396,6 +396,19 @@ proc decideNextMask*(bot: var Bot): uint8 =
         bot.interstitialClassified = true
       if bot.cachedInterstitialKind != InterstitialUnknown:
         bot.belief.percep.interstitialKind = bot.cachedInterstitialKind
+      # Role inference from role-reveal interstitial text. Mirrors
+      # italkalot/nottoodumb's `rememberRoleReveal`: set the role
+      # during the interstitial so it's known before the first
+      # gameplay frame arrives. Without this, the crewmate default
+      # in updateRole fires on seeds where the kill button isn't
+      # rendered on the very first post-interstitial frame.
+      if bot.belief.self.role == RoleUnknown:
+        case bot.cachedInterstitialKind
+        of InterstitialRoleRevealImposter:
+          bot.belief.self.role = RoleImposter
+        of InterstitialRoleRevealCrewmate:
+          bot.belief.self.role = RoleCrewmate
+        else: discard
     mergeVotingPercept(bot.belief, percept.votingParse)
   else:
     # Leaving interstitial phase — reset the cache for the next run.
