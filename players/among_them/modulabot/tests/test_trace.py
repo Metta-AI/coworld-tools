@@ -227,6 +227,18 @@ class WriterLayoutTests(unittest.TestCase):
                 self.assertTrue(writer.enabled)
             self.assertFalse(writer.enabled)
 
+    def test_multiple_writers_get_unique_session_dirs(self):
+        """Two auto-named writers in the same process must not collide."""
+        with tempfile.TemporaryDirectory() as tmp:
+            w1 = TraceWriter(tmp)
+            w2 = TraceWriter(tmp)
+            self.assertNotEqual(w1.session_id, w2.session_id)
+            self.assertNotEqual(w1._session_dir, w2._session_dir)
+            self.assertTrue(w1._session_dir.is_dir())
+            self.assertTrue(w2._session_dir.is_dir())
+            w1.close()
+            w2.close()
+
 
 class WriterEventEmissionTests(unittest.TestCase):
     def _run(self, observations, *, level=TraceLevel.DECISIONS, seed=0):

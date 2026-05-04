@@ -184,23 +184,33 @@ def start_server(
     tasks_per_player: int = 8,
     imposter_cooldown_ticks: int = 1200,
     vote_timer_ticks: int = 600,
+    force_role: str | None = None,
 ) -> tuple[subprocess.Popen, BitWorldRuntime]:
     """Start a Nim Among Them server.
 
     Returns ``(process, runtime)`` where ``runtime.port`` is the actual
     port the server bound to (relevant when *port* is 0 for auto-pick).
+
+    When *force_role* is ``"crewmate"`` or ``"imposter"``, the server's
+    ``slots`` config pins slot 0 (the first connecting player) to that
+    role.  This uses the server's native slot-pinning feature
+    (``sim.nim:1016-1051``) — no server-side changes required.
     """
     runtime = BitWorldRuntime(binary_path=str(binary), host=host, port=port)
+    server_config: dict[str, Any] = {
+        "imposterCount": imposter_count,
+        "tasksPerPlayer": tasks_per_player,
+        "imposterCooldownTicks": imposter_cooldown_ticks,
+        "voteTimerTicks": vote_timer_ticks,
+    }
+    if force_role is not None:
+        server_config["slots"] = [{"role": force_role}]
+        log.info("Forcing slot 0 role: %s", force_role)
     env = BitWorldEnvConfig(
         num_players=num_players,
         max_ticks=max_ticks,
         seed=seed,
-        server_config={
-            "imposterCount": imposter_count,
-            "tasksPerPlayer": tasks_per_player,
-            "imposterCooldownTicks": imposter_cooldown_ticks,
-            "voteTimerTicks": vote_timer_ticks,
-        },
+        server_config=server_config,
     )
     server = _start_server_on_free_port(binary, runtime, env)
     log.info(
@@ -811,6 +821,15 @@ def add_server_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=2,
         help="Number of imposters (server config).",
+    )
+    parser.add_argument(
+        "--force-role",
+        choices=("crewmate", "imposter"),
+        default=None,
+        help=(
+            "Pin the first player slot to this role via the server's "
+            "slots config. Useful for testing imposter-specific behavior."
+        ),
     )
 
 

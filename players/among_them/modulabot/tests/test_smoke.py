@@ -183,8 +183,8 @@ class CrewmateBehaviourTests(unittest.TestCase):
             bodies=[{"x": CENTER_X, "y": CENTER_Y, "color": 7}],
         )
         action = core.step(obs)
-        # "Press B while NOOP" = report action.
-        self.assertEqual(action, actions.B)
+        # "Press A while NOOP" = report action (server expects ButtonA).
+        self.assertEqual(action, actions.A)
 
 
 class ImposterBehaviourTests(unittest.TestCase):

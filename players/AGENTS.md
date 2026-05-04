@@ -63,7 +63,7 @@ Conventions (from `MISSION.md`):
 All commands assume the repo root as cwd unless noted.
 
 ```bash
-# Tests for modulabot (236 tests, ~16s, must be green)
+# Tests for modulabot (237 tests, ~18s, must be green)
 PYTHONPATH=among_them .venv/bin/python -m unittest discover \
     -s among_them/modulabot/tests
 
@@ -74,6 +74,10 @@ PYTHONPATH=among_them .venv/bin/python -m unittest \
 # Local Among Them episode against a real Nim server + nottoodumb fillers
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
     --duration 20
+
+# Same, but force imposter role for testing imposter-specific behavior
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
+    --duration 20 --force-role imposter --trace-dir /tmp/trace
 
 # Connect to an existing server (replaces old play_live.py)
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/connect.py \

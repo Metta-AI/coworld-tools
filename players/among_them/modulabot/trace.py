@@ -81,6 +81,7 @@ Reading the output::
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -208,15 +209,24 @@ class _AgentShadow:
 # ---------------------------------------------------------------------------
 
 
+# Process-wide monotonic counter so multiple TraceWriters created in
+# the same process (e.g. play_match.py's per-agent policies) get
+# unique session directories even when the wall-clock second and PID
+# are identical.
+_instance_counter = itertools.count()
+
+
 def _session_id(pid: int, when: Optional[datetime] = None) -> str:
-    """Filesystem-safe ISO8601 session id + pid.
+    """Filesystem-safe ISO8601 session id + pid + instance counter.
 
     Uses UTC, drops microseconds, replaces ``:`` with ``-`` (invalid on
-    Windows). Matches the Nim convention from ``TRACING.md §5``.
+    Windows). Appends a monotonic instance counter so multiple writers
+    in the same process always get unique directories.
     """
     when = when or datetime.now(timezone.utc)
     iso = when.replace(microsecond=0).isoformat().replace("+00:00", "Z").replace(":", "-")
-    return f"{iso}-{pid}"
+    n = next(_instance_counter)
+    return f"{iso}-{pid}-{n}"
 
 
 class TraceWriter:
@@ -231,9 +241,13 @@ class TraceWriter:
     populated after :meth:`close`; if the process is SIGKILLed, the
     manifest will still exist but with ``ended_reason = "open"``.
 
-    The writer is **not** thread-safe. Callers must serialise access,
-    which is natural inside :meth:`modulabot.policy.AmongThemPolicy.
-    step_batch` — one writer, called from one thread.
+    Each writer instance is **not** thread-safe internally. Callers
+    must serialise access per writer, which is natural inside
+    :meth:`modulabot.policy.AmongThemPolicy.step_batch` — one writer,
+    called from one thread. However, multiple writer *instances* in the
+    same process (e.g. ``play_match.py`` with one policy per thread)
+    are safe because each gets a unique session directory via the
+    monotonic instance counter in :func:`_session_id`.
     """
 
     #: Schema version stamped into every manifest. Bump on breaking

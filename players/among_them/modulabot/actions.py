@@ -184,7 +184,7 @@ def press_a_while(direction: int) -> int:
 def press_b_while(direction: int) -> int:
     """Return the action that presses B while holding ``direction``.
 
-    B is "report" for crewmates, unused for imposters in BitWorld's AmongThem.
+    B is "vent" for imposters; unused for crewmates. (Report uses A, not B.)
     Supports both cardinal and diagonal inputs.
     """
     _B_MAP = {

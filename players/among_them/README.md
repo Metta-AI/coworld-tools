@@ -145,7 +145,9 @@ PYTHONPATH=among_them python among_them/scripts/play_local.py \
 | `--duration` | 60 | Wall-clock seconds. 0 = indefinite. |
 | `--num-players` | 8 | Total lobby size. |
 | `--max-ticks` | derived | From `--duration` if omitted. |
-| `--seed` | 42 | Policy RNG seed. |
+| `--seed` | 42 | Policy RNG seed (also seeds server role shuffle). |
+| `--imposter-count` | 2 | Number of imposters. |
+| `--force-role` | off | `crewmate` or `imposter` — pins the first player slot via the server's `"slots"` config. |
 | `--trace-dir` | off | Sets `MODULABOT_TRACE_DIR`. |
 | `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
 | `--metrics-out` | off | Per-tick JSONL. |

@@ -373,18 +373,24 @@ See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
   fix (600 not 1200), auto-vote delay. Structurally verified (no
   meetings occur in test matches).
 - ~~Hunting cover~~ → station patrol, target memory, kill confirmation.
-  Structurally verified (can't get imposter role in `play_local.py`).
+  Structurally verified; use `--force-role imposter` for live testing.
 
-### Blocked on live-verification infrastructure
+### Live-verification infrastructure (resolved)
 
-- **Per-agent trace directories.** `play_match.py` shares one trace
-  dir across all agents — individual imposter traces are overwritten.
-  `play_local.py` always assigns slot 0 (crewmate). Need either
-  per-agent trace subdirs or a `--role` override to verify: imposter
-  hunting/killing, body→reporting→meeting pipeline, meeting voting.
-- **Meeting mode end-to-end.** Cursor navigation and timer fix are
-  correct but have never run against a live voting screen. Blocked
-  until imposters kill and crewmates report.
+The following blockers have been fixed:
+
+- ~~**Role control.**~~ All server-starting scripts now support
+  `--force-role {crewmate,imposter}`, which passes the server's
+  native `"slots"` config to pin the policy agent's role.
+- ~~**Per-agent trace directories.**~~ The trace writer now appends a
+  per-instance monotonic counter to session IDs, so multiple writers
+  in the same process (e.g. `play_match.py`) get unique session dirs.
+- ~~**Body-report button bug.**~~ modulabot now correctly uses A (not
+  B) for body reports, matching the server's `tryReport` trigger.
+
+**Still pending:** Run a live match with `--force-role imposter` and
+tracing enabled to verify imposter hunting, body→report→meeting
+pipeline, and meeting voting end-to-end.
 
 ### Remaining implementation (IMPL_PLAN.md)
 

@@ -96,6 +96,7 @@ def main() -> int:
         max_ticks=max_ticks,
         seed=args.seed,
         imposter_count=args.imposter_count,
+        force_role=args.force_role,
     )
 
     try:

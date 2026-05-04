@@ -360,28 +360,32 @@ None of this is required on day one. It's where we're heading.
   `guided_bot/IMPL_PLAN.md` for the full roadmap.
   Remaining: 6.5 (pretending fake A-press), 6.6 (fleeing cleanup),
   6.7 (reflex scope widening), then phase 7 (stub modes).
-- **Live-verification infrastructure gap.** `play_local.py` always
-  assigns the policy agent to slot 0 (crewmate). `play_match.py`
-  shares one trace dir across all agents, so individual imposter
-  traces are overwritten. This blocks end-to-end verification of:
-  imposter hunting/killing, body reporting triggering meetings,
-  meeting voting behavior. Next infra task: add per-agent trace
-  subdirectories to `play_match.py` (or a `--role` flag to
-  `play_local.py`).
+- **Live-verification infrastructure.** `play_local.py` and all
+  server-starting scripts now support `--force-role {crewmate,imposter}`
+  to pin the policy agent's role via the server's native `"slots"`
+  config. The trace writer uses a per-instance monotonic counter in
+  the session ID, so multiple writers in the same process (e.g.
+  `play_match.py`) no longer collide. Remaining gap: `play_match.py`
+  still constructs each policy with `num_agents=1`, so all writers
+  use `agent_0/` — traces are now in separate session dirs but the
+  agent index is always 0. Consider passing a unique agent label for
+  clearer multi-agent trace navigation.
 - **Meeting mode partially verified.** Cursor navigation and timer
   fix are structurally correct (compiles, tests pass) but no
   meetings have occurred in any local match to exercise the code.
-  Blocked on the live-verification gap above.
+  Next step: run `--force-role imposter` to generate kills and
+  trigger meetings.
 - **Chat emission deferred.** Requires Nim buffer → C FFI export →
   Python `bitworld_chat_messages()` pipeline. See
   `guided_bot/MEETING_DESIGN.md` §1.4.
 - **Submission attempt** once a live Among Them season is accessible.
   The bot passes the 10-step validation gate. Season blocker:
   `among-them` returned 404 on API access as of 2026-05-01.
-- **Known modulabot bug:** modulabot presses B for body reports
-  (`crewmate.py:104`) but the server uses A (`sim.nim:2202`).
-  Modulabot's body reports never trigger meetings. Not blocking
-  guided_bot (which uses A correctly) but worth fixing separately.
+- ~~**Known modulabot bug:**~~ **Fixed.** modulabot previously pressed
+  B for body reports (`crewmate.py:104`) but the server uses A
+  (`sim.nim:2284`). Both crewmate and imposter self-report paths now
+  correctly use `press_a_while`. The misleading docstring in
+  `actions.py` has also been corrected.
 - **Known gaps** (carried forward):
   - **HUD task-list parsing not done.** Would replace the
     radar-dot inference path with ground-truth assignment reads.

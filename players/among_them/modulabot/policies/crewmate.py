@@ -101,7 +101,7 @@ class CrewmatePolicy(Policy):
             if dist <= BODY_REPORT_DISTANCE:
                 self._queue_body_report(bot, body)
                 bot.fired("crew.body.report_in_range", "reporting body")
-                return actions.press_b_while(actions.NOOP)  # press B = report
+                return actions.press_a_while(actions.NOOP)  # A = report body
             self._queue_body_report(bot, body)
             self._set_body_goal(bot, body)
             bot.fired("crew.body.navigate", "navigating to body")

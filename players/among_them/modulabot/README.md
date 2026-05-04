@@ -177,6 +177,13 @@ PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
     --duration 20
 ```
 
+To test as imposter, use `--force-role`:
+
+```bash
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
+    --duration 20 --force-role imposter --trace-dir /tmp/trace
+```
+
 Expected output: ~450 frames over 20 seconds, observation shape
 `(4, 128, 128)`, palette indices within `[0, 15)`. Action distribution
 on a fresh game shows a healthy mix of directional movement, A-presses

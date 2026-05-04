@@ -69,7 +69,7 @@ class ImposterPolicy(Policy):
                 bot.imposter.last_kill_tick = -1
                 base.clear_goal(bot)
                 bot.fired("imp.body.self_report", "self-reporting kill")
-                return actions.press_b_while(actions.NOOP)
+                return actions.press_a_while(actions.NOOP)  # A = report body
             # Not our kill → flee (screen-space away-from: no path
             # involved, we just want to put distance between us and
             # the corpse).

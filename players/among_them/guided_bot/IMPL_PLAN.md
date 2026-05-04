@@ -224,8 +224,8 @@ stub until needed.
 |---|---|---|---|---|
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
-| 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; **live verification blocked** — no meetings occur in local matches because imposters don't kill; revisit after 6.4/6.5) |
-| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (live verification blocked — `play_local.py` always assigns crewmate to slot 0; need per-agent trace dirs in `play_match.py` to verify imposter behavior) |
+| 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; live verification now possible via `--force-role imposter` — run a match and confirm meetings trigger) |
+| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (live verification now possible via `--force-role imposter`) |
 | 6.5 | `pretending` fake A-press | P2 | Small | Open |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | Open |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |
@@ -238,28 +238,32 @@ stub until needed.
 
 ## Infrastructure blockers
 
-### Per-agent trace directories
+### ~~Per-agent trace directories~~ (resolved)
 
-`play_match.py` sets a single `GUIDED_BOT_TRACE_DIR` env var shared
-by all agents in the process. Each agent's `initBot` opens the same
-trace dir and overwrites the other agents' files. Only the last
-agent's trace survives.
+The modulabot trace writer now appends a per-instance monotonic
+counter to session IDs (`trace.py:_session_id`), so multiple writers
+in the same process get unique session directories. `play_match.py`
+traces no longer collide.
 
-`play_local.py` always assigns the policy agent to player slot 0,
-which is always crewmate (imposters are assigned to higher slots).
+**Note:** `play_match.py` still constructs each policy with
+`num_agents=1`, so each writer creates `agent_0/` inside its unique
+session dir. The traces are fully separated — the agent index is just
+always 0 within each session.
 
-**Impact:** Can't verify imposter behavior (hunting kills, cover
-patrol), body→reporting→meeting pipeline, or meeting voting
-end-to-end.
+### ~~Role control in local matches~~ (resolved)
 
-**Fix options:**
-- Add per-agent subdirectory support: `GUIDED_BOT_TRACE_DIR=/tmp/trace`
-  → each agent writes to `/tmp/trace/agent_N/`. Requires the FFI
-  layer to pass the agent index to `initBot`.
-- Add a `--role` or `--slot` flag to `play_local.py` to control
-  which slot the policy agent connects to.
-- Use the `play_match.py` script with per-agent env var overrides
-  (would require subprocess-per-agent architecture).
+All server-starting scripts (`play_local.py`, `play_match.py`,
+`play_debug.py`, `capture.py`, `server.py`) now support
+`--force-role {crewmate,imposter}`. This injects
+`"slots": [{"role": "<value>"}]` into the server config, using the
+server's native slot-pinning feature (`sim.nim:1016-1051`). No
+server changes were needed.
+
+**Background:** The server assigns roles via a Fisher-Yates shuffle
+seeded by `--seed` (default 42). With seed 42 and 8 players, the
+policy agent's slot happens to get crewmate. This is an artifact of
+the specific seed, not a structural constraint — but for reproducible
+testing, `--force-role` is preferable to seed-hunting.
 
 ### Repeated task-hold pattern
 
