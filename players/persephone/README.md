@@ -159,9 +159,9 @@ if result.view == View.PLAYING:
 ```
 
 Stateless, single-frame-in / symbolic-out. Handles all game views:
-lobby, role reveal, playing, hostage select, hostage exchange, whisper
-(private chatroom), global chat (shout), info screen, waiting entry,
-reveal, and game over. See
+lobby, role reveal, playing, hostage select, leader summit, hostage
+exchange, whisper (private chatroom), global chat (shout), info screen,
+waiting entry, reveal, and game over. See
 [docs/DESIGN_perception.md](docs/DESIGN_perception.md) for the full
 design and `perception/types.py` for output dataclass definitions.
 

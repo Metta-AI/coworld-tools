@@ -6,6 +6,8 @@
     "seed": 42
   },
   "assertions": {
+    "overworld.round": 1,
+    "overworld.timer_secs": 15,
     "overworld.role_name": "NYMPH",
     "overworld.role_team_color": 14,
     "overworld.room": "underworld",
@@ -20,5 +22,5 @@
     }
   },
   "known_bugs": [],
-  "note": "First round playing, HUD shows R1 timer and NYMPH role name."
+  "note": "First round playing, HUD shows R1 0:15 timer and NYMPH role name."
 }

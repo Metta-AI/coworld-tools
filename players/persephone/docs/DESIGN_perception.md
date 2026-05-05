@@ -56,6 +56,7 @@ class View(Enum):
     LOBBY = "lobby"
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
+    LEADER_SUMMIT = "leader_summit"
     HOSTAGE_EXCHANGE = "hostage_exchange"
     WHISPER = "whisper"
     WAITING_ENTRY = "waiting_entry"
@@ -102,7 +103,6 @@ elements). This ordering is informed by the upstream `parsePhase` in
     if found:              → HOSTAGE_EXCHANGE
 
 6. Read text at (2, 2) in color 1:
-   if starts with "LEADERS": → HOSTAGE_SELECT (leader summit phase)
    if contains "PICK":      → HOSTAGE_SELECT (non-leader variant)
 
 7. Check for global chat/shout:
@@ -110,6 +110,9 @@ elements). This ordering is informed by the upstream `parsePhase` in
    and is longer than 4 chars:
    → GLOBAL_CHAT
    (e.g., "Underworld SHOUT" or "Mortal Realm CHAT")
+
+7.5. Leader summit (reuses dim text from step 6):
+   if starts with "LEADERS": → LEADER_SUMMIT
 
 8. Check for game over (win text centered at y=60):
    Scan multiple x offsets at y=60 in team colors (3, 14) and draw
@@ -127,9 +130,10 @@ elements). This ordering is informed by the upstream `parsePhase` in
   (not "CHAT" as documented in older references). The detector handles both.
 - The hostage exchange screen renders its title CENTERED at y=14 (not at
   x=2 like other HUD text), requiring a multi-x-offset scan.
-- The leader summit phase ("LEADERS MEET {n}S" in dim text) is currently
-  grouped with HOSTAGE_SELECT since both use the overworld view with
-  different HUD overlays.
+- The leader summit phase ("LEADERS MEET {n}S" in dim text) is detected
+  as its own `LEADER_SUMMIT` view. Non-leaders cannot act during this
+  phase; agents should treat it as a wait state. The overworld parser
+  still runs for this view (minimap, position, etc. are all visible).
 
 ### Waiting Entry as a Sub-state
 
@@ -147,9 +151,9 @@ information.
 
 ---
 
-## View 1: Overworld (Playing / HostageSelect)
+## View 1: Overworld (Playing / HostageSelect / LeaderSummit)
 
-Active during `PLAYING`, `HOSTAGE_SELECT`, and `WAITING_ENTRY` views.
+Active during `PLAYING`, `HOSTAGE_SELECT`, `LEADER_SUMMIT`, and `WAITING_ENTRY` views.
 
 ### Layout
 
@@ -412,10 +416,10 @@ class HostageGrid:
 **Room name**: Read text at (2, 2) in color 2. Match against known
 patterns: `"Underworld CHAT"`, `"Mortal Realm CHAT"`.
 
-**Usurp candidate**: If text `"USURP: "` detected at (2, 11) in
-color 1, check what follows. If text in color 2 after the label, it's
-a text candidate ("NONE" or "ME"). If a player sprite follows, read
-center pixel for color.
+**Usurp candidate**: If text `"USURP:"` detected at (2, 11) in
+color 1, check what follows at x=29 (label is 23px + 4px space).
+If text in color 2 reads "NONE" or "ME", it's a text candidate.
+Otherwise check for a player sprite and read its color.
 
 **Hostage grid**: Grid starts at y=11. Cells are 12x14 pixels, max 4
 columns. For each cell, check for a sprite (non-zero non-1 pixels in
@@ -647,15 +651,12 @@ The game uses a fixed 3-wide x 5-tall pixel font. All glyphs are known
 
 ### Ambiguity Handling
 
-`S` and `5` are pixel-identical. `O` and `0` are pixel-identical.
+The game renders distinct glyphs for S vs 5 and O vs 0. Earlier
+versions of this document incorrectly stated they were pixel-identical.
+The OCR engine matches them as separate characters with no ambiguity.
 
-Strategy: return raw OCR text with a canonical normalization. Provide
-both a `raw` field and convenience methods:
-- `as_text()`: replaces 5→S, 0→O (text interpretation)
-- `as_numeric()`: replaces S→5, O→0 (numeric interpretation)
-
-Callers choose based on context (timer values get `as_numeric()`,
-role names get `as_text()`).
+Legacy `normalize_text()` and `normalize_digits()` functions are
+retained as no-ops for backward compatibility.
 
 ### Glyph Matching
 

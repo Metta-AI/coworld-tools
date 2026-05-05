@@ -106,7 +106,7 @@ def detect_view(frame: np.ndarray) -> View:
 
     # Step 7.5: Leader summit ("LEADERS MEET" in dim text)
     if hud_norm_1.startswith("LEADERS"):
-        return View.HOSTAGE_SELECT  # Reuse hostage_select for leader summit phase
+        return View.LEADER_SUMMIT
 
     # Step 8: Game over (win text at y=60, centered)
     # Text may be centered anywhere on the row, so scan multiple x offsets.

@@ -75,7 +75,7 @@ def parse_frame(
     elif view == View.PLAYING:
         result.overworld = parse_overworld(frame, room_size)
 
-    elif view == View.HOSTAGE_SELECT:
+    elif view in (View.HOSTAGE_SELECT, View.LEADER_SUMMIT):
         result.overworld = parse_overworld(frame, room_size)
 
     elif view == View.WAITING_ENTRY:

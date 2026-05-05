@@ -49,15 +49,13 @@ def parse_global_chat(frame: np.ndarray) -> GlobalChatPerception:
     usurp_norm = normalize_text(usurp_text)
     if "USURP" in usurp_norm.upper():
         candidate = UsurpCandidate()
-        # Check for text candidate after the label
-        # Label "USURP: " is about 28px wide
-        after_label = read_text_at(frame, 30, 11, COLOR_HUD_NORMAL, 6)
+        # "USURP:" is 23px wide starting at x=2, plus 4px space = candidate at x=29
+        after_label = read_text_at(frame, 29, 11, COLOR_HUD_NORMAL, 6)
         after_norm = normalize_text(after_label)
         if after_norm in ("NONE", "ME"):
             candidate.text = after_norm
         else:
-            # Check for sprite
-            sprite_c = read_sprite_color(frame, 30, 11)
+            sprite_c = read_sprite_color(frame, 29, 11)
             if sprite_c:
                 candidate.player_color = sprite_c
         result.usurp_candidate = candidate

@@ -9,7 +9,9 @@
     "global_chat.room_name": "Underworld",
     "global_chat.usurp_candidate": {
       "not_none": true
-    }
+    },
+    "global_chat.usurp_candidate.text": "NONE",
+    "global_chat.bottom_bar_text": "L:CLOSE"
   },
-  "note": "Global chat (shout) view with USURP: NONE, no messages"
+  "note": "Global chat (shout) view with USURP: NONE, no messages visible."
 }

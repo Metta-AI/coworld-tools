@@ -563,6 +563,7 @@ The current game phase can be determined from pixel patterns
 | **lobby** | Text at (2,2) in color 2 matches `\d+/\d+` pattern |
 | **reveal** | Text "REVEAL" at (2,2) in color 2 |
 | **hostage_select** | Text "SELECT" at (2,2) in color 8 |
+| **leader_summit** | Text at (2,2) in color 1 starts with "LEADERS" |
 | **hostage_exchange** | Text "EXCHANGING" at (2,2) in color 8 |
 | **info_screen** | Border at (0,0) and (2,2) same color (no inner black) |
 

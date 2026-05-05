@@ -23,6 +23,7 @@ class View(Enum):
     LOBBY = "lobby"
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
+    LEADER_SUMMIT = "leader_summit"
     HOSTAGE_EXCHANGE = "hostage_exchange"
     WHISPER = "whisper"
     WAITING_ENTRY = "waiting_entry"
