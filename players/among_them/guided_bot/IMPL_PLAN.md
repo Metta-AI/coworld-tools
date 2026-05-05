@@ -227,7 +227,7 @@ stub until needed.
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
 | 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; live verification now possible via `--force-role imposter` — run a match and confirm meetings trigger) |
-| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (live verification now possible via `--force-role imposter`) |
+| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** — kills land (A fires at ≤20px), confirmation blocked by localization-drop bug (see TODO.md). Use `--seed 100 --force-role imposter` with `imposterCooldownTicks=48` to test. |
 | 6.5 | `pretending` fake A-press | P2 | Small | Open |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | Open |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |

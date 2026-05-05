@@ -444,6 +444,12 @@ pipeline, and meeting voting end-to-end.
 
 ### Lower-priority gaps (carried forward)
 
+- **Localization drops on kill animation.** After the imposter's
+  A-press lands a kill, the localizer loses lock for 15+ frames
+  (death sprite / blood effect breaks camera-fit scoring). This
+  prevents kill confirmation detection and delays post-kill fleeing.
+  Kills still land server-side; the bot just can't self-verify.
+  See `TODO.md` § "Localization drops on kill animation".
 - **Localization reliability.** Spiral fallback fires on lobby frames
   (interstitial detector misses colored non-map content). Pre-game
   frame rejection would eliminate wasted spiral calls.

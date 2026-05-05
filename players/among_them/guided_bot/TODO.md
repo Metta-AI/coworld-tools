@@ -4,6 +4,77 @@ Open bugs and tasks. Newest first.
 
 ---
 
+## BUG: Localization drops on kill animation (2026-05-04, MEDIUM)
+
+After the imposter's kill A-press lands (server accepts the kill),
+the localizer loses lock on the very next frame (t+1). The bot
+emits `noOpIntent()` for 15+ frames because `decide()` early-returns
+on `not localized`. This prevents:
+
+1. **Kill confirmation** — the `huntStrikeTick` confirmation block
+   never runs, so `kill_confirmed` is never emitted even though the
+   kill succeeded server-side.
+2. **Post-kill fleeing** — the fleeing reflex can't fire without
+   body detection, which requires localization.
+
+### Root cause (hypothesis)
+
+The kill animation renders the victim's death sprite + blood effect
+at/near the player position. These extra pixels break the camera-fit
+scoring in `localize.nim` (too many non-map pixels fail the
+patch-hash comparison, pushing the error count above the localizer's
+acceptance threshold).
+
+The actor-exclusion ignore mask should in theory cover the kill
+animation, but it may not account for:
+- The death sprite being larger than a normal crewmate sprite
+- Blood splatter pixels outside the sprite bounding box
+- The momentary rendering of both the dying player + the imposter
+  overlapping
+
+### Possible fixes
+
+- **Widen the ignore mask around self during the kill window.**
+  After pressing A in DisciplineKillStrike, expand the player-centre
+  ignore radius for ~12 frames to cover the death animation.
+- **Carry localization through short drops.** If the localizer was
+  locked on the previous frame and the camera didn't move (velocity
+  = 0 during kill animation), assume the previous lock is still
+  valid for up to N frames.
+- **Accept the miss.** Kill confirmation is informational — the
+  bot's behavior is correct regardless (it should flee/resume patrol
+  anyway). A simpler fix is to unconditionally enter the
+  post-kill-flee state after pressing A in range, without waiting
+  for visual confirmation.
+
+### Reproduction
+
+```sh
+GUIDED_BOT_TRACE_DIR=/tmp/gb_kill GUIDED_BOT_TRACE_LEVEL=decisions \
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --duration 90 --seed 100 --force-role imposter \
+    --policy-kwarg imposter_cooldown_ticks=48
+```
+
+Or use the live integration test:
+```sh
+PYTHONPATH=among_them .venv/bin/python \
+    among_them/guided_bot/test/live_test.py --scenario imposter --keep-traces
+```
+
+Check `decisions.jsonl` around `kill_attempted` events: `localized`
+will be `false` on the frame after A=true.
+
+### Key code paths
+
+- Early return on `not localized`: `modes/hunting.nim:140`
+- Kill confirmation block: `modes/hunting.nim:148-173`
+- Localizer scoring: `perception/localize.nim`
+- Actor ignore mask: `bot.nim:304-316`
+
+---
+
 ## BUG: A\* empty-path noop lock (2026-05-04, HIGH) — FIXED
 
 Bot had a `steer_to` target and `DisciplineNormal` but emitted `mask=0`
