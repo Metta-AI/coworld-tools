@@ -48,6 +48,9 @@ const
   ReportApproachTimeoutTicks* = 240  ## Give up navigating after 10s without reaching range.
   ReportInRangeTimeoutTicks*  = 72   ## Give up pressing A after 3s in range without meeting.
 
+  # --- Pretending mode (PRETENDING_DESIGN.md §4) -------------------------
+  PreFakeHoldTicks*             = 60   ## Fake A-press duration during loiter (~2.5s at 24Hz).
+
   # --- Hunting mode (HUNTING_DESIGN.md §4) -----------------------------
   HuntCoverLoiterTicks*       = 72   ## Loiter at each cover station ~3s before moving.
   HuntMemoryTicks*            = 48   ## Pursue last-known position for ~2s after losing visual.

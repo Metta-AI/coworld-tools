@@ -74,6 +74,8 @@ dominated by chat OCR line count.
 | 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
 | — | A\* noop-lock fix: passable task centres, greedy fallback, stuck detector scope | done |
+| 6.5 | `pretending` fake A-press during loiter + witness swap | done |
+| 6.6 | `fleeing` post-flee cover navigation + flee target snap-to-passable | done |
 
 ## Strategy
 
@@ -401,7 +403,7 @@ only ship `mettagrid` without the `bitworld` extra.
 
 See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
 
-### Done (phase 6.1–6.4)
+### Done (phase 6.1–6.6)
 
 - ~~Task-completion detection~~ → 3-phase hold lifecycle, belief task
   state, radar checkout, tiered selection. Live-verified.
@@ -412,6 +414,10 @@ See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
   meetings occur in test matches).
 - ~~Hunting cover~~ → station patrol, target memory, kill confirmation.
   Structurally verified; use `--force-role imposter` for live testing.
+- ~~Pretending fake A-press~~ → fake-hold sub-phase during loiter +
+  witness swap. See `PRETENDING_DESIGN.md`.
+- ~~Fleeing cleanup~~ → post-flee cover navigation + `snapToPassable`
+  on flee target. See `FLEEING_DESIGN.md`.
 
 ### Live-verification infrastructure (resolved)
 
@@ -432,10 +438,6 @@ pipeline, and meeting voting end-to-end.
 
 ### Remaining implementation (IMPL_PLAN.md)
 
-- **6.5 `pretending` fake A-press** — imposter stands idle at
-  stations (behavioral tell). Small fix.
-- **6.6 `fleeing` cleanup** — no-op after flee, flee target in walls.
-  Trivial.
 - **6.7 Reflex scope** — body reflexes only fire from one mode each.
   Trivial.
 - **Chat emission** — requires Nim→C FFI→Python plumbing. Medium.

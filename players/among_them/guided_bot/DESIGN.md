@@ -495,8 +495,8 @@ Scratch state examples:
 - `investigating.scratch` — deadline tick, points-of-interest list.
 - `hunting.scratch` — current stalking target, approach path index,
   last-seen target location.
-- `pretending.scratch` — current fake target, loiter timer, last
-  swap tick.
+- `pretending.scratch` — current fake target, loiter timer,
+  fake-hold deadline, witness-swap flag.
 
 ### 5.7 Ghosts
 

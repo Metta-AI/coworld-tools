@@ -1,13 +1,14 @@
-## Mode: `fleeing`. Imposter just saw a body they didn't make and needs
-## to put distance between them and it. Target of the
+## Mode: `fleeing`. Imposter just saw a body (that they didn't make)
+## and needs to put distance between them and it. Target of the
 ## `hunting -> fleeing` reflex. See DESIGN.md §5.4, §5.8.
 ##
 ## Strategy:
 ##   - Steer away from `fleeAwayFrom` until `fleeUntilTick` or until
 ##     the minimum distance is reached.
-##   - Uses DisciplineNormal for movement (A* finds a path away).
-##   - Once the duration expires or distance is sufficient, the mode
-##     becomes idle and the default directive kicks in.
+##   - Flee target is snapped to passable terrain so A* gets a valid goal.
+##   - Once the duration expires or distance is sufficient, transition to
+##     cover behavior: navigate to a nearby task station (away from body)
+##     to look like a crewmate working.
 
 import ../types
 import ../action
@@ -28,11 +29,57 @@ proc defaultParamsFor*(belief: Belief): ModeParams =
 
 proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
   scratch = ModeScratch(mode: ModeFleeing,
-                        fleeUntilTick: belief.tick + params.fleeDurationTicks)
+                        fleeUntilTick: belief.tick + params.fleeDurationTicks,
+                        fleeCoverTargetX: 0,
+                        fleeCoverTargetY: 0,
+                        fleeCoverSet: false)
 
 proc onExit*(belief: Belief, scratch: var ModeScratch) =
   discard belief
   discard scratch
+
+proc pickCoverStation(selfX, selfY: int, awayFrom: Point): (int, int) =
+  ## Pick the nearest task station whose passable centre is at least
+  ## 24 px from the body and in the "away" hemisphere.
+  let tasks = referenceData.map.tasks
+  let dx = selfX - awayFrom.x
+  let dy = selfY - awayFrom.y
+  var bestDist = high(int)
+  var bestX = selfX + 60
+  var bestY = selfY
+  var fallbackDist = high(int)
+  var fallbackX = selfX
+  var fallbackY = selfY
+
+  for ts in tasks:
+    let cx = ts.passableCX
+    let cy = ts.passableCY
+    let distFromSelf = heuristic(selfX, selfY, cx, cy)
+    let distFromBody = heuristic(awayFrom.x, awayFrom.y, cx, cy)
+
+    # Track absolute nearest as fallback.
+    if distFromSelf < fallbackDist:
+      fallbackDist = distFromSelf
+      fallbackX = cx
+      fallbackY = cy
+
+    # Prefer stations away from the body.
+    if distFromBody < 24:
+      continue
+    # Dot product: station is in the "away" hemisphere from self.
+    let sdx = cx - selfX
+    let sdy = cy - selfY
+    if dx * sdx + dy * sdy < 0:
+      continue
+    if distFromSelf < bestDist:
+      bestDist = distFromSelf
+      bestX = cx
+      bestY = cy
+
+  if bestDist < high(int):
+    (bestX, bestY)
+  else:
+    (fallbackX, fallbackY)
 
 proc decide*(belief: Belief, params: ModeParams,
              scratch: var ModeScratch): ActionIntent =
@@ -47,31 +94,44 @@ proc decide*(belief: Belief, params: ModeParams,
   let dist = heuristic(selfX, selfY,
                        params.fleeAwayFrom.x, params.fleeAwayFrom.y)
   if belief.tick >= scratch.fleeUntilTick or dist >= params.fleeMinDistance:
-    # Done fleeing — idle until directive reconciliation picks up the
-    # default. Return no-op; on the next tick reconcileDirective will
-    # check legality (fleeing mode stays legal but the directive TTL
-    # will expire, reverting to the default hunting directive).
-    return noOpIntent()
+    # Post-flee cover: navigate to a station away from the body.
+    if not scratch.fleeCoverSet:
+      scratch.fleeCoverSet = true
+      let (cx, cy) = pickCoverStation(selfX, selfY, params.fleeAwayFrom)
+      scratch.fleeCoverTargetX = cx
+      scratch.fleeCoverTargetY = cy
+    return ActionIntent(
+      steerTo: Point(x: scratch.fleeCoverTargetX, y: scratch.fleeCoverTargetY),
+      steerValid: true,
+      pressA: false,
+      pressB: false,
+      cursor: CursorNone,
+      chat: "",
+      discipline: DisciplineNormal
+    )
 
-  # Compute a flee target: move away from the body. Pick a point on
-  # the opposite side of us from the body, clamped to the map.
-  let dx = selfX - params.fleeAwayFrom.x
-  let dy = selfY - params.fleeAwayFrom.y
-  # If we're on top of the body, pick an arbitrary direction.
+  # Compute a flee target: move away from the body.
+  let fdx = selfX - params.fleeAwayFrom.x
+  let fdy = selfY - params.fleeAwayFrom.y
   var fleeX, fleeY: int
-  if dx == 0 and dy == 0:
+  if fdx == 0 and fdy == 0:
     fleeX = selfX + 60
     fleeY = selfY
   else:
-    # Project further in the flee direction.
-    fleeX = selfX + dx * 2
-    fleeY = selfY + dy * 2
+    fleeX = selfX + fdx * 2
+    fleeY = selfY + fdy * 2
 
   # Clamp to map bounds.
   if fleeX < 0: fleeX = 0
   if fleeX >= MapWidth: fleeX = MapWidth - 2
   if fleeY < 0: fleeY = 0
   if fleeY >= MapHeight: fleeY = MapHeight - 2
+
+  # Snap to passable terrain.
+  let (found, px, py) = snapToPassable(referenceData.map.walkMask, fleeX, fleeY)
+  if found:
+    fleeX = px
+    fleeY = py
 
   ActionIntent(
     steerTo: Point(x: fleeX, y: fleeY),

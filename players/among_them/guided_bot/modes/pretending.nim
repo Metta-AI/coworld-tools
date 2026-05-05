@@ -1,6 +1,6 @@
 ## Mode: `pretending`. Imposter walking task-to-task without actually
-## doing them. Loiters at each station for a configurable duration to
-## look like a crewmate working.
+## doing them. Loiters at each station with a fake A-press to look
+## like a crewmate working.
 ##
 ## Target of the `pretending -> hunting` reflex when a lone kill
 ## opportunity appears (DESIGN.md §5.8).
@@ -8,10 +8,13 @@
 ## Strategy:
 ##   - Pick a task station to walk to (nearest, or random-ish rotation).
 ##   - Navigate there using DisciplineNormal.
-##   - On arrival, loiter (emit no-op or idle steer) for `preLoiterTicks`.
-##   - After loiter, pick a new station and repeat.
+##   - On arrival, fake-hold A for PreFakeHoldTicks (mimics task work).
+##   - Then linger briefly (no-op) before picking a new station.
+##   - If a crewmate appears during loiter and preMaySwapOnWitness is
+##     true, end loiter early and re-select a new station.
 
 import ../types
+import ../tuning
 import ../action
 import ../perception/data
 import ../perception/geometry
@@ -30,11 +33,13 @@ proc defaultParamsFor*(belief: Belief): ModeParams =
              preMaySwapOnWitness: true)
 
 proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
+  discard params
   scratch = ModeScratch(mode: ModePretending,
                         preFakeTargetIndex: -1,
                         preLoiterUntilTick: 0,
+                        preFakeHoldUntilTick: 0,
+                        preWitnessSwapped: false,
                         preEnterTick: belief.tick)
-  discard params
 
 proc onExit*(belief: Belief, scratch: var ModeScratch) =
   discard belief
@@ -50,22 +55,41 @@ proc decide*(belief: Belief, params: ModeParams,
   if not localized or tasks.len == 0:
     return noOpIntent()
 
-  # --- Loitering at a station ---
+  # --- Loitering (fake-hold + linger) ---
   if scratch.preLoiterUntilTick > 0 and belief.tick < scratch.preLoiterUntilTick:
-    # Still loitering — idle in place.
-    return noOpIntent()
+    # Witness swap: if a crewmate appears, leave early.
+    if params.preMaySwapOnWitness and
+       not scratch.preWitnessSwapped and
+       belief.percep.visibleCrewmates.len > 0:
+      scratch.preWitnessSwapped = true
+      scratch.preFakeTargetIndex = -1
+      scratch.preLoiterUntilTick = 0
+      scratch.preFakeHoldUntilTick = 0
+      # Fall through to target selection below.
+    else:
+      # Sub-phase: fake-hold or linger?
+      if belief.tick < scratch.preFakeHoldUntilTick:
+        return ActionIntent(
+          steerTo: Point(x: 0, y: 0),
+          steerValid: false,
+          pressA: true,
+          pressB: false,
+          cursor: CursorNone,
+          chat: "",
+          discipline: DisciplineTaskHold
+        )
+      else:
+        return noOpIntent()
 
   # Done loitering (or never started). Pick a new target.
   if scratch.preLoiterUntilTick > 0 and belief.tick >= scratch.preLoiterUntilTick:
-    # Loiter finished — invalidate target to pick a new one.
     scratch.preFakeTargetIndex = -1
     scratch.preLoiterUntilTick = 0
+    scratch.preFakeHoldUntilTick = 0
+    scratch.preWitnessSwapped = false
 
   # --- Pick a target ---
   if scratch.preFakeTargetIndex < 0:
-    # Simple rotation: pick a station based on tick to get variety.
-    # Avoid picking the same one we just left by offsetting from the
-    # last target.
     let offset = (belief.tick div 100) mod tasks.len
     var bestDist = high(int)
     var bestIdx = offset
@@ -75,8 +99,6 @@ proc decide*(belief: Belief, params: ModeParams,
       let cx = ts.passableCX
       let cy = ts.passableCY
       let d = heuristic(selfX, selfY, cx, cy)
-      # Pick a station that's not too close (we just left one) and
-      # not too far (stay efficient).
       if d > 30 and d < bestDist:
         bestDist = d
         bestIdx = idx
@@ -91,9 +113,20 @@ proc decide*(belief: Belief, params: ModeParams,
   const margin = 8
   if selfX >= ts.x - margin and selfX < ts.x + ts.w + margin and
      selfY >= ts.y - margin and selfY < ts.y + ts.h + margin:
-    # Arrived — start loitering.
+    # Arrived — start loitering with fake-hold.
     scratch.preLoiterUntilTick = belief.tick + params.preLoiterTicks
-    return noOpIntent()
+    let holdDuration = min(PreFakeHoldTicks, params.preLoiterTicks)
+    scratch.preFakeHoldUntilTick = belief.tick + holdDuration
+    scratch.preWitnessSwapped = false
+    return ActionIntent(
+      steerTo: Point(x: 0, y: 0),
+      steerValid: false,
+      pressA: true,
+      pressB: false,
+      cursor: CursorNone,
+      chat: "",
+      discipline: DisciplineTaskHold
+    )
 
   # --- Navigate to station ---
   ActionIntent(

@@ -474,6 +474,8 @@ type
       preFakeTargetIndex*: int
       preLoiterUntilTick*: int
       preEnterTick*: int
+      preFakeHoldUntilTick*: int   ## Fake-hold sub-phase deadline.
+      preWitnessSwapped*: bool     ## Whether witness swap fired this loiter.
     of ModeHunting:
       huntTargetColor*: int              ## Color of pursuit target.
       huntLastSightingTick*: int         ## Tick target was last seen.
@@ -490,6 +492,9 @@ type
       huntKillConfirmed*: bool           ## Set true on kill confirmation (for trace).
     of ModeFleeing:
       fleeUntilTick*: int
+      fleeCoverTargetX*: int       ## Post-flee cover station world X.
+      fleeCoverTargetY*: int       ## Post-flee cover station world Y.
+      fleeCoverSet*: bool          ## Whether cover target has been picked.
     of ModeAlibiBuilding:
       aliEnterTick*: int
     of ModeSabotageWatching:

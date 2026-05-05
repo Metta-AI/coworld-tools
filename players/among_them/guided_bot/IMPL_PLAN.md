@@ -147,6 +147,8 @@ kill, `DisciplineKillStrike`.
 
 ### 6.5 `pretending` — fake A-press + witness swap (P2)
 
+**Design doc:** [`PRETENDING_DESIGN.md`](PRETENDING_DESIGN.md).
+
 **What exists:** Station-to-station rotation with loiter timer.
 
 **What's missing:**
@@ -154,14 +156,18 @@ kill, `DisciplineKillStrike`.
   interacting with the station. Behavioral tell.
 - `preMaySwapOnWitness` param exists but is never checked.
 
-**Fix:**
-- During loiter, emit `DisciplineTaskHold` (or a raw `pressA: true`)
-  for a portion of the loiter duration to fake a task-hold animation.
+**Fix (see design doc for full spec):**
+- Split loiter into fake-hold sub-phase (`PreFakeHoldTicks` = 60,
+  `DisciplineTaskHold`) followed by a linger sub-phase (`noOpIntent`).
 - Check `visibleCrewmates.len` during loiter. If a new crewmate
-  appears and `preMaySwapOnWitness` is true, pick a new station
-  (re-roll to look less suspicious).
+  appears and `preMaySwapOnWitness` is true, end loiter early and
+  re-select a new station.
+- New scratch fields: `preFakeHoldUntilTick`, `preWitnessSwapped`.
+- New tuning constant: `PreFakeHoldTicks = 60`.
 
 ### 6.6 `fleeing` — minor cleanup (P3)
+
+**Design doc:** [`FLEEING_DESIGN.md`](FLEEING_DESIGN.md).
 
 **What exists:** Steers away from body for duration/distance.
 
@@ -169,11 +175,14 @@ kill, `DisciplineKillStrike`.
 - Returns `noOpIntent()` when done (stands still until TTL expires).
 - Flee target can land in a wall.
 
-**Fix:**
-- When flee timer expires, switch to cover behavior (walk to a
-  nearby task station) instead of going idle.
-- Clamp the flee target to the nearest passable tile. (`snapToPassable`
-  in `action.nim` is available for this; see the A\* noop-lock fix.)
+**Fix (see design doc for full spec):**
+- When flee timer expires or distance reached, pick a cover station
+  (away from the body) and navigate there via `DisciplineNormal`.
+  Eliminates idle gap.
+- Snap the flee target to passable terrain via `snapToPassable`
+  before feeding it to the action layer, giving A* a valid goal.
+- New scratch fields: `fleeCoverTargetX`, `fleeCoverTargetY`,
+  `fleeCoverSet`.
 
 ### 6.7 Reflex scope — widen body reflexes (P3)
 
@@ -181,10 +190,44 @@ Body→reporting (reflex 1) only fires from `ModeTaskCompleting`.
 Body→fleeing (reflex 2) only fires from `ModeHunting`. Both should
 fire from any applicable crew/imposter mode.
 
-**Fix:** Change the mode guard in `reflex.nim` from
-`mode == ModeTaskCompleting` to
-`belief.self.role == RoleCrewmate and belief.self.alive and not
-belief.self.isGhost` (and equivalently for the imposter flee reflex).
+**Fix:** Change the mode guard in `reflex.nim`:
+
+**Reflex 1 (body → reporting):** Replace:
+```nim
+if mode == ModeTaskCompleting and
+   belief.self.role == RoleCrewmate and ...
+```
+With:
+```nim
+if belief.self.role == RoleCrewmate and
+   belief.self.alive and
+   not belief.self.isGhost and
+   mode != ModeReporting and   # don't re-trigger while already reporting
+   mode != ModeMeeting and     # don't interrupt meetings
+   newBodySeen and ...
+```
+
+**Reflex 2 (body → fleeing):** Replace:
+```nim
+if mode == ModeHunting and
+   belief.self.role == RoleImposter and ...
+```
+With:
+```nim
+if belief.self.role == RoleImposter and
+   belief.self.alive and
+   mode != ModeFleeing and     # don't re-trigger while already fleeing
+   mode != ModeMeeting and     # don't interrupt meetings
+   newBodySeen and ...
+```
+
+**Rationale:** A crewmate doing anything (idle, investigating, fear)
+should report a body. An imposter doing anything (pretending, alibi
+building) should flee a body. The only modes excluded are the
+target mode itself (prevent self-trigger) and meetings (never
+interrupt voting).
+
+**Files changed:** `reflex.nim` only. No new types or tuning.
 
 ---
 
@@ -228,8 +271,8 @@ stub until needed.
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
 | 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; live verification now possible via `--force-role imposter` — run a match and confirm meetings trigger) |
 | 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** — kills land (A fires at ≤20px), confirmation blocked by localization-drop bug (see TODO.md). Use `--seed 100 --force-role imposter` with `imposterCooldownTicks=48` to test. |
-| 6.5 | `pretending` fake A-press | P2 | Small | Open |
-| 6.6 | `fleeing` cleanup | P3 | Trivial | Open |
+| 6.5 | `pretending` fake A-press | P2 | Small | **Done** — fake-hold sub-phase (`PreFakeHoldTicks=60`) + witness swap. See `PRETENDING_DESIGN.md`. |
+| 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** — post-flee cover navigation + `snapToPassable` on flee target. See `FLEEING_DESIGN.md`. |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |
 | 7.1 | `fear` implementation | P3 | Medium | Open |
 | 7.2 | `investigating` implementation | P3 | Medium | Open |
