@@ -1,0 +1,46 @@
+{
+  "description": "Live frame fixtures for perception integration tests.",
+  "format_version": 1,
+  "fixtures": [
+    {
+      "name": "lobby_full",
+      "view": "lobby"
+    },
+    {
+      "name": "role_reveal_nymphs",
+      "view": "role_reveal"
+    },
+    {
+      "name": "playing_round1",
+      "view": "playing"
+    },
+    {
+      "name": "info_screen_shared",
+      "view": "info_screen"
+    },
+    {
+      "name": "game_over_draw",
+      "view": "game_over"
+    },
+    {
+      "name": "reveal_default",
+      "view": "reveal"
+    },
+    {
+      "name": "hostage_select_default",
+      "view": "hostage_select"
+    },
+    {
+      "name": "whisper_default",
+      "view": "whisper"
+    },
+    {
+      "name": "global_chat_shout",
+      "view": "global_chat"
+    },
+    {
+      "name": "hostage_exchange_default",
+      "view": "hostage_exchange"
+    }
+  ]
+}

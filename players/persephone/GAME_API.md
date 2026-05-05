@@ -907,17 +907,26 @@ Missing characters are silently skipped during rendering.
 
 ### OCR Ambiguities
 
-Two glyph pairs are **pixel-identical** and cannot be distinguished:
-- `S` and `5`: both render as `###`, `#..`, `###`, `..#`, `###`
-- `O` and `0`: both render as `###`, `#.#`, `#.#`, `#.#`, `###`
+~~Two glyph pairs are **pixel-identical** and cannot be distinguished:~~
 
-The reference frame parser normalizes these
-(`bots/frame_parser.ts:71-72`):
-```typescript
-function norm(s: string): string {
-  return s.replace(/5/g, "S").replace(/0/g, "O");
-}
-```
+**Correction**: The game renders **distinct** glyphs for all characters.
+The claims below were incorrect and based on an earlier or hypothetical
+font. The actual glyphs (from `rendering/framebuffer.ts` and
+`common/spriteRecognition.ts`) are:
+
+- `S`: `.##`, `#..`, `.##`, `..#`, `##.` (asymmetric)
+- `5`: `###`, `#..`, `###`, `..#`, `###` (symmetric)
+- `O`: `###`, `#.#`, `#.#`, `#.#`, `###` (full corners)
+- `0`: `.#.`, `#.#`, `#.#`, `#.#`, `.#.` (rounded corners)
+
+These are visually distinct and can be OCR'd unambiguously. No
+normalization is required. The `norm()` function in the reference
+frame parser (`bots/frame_parser.ts:70-72`) is now a no-op.
+
+Other notable glyphs that differ from naive expectations:
+- `M`: `#.#`, `###`, `###`, `#.#`, `#.#` (double-filled middle rows)
+- `N`: `###`, `#.#`, `#.#`, `#.#`, `#.#` (full top, straight sides)
+- `D`: `##.`, `#.#`, `#.#`, `#.#`, `##.` (rounded right side)
 
 ### Reading Text from Pixels
 

@@ -1,0 +1,15 @@
+{
+  "view": "hostage_exchange",
+  "source": {
+    "tick": 1300,
+    "date": "2026-05-04",
+    "seed": 100
+  },
+  "assertions": {
+    "exchange.leader_count": 2,
+    "exchange.departing_count": 2,
+    "exchange.arriving_count": 5,
+    "exchange.viewer_status": "spectator"
+  },
+  "note": "Hostage exchange screen showing LEADER, DEPARTING, ARRIVING sections"
+}

@@ -46,9 +46,14 @@ def detect_view(frame: np.ndarray) -> View:
     hud_text_2 = read_text_at(frame, 2, 2, COLOR_HUD_NORMAL, 20)
     hud_norm_2 = normalize_text(hud_text_2)
 
-    # Chatroom: "CHAT" at (2, 2) in color 2
-    if hud_norm_2.startswith("CHAT"):
-        return View.CHATROOM
+    # Whisper: "WHISP" at (2, 2) in color 2
+    # Whispers are private chatrooms between two players.
+    if hud_norm_2.startswith("WHISP"):
+        return View.WHISPER
+
+    # Info screen shared mode: "KNOWN PLAYERS" header
+    if hud_norm_2.startswith("KNOWN"):
+        return View.INFO_SCREEN
 
     # Step 3: Check bottom bar for "WAITING" (chatroom entry pending)
     bar_text_8 = read_text_at(frame, 2, BAR_Y + 2, COLOR_HUD_ALERT, 10)
@@ -61,8 +66,8 @@ def detect_view(frame: np.ndarray) -> View:
     if hud_norm_2 and hud_norm_2[0] == "R" and ":" in hud_norm_2:
         return View.PLAYING
 
-    # Lobby: "{count}/{max}" pattern
-    if hud_text_2 and re.match(r"[0-9OSos]+/[0-9OSos]+", hud_text_2):
+    # Lobby: "{count}/{max}" pattern (digits and /)
+    if hud_text_2 and re.match(r"\d+/\d+", hud_text_2):
         return View.LOBBY
 
     # Reveal: "REVEAL!"
@@ -78,23 +83,38 @@ def detect_view(frame: np.ndarray) -> View:
     if hud_norm_8.startswith("EXCHANGING"):
         return View.HOSTAGE_EXCHANGE
 
+    # Step 5b: Hostage exchange (centered "HOSTAGE EXCHANGE" at y=14, color 8)
+    # The exchange screen renders this title centered, not at x=2.
+    for x in range(20, 50):
+        exchange_text = read_text_at(frame, x, 14, COLOR_HUD_ALERT, 20)
+        if exchange_text and "HOSTAGE" in exchange_text:
+            return View.HOSTAGE_EXCHANGE
+
     # Step 6: Check for non-leader hostage select ("PICK" in dim text)
     hud_text_1 = read_text_at(frame, 2, 2, COLOR_HUD_DIM, 20)
     hud_norm_1 = normalize_text(hud_text_1)
     if "PICK" in hud_norm_1:
         return View.HOSTAGE_SELECT
 
-    # Step 7: Global chat detection ("{RoomName} CHAT")
-    # The text at (2,2) in color 2 would be e.g. "Underworld CHAT"
-    if hud_norm_2.endswith("CHAT") and len(hud_norm_2) > 4:
+    # Step 7: Global chat detection ("{RoomName} CHAT" or "{RoomName} SHOUT")
+    # The text at (2,2) in color 2 would be e.g. "Underworld CHAT" or
+    # "Underworld SHOUT" depending on game version/config.
+    if len(hud_norm_2) > 4 and (
+        hud_norm_2.endswith("CHAT") or hud_norm_2.endswith("SHOUT")
+    ):
         return View.GLOBAL_CHAT
 
-    # Step 8: Game over (win text at y=60, no REVEAL banner)
-    # Scan for win text in team colors or draw color at y=60
+    # Step 7.5: Leader summit ("LEADERS MEET" in dim text)
+    if hud_norm_1.startswith("LEADERS"):
+        return View.HOSTAGE_SELECT  # Reuse hostage_select for leader summit phase
+
+    # Step 8: Game over (win text at y=60, centered)
+    # Text may be centered anywhere on the row, so scan multiple x offsets.
     for color in [3, 14, 1]:  # TeamA, TeamB, draw
-        win_text = read_text_at(frame, 0, 60, color, 20)
-        if win_text and ("WIN" in normalize_text(win_text) or "ONE" in normalize_text(win_text)):
-            return View.GAME_OVER
+        for x_start in [0, 20, 30, 40, 50]:
+            win_text = read_text_at(frame, x_start, 60, color, 20)
+            if win_text and ("WIN" in win_text or "ONE" in win_text):
+                return View.GAME_OVER
 
     # Step 9: Fallback
     return View.UNKNOWN

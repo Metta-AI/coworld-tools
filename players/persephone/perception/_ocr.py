@@ -28,13 +28,13 @@ _GLYPHS: dict[str, list[list[int]]] = {
     "J": [[0,0,1],[0,0,1],[0,0,1],[1,0,1],[1,1,1]],
     "K": [[1,0,1],[1,0,1],[1,1,0],[1,0,1],[1,0,1]],
     "L": [[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,1,1]],
-    "M": [[1,0,1],[1,1,1],[1,0,1],[1,0,1],[1,0,1]],
-    "N": [[1,0,1],[1,1,1],[1,1,1],[1,0,1],[1,0,1]],
+    "M": [[1,0,1],[1,1,1],[1,1,1],[1,0,1],[1,0,1]],
+    "N": [[1,1,1],[1,0,1],[1,0,1],[1,0,1],[1,0,1]],
     "O": [[1,1,1],[1,0,1],[1,0,1],[1,0,1],[1,1,1]],
     "P": [[1,1,1],[1,0,1],[1,1,1],[1,0,0],[1,0,0]],
     "Q": [[1,1,1],[1,0,1],[1,0,1],[1,1,1],[0,0,1]],
     "R": [[1,1,1],[1,0,1],[1,1,0],[1,0,1],[1,0,1]],
-    "S": [[1,1,1],[1,0,0],[1,1,1],[0,0,1],[1,1,1]],
+    "S": [[0,1,1],[1,0,0],[0,1,1],[0,0,1],[1,1,0]],
     "T": [[1,1,1],[0,1,0],[0,1,0],[0,1,0],[0,1,0]],
     "U": [[1,0,1],[1,0,1],[1,0,1],[1,0,1],[1,1,1]],
     "V": [[1,0,1],[1,0,1],[1,0,1],[1,0,1],[0,1,0]],
@@ -42,7 +42,7 @@ _GLYPHS: dict[str, list[list[int]]] = {
     "X": [[1,0,1],[1,0,1],[0,1,0],[1,0,1],[1,0,1]],
     "Y": [[1,0,1],[1,0,1],[1,1,1],[0,1,0],[0,1,0]],
     "Z": [[1,1,1],[0,0,1],[0,1,0],[1,0,0],[1,1,1]],
-    "0": [[1,1,1],[1,0,1],[1,0,1],[1,0,1],[1,1,1]],
+    "0": [[0,1,0],[1,0,1],[1,0,1],[1,0,1],[0,1,0]],
     "1": [[0,1,0],[1,1,0],[0,1,0],[0,1,0],[1,1,1]],
     "2": [[1,1,1],[0,0,1],[1,1,1],[1,0,0],[1,1,1]],
     "3": [[1,1,1],[0,0,1],[1,1,1],[0,0,1],[1,1,1]],
@@ -78,9 +78,11 @@ GLYPH_H = 5
 CHAR_ADVANCE = GLYPH_W + 1  # 4 pixels per character
 SPACE_WIDTH = 4
 
-# Characters for which the glyph matches another character
-# S and 5 are identical; O and 0 are identical.
-AMBIGUOUS_PAIRS = {"S": "5", "5": "S", "O": "0", "0": "O"}
+# Characters previously believed to be ambiguous (S/5 and O/0).
+# In reality, the game renders distinct glyphs for these pairs.
+# Retained as empty for backward compatibility with callers that
+# reference this constant.
+AMBIGUOUS_PAIRS: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +188,24 @@ def read_text_any_color(
 
 
 def normalize_text(s: str) -> str:
-    """Normalize OCR output for text interpretation (5->S, 0->O)."""
-    return s.replace("5", "S").replace("0", "O")
+    """Normalize OCR output for text interpretation.
+
+    Previously converted 5->S and 0->O because those pairs were believed
+    to be pixel-identical. The game actually renders distinct glyphs for
+    S vs 5 and O vs 0, so this function is now a no-op. Retained for
+    backward compatibility.
+    """
+    return s
 
 
 def normalize_digits(s: str) -> str:
-    """Normalize OCR output for numeric interpretation (S->5, O->0)."""
-    return s.replace("S", "5").replace("O", "0")
+    """Normalize OCR output for numeric interpretation.
+
+    Previously converted S->5 and O->0 because those pairs were believed
+    to be pixel-identical. The game actually renders distinct glyphs, so
+    this function is now a no-op. Retained for backward compatibility.
+    """
+    return s
 
 
 def measure_text(text: str) -> int:
@@ -238,7 +251,7 @@ def _match_glyph(frame: np.ndarray, x: int, y: int, color: int) -> str | None:
 
     best_char: str | None = None
     best_score = 0.0
-    threshold = 0.85
+    threshold = 0.90
 
     for ch, glyph in _GLYPH_ARRAYS.items():
         on_pixels = int(glyph.sum())

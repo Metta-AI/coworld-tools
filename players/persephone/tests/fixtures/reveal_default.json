@@ -1,0 +1,13 @@
+{
+  "view": "reveal",
+  "source": {
+    "tick": 2500,
+    "date": "2026-05-04",
+    "seed": 100
+  },
+  "assertions": {
+    "result.is_reveal": true,
+    "result.winner_color": 1
+  },
+  "note": "Reveal phase at end of final round"
+}

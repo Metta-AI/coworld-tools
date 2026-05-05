@@ -1,0 +1,15 @@
+{
+  "view": "global_chat",
+  "source": {
+    "tick": 510,
+    "date": "2026-05-04",
+    "seed": 77
+  },
+  "assertions": {
+    "global_chat.room_name": "Underworld",
+    "global_chat.usurp_candidate": {
+      "not_none": true
+    }
+  },
+  "note": "Global chat (shout) view with USURP: NONE, no messages"
+}

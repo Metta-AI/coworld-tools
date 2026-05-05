@@ -32,10 +32,10 @@ WebSocket app (`tsx server.ts --port=8080`). Agents connect to
 (two 4-bit PICO-8 palette pixels packed per byte). Input is a 2-byte
 button packet (7-bit mask: up/down/left/right/select/A/B) plus optional
 ASCII chat packets. The doc covers frame layout for every view
-(overworld with minimap and fog of war, chatroom, global chat, info
+(overworld with minimap and fog of war, whisper rooms, global chat, info
 screen, role reveal, hostage exchange), phase detection from pixel
 patterns, the full chatroom menu structure with button sequences, OCR
-details (3x5 font, S/5 and O/0 ambiguities), and agent architecture
+details (3x5 font, all characters distinct), and agent architecture
 patterns (task-list + event-buffer approach from the reference LLM bot).
 Key gotcha: the standard 27-action bitworld space omits Select, which
 gates global chat access, usurp voting, and hostage commit -- direct
@@ -79,6 +79,54 @@ python scripts/launch_server.py --config simple --seed 42 --quiet
 python scripts/launch_server.py --config-json '{"obstacleCount": 0}'
 ```
 
+### `scripts/capture.py` -- Frame Capture Client
+
+Connects to a game server via WebSocket, records all frames to `.npy`,
+and writes per-frame metadata (detected view, tick, wall time) to
+`.jsonl`. Optionally auto-launches the server and filler bots.
+
+```bash
+# Passive capture against a running server
+python scripts/capture.py --duration 30 --output /tmp/capture
+
+# Auto-launch server with fillers
+python scripts/capture.py --launch-server --seed 42 --fillers 9 \
+    --duration 45 --output /tmp/capture
+
+# With a scripted policy (press B at tick 510)
+python scripts/capture.py --launch-server --seed 42 --fillers 9 \
+    --duration 25 --policy "0x40 if tick == 510 else 0x00" \
+    --output /tmp/capture
+```
+
+### `scripts/view_timeline.py` -- View Timeline Viewer
+
+Summarizes view transitions from a capture metadata file.
+
+```bash
+python scripts/view_timeline.py /tmp/capture.jsonl --counts
+```
+
+### `scripts/extract_fixture.py` -- Fixture Extractor
+
+Extracts a single frame from a capture as a test fixture pair (`.npy` +
+`.json` with draft assertions from `parse_frame()`).
+
+```bash
+python scripts/extract_fixture.py --input /tmp/capture.npy \
+    --tick 200 --name role_reveal_shades --seed 42
+```
+
+### `scripts/render_frame.py` -- Frame Renderer
+
+Renders a `.npy` frame to PNG using the PICO-8 palette for visual
+inspection.
+
+```bash
+python scripts/render_frame.py tests/fixtures/playing_round1.npy \
+    --scale 4 -o /tmp/frame.png
+```
+
 ## Writing a New Agent
 
 Create a directory under `agents/` with a `policy.py` file:
@@ -110,11 +158,42 @@ if result.view == View.PLAYING:
         print(f"Player at ({dot.world_x}, {dot.world_y})")
 ```
 
-Stateless, single-frame-in / symbolic-out. Handles all 9 game views:
-lobby, role reveal, playing, hostage select, chatroom, global chat,
-info screen, hostage exchange, and reveal/game over. See
+Stateless, single-frame-in / symbolic-out. Handles all game views:
+lobby, role reveal, playing, hostage select, hostage exchange, whisper
+(private chatroom), global chat (shout), info screen, waiting entry,
+reveal, and game over. See
 [docs/DESIGN_perception.md](docs/DESIGN_perception.md) for the full
 design and `perception/types.py` for output dataclass definitions.
+
+#### Testing the Perception Module
+
+The perception module has a live-frame integration test suite. Fixtures
+are real frames captured from a running game server, stored in
+`tests/fixtures/`. Run with:
+
+```bash
+PYTHONPATH=persephone .venv/bin/python -m pytest persephone/tests/ -v
+```
+
+To capture new frames and add fixtures:
+
+```bash
+# Capture frames from a live game
+.venv/bin/python persephone/scripts/capture.py \
+    --launch-server --seed 42 --fillers 9 --duration 30 \
+    --output /tmp/capture
+
+# View the timeline of detected views
+.venv/bin/python persephone/scripts/view_timeline.py /tmp/capture.jsonl
+
+# Extract a specific frame as a test fixture
+.venv/bin/python persephone/scripts/extract_fixture.py \
+    --input /tmp/capture.npy --tick 200 --name my_fixture
+
+# Render a frame to PNG for visual inspection
+.venv/bin/python persephone/scripts/render_frame.py \
+    persephone/tests/fixtures/my_fixture.npy --scale 4 -o /tmp/frame.png
+```
 
 ## Agents
 

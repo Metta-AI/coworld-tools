@@ -24,7 +24,7 @@ class View(Enum):
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
     HOSTAGE_EXCHANGE = "hostage_exchange"
-    CHATROOM = "chatroom"
+    WHISPER = "whisper"
     WAITING_ENTRY = "waiting_entry"
     GLOBAL_CHAT = "global_chat"
     INFO_SCREEN = "info_screen"

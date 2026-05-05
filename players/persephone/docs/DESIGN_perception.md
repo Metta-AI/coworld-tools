@@ -57,7 +57,7 @@ class View(Enum):
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
     HOSTAGE_EXCHANGE = "hostage_exchange"
-    CHATROOM = "chatroom"
+    WHISPER = "whisper"
     WAITING_ENTRY = "waiting_entry"
     GLOBAL_CHAT = "global_chat"
     INFO_SCREEN = "info_screen"
@@ -70,8 +70,8 @@ class View(Enum):
 
 Views are detected by checking pixel patterns at known positions. The
 checks are ordered to resolve ambiguities (some views share visual
-elements). This ordering matches the upstream `parsePhase` in
-`bots/frame_parser.ts:75-106`.
+elements). This ordering is informed by the upstream `parsePhase` in
+`bots/frame_parser.ts:74-111`.
 
 ```
 1. Check for double border (role reveal / info screen):
@@ -82,7 +82,8 @@ elements). This ordering matches the upstream `parsePhase` in
      else:                  → INFO_SCREEN   (non-black interior = info view)
 
 2. Read text at (2, 2) in color 2:
-   if starts with "CHAT":  → CHATROOM
+   if starts with "WHISP":  → WHISPER
+   if starts with "KNOWN":  → INFO_SCREEN  (shared mode, no border)
 
 3. Check bottom bar for "WAITING" at (2, 121) in color 8:
    if match:               → WAITING_ENTRY
@@ -96,47 +97,48 @@ elements). This ordering matches the upstream `parsePhase` in
    if starts with "SELECT": → HOSTAGE_SELECT
    if starts with "EXCHANGING": → HOSTAGE_EXCHANGE
 
+5b. Check for centered "HOSTAGE EXCHANGE" at y=14, color 8:
+    (The exchange screen renders the title centered, not at x=2)
+    if found:              → HOSTAGE_EXCHANGE
+
 6. Read text at (2, 2) in color 1:
-   if contains "PICK":     → HOSTAGE_SELECT (non-leader variant)
+   if starts with "LEADERS": → HOSTAGE_SELECT (leader summit phase)
+   if contains "PICK":      → HOSTAGE_SELECT (non-leader variant)
 
-7. Check for global chat:
-   Read text at (2, 2) in color 2. If it ends with "CHAT" and
-   doesn't start with "CHAT" (which was already caught as chatroom):
+7. Check for global chat/shout:
+   Read text at (2, 2) in color 2. If it ends with "CHAT" or "SHOUT"
+   and is longer than 4 chars:
    → GLOBAL_CHAT
-   (e.g., "Underworld CHAT" or "Mortal Realm CHAT")
+   (e.g., "Underworld SHOUT" or "Mortal Realm CHAT")
 
-8. Check for game over (win text at y=60, no "REVEAL!" at top):
-   Read text at (2, 2) in color 2. If empty/absent (no REVEAL! banner)
-   AND win text is detectable at y=60:
+8. Check for game over (win text centered at y=60):
+   Scan multiple x offsets at y=60 in team colors (3, 14) and draw
+   color (1). If "WIN" or "ONE" found:
    → GAME_OVER
 
 9. Fallback: → UNKNOWN
 ```
 
-**Important**: Steps 7 and 8 are additions over the upstream parser,
-which conflates global chat with overworld and doesn't distinguish
-GAME_OVER from REVEAL. Our parser should be more precise.
+### Notes on Detection
 
-### Global Chat Detection (step 7)
-
-The upstream parser has no explicit global chat detection -- it falls
-through to "playing" or "unknown." We detect it by checking if the text
-at (2, 2) in color 2 matches `"{RoomName} CHAT"`. The patterns are:
-- `"Underworld CHAT"` (RoomA)
-- `"Mortal Realm CHAT"` (RoomB)
-
-This is unambiguous because:
-- Chatroom view shows just `"CHAT"` (no room prefix)
-- Playing/lobby/etc. show different text at (2, 2)
+- The game has no "CHATROOM" view -- all private conversations use the
+  "whisper" view with "WHISP" header text.
+- Global chat uses "SHOUT" as the header suffix in current game versions
+  (not "CHAT" as documented in older references). The detector handles both.
+- The hostage exchange screen renders its title CENTERED at y=14 (not at
+  x=2 like other HUD text), requiring a multi-x-offset scan.
+- The leader summit phase ("LEADERS MEET {n}S" in dim text) is currently
+  grouped with HOSTAGE_SELECT since both use the overworld view with
+  different HUD overlays.
 
 ### Waiting Entry as a Sub-state
 
 `WAITING_ENTRY` is technically the overworld view with a special bottom
 bar. The game world, minimap, and top bar HUD are all still rendered.
-Our parser should detect this as its own view enum value (agents need to
+Our parser detects this as its own view enum value (agents need to
 know not to press buttons that would cancel the entry request), but the
 overworld data (minimap, position, etc.) is still extractable from the
-frame and should be included.
+frame and is included.
 
 **Design decision**: `WAITING_ENTRY` populates BOTH `view` (as the enum)
 AND `overworld` (with the extractable overworld data). This lets agents

@@ -164,20 +164,29 @@ class TestOCR:
         assert result == ""
 
     def test_normalize_text(self):
-        """normalize_text converts digits to letters."""
-        assert normalize_text("5ELECT") == "SELECT"
-        assert normalize_text("R00M") == "ROOM"
+        """normalize_text is now a no-op (S/5 and O/0 are distinct glyphs)."""
+        assert normalize_text("5ELECT") == "5ELECT"
+        assert normalize_text("R00M") == "R00M"
+        assert normalize_text("SELECT") == "SELECT"
 
     def test_normalize_digits(self):
-        """normalize_digits converts letters to digits."""
-        assert normalize_digits("1O:OS") == "10:05"
+        """normalize_digits is now a no-op (S/5 and O/0 are distinct glyphs)."""
+        assert normalize_digits("10:05") == "10:05"
+        assert normalize_digits("1O:OS") == "1O:OS"
 
-    def test_ambiguous_s_5(self):
-        """S and 5 produce the same glyph pattern."""
+    def test_s_and_5_are_distinct(self):
+        """S and 5 produce different glyph patterns (not ambiguous)."""
         frame_s = _render_text_safe("S", 2, 2, 2)
         frame_5 = _render_text_safe("5", 2, 2, 2)
-        # Both should produce identical frames
-        assert np.array_equal(frame_s, frame_5)
+        # The game renders distinct glyphs for S and 5.
+        assert not np.array_equal(frame_s, frame_5)
+
+    def test_o_and_0_are_distinct(self):
+        """O and 0 produce different glyph patterns (not ambiguous)."""
+        frame_o = _render_text_safe("O", 2, 2, 2)
+        frame_0 = _render_text_safe("0", 2, 2, 2)
+        # The game renders distinct glyphs for O and 0.
+        assert not np.array_equal(frame_o, frame_0)
 
     def test_numbers(self):
         """Read numeric text."""

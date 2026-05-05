@@ -16,7 +16,7 @@ from ._common import (
     TEAM_A_NAME,
     TEAM_B_NAME,
 )
-from ._ocr import normalize_digits, normalize_text, read_text_at
+from ._ocr import read_text_at
 from .types import RoleRevealPerception
 
 
@@ -27,6 +27,10 @@ _ROOM_NAMES_UPPER = [ROOM_A_NAME.upper(), ROOM_B_NAME.upper()]
 
 def parse_role_reveal(frame: np.ndarray) -> RoleRevealPerception:
     """Extract role, team, room, and game info from the role reveal screen.
+
+    Uses "YOU ARE" as a y-position anchor, then extracts fields at
+    known offsets relative to that anchor. This matches the game's
+    sequential top-to-bottom text rendering.
 
     Args:
         frame: (128, 128) uint8 pixel array.
@@ -46,31 +50,63 @@ def parse_role_reveal(frame: np.ndarray) -> RoleRevealPerception:
     elif border_color == 14:
         result.team = TEAM_B_NAME
 
-    # Scan for role name at y=18 in border color (centered)
-    role_text = _scan_centered(frame, 18, border_color)
+    # Find "YOU ARE" anchor to establish base y position.
+    # The TS renderer places it at varying y depending on content.
+    base_y = _find_anchor(frame)
+    if base_y is None:
+        return result
+
+    # Role name: baseY + 10, in team color (border_color)
+    role_text = _scan_centered(frame, base_y + 10, border_color)
     if role_text:
         result.role = _match_role_name(role_text)
 
-    # Scan for room name at y=46 in color 2 (centered)
-    room_text = _scan_centered(frame, 46, COLOR_HUD_NORMAL)
-    if room_text:
-        result.room = _match_room_name(room_text)
+    # Room name: baseY + 32..42, in color 2
+    for offset in [38, 36, 34, 40, 42, 32]:
+        room_text = _scan_centered(frame, base_y + offset, COLOR_HUD_NORMAL)
+        if room_text:
+            matched = _match_room_name(room_text)
+            if matched:
+                result.room = matched
+                break
 
-    # Scan for info line at y=56 in color 1: "{n}P  {w}x{h}"
-    info_text = _scan_centered(frame, 56, COLOR_HUD_DIM)
-    if info_text:
-        digits = normalize_digits(info_text)
-        m = re.match(r"(\d+)P\s+(\d+)[Xx](\d+)", digits)
-        if m:
-            result.player_count = int(m.group(1))
-            result.room_size = int(m.group(2))
+    # Info line: baseY + 44..52, in color 1: "{n}P  {w}x{h}"
+    # The player count and room size may be separated by a gap wider than
+    # the OCR's space detection. Scan for each part independently.
+    for offset in [48, 46, 44, 50, 52]:
+        y = base_y + offset
+        if y < 0 or y + 5 > 128:
+            continue
+        for x in range(0, SCREEN_WIDTH - 10):
+            text = read_text_at(frame, x, y, COLOR_HUD_DIM, 20)
+            if not text:
+                continue
+            # Try full pattern first (works if gap is narrow)
+            m = re.match(r"(\d+)P\s+(\d+)[Xx](\d+)", text)
+            if m:
+                result.player_count = int(m.group(1))
+                result.room_size = int(m.group(2))
+                break
+            # Try just player count: "{n}P"
+            m = re.match(r"(\d+)P$", text.strip())
+            if m and result.player_count is None:
+                result.player_count = int(m.group(1))
+                continue
+            # Try just room size: "{w}X{h}" or "{w}x{h}"
+            m = re.match(r"(\d+)[Xx](\d+)", text.strip())
+            if m and result.room_size is None:
+                result.room_size = int(m.group(1))
+                break
+        if result.player_count is not None or result.room_size is not None:
+            break
 
-    # Scan for countdown at y ~100 in color 2: "STARTING IN {n}"
-    for y in range(96, 110):
+    # Countdown: scan lower region for "STARTING IN {n}" in color 2
+    for y in range(base_y + 80, base_y + 100):
+        if y >= 128:
+            break
         countdown_text = _scan_centered(frame, y, COLOR_HUD_NORMAL)
-        if countdown_text and "IN" in normalize_text(countdown_text):
-            digits = normalize_digits(countdown_text)
-            m = re.search(r"(\d+)$", digits.strip())
+        if countdown_text and "IN" in countdown_text:
+            m = re.search(r"(\d+)$", countdown_text.strip())
             if m:
                 result.countdown_secs = int(m.group(1))
             break
@@ -78,21 +114,38 @@ def parse_role_reveal(frame: np.ndarray) -> RoleRevealPerception:
     return result
 
 
+def _find_anchor(frame: np.ndarray) -> int | None:
+    """Find the y position of the 'YOU ARE' anchor text.
+
+    Tries multiple candidate y values. Returns the y where 'YOU ARE'
+    is found in color 2, or None if not found.
+    """
+    for base_y in [18, 8, 12, 14, 16, 20, 22]:
+        text = _scan_centered(frame, base_y, COLOR_HUD_NORMAL)
+        if text and "YOU" in text.upper() and "ARE" in text.upper():
+            return base_y
+    return None
+
+
 def _scan_centered(frame: np.ndarray, y: int, color: int) -> str | None:
     """Scan for centered text at a given y position.
 
-    Tries multiple x offsets to find where the text starts.
+    Scans x from 0 to SCREEN_WIDTH in steps of 1 to avoid missing text
+    that starts at odd pixel offsets. Requires at least 3 characters to
+    filter out noise from stray pixels.
     """
-    for x in range(0, SCREEN_WIDTH - 10, 2):
+    if y < 0 or y + 5 > 128:
+        return None
+    for x in range(0, SCREEN_WIDTH - 6):
         text = read_text_at(frame, x, y, color, 20)
-        if text and len(text.strip()) >= 2:
+        if text and len(text.strip()) >= 3:
             return text.strip()
     return None
 
 
 def _match_role_name(text: str) -> str | None:
     """Match OCR'd text against known role names."""
-    norm = normalize_text(text).upper().replace(" ", "")
+    norm = text.upper().replace(" ", "")
     for i, upper in enumerate(_ROLE_NAMES_UPPER):
         if norm.startswith(upper.replace(" ", "")):
             return ROLE_NAMES[i]
@@ -101,9 +154,9 @@ def _match_role_name(text: str) -> str | None:
 
 def _match_room_name(text: str) -> str | None:
     """Match OCR'd text against known room names."""
-    norm = normalize_text(text).upper().replace(" ", "")
+    norm = text.upper().replace(" ", "")
     if "UNDERWORLD" in norm:
         return ROOM_A_NAME
     if "MORTAL" in norm:
         return ROOM_B_NAME
-    return text
+    return None

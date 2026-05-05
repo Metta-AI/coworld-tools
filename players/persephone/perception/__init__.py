@@ -84,7 +84,7 @@ def parse_frame(
         # info while waiting.
         result.overworld = parse_overworld(frame, room_size)
 
-    elif view == View.CHATROOM:
+    elif view == View.WHISPER:
         result.chatroom = parse_chatroom(frame)
 
     elif view == View.GLOBAL_CHAT:
