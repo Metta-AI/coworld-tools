@@ -405,11 +405,11 @@ pretending {
 }
 
 hunting {
-  # Imposter: look for a kill.
+  # Imposter: look for a kill. Full design in HUNTING_DESIGN.md.
   preferred_target?: color_index
-  max_witnesses: int          # refuse kill if > N non-imp others visible
-  opportunistic: bool         # if no target, still take any isolated crew
-  cover_mode: "pretending" | "idle"   # behavior while not closing
+  max_witnesses: int
+  opportunistic: bool
+  cover_mode: "pretending" | "idle"
 }
 
 fleeing {
@@ -493,8 +493,8 @@ Each mode has its own scratch slot. Lifecycle:
 Scratch state examples:
 
 - `investigating.scratch` — deadline tick, points-of-interest list.
-- `hunting.scratch` — current stalking target, approach path index,
-  last-seen target location.
+- `hunting.scratch` — target color, last-seen position, cover patrol
+  station, kill-confirmation state. See `HUNTING_DESIGN.md` §8.
 - `pretending.scratch` — current fake target, loiter timer,
   fake-hold deadline, witness-swap flag.
 
@@ -575,8 +575,8 @@ If the LLM responds to a reflex-triggered mode switch by trying to
 put us back in the pre-reflex mode, and the reflex condition is
 still present, we'd ping-pong without this rule:
 
-- A reflex cannot fire again within `ReflexCooldownTicks` (48 ticks
-  ≈ 2 s at 24 Hz) of its last firing, **per-reflex**. Each of the
+- A reflex cannot fire again within `ReflexCooldownTicks` (96 ticks
+  ≈ 4 s at 24 Hz) of its last firing, **per-reflex**. Each of the
   four reflexes tracks its own cooldown independently
   (`reflex.nim:ReflexState`).
 
@@ -592,19 +592,13 @@ they add up to a shadow policy if we aren't careful.
 | Mode | Condition | Switch to | Reason |
 |---|---|---|---|
 | `task_completing` (crew, alive, not ghost) | `body_newly_in_view` | `reporting { body_location: <body.position> }` | Let the dedicated reporting mode handle navigation + A press. Crewmate gets a fresh body → go report it, regardless of current task. |
-| `hunting` (imposter, alive) | `body_newly_in_view` | `fleeing { away_from: <body.position>, min_distance: 48, duration_ticks: 240 }` | Don't hang around a corpse. (Does not check whether the imposter made the kill — a future refinement could skip this reflex for self-kills.) |
-| `pretending` (imposter, alive, not ghost) | `kill_ready AND visible_crewmates == 1` | `hunting { preferred_target: <color>, max_witnesses: 0, opportunistic: false, cover_mode: pretending }` | Route a kill opportunity into the mode whose `decide` actually knows how to close and strike. |
+| `hunting` (imposter, alive) | `body_newly_in_view` | `fleeing { away_from: <body.position>, min_distance: 48, duration_ticks: 240 }` | Don't hang around a corpse. See `HUNTING_DESIGN.md` §10.2 for details. |
+| `pretending` (imposter, alive, not ghost) | `kill_ready AND visible_crewmates == 1` | `hunting { preferred_target: <color>, max_witnesses: 0, opportunistic: false, cover_mode: pretending }` | Route a kill opportunity into hunting mode. See `HUNTING_DESIGN.md` §10.1 for details and watchpoints. |
 | any mode | `voting_screen_appeared` (edge: `prevPhase != PhaseVoting`) | `meeting { want_to_speak_first: false }` | Meetings are an LLM-driven mode; switch immediately and let meeting's decide handle it. |
 
-The `pretending → hunting` reflex is noticeably more aggressive than
-the others — it performs a game-changing action (a kill, via the
-hunting mode's logic) without LLM approval. Under the mode-switch
-model this is cleaner than v0.2's "inline canned kill-strike"
-because the actual kill decision happens in `hunting.decide()`,
-which can reconsider (e.g. it might decide the target's moved out
-of range by the time it runs). Still worth watching: if this reflex
-fires and causes a bad kill that the LLM would've vetoed, we
-reconsider.
+The `pretending → hunting` reflex is the most aggressive — it
+performs a kill without LLM approval. See `HUNTING_DESIGN.md` §10.1
+for full rationale and watchpoints.
 
 #### Reflex vs. illegality fallback
 
@@ -1024,6 +1018,7 @@ after an LLM failure), the inner loop picks a per-role default:
 - **Imposter, alive, gameplay** →
   `hunting { preferred_target: none, max_witnesses: 0,
              opportunistic: true, cover_mode: "pretending" }`
+  See `HUNTING_DESIGN.md` §12 for rationale.
 - **Ghost** →
   `task_completing { target: nearest_mandatory,
                       abandon_on_nearby_body: false }`
@@ -1370,22 +1365,12 @@ don't exist in the single-plan version:
 Per review note #3, we're not cost-optimizing yet — multiple calls
 per meeting are fine.
 
-### 12.4 Reflex-as-mode-switch: cleaner, but the `pretending →
-hunting` case still deserves watching
+### 12.4 Reflex-as-mode-switch: the `pretending → hunting` case
 
-The v0.2 concern about the "aggressive kill-strike reflex" is
-materially reduced by the mode-switch model: the kill decision now
-runs inside `hunting.decide()`, which has access to the full
-belief, full scratch, and the `is_legal_for` gate. That's a real
-decision-making context, not a single-frame override.
-
-That said, this reflex still triggers a kill without LLM approval,
-and it's the one the LLM is most likely to want to veto (e.g.
-during `alibi_building` where a kill blows the alibi). Watch it:
-if `pretending → hunting` via reflex correlates with bad outcomes
-more than direct LLM-issued `hunting`, we demote it (require LLM
-approval, or gate it on an LLM-set `permit_opportunistic_kill`
-field in `pretending.params`).
+See `HUNTING_DESIGN.md` §10.1 for the full discussion. Summary: the
+mode-switch model makes this cleaner than v0.2's inline kill-strike
+(the kill decision runs in `hunting.decide()` with full context), but
+the reflex still triggers without LLM approval and deserves monitoring.
 
 ### 12.5 Reflex-list growth is still constrained
 
@@ -1398,10 +1383,10 @@ improving outcomes is a bug, not a feature.
 ### 12.6 `summarize_for_llm` per mode (future)
 
 §5.6 notes that mode scratch state isn't exposed to the LLM. If it
-turns out a mode's internal reasoning is useful context for the LLM
-(e.g. `hunting`'s "I've been stalking red for 200 ticks"), we add an
-optional `summarize_for_llm(scratch) -> json` hook on the mode
-interface and include its output in the snapshot. Not in v0.
+turns out a mode's internal reasoning is useful context for the LLM,
+we add an optional `summarize_for_llm(scratch) -> json` hook on the
+mode interface and include its output in the snapshot. Not in v0.
+See `HUNTING_DESIGN.md` §14 for the hunting-specific case.
 
 ### 12.7 Non-meeting chat?
 
@@ -1474,7 +1459,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D8 | LLM snapshot format | JSON dump of curated belief subset. | §8.3 |
 | D9 | Validation | Guidance validates once; inner loop re-validates every tick. | §8.4 |
 | D10 | Reflex pattern | **Reflex = forced mode switch**, edge-triggered, evaluated in update-belief, anti-thrash cooldown, starter list of 4. | §5.8 |
-| D11 | Imposter default directive | `hunting` with opportunistic + cover. | §9.1 |
+| D11 | Imposter default directive | `hunting` with opportunistic + cover. See `HUNTING_DESIGN.md`. | §9.1 |
 | D12 | Task-completing mode | Fresh implementation, informed by modulabot's code but not copied. | §12.2 |
 | D13 | Trace schema | Extends modulabot's: adds guidance, modes, reflexes streams. | §11 |
 | D14 | Fallback-only playability test | Required before first submission. | §9.2 |

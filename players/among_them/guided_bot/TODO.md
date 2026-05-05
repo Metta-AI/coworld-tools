@@ -4,6 +4,243 @@ Open bugs and tasks. Newest first.
 
 ---
 
+## BUG: Meeting detection failure — bot idles through entire meetings (2026-05-04, CRITICAL)
+
+The bot loses localization for 670+ ticks during meetings but never
+detects the voting screen. No `meeting_started` event is logged, no
+meeting mode is entered, no vote is cast. The bot emits mask=0 (noop)
+for the entire meeting duration (~28 seconds). After the meeting ends
+and players are teleported back to cafeteria, localization re-acquires
+at the spawn point (564,120).
+
+### Evidence (2 runs, seed 100)
+
+- Run 1: localized=false from t=920 to t=1591 (671 ticks). Position
+  frozen at (699,125). Re-locks at spawn (564,120).
+- Run 2: localized=false from t=1071 to t=1742 (671 ticks). Position
+  frozen at (193,169). Re-locks at spawn (564,120).
+- Zero meeting events in either run's trace.
+- The duration (~671 ticks) matches the server's `voteTimerTicks=600`
+  plus interstitial/teleport overhead.
+
+### Hypotheses
+
+1. **Interstitial threshold not met.** The voting screen may have
+   enough non-black pixels (player icons, text, UI chrome) that the
+   30% black threshold isn't reached.
+2. **Localizer failure precedes interstitial.** The localizer might
+   fail on a gameplay frame (edge of map, crowded scene) moments
+   before the meeting screen renders. Since the bot is already
+   `localized=false`, the frame pipeline continues trying localization
+   against what is now a voting screen, failing every frame.
+3. **Frame timing race.** The meeting transition may deliver a
+   "twilight frame" that has partial gameplay + partial black,
+   confusing both the localizer and interstitial detector.
+
+### Impact
+
+40-54% of total game time is completely wasted. The bot never
+participates in meetings, making it extremely suspicious and unable
+to defend itself from accusations.
+
+### Key code paths
+
+- Interstitial detector: `perception/interstitial.nim:41-58`
+- Voting screen parse: `perception/voting.nim` (parseVotingScreen)
+- Voting reflex: `reflex.nim:66-86`
+- Bot pipeline gate: `bot.nim:321-322`
+
+---
+
+## BUG: No pretending/cover behavior observed in imposter games (2026-05-04, LOW)
+
+Across 2 full imposter games (~2000 ticks each, seed 100), zero ticks
+were spent in pretending mode. The bot moves exclusively toward
+crewmates, making it look extremely predatory.
+
+### Cause
+
+The hunting cover patrol only triggers when: no visible target, target
+memory expired, AND the bot has reached a cover station and loitered.
+With the test's 48-tick kill cooldown, `killReady` is almost always
+true and the bot always finds an opportunistic target before cover
+kicks in.
+
+At realistic kill cooldowns (1200 ticks), there would be ~1000 ticks
+between kills where cover behavior should be active. This needs
+verification at realistic settings.
+
+### Improvement ideas
+
+- Force pretending mode for N ticks after a successful kill (look
+  busy at a nearby station to establish alibi).
+- Add a "cover cooldown" after kill where the bot avoids chasing
+  even if killReady is true (delay re-engagement).
+- Make cover patrol the PRIMARY behavior with kill as an interrupt
+  when opportunity arises (more human-like).
+
+---
+
+## BUG: Self-body flee loop — imposter flees from own kills (2026-05-05, HIGH)
+
+The `body_newly_in_view_flee` reflex fires on bodies the bot itself
+created, and re-fires on the same body when it re-enters the viewport.
+24-36% of imposter game time is wasted fleeing from known bodies.
+
+### Evidence (2 runs, seed 100)
+
+- Run 1: 3 flee episodes (t=311, t=614, t=885), all from own kills.
+  720 ticks (36%) spent fleeing. Third flee (t=885) is same body
+  position (741,103) as first flee — a re-encounter.
+- Run 2: 2 flee episodes (t=429, t=682). Second is same body at
+  (178,89), only 13 ticks after flee ended — immediate re-fire.
+
+### Root cause
+
+The reflex edge-trigger (`reflex.nim:89`) uses a raw frame-count
+comparison: `visibleBodies.len > prevBodyCount`. This is a
+viewport-level check, not an identity-based one.
+
+1. `visibleBodies` is replaced wholesale each frame (`belief.nim:155`)
+   with whatever body sprites the actor scanner finds on-screen.
+2. `prevBodyCount` (`reflex.nim:31,179`) tracks the count from the
+   previous frame. When a body exits the viewport, count drops to 0.
+3. When the bot walks back near the same body, the count goes from
+   0 → 1, passing the `len > prevBodyCount` check as "new."
+4. The reflex has no memory of WHICH bodies it has reacted to. It
+   cannot distinguish own kills, previously-seen bodies, or genuinely
+   new bodies found by other players.
+5. `ReflexCooldownTicks` (96) < `fleeDurationTicks` (240), so by the
+   time flee ends, cooldown has expired and the same body re-triggers.
+
+### Code path
+
+```
+belief.nim:155     → visibleBodies = actors.bodies (raw frame scan)
+reflex.nim:89      → newBodySeen = len > prevBodyCount
+reflex.nim:120-124 → mode==Hunting AND imposter AND newBodySeen
+reflex.nim:124     → tick - lastBodyFleeTick > 96? (cooldown)
+reflex.nim:128-145 → Fire flee: 240-tick duration, away from body
+reflex.nim:179     → prevBodyCount = visibleBodies.len
+```
+
+### Fix plan
+
+Add `knownBodyPositions: seq[Point]` to `ReflexState`:
+1. Before firing body-flee, check if ALL newly-visible bodies are
+   within 30px (manhattan) of a position in the known set. If so,
+   suppress the reflex.
+2. On every flee trigger, add the body world-position to the set.
+3. Also add body position on post-kill flee (from the post-kill
+   pursuit fix below).
+4. Clear the set on meeting end / round start.
+
+This handles: own kills, re-encounter after walking away, and bodies
+seen by other players that the bot walks past repeatedly.
+
+### Key code paths
+
+- Edge trigger: `reflex.nim:89`
+- Body-flee reflex: `reflex.nim:119-145`
+- prevBodyCount update: `reflex.nim:179`
+- visibleBodies source: `belief.nim:155` ← `perception/actors.nim`
+- Cooldown constant: `tuning.nim:20` (ReflexCooldownTicks = 96)
+- Flee duration: `reflex.nim:136` (240 ticks, hardcoded)
+
+---
+
+## BUG: Post-kill pursuit — bot chases new targets after kill (2026-05-05, HIGH)
+
+After a kill lands, the bot continues `DisciplineKillStrike` for 60+
+ticks — first toward the corpse during the failed confirmation window,
+then toward a new crewmate when it falls through to target search.
+The bot should immediately disengage and enter cover/flee behavior.
+
+### Evidence (2 runs, seed 100)
+
+- Run 1, kill at t=251: DisciplineKillStrike continues until t=310
+  (59 ticks post-kill). Steer target shifts from corpse (587,103) to
+  a new crewmate (623,103→713,106) at t=264 when confirm expires.
+- Run 1, kill at t=1719: Localization drops at t=1720, bot becomes
+  inert (separate bug). No post-kill transition possible.
+- Run 2, kill at t=427: Body-flee reflex fires at t=429 (2 ticks
+  later), which accidentally provides the correct behavior via the
+  wrong mechanism.
+
+### Root cause
+
+Kill confirmation (`hunting.nim:152-178`) requires BOTH:
+- `gotBody`: `visibleBodies.len > preStrikeBodyCount` AND body
+  within `HuntKillConfirmRadius` (30px) of strike position
+- `cooldownReset`: `killReady` was true pre-strike AND is now false
+
+Both signals fail within the 12-frame window:
+
+1. **Body detection failure**: The body spawns at the kill location,
+   ≤20px from the player sprite. The player-centre ignore mask
+   (stamped into `percept.ignoreMask` for the localizer) may occlude
+   the body sprite. The kill animation renders overlapping pixels
+   that confuse the actor scanner.
+
+2. **killReady lag**: The server sets cooldown on the same tick as
+   the kill, and renders the shadowed kill button on the NEXT frame.
+   But the bot's perception pipeline may take 2-3 frames to detect
+   the shadowed→unlit transition (sprite matching threshold).
+
+3. **Window too short**: `HuntKillConfirmTicks = 12` (0.5s). If both
+   signals don't arrive simultaneously within those 12 frames,
+   confirmation fails.
+
+When the window expires (line 177-178):
+- `huntStrikeTick` resets to -1
+- Code falls through to the target-search section (line 183+)
+- `killReady` may still read as true (perception lag)
+- A new visible crewmate satisfies the opportunistic-kill check
+- Bot immediately enters a new DisciplineKillStrike pursuit
+- This continues until something else interrupts (body-flee reflex,
+  localization drop, or the kill button genuinely goes dark)
+
+### Compound interaction with self-body flee
+
+The two bugs form a chain:
+```
+Kill → 12-tick failed confirm → re-pursuit (this bug)
+  → body enters view → flee 240 ticks (self-body flee bug)
+  → return → body re-enters → flee 240 ticks again
+```
+
+### Fix plan
+
+After `huntStrikeTick` is set (a kill was ATTEMPTED), ALWAYS
+transition to flee/cover after the confirm window, regardless of
+confirmation outcome:
+
+1. Add `huntPostKillFlee: bool` flag to `ModeScratch`.
+2. When confirm window expires (line 177) OR confirmation succeeds
+   (line 161), set `huntPostKillFlee = true`.
+3. In `bot.nim`, after `decide()` returns, check this flag. If set,
+   force a mode switch to fleeing with short duration (72 ticks = 3s)
+   and `fleeAwayFrom` = strike target position.
+4. Add the strike position to `knownBodyPositions` (from Bug 1 fix)
+   so the body-flee reflex won't re-trigger on return.
+
+Alternative (simpler): Instead of a flag read by bot.nim, have
+`hunting.decide()` return a special `ActionIntent` with a sentinel
+discipline (e.g., `DisciplinePostKillFlee`) that `bot.nim` intercepts
+to force the mode switch. This keeps the transition logic in one place.
+
+### Key code paths
+
+- Confirm window: `hunting.nim:152-178`
+- Strike tick set: `hunting.nim:198-203, 222-227`
+- Window expiry fallthrough: `hunting.nim:177-178` → `183+`
+- Opportunistic-kill re-entry: `hunting.nim:211-233`
+- Action layer kill press: `action.nim:324-332`
+- Kill confirm constants: `tuning.nim:57-58`
+- Kill event logging: `bot.nim:588-604`
+
+---
+
 ## BUG: Localization drops on kill animation (2026-05-04, MEDIUM)
 
 After the imposter's kill A-press lands (server accepts the kill),
