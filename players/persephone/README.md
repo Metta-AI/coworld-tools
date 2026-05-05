@@ -207,3 +207,19 @@ frame-parsing pipeline (minimap, phase detection, position estimation,
 chatroom status). Serves as the reference baseline for comparison.
 
 **Results**: *No test results yet.*
+
+### [orpheus](agents/orpheus/)
+
+**Description**: LLM-driven dual-loop agent. A fast loop (24 FPS)
+handles perceive -> update belief -> act, where the action depends on
+the currently active "task." A separate, slower background loop queries
+an LLM with the belief state to set which task the fast loop executes.
+Tasks are coarse-grained multi-frame behaviors (explore, pursue player,
+open chatroom, execute menu sequences, etc.) so the LLM reasons at
+the strategic level while the fast loop handles frame-level execution.
+The `chat_and_observe` task blocks the fast loop to synchronously
+generate chat via LLM. Includes a full JSONL tracing system for
+post-mortem debugging. LLM provider is configurable (Anthropic, OpenAI,
+Bedrock, or a deterministic stub for testing).
+
+**Results**: *No test results yet.*

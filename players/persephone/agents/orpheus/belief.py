@@ -110,6 +110,21 @@ class BeliefState:
     # Thread safety
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
+    # --- Tracing (not part of belief, used for edge detection) ---
+    _tracer: object | None = field(default=None, repr=False, init=False)
+    _prev_phase: GamePhase = field(default=GamePhase.UNKNOWN, repr=False, init=False)
+    _prev_view: View = field(default=View.UNKNOWN, repr=False, init=False)
+    _view_stable_count: int = field(default=0, repr=False, init=False)
+    _prev_in_chatroom: bool = field(default=False, repr=False, init=False)
+    _chatroom_entered_tick: int = field(default=0, repr=False, init=False)
+    _prev_pending_role_offer: bool = field(default=False, repr=False, init=False)
+    _prev_pending_color_offer: bool = field(default=False, repr=False, init=False)
+    _identity_emitted: bool = field(default=False, repr=False, init=False)
+
+    def set_tracer(self, tracer: object | None) -> None:
+        """Attach a TraceWriter after construction."""
+        self._tracer = tracer
+
     def update(self, perception: FramePerception) -> None:
         """Integrate a new frame's perception into the belief state.
 
@@ -128,11 +143,14 @@ class BeliefState:
         # Phase tracking
         self._update_phase(p)
 
+        # Edge-triggered trace events
+        self._emit_trace_events(p)
+
         # View-specific updates
         if p.view == View.ROLE_REVEAL and p.role_reveal:
             self._update_from_role_reveal(p)
 
-        elif p.view in (View.PLAYING, View.HOSTAGE_SELECT, View.LEADER_SUMMIT, View.WAITING_ENTRY):
+        elif p.view in (View.PLAYING, View.HOSTAGE_SELECT, View.WAITING_ENTRY):
             self._update_from_overworld(p)
 
         elif p.view == View.WHISPER and p.chatroom:
@@ -161,12 +179,64 @@ class BeliefState:
             View.GLOBAL_CHAT: GamePhase.PLAYING,
             View.INFO_SCREEN: GamePhase.PLAYING,
             View.HOSTAGE_SELECT: GamePhase.HOSTAGE_SELECT,
-            View.LEADER_SUMMIT: GamePhase.HOSTAGE_SELECT,
             View.HOSTAGE_EXCHANGE: GamePhase.HOSTAGE_EXCHANGE,
             View.REVEAL: GamePhase.GAME_OVER,
             View.GAME_OVER: GamePhase.GAME_OVER,
         }
         self.phase = view_to_phase.get(p.view, GamePhase.UNKNOWN)
+
+    def _emit_trace_events(self, p: FramePerception) -> None:
+        """Emit edge-triggered trace events on state transitions.
+
+        Only emits when something *changes*, not every frame. Cheap
+        no-op when tracer is None.
+        """
+        if not self._tracer:
+            return
+
+        tick = self.tick_count
+
+        # Phase change
+        if self.phase != self._prev_phase:
+            self._tracer.event("phase_change", {
+                "from": self._prev_phase.value,
+                "to": self.phase.value,
+            }, tick=tick)
+            self._prev_phase = self.phase
+
+        # View change (debounced: only emit after 3 consecutive frames)
+        if p.view != self._prev_view:
+            self._view_stable_count = 1
+            self._prev_view = p.view
+        else:
+            self._view_stable_count += 1
+            if self._view_stable_count == 3:
+                # Stable for 3 frames -- emit if different from last emitted
+                self._tracer.event("view_change", {
+                    "from": self._prev_view.value if self._view_stable_count == 3 else "unknown",
+                    "to": p.view.value,
+                }, tick=tick)
+
+        # Chatroom entered/exited
+        if self.in_chatroom and not self._prev_in_chatroom:
+            self._chatroom_entered_tick = tick
+            self._tracer.event("chatroom_entered", {
+                "occupants": list(self.chatroom_occupants),
+            }, tick=tick)
+        elif not self.in_chatroom and self._prev_in_chatroom:
+            self._tracer.event("chatroom_exited", {
+                "occupants": list(self.chatroom_occupants),
+                "duration_ticks": tick - self._chatroom_entered_tick,
+            }, tick=tick)
+        self._prev_in_chatroom = self.in_chatroom
+
+        # Offer received
+        if self.pending_role_offer and not self._prev_pending_role_offer:
+            self._tracer.event("offer_received", {"offer_type": "role"}, tick=tick)
+        if self.pending_color_offer and not self._prev_pending_color_offer:
+            self._tracer.event("offer_received", {"offer_type": "color"}, tick=tick)
+        self._prev_pending_role_offer = self.pending_role_offer
+        self._prev_pending_color_offer = self.pending_color_offer
 
     def _update_from_role_reveal(self, p: FramePerception) -> None:
         """Extract identity info from role reveal screen."""
@@ -182,6 +252,17 @@ class BeliefState:
                 self.my_room = Room.MORTAL_REALM
         if rr.room_size:
             self.room_size = rr.room_size
+
+        # Trace identity (emit once)
+        if self._tracer and not self._identity_emitted and self.my_role:
+            self._identity_emitted = True
+            self._tracer.event("identity", {
+                "role": self.my_role,
+                "team": self.my_team,
+                "room": self.my_room.value if self.my_room else None,
+                "color": self.my_color,
+                "room_size": self.room_size,
+            }, tick=self.tick_count)
 
     def _update_from_overworld(self, p: FramePerception) -> None:
         """Update spatial and temporal info from overworld views."""
@@ -213,11 +294,16 @@ class BeliefState:
         for dot in ow.minimap_dots:
             if dot.is_self:
                 continue
+            is_new = dot.color not in self.players
             player = self.players.setdefault(
                 dot.color, PlayerKnowledge(color=dot.color)
             )
             player.last_seen_tick = self.tick_count
             player.in_my_room = True
+            if is_new and self._tracer:
+                self._tracer.event("player_discovered", {
+                    "color": dot.color,
+                }, tick=self.tick_count)
 
         # Shout
         if ow.last_shout:
@@ -257,12 +343,21 @@ class BeliefState:
         info = p.info_screen
         for kp in info.known_players:
             player = self.players.setdefault(kp.color, PlayerKnowledge(color=kp.color))
+            prev_role = player.role
             if kp.role_name:
                 player.role = kp.role_name
             if kp.team_color is not None:
                 player.team = "shades" if kp.team_color == 3 else "nymphs"
             if kp.is_self:
                 self.my_color = kp.color
+            # Trace when we learn a player's role for the first time
+            if self._tracer and kp.role_name and prev_role is None:
+                self._tracer.event("player_role_known", {
+                    "color": kp.color,
+                    "role": kp.role_name,
+                    "team": player.team,
+                    "source": "info_screen",
+                }, tick=self.tick_count)
 
     def _update_from_exchange(self, p: FramePerception) -> None:
         """Update from hostage exchange screen."""
@@ -279,7 +374,17 @@ class BeliefState:
     def _update_from_result(self, p: FramePerception) -> None:
         """Record game result."""
         if p.result and p.result.winner:
-            self.game_winner = p.result.winner
+            if self.game_winner is None:  # Only emit once
+                self.game_winner = p.result.winner
+                if self._tracer:
+                    self._tracer.event("game_over", {
+                        "winner": p.result.winner,
+                        "our_team": self.my_team,
+                        "won": (
+                            p.result.winner.lower() == self.my_team
+                            if self.my_team else None
+                        ),
+                    }, tick=self.tick_count)
 
     def snapshot(self) -> BeliefSnapshot:
         """Create a read-only snapshot for the LLM loop.
