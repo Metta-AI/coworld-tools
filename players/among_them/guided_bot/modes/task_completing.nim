@@ -68,11 +68,10 @@ proc taskStationWorldCenter(ts: TaskStation): (int, int) =
   (ts.passableCX, ts.passableCY)
 
 proc isInsideTaskRect(selfX, selfY: int, ts: TaskStation): bool =
-  ## True when the player's world position is inside the station rect
-  ## (with a small margin for pixel-level imprecision).
-  const margin = 4
-  selfX >= ts.x - margin and selfX < ts.x + ts.w + margin and
-  selfY >= ts.y - margin and selfY < ts.y + ts.h + margin
+  ## True when the player's world position is inside the station rect.
+  ## Must match the server's exact check (sim.nim:2184-2185): no margin.
+  selfX >= ts.x and selfX < ts.x + ts.w and
+  selfY >= ts.y and selfY < ts.y + ts.h
 
 # ---------------------------------------------------------------------------
 # Target selection (3-tier, per TASK_COMPLETING_DESIGN.md §6)
@@ -188,17 +187,17 @@ proc decide*(belief: Belief, params: ModeParams,
       scratch.tcLockedTaskIndex = -1
       scratch.tcPhase = TpNavigate
 
-  # If in Navigate with no target, run selection.
-  if targetIdx < 0:
+  # Commit hysteresis: keep current target for at least TaskCommitTicks
+  # after locking. Prevents target oscillation from small position changes.
+  if targetIdx >= 0 and
+     belief.tick - scratch.tcLockTick < TaskCommitTicks:
+    discard  # Hold current target; skip re-selection.
+  elif targetIdx < 0:
     scratch.tcPhase = TpNavigate
     targetIdx = selectTarget(belief, scratch)
     if targetIdx >= 0:
       scratch.tcLockedTaskIndex = targetIdx
       scratch.tcLockTick = belief.tick
-
-  # Hysteresis: if we have a target and the commit window hasn't
-  # expired, keep it even if a better one appeared. If committed
-  # long enough, allow re-evaluation on next Navigate entry.
 
   # No target at all — idle.
   if targetIdx < 0:

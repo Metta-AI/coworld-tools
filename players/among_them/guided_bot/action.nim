@@ -28,11 +28,12 @@ import perception/geometry
 # ---------------------------------------------------------------------------
 
 const
-  PathLookahead = 4      ## Steps ahead in the A* path to aim at. Kept small
-                         ## so the waypoint stays tightly on the A* corridor
-                         ## through turns. Larger values (18+) overshoot
-                         ## corners and cause oscillation.
-  StuckThreshold = 8     ## Frames of zero velocity before jiggle fires.
+  PathLookahead = 12     ## Steps ahead in the A* path to aim at. 12px ≈
+                         ## one corridor width; smooths direction changes at
+                         ## corners without cutting too wide.
+  StuckThreshold = 16    ## Frames of zero velocity before jiggle fires.
+                         ## 16 frames = 667ms — avoids false positives from
+                         ## sub-pixel movement and localizer integer rounding.
   JiggleDuration = 6     ## Ticks of perpendicular movement during jiggle.
   KillStrikeRange = 20   ## World-pixel distance for kill-strike ButtonA.
                          ## Matches the server's KillRange (sim.nim).
@@ -41,8 +42,8 @@ const
                          ## up. The 952x534 map has ~508K cells; capping at
                          ## 30K keeps worst-case latency <10 ms while still
                          ## finding any reasonable cross-map path.
-  ReplanIntervalTicks = 24  ## Recompute A* path every N ticks to recover
-                            ## from position-noise drift (~1s at 24Hz).
+  ReplanIntervalTicks = 72  ## Recompute A* path every N ticks to recover
+                            ## from position-noise drift (~3s at 24Hz).
   StallProgressTicks = 48   ## If distance-to-goal hasn't decreased in N
                             ## ticks, force path recompute (~2s at 24Hz).
 
@@ -238,7 +239,9 @@ proc initActionState*(): ActionState =
     taskHoldTicks: 0,
     lastReplanTick: 0,
     bestGoalDist: high(int),
-    bestGoalDistTick: 0
+    bestGoalDistTick: 0,
+    velHistory: default(array[4, tuple[x: int, y: int]]),
+    velHistoryIdx: 0
   )
 
 proc initActionIntent*(): ActionIntent =
@@ -397,15 +400,20 @@ proc applyIntent*(
   state.lastVelocityX = velX
   state.lastVelocityY = velY
 
-  # Stuck detection: if we intended to move but didn't. Two cases:
-  #   1. Had a path + emitted direction buttons but velocity was zero
-  #      (physically stuck against a wall).
-  #   2. Had a valid steer target but A* returned an empty path AND
-  #      the greedy fallback emitted direction buttons but velocity
-  #      was still zero. The greedy fallback (below) ensures
-  #      lastEmittedMask has direction bits even without a path, so
-  #      case 1's condition now covers both scenarios.
-  if velX == 0 and velY == 0 and
+  # Record in the 4-frame velocity history for smoothed stuck detection.
+  state.velHistory[state.velHistoryIdx] = (x: velX, y: velY)
+  state.velHistoryIdx = (state.velHistoryIdx + 1) mod 4
+
+  # Stuck detection: require ALL 4 history samples to be zero velocity.
+  # This eliminates false positives from single-frame integer rounding
+  # during slow diagonal movement.
+  var allZero = true
+  for i in 0 ..< 4:
+    if state.velHistory[i].x != 0 or state.velHistory[i].y != 0:
+      allZero = false
+      break
+
+  if allZero and
      state.lastEmittedMask != 0 and
      (state.lastEmittedMask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0:
     inc state.stuckFrames
@@ -436,8 +444,10 @@ proc applyIntent*(
 
   # Follow path: pick a lookahead waypoint and steer toward it.
   if state.currentPath.len > 0:
-    # Trim path: drop steps we've already passed.
-    while state.currentPath.len > 1:
+    # Trim path: drop steps we've already passed. Keep at least 2 points
+    # so the final goal waypoint is never trimmed away (prevents the bot
+    # from stopping 2-4px short of its destination).
+    while state.currentPath.len > 2:
       let first = state.currentPath[0]
       let distToFirst = heuristic(selfX, selfY, first.x, first.y)
       if distToFirst <= 2:

@@ -17,7 +17,7 @@ const
   DirectiveExpiringSoonTicks* = 60   ## Wake the guidance loop this many ticks before TTL.
 
   # --- Reflex anti-thrash ---------------------------------------------
-  ReflexCooldownTicks*        = 48   ## Per-reflex minimum gap between firings (~2s).
+  ReflexCooldownTicks*        = 96   ## Per-reflex minimum gap between firings (~4s).
 
   # --- Meeting mode ----------------------------------------------------
   MeetingFallbackTicksLeft*   = 100  ## If no vote confirmed with <N ticks left, force skip.

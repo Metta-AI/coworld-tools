@@ -264,6 +264,135 @@ PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
 
 ---
 
+## BUG: Navigation quality — jitter, orbiting, missed tasks, random redirects (2026-05-04, HIGH)
+
+Observed in live play: walking is jittery and prone to orbiting,
+agents miss task interaction points, trajectory changes frequently
+for no visible reason, and agents sometimes move to seemingly random
+nearby points.
+
+See `NAVIGATION_FIX.md` for full root cause analysis and fix plan.
+
+### Sub-issues
+
+- **1a. Jittery walking / orbiting / random stops-starts.**
+  Root causes: PathLookahead=4 too small, ReplanIntervalTicks=24 too
+  aggressive, StuckThreshold=8 too sensitive, no velocity smoothing.
+- **1b. Missing task interaction points.** — FIXED
+  Root cause: `isInsideTaskRect` used a margin that triggered the
+  Hold phase while the bot was still outside the server's exact task
+  rect. Fix: use the server's exact rect (no margin) and keep the
+  final path waypoint so the bot navigates all the way in.
+- **1c. Random movement to nearby points.**
+  Root cause: TaskCommitTicks hysteresis is documented but never
+  enforced in task_completing.nim.
+- **1d. Frequent trajectory changes without reason.**
+  Root cause: combination of 24-tick replans, missing commit lock,
+  and reflex interrupts with 48-tick cooldown.
+
+### Key code paths
+
+- A* + path following + stuck/jiggle: `action.nim:30-465`
+- Task target selection + commit: `task_completing.nim:81-201`
+- Reflex cooldowns: `reflex.nim`, `tuning.nim:20`
+- Tuning constants: `tuning.nim`, `action.nim:30-47`
+
+---
+
+## BUG: Ghost crewmates idle in cafeteria instead of completing tasks (2026-05-04, MEDIUM)
+
+Ghost crewmates sit motionless in the cafeteria after death. They
+should continue completing objectives (ghosts can go through walls).
+
+### Root cause (hypothesis)
+
+The code correctly assigns ghosts `ModeTaskCompleting` (both as
+default in `mode_registry.nim:102` and as a hard override in
+`bot.nim:231-232`). Ghost navigation uses straight-line paths
+(`action.nim:381-382`). The ghost task mode is legal
+(`task_completing.nim:33`).
+
+The probable cause: localization is lost on death/respawn. During the
+death interstitial, `localizer.reseedCameraAtHome` resets camera
+position. After respawn as a ghost, the localizer may fail to
+re-acquire because:
+- Ghost sprites are semi-transparent / visually different
+- The death-respawn teleports the camera to cafeteria, invalidating
+  the previous lock
+- The ghost's screen appearance may not match the reference map tiles
+
+Without `belief.percep.localized == true`, `task_completing.decide()`
+returns `noOpIntent()` on line 173 and the ghost never moves.
+
+### Possible fixes
+
+1. **Skip localization requirement for ghosts.** Since ghosts use
+   straight-line paths (no walk mask), they only need the task station
+   world coordinates (static data) and some notion of their current
+   position. If ghosts always respawn at a known location (cafeteria
+   centre), seed their position from that and update via velocity.
+2. **Force re-localize on ghost transition.** Detect the
+   `isGhost` transition and run an aggressive localization pass
+   (lower error threshold, wider search window).
+3. **Use DisciplineWander for ghosts until localized.** Instead of
+   noOpIntent, wander randomly until the localizer locks.
+
+### Key code paths
+
+- Ghost override: `bot.nim:231-232`
+- Ghost straight-line path: `action.nim:381-382`
+- Task decide early-return: `task_completing.nim:173`
+- Localizer reseed: `perception/localize.nim` (reseedCameraAtHome)
+- Ghost detection: `belief.nim` (isGhost, alive fields)
+
+---
+
+## FEATURE: Meeting chat emission not implemented (2026-05-04, MEDIUM)
+
+Agents don't chat during meetings. The LLM can generate
+`MeetingActSpeak` with text, and the infrastructure queues it through
+to the meeting mode, but actual emission to the game server is
+explicitly stubbed.
+
+### Current state
+
+- `meeting.nim:185-193`: MeetingActSpeak sets `intent.chat` but notes
+  "Chat emission is a stub (deferred). Put text on intent anyway so
+  it's ready when the FFI pipeline is wired."
+- `action.nim:471-476`: `emitChat` is a hard no-op (`discard; false`).
+- FFI layer (`ffi/lib.nim`): only returns button-mask action indices.
+  No mechanism to emit text to the server.
+- The game server accepts chat via a separate WebSocket text message
+  (not button presses). The current architecture only sends button
+  masks through the FFI boundary.
+
+### What's needed
+
+1. **New FFI export** — e.g., `guidedbot_get_chat(handle, agentId)`
+   that returns pending chat text (or empty string).
+2. **Python wrapper** — after `step_batch`, poll each agent for
+   pending chat and send it via `ws.send(json.dumps({"type":"chat",
+   "text": ...}))`.
+3. **Rate limiting** — `MeetingChatLineGapTicks = 12` is already
+   defined in `tuning.nim` but unused.
+
+### Without ANTHROPIC_API_KEY
+
+When no API key is set, the guidance worker never starts. No meeting
+actions are generated. The bot falls back to auto-vote-skip after
+`MeetingAutoVoteDelayTicks = 360` (15 seconds). No chat occurs
+regardless of whether emission is wired.
+
+### Key code paths
+
+- Chat stub: `meeting.nim:185-193`
+- emitChat no-op: `action.nim:471-476`
+- FFI boundary: `ffi/lib.nim:114-154`
+- Python wrapper: `cogames/amongthem_policy.py:172-191`
+- Rate limit constant: `tuning.nim:24`
+
+---
+
 ## BUG: Trace manifest never finalized (2026-05-04, LOW) — FIXED
 
 All trace `manifest.json` files show `"closed": false`. The

@@ -433,6 +433,9 @@ type
     lastReplanTick*: int          ## Tick of last A* path computation.
     bestGoalDist*: int            ## Best Manhattan distance to goal seen.
     bestGoalDistTick*: int        ## Tick when bestGoalDist was set.
+    ## Velocity smoothing: 4-frame history for stuck detection.
+    velHistory*: array[4, tuple[x: int, y: int]]
+    velHistoryIdx*: int
 
 # ---------------------------------------------------------------------------
 # Mode scratch state
