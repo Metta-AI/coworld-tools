@@ -176,10 +176,13 @@ The belief state is the agent's working model of the world. It is:
    icons, radar dots, interstitial state, voting parse when
    applicable. Everything modulabot's perception layer already
    produces.
-3. **Memory.** Per-player summary (last seen tick/place, times near
-   bodies, times witnessing kills, alibi evidence, vote history,
-   ejected flag); per-body event; per-meeting event; sightings log.
-   Pattern from `modulabot/memory.nim`.
+3. **Memory.** Per-player summary (role [unknown / crewmate /
+   imposter], alive flag, last seen tick/place, times near bodies,
+   times witnessing kills, alibi evidence, vote history, ejected
+   flag); per-body event; per-meeting event; sightings log. Role and
+   alive fields are populated during gameplay; imposter roles are
+   detected from the role-reveal interstitial via palette-colour
+   scanning. Pattern from `modulabot/memory.nim`.
 4. **Tasks.** Per-task-station state: `not_doing` / `checkout`
    (radar-dot confirmed) / `confirmed` (icon visible) / `completed`
    (hold confirmed, icon disappeared). Plus `checkout` latch,
@@ -908,7 +911,9 @@ the belief state. Structure, not prose. Initial shape:
   },
   "memory": {
     "per_player": {
-      "<color>": { "last_seen_tick": int,
+      "<color>": { "role": "unknown" | "crewmate" | "imposter",
+                   "alive": bool,
+                   "last_seen_tick": int,
                    "last_seen_room": str | null,
                    "times_near_body": int,
                    "times_witnessed_kill": int,

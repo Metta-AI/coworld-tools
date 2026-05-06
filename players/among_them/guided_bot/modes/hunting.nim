@@ -144,7 +144,14 @@ proc decide*(belief: Belief, params: ModeParams,
   if not localized:
     return noOpIntent()
 
-  let witnessCount = belief.percep.visibleCrewmates.len
+  # Filter visible crewmates to exclude known fellow imposters.
+  # witnessCount only counts actual crewmates (potential witnesses/targets).
+  let knownImps = belief.self.knownImposterColors
+  var crewmatesOnly: seq[CrewmateMatch]
+  for cm in belief.percep.visibleCrewmates:
+    if cm.colorIndex notin knownImps:
+      crewmatesOnly.add cm
+  let witnessCount = crewmatesOnly.len
 
   # =======================================================================
   # Kill confirmation check (runs only after A was pressed — strike sent)
@@ -183,7 +190,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # Check preferred target first.
   if params.huntPreferredTarget >= 0 and killReady:
-    for cm in belief.percep.visibleCrewmates:
+    for cm in crewmatesOnly:
       if cm.colorIndex == params.huntPreferredTarget:
         let otherWitnesses = witnessCount - 1
         if otherWitnesses <= params.huntMaxWitnesses:
@@ -210,7 +217,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # Opportunistic: if any lone crewmate and kill is ready.
   if params.huntOpportunistic and killReady and witnessCount == 1:
-    let cm = belief.percep.visibleCrewmates[0]
+    let cm = crewmatesOnly[0]
     let targetWX = visibleCrewmateWorldX(belief.percep.cameraX, cm.x)
     let targetWY = visibleCrewmateWorldY(belief.percep.cameraY, cm.y)
     scratch.huntTargetColor = cm.colorIndex

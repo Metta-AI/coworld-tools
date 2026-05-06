@@ -353,6 +353,8 @@ type
     votingPlayerCount*: int  ## Number of players in the grid.
 
   PlayerSummary* = object
+    role*: BotRole             ## RoleUnknown until evidence (role reveal, deduction).
+    alive*: bool               ## Assumed true; set false on body sighting or ejection.
     lastSeenTick*: int
     lastSeenX*, lastSeenY*: int
     timesNearBody*: int

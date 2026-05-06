@@ -94,10 +94,25 @@ when loitering at a cover station.
 
 ## 4. Target acquisition
 
+### 4.0 Imposter-aware filtering
+
+Before any target selection, the mode filters `visibleCrewmates` to
+exclude known fellow imposters (`belief.self.knownImposterColors`).
+This filtered list (`crewmatesOnly`) is used for both witness counting
+and target selection. Known imposter colors are detected from the
+role-reveal interstitial during the pre-game phase (see `bot.nim`
+role-reveal scan).
+
+Consequences:
+- Fellow imposters are never targeted.
+- Fellow imposters don't count as witnesses (seeing your partner
+  near the target doesn't prevent a kill).
+- `witnessCount` reflects only actual crewmates visible.
+
 ### 4.1 Preferred target path
 
 When `huntPreferredTarget >= 0` and `killReady` is true, the mode
-scans `belief.percep.visibleCrewmates` for a matching `colorIndex`. If
+scans the filtered crewmate list for a matching `colorIndex`. If
 found:
 
 - Witness check: `witnessCount - 1 <= huntMaxWitnesses` (subtracts the

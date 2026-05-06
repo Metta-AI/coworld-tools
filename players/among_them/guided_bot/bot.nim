@@ -48,6 +48,9 @@ type
     actorScanner*: ActorScanner ## Phase 1.3 — actor-scan reusable buffers.
     lastMask*: uint8
     unpacked*: seq[uint8]
+    ## Role-reveal scan stability tracking.
+    prevRevealColors*: seq[int]  ## Previous frame's scan result.
+    revealStableFrames*: int     ## Consecutive frames with same result.
     ## Phase 3 — LLM guidance tracking.
     guidanceStarted*: bool     ## Whether the worker thread is running.
     prevPhaseForGuidance*: GamePhase ## For detecting meeting end transitions.
@@ -74,6 +77,8 @@ proc initBot*(): Bot =
   result.actorScanner = initActorScanner()
   result.lastMask = 0'u8
   result.unpacked = newSeq[uint8](FrameLen)
+  result.prevRevealColors = @[]
+  result.revealStableFrames = 0
   result.guidanceStarted = false
   result.prevPhaseForGuidance = PhaseUnknown
   result.prevBodyCount = 0
@@ -389,11 +394,15 @@ proc decideNextMask*(bot: var Bot): uint8 =
       # classifyInterstitial is a full-frame OCR sweep (~22 ms).
       # Cache the result across consecutive interstitial frames.
       # The banner text doesn't change within a single
-      # interstitial run, so one sweep is enough.
+      # interstitial run, so one sweep is enough. Only cache when
+      # we find a known banner — early all-black frames return
+      # InterstitialUnknown and we need to retry on later frames
+      # when the role reveal content actually appears.
       if not bot.interstitialClassified:
         let kind = classifyInterstitial(bot.unpacked)
         bot.cachedInterstitialKind = kind
-        bot.interstitialClassified = true
+        if kind != InterstitialUnknown:
+          bot.interstitialClassified = true
       if bot.cachedInterstitialKind != InterstitialUnknown:
         bot.belief.percep.interstitialKind = bot.cachedInterstitialKind
       # Role inference from role-reveal interstitial text. Mirrors
@@ -409,6 +418,51 @@ proc decideNextMask*(bot: var Bot): uint8 =
         of InterstitialRoleRevealCrewmate:
           bot.belief.self.role = RoleCrewmate
         else: discard
+      # Scan for imposter colors on every interstitial frame. The role
+      # reveal screen has black bg + text (Y≈15-21) + colored sprites.
+      # Any PlayerColor palette value present identifies an imposter.
+      # The imposter reveal shows ONLY imposters; the crewmate reveal
+      # shows ALL players. Guard: only scan when title text is present
+      # (non-black pixels at Y=15-21) to avoid firing during lobby.
+      if bot.belief.self.knownImposterColors.len == 0:
+        # Check for title text presence (Y=15-21 should have non-black).
+        var textPixels = 0
+        for y in 15 .. 21:
+          for x in 40 ..< 90:
+            if bot.unpacked[y * ScreenWidth + x] != 0:
+              inc textPixels
+        if textPixels >= 10:
+          let colors = scanRoleRevealImposters(
+            bot.actorScanner, referenceData.sprites, bot.unpacked)
+          if colors.len >= 1 and colors.len < PlayerColorCount:
+            # Stability: require same result for 3 consecutive frames.
+            if colors == bot.prevRevealColors:
+              inc bot.revealStableFrames
+            else:
+              bot.revealStableFrames = 1
+              bot.prevRevealColors = colors
+            if bot.revealStableFrames >= 24:
+              # Confirmed imposter reveal screen.
+              if bot.belief.self.role == RoleUnknown:
+                bot.belief.self.role = RoleImposter
+              for ci in colors:
+                if ci != bot.belief.self.colorIndex:
+                  if ci notin bot.belief.self.knownImposterColors:
+                    bot.belief.self.knownImposterColors.add ci
+                  if ci >= 0 and ci < PlayerColorCount:
+                    bot.belief.memory.perPlayer[ci].role = RoleImposter
+              if bot.belief.self.knownImposterColors.len > 0 or colors.len == 1:
+                var payload = newJObject()
+                payload["partner_colors"] = %bot.belief.self.knownImposterColors
+                payload["self_color"] = newJInt(bot.belief.self.colorIndex)
+                payload["all_detected"] = %colors
+                logGameEvent(bot.trace, "imposters_detected", bot.frameTick, $payload)
+          elif colors.len == PlayerColorCount:
+            # Crewmate reveal — all players visible. Mark as done.
+            bot.belief.self.knownImposterColors = @[-1]
+          else:
+            bot.revealStableFrames = 0
+            bot.prevRevealColors = @[]
     mergeVotingPercept(bot.belief, percept.votingParse)
   else:
     # Leaving interstitial phase — reset the cache for the next run.

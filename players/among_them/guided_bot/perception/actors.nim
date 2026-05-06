@@ -565,6 +565,61 @@ proc initActorScanner*(): ActorScanner =
   ActorScanner(matchBuf: @[], colorBuf: @[])
 
 # ---------------------------------------------------------------------------
+# Role-reveal imposter detection
+# ---------------------------------------------------------------------------
+
+proc scanRoleRevealImposters*(
+    scanner: var ActorScanner,
+    sprites: Sprites,
+    frame: openArray[uint8]): seq[int] =
+  ## Detect imposter player colors from the role-reveal interstitial.
+  ##
+  ## The "IMPS" screen has: black background (palette 0), text in
+  ## TextColor (palette 2), and colored crewmate sprites. The body
+  ## tint colors identify the imposters. We count occurrences of each
+  ## PlayerColor palette value and require the count to exceed what
+  ## stable sprite pixels alone would produce (handles the palette-14
+  ## collision where the visor shares a palette index with PlayerColors[3]).
+  ##
+  ## Returns the player color indices (0..7) whose body color appears
+  ## in the frame with enough pixels to indicate an actual body tint.
+  result = @[]
+  let sprite = sprites.player
+
+  # Count stable pixels per palette value in the sprite template.
+  var stableCount: array[16, int]
+  for i in 0 ..< sprite.width * sprite.height:
+    let px = sprite.pixels[i]
+    if px != TransparentIndex and px != TintColor and px != ShadeTintColor:
+      if px <= 15:
+        inc stableCount[px]
+
+  # Count all palette index occurrences in the frame.
+  var frameCount: array[16, int]
+  for px in frame:
+    inc frameCount[px and 0x0F]
+
+  # Determine how many sprites are on screen (estimate from non-black,
+  # non-text pixel total divided by visible pixels per sprite).
+  let nonBlack = FrameLen - frameCount[0]
+  # Each sprite has ~63 non-black visible pixels (123 non-transparent
+  # minus 60 black-outline pixels). Text adds ~50 pixels.
+  let estSprites = max(1, (nonBlack - 50) div 63)
+
+  # Check which PlayerColors are present with sufficient pixel count.
+  for i in 0 ..< PlayerColorCount:
+    let pc = data.PlayerColors[i]
+    let count = frameCount[pc]
+    if count == 0:
+      continue
+    # Expected stable contribution: stableCount[pc] * number of sprites.
+    let stableContribution = stableCount[pc] * estSprites
+    # A real body tint adds ~40 TintColor pixels. Require count to
+    # exceed stable contribution by at least half a body (~20 pixels).
+    if count > stableContribution + 20:
+      result.add i
+
+# ---------------------------------------------------------------------------
 # Top-level orchestrator
 # ---------------------------------------------------------------------------
 

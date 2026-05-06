@@ -183,10 +183,12 @@ proc intentToJson(intent: ActionIntent): JsonNode =
   result["discipline"] = newJString($intent.discipline)
 
 proc writeLine(fs: FileStream, line: string) =
-  ## Write a line + newline to a file stream. No-op if stream is nil.
+  ## Write a line + newline to a file stream, flushing immediately so
+  ## data survives unclean shutdown. No-op if stream is nil.
   if fs != nil:
     fs.write(line)
     fs.write("\n")
+    fs.flush()
 
 # ---------------------------------------------------------------------------
 # Manifest

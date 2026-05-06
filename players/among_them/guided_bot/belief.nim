@@ -72,7 +72,10 @@ proc initPerceptionState*(): PerceptionState =
 
 proc initMemoryState*(): MemoryState =
   result.lastMeetingEndTick = 0
-  # Default-constructs the PlayerSummary array.
+  # Initialize all players as alive with unknown role.
+  for i in 0 ..< PlayerColorCount:
+    result.perPlayer[i].alive = true
+    result.perPlayer[i].role = RoleUnknown
 
 proc initTaskState*(): TaskState =
   TaskState(slots: @[], inProgressIndex: -1, initialized: false)
@@ -146,6 +149,7 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   ##   - Self-colour → ``self.colorIndex``
   ##   - Ghost-icon frame counter → ``percep.ghostIconFrames``
   ##   - Kill-ready flag → ``percep.killReady``
+  ##   - Per-player memory updates (last seen, alive status)
   ##
   ## WakeReason flags: ``WakeBodySeen`` is set when newly-detected
   ## bodies appear (count increases compared to previous frame).
@@ -171,6 +175,26 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   # Wake-up flag for new bodies.
   if actors.bodies.len > 0:
     belief.flags.wakeReasons.incl WakeBodySeen
+
+  # --- Per-player memory maintenance ---
+  # Update last-seen positions from visible crewmates (requires localization).
+  if belief.percep.localized:
+    let camX = belief.percep.cameraX
+    let camY = belief.percep.cameraY
+    for cm in actors.crewmates:
+      let ci = cm.colorIndex
+      if ci >= 0 and ci < PlayerColorCount:
+        belief.memory.perPlayer[ci].lastSeenTick = belief.tick
+        belief.memory.perPlayer[ci].lastSeenX =
+          visibleCrewmateWorldX(camX, cm.x)
+        belief.memory.perPlayer[ci].lastSeenY =
+          visibleCrewmateWorldY(camY, cm.y)
+
+  # Mark players dead when their body is spotted.
+  for body in actors.bodies:
+    let ci = body.colorIndex
+    if ci >= 0 and ci < PlayerColorCount:
+      belief.memory.perPlayer[ci].alive = false
 
 proc mergeTaskPercept*(belief: var Belief, taskPercept: TaskPercept) =
   ## Merge phase-1.4 task/radar scan results into the long-lived belief.

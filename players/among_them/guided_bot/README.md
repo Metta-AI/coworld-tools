@@ -332,6 +332,39 @@ only ship `mettagrid` without the `bitworld` extra.
 
 ## Change log (recent)
 
+**2026-05-05 — Player roster + imposter awareness**
+
+- **`types.nim`:** `PlayerSummary` gained `role: BotRole` and
+  `alive: bool` fields. Per-player memory now tracks last-seen
+  position, death status (from body sightings), and known role.
+- **`belief.nim`:** `mergeActorPercept` now maintains the per-player
+  roster: updates `lastSeenTick/X/Y` from visible crewmates (when
+  localized) and marks players dead when their body is spotted.
+  `initMemoryState` initializes all players as alive with
+  `RoleUnknown`.
+- **`perception/actors.nim`:** New `scanRoleRevealImposters` —
+  detects imposter team colors from the role-reveal interstitial by
+  counting per-palette-index pixel occurrences and comparing against
+  expected stable-pixel contributions. Handles the palette-14
+  collision (visor shares a palette index with PlayerColors[3]) via a
+  pixel-count threshold (body tint adds ~40 px vs ~10 px from visor).
+- **`bot.nim`:** Role-reveal scan runs on every interstitial frame
+  (gated by title-text presence at Y=15-21 + 24-frame stability
+  check). On detection, populates `knownImposterColors` and marks
+  roster entries. Also fixed OCR cache to not cache
+  `InterstitialUnknown`, allowing retry on later frames.
+- **`modes/hunting.nim`:** Target selection now filters
+  `visibleCrewmates` to exclude colors in `knownImposterColors`
+  before computing witness count or selecting targets. Prevents
+  imposters from chasing their partner.
+- **`trace.nim`:** `writeLine` now flushes after every line so all
+  JSONL trace files (events, modes, reflexes, guidance) survive
+  unclean shutdown.
+- **Result:** In 8-player/2-imposter matches, both imposters
+  correctly identify their partner's color during the interstitial
+  (t≈30-61) and target only crewmates. Zero false kills on partners.
+  All crewmate agents correctly produce no detection.
+
 **2026-05-04 — A\* noop-lock fix**
 
 - **`perception/data.nim`:** `TaskStation` gained `passableCX`,
@@ -412,8 +445,9 @@ See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
 - ~~Meeting cursor~~ → position-aware shortest-path navigation, timer
   fix (600 not 1200), auto-vote delay. Structurally verified (no
   meetings occur in test matches).
-- ~~Hunting cover~~ → station patrol, target memory, kill confirmation.
-  Structurally verified; use `--force-role imposter` for live testing.
+- ~~Hunting cover~~ → station patrol, target memory, kill confirmation,
+  **imposter-aware target filtering**. Live-verified in 3-min 8-player
+  matches; imposters correctly avoid targeting partners.
 - ~~Pretending fake A-press~~ → fake-hold sub-phase during loiter +
   witness swap. See `PRETENDING_DESIGN.md`.
 - ~~Fleeing cleanup~~ → post-flee cover navigation + `snapToPassable`
@@ -432,9 +466,9 @@ The following blockers have been fixed:
 - ~~**Body-report button bug.**~~ modulabot now correctly uses A (not
   B) for body reports, matching the server's `tryReport` trigger.
 
-**Still pending:** Run a live match with `--force-role imposter` and
-tracing enabled to verify imposter hunting, body→report→meeting
-pipeline, and meeting voting end-to-end.
+**Still pending:** Run a live match with tracing to verify
+body→report→meeting pipeline and meeting voting end-to-end.
+Imposter hunting + partner avoidance is now verified.
 
 ### Remaining implementation (IMPL_PLAN.md)
 
