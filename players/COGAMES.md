@@ -6,7 +6,7 @@
 > removed seasons, renamed commands, broken flows). If `cogames --help` and
 > this file disagree, the CLI is right — fix this file.
 >
-> Last reviewed: 2026-04-30 | cogames CLI: `/Users/jamesboggs/.local/bin/cogames`
+> Last reviewed: 2026-05-06 | cogames CLI: `/Users/jamesboggs/.local/bin/cogames`
 
 ---
 
@@ -50,7 +50,7 @@ External references:
 
 ## Install / environment
 
-Python **3.12** required. Use an isolated venv.
+Python **>=3.11** required (3.11 or 3.12). Use an isolated venv.
 
 ```bash
 uv venv .venv --python 3.12
@@ -92,10 +92,10 @@ Docker is required for `--dry-run` validation (which runs your policy for
 10 steps in the real tournament image). Install Docker Desktop on macOS and
 ensure `docker info` succeeds before validating.
 
-## Games (as of 2026-04-30)
+## Games (as of 2026-05-06)
 
 > This is a living list. Confirm with `cogames season list` and
-> `cogames missions` / `cogames bitworld games` before relying on it.
+> `cogames bitworld games` before relying on it.
 
 ### Cogs vs Clips (CvC)
 
@@ -114,8 +114,8 @@ ensure `docker info` succeeds before validating.
   `beta-teams-tiny-fixed` (team tournament). Confirm.
 - **Briefing:** `~/coding/metta/packages/cogames/MISSION.md`.
 - **Missions:** many, e.g. `arena`, `training_facility_1`, `machina_1`,
-  plus variants (`talk`, etc.). Use `cogames missions` / `cogames describe
-  <mission>`.
+  plus variants (`talk`, etc.). Use `cogames play --help` for game/mission
+  options.
 
 ### Among Them (BitWorld)
 
@@ -127,7 +127,7 @@ ensure `docker info` succeeds before validating.
   (`mettagrid.runner.bitworld_runner`) drives a Nim WebSocket server and
   hands your policy a **4-frame stack of 128×128 4-bit palette-indexed
   pixel frames** — `shape=(4, 128, 128) dtype=uint8 kind=pixels`.
-  Confirmed empirically (2026-04-30) via
+  Confirmed empirically (2026-05-06) via
   `personal_cogs/among_them/scripts/play_local.py`.
 - **No structured state observation in the tournament path.** The
   `STATE_FEATURES` layout in `bitworld.pufferlib.bitworld_pufferlib` is
@@ -138,9 +138,9 @@ ensure `docker info` succeeds before validating.
   of this).
 - **Phases:** gameplay, voting interstitials, result screens. Chat only
   during voting.
-- **Season:** `among-them` is intermittently live — as of
-  2026-04-30 it's not in `cogames season list`. Check before planning
-  a submission.
+- **Season:** `among-them` is live as of 2026-05-06 — "Among Them
+  freeplay: policies compete in 8-player BitWorld matches scored by role
+  win rate." Confirm with `cogames season list` before submitting.
 - **Package:** needs `pip install 'bitworld @ git+https://github.com/Metta-AI/bitworld.git'`
   for local episode runs; pinned SHA is in the cogames `pyproject.toml`
   (see `bitworld` extra). Pre-built Nim binaries live at
@@ -151,11 +151,13 @@ ensure `docker info` succeeds before validating.
   modular rewrite; its `DESIGN.md` is the best entry point for
   architecture).
 - **Python prior art:** `~/coding/metta/cogames-agents/src/cogames_agents/policy/bitworld_among_them.py`
-  — `BitWorldAmongThemScoutPolicy` and `BitWorldAmongThemCyborgPolicy`.
-  The cyborg path does a mix of state-obs heuristics (when available)
-  and a `ctypes` wrapper around the Nim `libnottoodumb` shared library
-  (when available) — *not* a reference pixel-perception implementation
-  in Python.
+  — `BitWorldAmongThemScoutPolicy`, `BitWorldAmongThemCyborgPolicy`, plus
+  5 scripted baselines (Beacon, Circuit Sentinel, Pathfinder, Sleuth, Task
+  Marshal) added 2026-05-04. The cyborg path does a mix of state-obs
+  heuristics (when available) and a `ctypes` wrapper around the Nim
+  `libnottoodumb` shared library (when available) — *not* a reference
+  pixel-perception implementation in Python. The scripted baselines are
+  simpler, portable, pixel-only policies used as tournament opponents.
 - **Submission path:** standard `cogames ship` with a Python policy
   subclass of `MultiAgentPolicy`. The 10-step validation gate trips up
   perception bots that can't localize within 10 frames — use
@@ -178,7 +180,7 @@ New games join ALB periodically. Discover them via:
 ```bash
 cogames season list        # look for descriptions naming new games
 cogames bitworld games     # BitWorld-family games
-cogames missions           # (buggy on empty filter; pass any filter string)
+cogames play --help        # lists supported --game values
 ```
 
 ## Seasons
@@ -196,18 +198,19 @@ cogames season leaderboard <SEASON>
 cogames season pool-config <SEASON> <POOL>
 ```
 
-Current seasons (2026-04-30):
+Current seasons (2026-05-06):
 
 | Season | Game | Format |
 |---|---|---|
 | `beta-cvc` | Cogs vs Clips | Freeplay; qualify via self-play, then 20 matches vs random partners |
 | `beta-teams-tiny-fixed` | Teams | Multi-stage progressive culling; policies seeded into teams |
+| `beta-four-score` | Four Score | 4-player freeplay with rotated corner assignments |
+| `among-them` | Among Them | 8-player BitWorld matches scored by role win rate |
 
 Previously seen seasons, currently absent from `cogames season list` (may
 return; check before planning):
 
-- `among-them` — Among Them (BitWorld) social-deduction self-play.
-- `beta-four-score` — Four Score 4-player freeplay with rotated corners.
+- (none currently — all previously-missing seasons are now live)
 
 > Verify this table with `cogames season list` — it changes.
 
