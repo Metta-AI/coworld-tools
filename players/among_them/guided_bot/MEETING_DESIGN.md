@@ -1,251 +1,436 @@
-# Phase 6.3 — `meeting` Mode: Cursor Navigation + Timer Fix
+# Meeting Mode — Design Document
 
-> **Scope:** Fix two of three meeting mode problems: blind cursor
-> navigation and hardcoded timer. Chat emission is deferred (requires
-> FFI plumbing across Nim/C/Python).
+> **Canonical reference** for the `meeting` mode handler. All meeting-
+> mode design details live here; `DESIGN.md` contains only a brief
+> overview and cross-reference.
 >
-> **Parent doc:** `DESIGN.md` §7 (meeting mode).
+> **Implementation:** `modes/meeting.nim` (232 LOC)
 >
-> Last updated: 2026-05-01
+> Last updated: 2026-05-05
 
 ---
 
-## 1. What exists today
+## 1. Purpose and role
 
-### 1.1 Mode handler (`modes/meeting.nim`, 193 LOC)
+The `meeting` mode handles all bot behavior during the voting phase
+(emergency meetings and body reports). It is:
 
-- LLM-driven action queue: `speak`, `vote`, `confirm_vote`, `unvote`,
-  `wait`. Actions popped one-per-tick from `scratch.meetPendingActions`.
-- Safety-net fallback: forces cursor-right + A when
-  `estimatedTicksLeft <= MeetingFallbackTicksLeft (100)`.
-- Vote soft-lock: once `meetVoteConfirmed`, returns `noOpIntent()`.
+- **The target of the `voting_screen_appeared` reflex**
+  (`reflex.nim:65-86`). When the game phase transitions to
+  `PhaseVoting`, this reflex fires unconditionally (highest priority)
+  and switches to `meeting` regardless of the current mode.
+- **The voting-phase default directive** (`mode_registry.nim:103`).
+  If the bot is already in voting phase when a default is evaluated,
+  `meeting` is chosen.
+- **LLM-driven via an action queue.** Unlike other modes which
+  produce behavior from parameters alone, the meeting mode consumes
+  a queue of `MeetingAction` values pushed by the guidance worker.
+  The LLM controls what to say and who to vote for; the mode handles
+  cursor navigation mechanics.
 
-### 1.2 Voting parse (`perception/voting.nim`)
-
-The parser runs every interstitial frame and produces `VotingParse`
-with:
-- `valid: bool` — parse succeeded.
-- `playerCount: int` — number of players in the vote grid.
-- `cursor: int` — current cursor slot index, or `playerCount` for
-  SKIP, or `-1` if unknown.
-- `selfSlot: int` — our slot index, or `-1`.
-- `slots[16]` — per-slot alive/dead + colour.
-- `choices[16]` — per-voter vote target.
-- `chatLines` — speaker-attributed chat.
-
-Currently `mergeVotingPercept` only copies `chatLines` into belief.
-The cursor position, playerCount, selfSlot, and slot data are
-discarded.
-
-### 1.3 Problems addressed in this phase
-
-**Problem 1 — Blind cursor.** `cursorDirectionForTarget` always
-returns `CursorRight` regardless of target. The LLM's `vote`
-action specifying a target color is ignored. The cursor hammers
-right until the fallback fires, which means the bot either votes
-SKIP (if it wraps around) or votes for whoever the cursor lands on
-(arbitrary).
-
-**Problem 2 — Hardcoded timer.** `typicalMeetingDuration = 1200`
-(~50s), but the local server uses `voteTimerTicks = 600` (~25s).
-The fallback triggers at tick 1100 into the meeting — but the
-meeting only lasts 600 ticks. **The safety-net never fires.** The
-bot never votes unless the LLM explicitly issues `confirm_vote`.
-
-### 1.4 Problem deferred
-
-**Chat emission.** `MeetingActSpeak` sets `intent.chat` but
-`action.nim:emitChat` is a stub. Chat requires a Nim buffer + C FFI
-export (`guidedbot_take_chat`) + Python `bitworld_chat_messages()`
-method, following mod_talks' pattern. Deferred to a separate phase.
+The mode is **only legal** during `PhaseVoting` (`isLegalFor` in
+`modes/meeting.nim:20-21` checks `belief.self.phase == PhaseVoting`).
+Any role (crewmate, imposter, ghost) can be in meeting mode during
+voting.
 
 ---
 
-## 2. Design
+## 2. Mode parameters
 
-### 2.1 Merge voting parse into belief
-
-Add fields to `PerceptionState` (or a new `VotingState` sub-record
-on belief — but keeping it on `PerceptionState` is simpler and
-consistent with how other perception data is stored):
-
-```nim
-# On PerceptionState:
-votingCursor*: int          ## Current cursor slot, playerCount=SKIP, -1=unknown.
-votingSelfSlot*: int        ## Our slot, -1=unknown.
-votingPlayerCount*: int     ## Number of players in the grid.
-votingValid*: bool          ## True when the current frame has a valid parse.
+```
+meeting {
+  meetWantToSpeakFirst: bool   # Hint to the LLM: generate chat before voting.
+                               # Not read by decide() — purely informational for
+                               # the guidance worker's prompt construction.
+}
 ```
 
-`mergeVotingPercept` is extended to copy these fields alongside
-chatLines. They are cleared to defaults (`-1`, `0`, `false`) on
-non-voting frames (when `mergePercept` detects a phase change away
-from voting).
+Implementation in `types.nim:269-270`:
+```nim
+of ModeMeeting:
+  meetWantToSpeakFirst*: bool
+```
 
-### 2.2 Cursor-aware navigation
+**Default params** (from `modes/meeting.nim:23-25`):
+- `meetWantToSpeakFirst: false`
 
-Replace the blind `cursorDirectionForTarget` with position-aware
-navigation using `belief.percep.votingCursor`.
-
-**Slot layout:** The voting grid has `playerCount` player slots
-(indices 0..playerCount-1) plus a SKIP slot (index playerCount).
-The cursor wraps: right from SKIP goes back to slot 0, left from
-slot 0 goes to SKIP.
-
-**Navigation algorithm:**
-
-Given `currentCursor` and `targetSlot`:
-1. If `currentCursor == targetSlot`: cursor is already on target.
-   Return `CursorNone`.
-2. If `currentCursor < 0` (unknown): fall back to `CursorRight`
-   (the old behavior, as a safety net).
-3. Otherwise compute the shortest path in either direction around
-   the wrapped ring of `playerCount + 1` positions (player slots +
-   SKIP). Pick `CursorLeft` or `CursorRight` accordingly.
-
-The total ring size is `playerCount + 1`. For 8 players, that's 9
-positions — worst case 4 cursor moves in the optimal direction.
-
-**Target mapping:** The LLM's `MeetingActVote` carries
-`target: int` (color index or -1 for skip). To map this to a slot
-index:
-- If `target == -1`: target slot = `playerCount` (SKIP).
-- Otherwise: target slot = `target` (color index == slot index in
-  the Among Them grid, since slot `i` has `colorIndex == i` per the
-  strict validator in `voting.nim:364`).
-
-**Multi-tick navigation:** The cursor needs to be held for a few
-ticks per step (`CursorHoldTicks = 3`). The mode needs scratch
-state to track:
-- `meetVoteTarget: int` — the slot we're navigating to (-1 = none).
-- `meetCursorMoveTicks: int` — ticks remaining on the current
-  cursor-direction hold.
-
-Each tick during vote navigation:
-1. If `meetCursorMoveTicks > 0`: continue emitting the same
-   cursor direction. Decrement counter.
-2. If `meetCursorMoveTicks == 0` and cursor != target: compute
-   direction, set `meetCursorMoveTicks = CursorHoldTicks`, emit.
-3. If cursor == target: stop moving. The next `MeetingActConfirmVote`
-   from the LLM (or from the fallback) will press A.
-
-### 2.3 Timer fix
-
-Replace the hardcoded `typicalMeetingDuration = 1200` with a
-tuning constant `MeetingDurationEstimateTicks = 600` in
-`tuning.nim`. This matches the local server config. If the
-tournament uses a different value, the LLM should vote before the
-fallback fires anyway; the fallback is just the safety net.
-
-With `MeetingDurationEstimateTicks = 600` and
-`MeetingFallbackTicksLeft = 100`, the fallback fires at tick 500
-into the meeting — 100 ticks (~4s) before the meeting ends. This
-gives enough time for the cursor-right-to-SKIP + confirm-A
-sequence.
-
-### 2.4 Fallback improvement
-
-The existing fallback hammers `CursorRight` for 24 ticks then
-presses A. With cursor tracking, the fallback can navigate directly
-to SKIP:
-
-1. Read `belief.percep.votingCursor`.
-2. Compute the shortest path to SKIP (slot `playerCount`).
-3. Navigate there, then press A.
-
-If cursor position is unknown (parse failed), fall back to the old
-behavior (CursorRight spam).
-
-### 2.5 Fallback-only vote behavior (no LLM)
-
-When no LLM is available (defaults-only path), the meeting mode
-receives no `MeetingActVote` actions. The only vote comes from the
-safety-net fallback. With the timer fix, this now actually fires.
-
-An improvement for the no-LLM path: if no LLM action arrives
-within `MeetingAutoVoteDelayTicks = 360` (~15s), automatically
-navigate to SKIP and confirm. This ensures the bot votes even if
-the LLM is slow or disabled, without waiting for the full meeting
-timer to expire. This is more aggressive than the safety-net
-(which fires at 100 ticks remaining) but only activates in the
-absence of any LLM activity.
+The parameter is a soft hint — the mode's `decide()` ignores it.
+The guidance worker reads it when constructing the LLM prompt.
 
 ---
 
-## 3. Scratch state changes
+## 3. Decision logic overview
+
+`decide()` evaluates each tick with a priority cascade:
+
+1. **Vote confirmed** — if `meetVoteConfirmed`, emit `noOpIntent()`
+   (soft-lock: the bot is done for this meeting).
+2. **Safety-net fallback** — if estimated time remaining ≤
+   `MeetingFallbackTicksLeft` (100), navigate to SKIP and confirm.
+3. **Auto-vote delay** — if no LLM action has ever arrived and
+   `MeetingAutoVoteDelayTicks` (360) have elapsed, vote SKIP.
+4. **Process LLM action** — pop one action per tick from
+   `meetPendingActions` and execute it.
+5. **Continue cursor navigation** — if a vote target is pending and
+   not yet reached, keep moving the cursor.
+6. **Idle** — no actions pending, no fallbacks triggered.
+
+---
+
+## 4. LLM action queue
+
+The meeting mode receives instructions from the LLM via a queue of
+`MeetingAction` values. These are pushed by `bot.nim:431-435` each
+tick (pumped from the guidance channel into
+`scratch.meetPendingActions`).
+
+### 4.1 Action types
+
+```nim
+MeetingActionKind = enum
+  MeetingActNone         # No-op (ignored).
+  MeetingActSpeak        # Emit chat text.
+  MeetingActVote         # Navigate cursor to a target slot.
+  MeetingActUnvote       # Press B to deselect current vote.
+  MeetingActConfirmVote  # Press A to confirm the current selection.
+  MeetingActWait         # Explicit idle (one tick).
+
+MeetingAction = object
+  kind: MeetingActionKind
+  text: string           # MeetingActSpeak: chat message.
+  target: int            # MeetingActVote: color index, or -1 for SKIP.
+```
+
+Implementation in `types.nim:97-107, 193-196`.
+
+### 4.2 Action processing
+
+One action is popped per tick (FIFO). On pop:
+- `meetLastLlmActionTick` is updated (disables auto-vote delay).
+- The action is dispatched by kind.
+
+The one-per-tick rate means a `vote → confirm_vote` sequence takes at
+least 2 ticks plus cursor navigation time. The LLM should emit both
+together; the queue handles sequencing.
+
+### 4.3 Action behaviors
+
+| Kind | Effect |
+|---|---|
+| `MeetingActSpeak` | Sets `intent.chat = text`. Currently a stub — FFI for chat emission is not wired. The text is placed on the intent for future use. |
+| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. |
+| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. Locks the mode. |
+| `MeetingActUnvote` | Emits B press (deselects). Clears `meetVoteTarget`. |
+| `MeetingActWait` | No-op for one tick. |
+| `MeetingActNone` | No-op (defensive — shouldn't appear in practice). |
+
+---
+
+## 5. Cursor navigation
+
+The voting screen has a cursor that the player moves to select a vote
+target. The bot navigates this cursor using the voting parse's
+real-time cursor position.
+
+### 5.1 Voting ring
+
+The cursor moves through a wrapped ring of positions:
+- Slots 0..`playerCount-1`: player slots (color index == slot index).
+- Slot `playerCount`: SKIP.
+- Ring size: `playerCount + 1`.
+
+Wrapping: right from SKIP → slot 0. Left from slot 0 → SKIP.
+
+### 5.2 Shortest-path computation
+
+`shortestCursorDir` (`modes/meeting.nim:50-65`) computes the optimal
+direction:
+- Compute right-distance: `(target - current + ring) mod ring`.
+- Compute left-distance: `(current - target + ring) mod ring`.
+- Pick the shorter direction.
+
+For 8 players (ring size 9), worst case is 4 cursor moves.
+
+### 5.3 Target mapping
+
+`targetSlotForAction` (`modes/meeting.nim:67-75`):
+- `target == -1` → SKIP (slot `playerCount`).
+- `target >= 0` → color index (== slot index, per the Among Them
+  voting grid where slot `i` has color index `i`).
+
+### 5.4 Multi-tick cursor holds
+
+The cursor needs to be held for multiple ticks per step for reliable
+movement (`MeetingCursorHoldTicks = 3`). The state machine:
+
+1. If `meetCursorMoveTicks > 0`: continue emitting the same cursor
+   direction, decrement counter.
+2. If `meetCursorMoveTicks == 0` and cursor != target: compute new
+   direction, set `meetCursorMoveTicks = MeetingCursorHoldTicks - 1`
+   (current tick counts as one), emit.
+3. If cursor == target: stop. Return `noOpIntent()` and wait for
+   the confirm action.
+
+### 5.5 Unknown cursor fallback
+
+If `belief.percep.votingCursor < 0` (parse failed, cursor unknown):
+fall back to `CursorRight` (the old blind-navigation behavior).
+This is a safety net — the voting parser should succeed on most frames.
+
+---
+
+## 6. Safety-net fallback
+
+The structural backstop that ensures the bot always votes, even if
+the LLM is slow or fails.
+
+**Trigger:** `estimatedTicksLeft <= MeetingFallbackTicksLeft` (100
+ticks, ~4s before meeting ends).
+
+**Behavior:** navigate to SKIP using cursor tracking, then confirm.
+If the cursor is already on SKIP, immediately confirm. If cursor
+position is unknown, `navigateToSlot` falls back to CursorRight.
+
+**Timer:** uses `MeetingDurationEstimateTicks` (600 ticks, ~25s) as
+the meeting length estimate. The fallback fires at tick 500 into the
+meeting.
+
+**Non-overridable:** the LLM cannot prevent the fallback. Once
+triggered, it navigates and confirms regardless of pending actions.
+
+---
+
+## 7. Auto-vote delay
+
+For the no-LLM path (defaults-only, or LLM too slow).
+
+**Trigger:** `meetLastLlmActionTick < 0` (no LLM action has ever
+arrived this meeting) AND `ticksInMeeting >= MeetingAutoVoteDelayTicks`
+(360, ~15s).
+
+**Behavior:** same as fallback — navigate to SKIP and confirm.
+
+**Purpose:** ensures the bot votes within 15s even without an LLM,
+rather than waiting the full meeting timer. More aggressive than the
+safety net but only activates in the absence of any LLM activity.
+
+---
+
+## 8. Vote soft-lock
+
+Once `meetVoteConfirmed` is set true, the mode returns `noOpIntent()`
+on every subsequent tick. The meeting is "done" from the bot's
+perspective — it just waits for the voting phase to end.
+
+This prevents:
+- Re-voting after confirmation.
+- The fallback from triggering after a successful LLM-directed vote.
+- Any further cursor movement or button presses.
+
+---
+
+## 9. Chat emission (stub)
+
+`MeetingActSpeak` places the chat text on `intent.chat`, but the
+action layer's `emitChat` is currently a stub. Full chat requires:
+
+- A Nim-side buffer for outgoing chat strings.
+- A C FFI export (`guidedbot_take_chat`) for the Python bridge.
+- Python-side `bitworld_chat_messages()` method integration.
+
+Deferred to a separate implementation phase. The mode is structurally
+ready — once FFI is wired, chat works without mode-side changes.
+
+---
+
+## 10. Scratch state
+
+All fields are reset on mode entry (`onEnter`). Preserved across
+directive changes within the same mode (per `DESIGN.md` §5.6).
 
 ```nim
 of ModeMeeting:
-  meetEnterTick: int                    ## (exists)
-  meetVoteConfirmed: bool               ## (exists)
-  meetPendingActions: seq[MeetingAction] ## (exists)
-  meetVoteTarget: int                   ## (new) Target slot for cursor nav, -1 = none.
-  meetCursorMoveTicks: int              ## (new) Ticks remaining on current cursor hold.
-  meetCursorDir: CursorDir              ## (new) Direction being held.
-  meetLastLlmActionTick: int            ## (new) Tick of last LLM action received.
+  meetEnterTick*: int                    # Tick when meeting mode began.
+  meetVoteConfirmed*: bool               # Soft-lock: vote is done.
+  meetPendingActions*: seq[MeetingAction] # LLM action queue (FIFO).
+  meetVoteTarget*: int                   # Target slot for cursor nav (-1 = none).
+  meetCursorMoveTicks*: int              # Ticks remaining on current cursor hold.
+  meetCursorDir*: CursorDir              # Direction being held.
+  meetLastLlmActionTick*: int            # Tick of last LLM action (-1 = never).
 ```
 
+Initial values on `onEnter`:
+- `meetEnterTick = belief.tick`
+- `meetVoteConfirmed = false`
+- `meetPendingActions = @[]` (empty queue)
+- `meetVoteTarget = -1` (no target)
+- `meetCursorMoveTicks = 0`
+- `meetCursorDir = CursorNone`
+- `meetLastLlmActionTick = -1` (no LLM action yet)
+
 ---
 
-## 4. Tuning constants
+## 11. Tuning constants
 
-| Constant | Value | Rationale |
+All live in `tuning.nim:22-27`:
+
+| Constant | Value | Meaning |
 |---|---|---|
-| `MeetingDurationEstimateTicks` | 600 | Local server config. Conservative default. |
+| `MeetingFallbackTicksLeft` | 100 | Safety-net fires with ~4s remaining. |
+| `MeetingDurationEstimateTicks` | 600 | Conservative meeting length estimate (~25s). |
 | `MeetingAutoVoteDelayTicks` | 360 | Auto-vote SKIP after 15s with no LLM action. |
-| `CursorHoldTicks` | 3 | Already exists in meeting.nim as a local const; promote to tuning. |
-
-`MeetingFallbackTicksLeft` already exists (100).
-
----
-
-## 5. Trace events
-
-No new event kinds. The existing `decisions.jsonl` records will show
-the cursor direction and meeting state. If we want richer meeting
-tracing, that's a future phase.
+| `MeetingCursorHoldTicks` | 3 | Ticks to hold a cursor direction per step. |
+| `MeetingChatLineGapTicks` | 12 | Min ticks between chat packets (rate-limit, future use). |
 
 ---
 
-## 6. Files changed
+## 12. Reflex interactions
 
-| File | Change |
-|---|---|
-| `types.nim` | Add `votingCursor`, `votingSelfSlot`, `votingPlayerCount`, `votingValid` to `PerceptionState`. Expand `ModeScratch.ModeMeeting` with 4 new fields. |
-| `tuning.nim` | Add `MeetingDurationEstimateTicks`, `MeetingAutoVoteDelayTicks`. Promote `CursorHoldTicks`. |
-| `belief.nim` | Extend `mergeVotingPercept` to copy cursor/selfSlot/playerCount. Clear on non-voting frames. |
-| `modes/meeting.nim` | Rewrite cursor navigation with position-aware shortest-path. Fix timer. Add auto-vote delay. Update fallback to use cursor tracking. |
-| `IMPL_PLAN.md` | Mark 6.3 done, note chat deferred to separate item. |
-| `README.md` | Update phase table. |
+### 12.1 Incoming reflexes (other modes → meeting)
+
+| Source mode | Condition | Params issued | Reflex name |
+|---|---|---|---|
+| Any mode | `PhaseVoting` entered (edge-triggered: `prevPhase != PhaseVoting`) | `meetWantToSpeakFirst: false`, TTL 0 | `voting_screen_appeared` |
+
+This is the **highest-priority reflex** — it's evaluated first in
+`evaluateReflexes` (`reflex.nim:65-86`) and fires regardless of
+current mode. It has no TTL (meetings last until the phase ends
+naturally).
+
+### 12.2 Outgoing reflexes (meeting → other modes)
+
+None. The meeting mode is only exited by:
+- Phase change: when `PhaseVoting` ends, `isLegalFor` returns false,
+  and `reconcileDirective`'s illegality check (`bot.nim:263-264`)
+  switches to the default directive.
+- This is the only mode that exits via illegality rather than TTL or
+  reflex.
+
+### 12.3 Cooldown
+
+The `voting_screen_appeared` reflex is subject to
+`ReflexCooldownTicks` (96 ticks, ~4s). In practice this never
+matters — voting phases don't end and restart within 4 seconds.
 
 ---
 
-## 7. Implementation plan
+## 13. Trace events
 
-### Step 1 — Type + tuning foundations
-- Add 4 perception fields to `types.nim`.
-- Add 4 scratch fields to `ModeScratch.ModeMeeting`.
-- Add tuning constants.
-- Verify: compile, existing tests pass.
+No mode-specific trace events are emitted. The standard trace captures:
 
-### Step 2 — Merge voting parse into belief
-- Extend `mergeVotingPercept` to copy cursor, selfSlot, playerCount,
-  valid.
-- Clear voting fields on phase transition away from voting.
-- Verify: compile, existing tests pass.
+- `meeting_started` event in `bot.nim:461-463` (on PhaseVoting entry).
+- `chat_observed` events for incoming chat lines.
+- Mode entry/exit via `modes.jsonl`.
+- `decisions.jsonl` records cursor direction and button presses each
+  tick, showing the full cursor navigation sequence.
 
-### Step 3 — Rewrite meeting.decide()
-- Cursor-aware navigation with shortest-path ring computation.
-- Timer fix (use `MeetingDurationEstimateTicks`).
-- Auto-vote delay (SKIP after `MeetingAutoVoteDelayTicks` with no
-  LLM action).
-- Improved fallback (navigate to SKIP using cursor tracking).
-- Multi-tick cursor holds via scratch state.
-- Verify: compile, all tests pass.
+A future enhancement could add `vote_cast` (when `meetVoteConfirmed`
+is set) with the target color — deferred.
 
-### Step 4 — Doc updates + live game validation
-- Update IMPL_PLAN.md, README.md.
-- Run all 8 test suites + library build.
-- 30s live match with tracing.
-- Verify in traces: meeting mode enters, cursor moves, vote happens
-  before meeting ends.
+---
+
+## 14. Action layer contract
+
+The meeting mode does not use steering-based disciplines. All intents
+use `DisciplineNoOp` with button/cursor fields set directly:
+
+- **Cursor movement:** `cursor: CursorLeft | CursorRight` with no A/B.
+- **Vote confirm:** `pressA: true` with no cursor or steering.
+- **Unvote:** `pressB: true` with no cursor or steering.
+- **Chat:** `chat: <text>` with no buttons (stub path).
+- **Idle:** `noOpIntent()` — no buttons, no cursor, no steering.
+
+`steerValid` is always `false` during meetings (no world-space
+navigation occurs during voting).
+
+---
+
+## 15. Pipeline integration
+
+The meeting mode has special pipeline support in `bot.nim`:
+
+### 15.1 Action queue pumping (bot.nim:431-435)
+
+Each tick during `PhaseVoting`, the bot pipeline reads meeting actions
+from the guidance channel and appends them to
+`scratch.meetPendingActions`:
+
+```nim
+while tryReceiveMeetingAction(bot.guidance, meetAction):
+  bot.modeScratch.meetPendingActions.add meetAction
+```
+
+This bridges the async LLM worker → synchronous per-tick mode.
+
+### 15.2 Meeting conversation flush (bot.nim:418-421)
+
+When leaving voting phase, the guidance state's meeting conversation
+buffer is flushed (`flushMeetingConversation`), resetting chat context
+for the next meeting.
+
+---
+
+## 16. LLM snapshot context
+
+During meetings, the snapshot (`snapshot.nim:82-218`) includes:
+
+- `phase: "voting"` — signals the LLM that meeting mode is active.
+- `current_mode: { "name": "meeting", ... }` with `ticks_active`.
+- `recent_chat` — all chat lines from this meeting with speaker
+  colors and text.
+- Standard fields: visible players, memory, self state.
+
+The LLM uses this to decide what to say (chat) and who to vote for.
+The mode's scratch state (cursor position, pending actions, vote
+status) is not exposed — the LLM generates actions based on game
+state, not cursor mechanics.
+
+---
+
+## 17. Voting parse dependency
+
+The meeting mode depends on `perception/voting.nim`'s per-frame parse
+results, merged into belief by `mergeVotingPercept`
+(`belief.nim:188-216`):
+
+- `votingCursor: int` — current cursor slot index. `playerCount` for
+  SKIP, `-1` if unknown.
+- `votingSelfSlot: int` — our slot index (for future self-awareness).
+- `votingPlayerCount: int` — total players in the grid.
+- `votingValid: bool` — whether the current frame parsed successfully.
+
+These are updated every interstitial frame. If the parse fails
+(`votingValid = false`), cursor-based navigation degrades to the
+CursorRight fallback.
+
+---
+
+## 18. Open questions
+
+1. **Chat emission FFI.** The biggest missing feature. Requires
+   Nim buffer + C export + Python bridge. The mode is ready; the
+   infrastructure is not.
+
+2. **Vote target persistence across actions.** If the LLM sends
+   `MeetingActVote(target: 3)` and then later `MeetingActVote(target: 5)`
+   before the first navigation completes, the second action overwrites
+   `meetVoteTarget`. This is correct (latest instruction wins) but
+   could cause visible cursor thrashing if the LLM changes its mind
+   rapidly.
+
+3. **Self-vote prevention.** Nothing prevents the LLM from voting for
+   the bot itself. The server may reject self-votes, but the mode will
+   navigate to the self-slot and confirm regardless. A guard using
+   `votingSelfSlot` could prevent this. Low priority — the LLM should
+   be smart enough.
+
+4. **Vote tracking for snapshot.** The mode knows who it voted for
+   (`meetVoteTarget` at confirmation time), but this isn't exposed to
+   the snapshot or memory. A future version could record the vote in
+   `belief.social.votesCast` for cross-meeting memory.
+
+5. **Meeting duration calibration.** `MeetingDurationEstimateTicks = 600`
+   matches the local server. Tournament servers may use different
+   values. If the fallback fires too early or too late, this constant
+   needs adjustment. Ideally the bot would detect meeting duration
+   empirically from past meetings.

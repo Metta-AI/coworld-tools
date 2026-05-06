@@ -1,191 +1,270 @@
-# Phase 6.2 — `reporting` Mode Design
+# Reporting Mode — Design Document
 
-> **Scope:** Fix the reporting mode's failure paths: add a give-up
-> timeout, body-visibility check, and approach-retry logic. Wire
-> trace events for report attempts.
+> **Canonical reference** for the `reporting` mode handler. All
+> reporting-mode design details live here; `DESIGN.md` contains only a
+> brief overview and cross-reference.
 >
-> **Parent doc:** `DESIGN.md` §5.4 (mode enumeration), §5.8 (reflex 1:
-> body → reporting), §6 (action intent / `DisciplineReport`).
+> **Implementation:** `modes/reporting.nim` (136 LOC)
 >
-> Last updated: 2026-05-01
+> Last updated: 2026-05-05
 
 ---
 
-## 1. What exists today
+## 1. Purpose and role
 
-### 1.1 Mode handler (`modes/reporting.nim`, 52 LOC)
+The `reporting` mode is the crewmate's body-reporting behavior. It is:
 
-The mode is minimal:
-- `isLegalFor`: crewmate, alive, not ghost.
-- `onEnter`: records `repEnterTick` in scratch.
-- `decide`: if localized, emit `ActionIntent` with
-  `steerTo = params.repBodyLocation`, `discipline = DisciplineReport`.
-  Otherwise no-op.
-- No lifecycle, no state machine, no checks.
+- **The target of the `task_completing → reporting` reflex**
+  (`reflex.nim:91-117`). When a crewmate in `task_completing` mode
+  sees a new body appear, the reflex fires and switches to `reporting`
+  with the body's world position as the target.
+- **Interrupt-driven, not default.** No role uses `reporting` as its
+  default directive. The mode is only entered via the body-seen reflex
+  or a future LLM directive.
+- **Success is detected externally.** When the report succeeds, the
+  server starts a meeting → voting screen appears → reflex 4
+  (`voting_screen_appeared`) fires → mode switches to `meeting`. The
+  reporting mode does not need to detect its own success.
 
-### 1.2 Action layer (`action.nim:331-340`)
-
-`DisciplineReport` steers toward the target and ORs in `ButtonA`
-every tick while Manhattan distance ≤ `ReportRange = 20` px. This
-is correct — the server uses ButtonA (`input.attack`) for reports
-and requires a fresh-press edge (first tick in range provides this).
-
-### 1.3 Reflex trigger (`reflex.nim:91-117`)
-
-Reflex 1 fires when a new body appears while in `ModeTaskCompleting`
-(crewmate, alive, not ghost). It creates a reporting directive with:
-- `repBodyLocation`: world-space position of the body (computed from
-  screen coords + camera offset at the moment the body was seen).
-- `ttlTicks: 480` (~20 s timeout).
-
-### 1.4 Success path (already working)
-
-Report succeeds → server starts meeting → voting screen appears →
-reflex 4 (`voting_screen_appeared`) fires → mode switches to
-`meeting`. The reporting mode doesn't need to detect success because
-the reflex system handles it automatically.
-
-### 1.5 Problems
-
-1. **No body-visibility check.** The mode steers at a stale
-   `repBodyLocation` forever. If the body despawns (another player
-   reported it, or the server cleaned it up), the bot walks to
-   where the body *was* and presses A at empty space until the
-   directive TTL expires (up to 480 ticks / 20 s).
-
-2. **No approach timeout.** If A\* can't find a path to the body
-   (body is in an unreachable location, or the walk mask is wrong),
-   the bot navigates fruitlessly until TTL. (Partially mitigated by
-   the greedy-steering fallback in `action.nim` — the bot will at
-   least move toward the body in a straight line instead of freezing.
-   See DESIGN.md §6.3.)
-
-3. **No in-range timeout.** If the bot reaches report range and
-   presses A but nothing happens (e.g. the body was just barely
-   outside the server's actual report radius, or there's a race
-   condition), the mode keeps pressing A indefinitely.
-
-4. **No trace events.** DESIGN.md §11.2 defines `body_reported`
-   but it's never emitted. There's no way to see in traces whether
-   reports were attempted, succeeded, or timed out.
+The mode is **only legal** for an alive, non-ghost crewmate
+(`isLegalFor` in `modes/reporting.nim:32-33` checks role, alive, and
+ghost state). Imposters cannot self-report in the default path; an
+LLM directive could theoretically issue this mode to an imposter, but
+the legality check would reject it.
 
 ---
 
-## 2. Design
+## 2. Mode parameters
 
-The fix adds a lightweight state machine to `decide()` with three
-checks that cause the mode to give up and return to the default:
+The reflex (or LLM) sets these when issuing a `reporting` directive:
 
-### 2.1 Body-visibility check
+```
+reporting {
+  repBodyLocation: Point   # World-space position of the body to report.
+}
+```
 
-Every tick, check whether `belief.percep.visibleBodies` contains a
-body near `repBodyLocation`. "Near" means within
-`ReportBodyMatchRadius = 30` world pixels — generous enough to
-handle camera jitter and sprite-centre vs. anchor offsets.
+Implementation in `types.nim:249`:
+```nim
+of ModeReporting:
+  repBodyLocation*: Point
+```
 
-If the body is still visible: continue navigating / pressing A.
+**Default params** (from `modes/reporting.nim:36-38`):
+- `repBodyLocation: Point(x: 0, y: 0)` — meaningless sentinel; the
+  mode is never useful without a reflex-provided body position.
 
-If the body is NOT visible for `ReportBodyMissFrames = 36`
-consecutive frames (~1.5 s): give up. The body likely despawned.
-Switch back to the default directive.
+**Reflex-provided params** (from `reflex.nim:106-107`):
+- `repBodyLocation`: body world position computed from screen coords +
+  camera offset at the moment the body was seen.
+- Directive TTL: 480 ticks (~20s).
 
-The miss counter resets to 0 whenever a matching body is seen. This
-debounces single-frame detection failures (body sprite flicker
-between animation poses, partial occlusion).
+---
 
-### 2.2 Approach timeout
+## 3. Decision logic overview
+
+`decide()` evaluates a priority cascade each tick:
+
+1. **Not localized** — emit `noOpIntent()`.
+2. **Already gave up** — emit `noOpIntent()` (bot.nim will switch to
+   default on the next reconciliation).
+3. **Body-visibility check** — if the body has been invisible for
+   `ReportBodyMissFrames` (36) consecutive frames, give up.
+4. **Range tracking** — if within `ReportRange` (20 px) for the first
+   time, mark `repReachedRange`.
+5. **Approach timeout** — if not yet in range and
+   `ReportApproachTimeoutTicks` (240) elapsed, give up.
+6. **In-range timeout** — if in range for `ReportInRangeTimeoutTicks`
+   (72) ticks without a meeting starting, give up.
+7. **Normal behavior** — steer toward body with `DisciplineReport`.
+
+The mode does **not** press A directly. It emits `DisciplineReport`
+and lets the action layer handle the button press when within range.
+
+---
+
+## 4. Body-visibility check
+
+`bodyStillVisible` (`modes/reporting.nim:58-70`) checks whether any
+visible body is near the target position each tick.
+
+**Match criteria:** any body in `belief.percep.visibleBodies` whose
+world position (screen coords + camera offset via
+`visibleCrewmateWorldX/Y`) is within `ReportBodyMatchRadius` (30 px)
+of `repBodyLocation`.
+
+**Debounce:** the miss counter (`repBodyMissCount`) resets to 0 on any
+frame where a matching body is seen. This handles single-frame
+detection failures (body sprite flicker, partial occlusion, animation
+pose changes).
+
+**Give-up:** after 36 consecutive frames with no matching body (~1.5s),
+the body likely despawned (another player reported it, or the server
+cleaned it up). Sets `repGaveUp = true`, `repGaveUpReason = "body_gone"`.
+
+---
+
+## 5. Approach timeout
 
 If the bot has been in reporting mode for more than
-`ReportApproachTimeoutTicks = 240` (~10 s) and has not yet entered
-report range (never had `dist <= ReportRange`): give up. The path
-is likely unreachable.
+`ReportApproachTimeoutTicks` (240 ticks, ~10s) and has never entered
+report range (`repReachedRange` is false): give up.
 
-The timeout is tracked via `repEnterTick` (already in scratch) and
-a new `repReachedRange` bool flag in scratch.
+This catches cases where A\* can't find a path to the body (body in an
+unreachable location, walk mask error) or the body is extremely far
+away. The greedy-steering fallback in `action.nim` partially mitigates
+pathfinding failures, but 10s of fruitless navigation is enough.
 
-### 2.3 In-range timeout
-
-Once the bot enters report range and starts pressing A, track how
-long it stays in range without a meeting starting. If
-`ReportInRangeTimeoutTicks = 72` (~3 s) elapse with the bot
-in range and `belief.self.phase` is still `PhaseGameplay` (no
-meeting started): give up. The report didn't register.
-
-3 seconds is generous — the server processes the report on the fresh-
-press edge, and the meeting transition should happen within a few
-ticks. 72 ticks provides ample debounce.
-
-### 2.4 Give-up behavior
-
-When any of the three checks triggers, the mode doesn't switch
-itself — it signals via a scratch field (`repGaveUp = true`), and
-`bot.nim` detects this after `decide()` and performs a mode switch
-to the default directive. This parallels the `tcCompletedTaskIndex`
-pattern from 6.1: the mode signals, the pipeline acts.
-
-Alternatively, since reporting has a TTL (480 ticks) set by the
-reflex, the mode can simply return `noOpIntent()` and let the TTL
-expire naturally. But active give-up is faster and more traceable.
-
-**Decision: the mode returns `noOpIntent()` on give-up, and
-`bot.nim` detects the transition and switches to the default
-directive.** This is simpler than adding a new signal field — the
-mode already returns `noOpIntent()` when not localized, so
-extending that pattern to "gave up" is natural. The bot pipeline
-already runs `reconcileDirective` which checks `isLegalFor` — but
-reporting stays legal for alive crewmates even when the body is
-gone, so we need the mode itself to stop requesting movement.
-
-Actually, the simplest approach: **the mode itself calls
-`defaultDirectiveFor` or returns a sentinel.** But modes don't have
-access to the mode registry. The cleanest pattern consistent with
-the existing architecture:
-
-**The mode returns `noOpIntent()` when it gives up, and relies on
-the directive TTL (480 ticks) to eventually expire and switch to
-the default.** The give-up checks prevent the bot from walking
-fruitlessly — it stands still instead. The TTL is the backstop
-that actually performs the mode switch. The 480-tick TTL minus the
-time already spent means the bot idles for at most a few seconds
-after giving up.
-
-**No, better approach:** Add a `repGaveUp` bool to scratch. In
-`bot.nim`, after `decide()`, if `modeScratch.mode == ModeReporting`
-and `modeScratch.repGaveUp`, force a switch to the default
-directive immediately. This is cleaner and avoids the idle wait.
-
-### 2.5 Summary of changes
-
-The mode gains:
-- **Body-miss counter** (`repBodyMissCount`): incremented when no
-  matching body is visible, reset when a match is found.
-- **Reached-range flag** (`repReachedRange`): set when the bot
-  first enters `ReportRange`.
-- **In-range timer** (`repInRangeTicks`): counts ticks spent in
-  report range without a meeting starting.
-- **Gave-up flag** (`repGaveUp`): set when any give-up check
-  fires. `bot.nim` reads this after `decide()`.
+Sets `repGaveUp = true`, `repGaveUpReason = "approach_timeout"`.
 
 ---
 
-## 3. Trace events
+## 6. In-range timeout
 
-### 3.1 `report_attempted`
+Once the bot enters report range and the action layer starts pressing
+A, track how long it stays in range without a meeting starting.
 
-Emitted once when the bot first enters report range (A-press
-starts). Logged in `bot.nim` by detecting the `repReachedRange`
-transition from false to true.
+If `ReportInRangeTimeoutTicks` (72 ticks, ~3s) elapse with the bot in
+range and `belief.self.phase` is still gameplay (no meeting started):
+give up. The report didn't register.
+
+3 seconds is generous — the server processes the report on the
+fresh-press edge (first tick in range provides this via
+`DisciplineReport`), and the meeting transition should happen within
+a few ticks. 72 ticks provides ample debounce for edge cases (body
+barely outside the server's actual report radius, network timing).
+
+The counter only increments while in range (`dist <= ReportRangeLocal`).
+Momentary out-of-range jitter (camera movement) pauses the counter
+but does not reset it.
+
+Sets `repGaveUp = true`, `repGaveUpReason = "in_range_timeout"`.
+
+---
+
+## 7. Give-up mechanism
+
+When any of the three checks fires, the mode sets
+`scratch.repGaveUp = true` and returns `noOpIntent()`. The bot
+pipeline in `bot.nim:578-586` detects this after `decide()`:
+
+```nim
+if bot.modeScratch.repGaveUp:
+  switchMode(bot, defaultDirectiveFor(bot.belief))
+```
+
+This forces an immediate switch to the default crewmate directive
+(`task_completing`), avoiding the idle wait that would occur if the
+mode simply returned `noOpIntent()` until the directive TTL expired.
+
+---
+
+## 8. Scratch state
+
+All fields are reset on mode entry (`onEnter`). Preserved across
+directive changes within the same mode (per `DESIGN.md` §5.6).
+
+```nim
+of ModeReporting:
+  repEnterTick*: int             # Tick when mode was entered.
+  repBodyMissCount*: int         # Consecutive frames without body match.
+  repReachedRange*: bool         # True once dist <= ReportRange.
+  repInRangeTicks*: int          # Ticks spent in range without meeting.
+  repGaveUp*: bool               # Set when any give-up check fires.
+  repGaveUpReason*: string       # "body_gone" / "approach_timeout" / "in_range_timeout".
+```
+
+Initial values on `onEnter`:
+- `repEnterTick = belief.tick`
+- `repBodyMissCount = 0`
+- `repReachedRange = false`
+- `repInRangeTicks = 0`
+- `repGaveUp = false`
+- `repGaveUpReason = ""`
+
+---
+
+## 9. Tuning constants
+
+All live in `tuning.nim:46-49`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `ReportBodyMatchRadius` | 30 | World-pixel radius for matching a visible body to the target. Generous for camera jitter + sprite anchor offset. |
+| `ReportBodyMissFrames` | 36 | Consecutive frames without a matching body before giving up (~1.5s). |
+| `ReportApproachTimeoutTicks` | 240 | Give up navigating after 10s without reaching range. |
+| `ReportInRangeTimeoutTicks` | 72 | Give up pressing A after 3s in range without a meeting starting. |
+
+Action-layer constant (local to `action.nim:40`):
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `ReportRange` | 20 | Threshold for the action layer to press A during `DisciplineReport`. |
+
+The mode duplicates this as `ReportRangeLocal = 20` for its own
+in-range detection. Both must stay in sync.
+
+---
+
+## 10. Reflex interactions
+
+### 10.1 Incoming reflexes (other modes → reporting)
+
+| Source mode | Condition | Params issued | Reflex name |
+|---|---|---|---|
+| `task_completing` | `body_newly_in_view` (body count increased) AND crewmate, alive, not ghost | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
+
+This reflex fires without LLM approval. The body's world position is
+computed from `visibleBodies[0]` screen coords + camera offset at the
+moment of detection (`reflex.nim:99-101`).
+
+The reflex only fires from `task_completing` — if the crewmate is in
+another mode (e.g. `meeting`, `investigating`), bodies don't trigger
+reporting. This is intentional: meeting mode can't be interrupted, and
+other modes may have higher-priority goals.
+
+### 10.2 Outgoing reflexes (reporting → other modes)
+
+| Condition | Target mode | Params issued | Reflex name |
+|---|---|---|---|
+| Voting screen appears (server starts meeting) | `meeting` | `meetWantToSpeakFirst: false`, TTL 0 | `voting_screen_appeared` |
+
+This is the success path: the report worked, the server started a
+meeting, the voting-screen reflex fires. No explicit "report succeeded"
+detection is needed within the mode.
+
+### 10.3 Give-up → default
+
+When `repGaveUp` is set, `bot.nim` forces a switch to
+`defaultDirectiveFor(belief)` — which for a crewmate is
+`task_completing`. This is not a reflex but a pipeline-level override.
+
+### 10.4 Cooldown
+
+The body-report reflex is subject to `ReflexCooldownTicks` (96 ticks,
+~4s). If a second body appears within the cooldown window, the reflex
+does not re-fire (prevents thrashing when multiple bodies are visible).
+
+---
+
+## 11. Trace events
+
+Emitted by `bot.nim:566-585` after `decide()` returns.
+
+### 11.1 `report_attempted`
+
+Emitted once when the bot first enters report range (`repReachedRange`
+transitions to true, detected by `repInRangeTicks <= 1`).
 
 ```json
 { "t": <tick>, "kind": "report_attempted",
   "body_x": <int>, "body_y": <int>,
-  "self_x": <int>, "self_y": <int>,
-  "distance": <int> }
+  "self_x": <int>, "self_y": <int> }
 ```
 
-### 3.2 `report_gave_up`
+### 11.2 `report_gave_up`
 
-Emitted when the mode gives up.
+Emitted when the mode gives up (any of the three timeout checks fires).
 
 ```json
 { "t": <tick>, "kind": "report_gave_up",
@@ -196,76 +275,53 @@ Emitted when the mode gives up.
 
 ---
 
-## 4. Tuning constants
+## 12. Action layer contract
 
-| Constant | Value | Rationale |
-|---|---|---|
-| `ReportBodyMatchRadius` | 30 | World-pixel radius for matching a visible body to the target location. Generous for camera jitter + sprite anchor offset. |
-| `ReportBodyMissFrames` | 36 | Consecutive frames without a matching body before giving up (~1.5 s). Debounces flicker. |
-| `ReportApproachTimeoutTicks` | 240 | Give up navigating after 10 s without reaching range. |
-| `ReportInRangeTimeoutTicks` | 72 | Give up pressing A after 3 s in range without a meeting starting. |
+The mode communicates with the action layer via a single discipline:
 
----
+- **`DisciplineReport`** — used for all normal behavior. The action
+  layer steers toward `steerTo` and ORs `ButtonA` every tick while
+  Manhattan distance ≤ `ReportRange` (20 px) (`action.nim:335-343`).
+  The mode never sets `pressA` directly — button presses are the
+  action layer's responsibility based on the discipline hint.
 
-## 5. Scratch state changes
-
-```nim
-of ModeReporting:
-  repEnterTick: int              ## (exists) Tick when mode was entered.
-  repBodyMissCount: int          ## (new) Consecutive frames without body match.
-  repReachedRange: bool          ## (new) True once dist <= ReportRange.
-  repInRangeTicks: int           ## (new) Ticks spent in range without meeting.
-  repGaveUp: bool                ## (new) Set when any give-up check fires.
-  repGaveUpReason: string        ## (new) "body_gone" / "approach_timeout" / "in_range_timeout".
-```
+When the mode returns `noOpIntent()` (not localized, already gave up),
+the action layer emits no buttons.
 
 ---
 
-## 6. Files changed
+## 13. LLM snapshot context
 
-| File | Change |
-|---|---|
-| `types.nim` | Expand `ModeScratch.ModeReporting` with 5 new fields |
-| `tuning.nim` | Add 4 new constants (§4) |
-| `modes/reporting.nim` | Rewrite `decide()` with body-visibility check, approach timeout, in-range timeout, gave-up flag. Update `onEnter`. |
-| `bot.nim` | After `decide()`, check `repGaveUp` and force default directive. Emit trace events. |
-| `DESIGN.md` | Add `report_attempted` and `report_gave_up` to §11.2 |
-| `IMPL_PLAN.md` | Mark 6.2 done |
-| `README.md` | Update phase table |
+The reporting mode's internal scratch state is **not** directly
+included in LLM snapshots. The LLM sees:
+
+- `current_mode: { "name": "reporting", "source": "reflex", "ticks_active": <int> }`
+- Perception data (visible bodies, crewmates).
+- Memory (per-player summaries).
+
+The LLM knows the bot is in reporting mode and for how long, but
+doesn't see the give-up counters or range-reached flag. A future
+`summarize_for_llm` hook could expose "I've been trying to report for
+N ticks without success" — deferred.
 
 ---
 
-## 7. Implementation plan
+## 14. Open questions
 
-### Step 1 — Type + tuning foundations
-- Add new scratch fields to `types.nim`.
-- Add 4 tuning constants to `tuning.nim`.
-- Verify: compile, existing tests pass.
+1. **Multi-body priority.** The reflex always picks `visibleBodies[0]`
+   as the report target. If multiple bodies are visible, it doesn't
+   consider which is closest or most accessible. Low priority — the
+   first body in the list is typically the most recently detected.
 
-### Step 2 — Rewrite `reporting.decide()`
-- Add body-visibility check with miss counter.
-- Add approach timeout check.
-- Add in-range timeout check.
-- Set `repGaveUp` + `repGaveUpReason` on any give-up.
-- When gave up, return `noOpIntent()`.
-- Update `onEnter` for new scratch fields.
-- Verify: compile, existing tests pass.
+2. **Re-report after give-up.** If the bot gives up and returns to
+   `task_completing`, the same body (if still visible) could trigger
+   the reflex again after the cooldown expires. This is arguably
+   correct behavior (retry after cooldown) but could cause looping if
+   the body is permanently unreachable. The approach timeout (10s) +
+   cooldown (4s) = 14s per attempt limits the cost.
 
-### Step 3 — Wire give-up + trace events in `bot.nim`
-- After `decide()`, check `repGaveUp` and switch to default.
-- Emit `report_attempted` on `repReachedRange` transition.
-- Emit `report_gave_up` on give-up.
-- Verify: compile, all tests pass.
-
-### Step 4 — Doc updates
-- DESIGN.md §11.2: add two new trace event schemas.
-- IMPL_PLAN.md: mark 6.2 done.
-- README.md: update phase table.
-
-### Step 5 — Full test pass + live game validation
-- Run all 8 Nim test suites + Python action table test.
-- Library build.
-- 30 s live local match with tracing.
-- Read traces to confirm: report_attempted event fires when bot
-  reaches a body, and give-up fires if the body despawns or
-  the TTL expires.
+3. **LLM-initiated reporting.** The mode is legal for crewmates and
+   could be issued by the LLM to report a body the bot remembers but
+   didn't trigger the reflex for (e.g. body seen in a non-task mode).
+   The LLM would need to provide `repBodyLocation` from memory. This
+   path is untested but structurally supported.
