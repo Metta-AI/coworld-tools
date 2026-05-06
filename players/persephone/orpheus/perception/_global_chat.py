@@ -11,7 +11,7 @@ from ._common import (
     SCREEN_WIDTH,
 )
 from ._ocr import normalize_text, read_text_any_color, read_text_at
-from ._sprites import read_sprite_color
+from ._sprites import detect_sprite_shape, read_sprite_color
 from .types import (
     ChatMessage,
     GlobalChatPerception,
@@ -58,6 +58,7 @@ def parse_global_chat(frame: np.ndarray) -> GlobalChatPerception:
             sprite_c = read_sprite_color(frame, 29, 11)
             if sprite_c:
                 candidate.player_color = sprite_c
+                candidate.player_shape = detect_sprite_shape(frame, 29, 11)
         result.usurp_candidate = candidate
 
     # -- Committed state (leader) ---------------------------------------------
@@ -100,10 +101,12 @@ def _parse_messages(
         # Player messages have a sprite at x=2, text after
         sender_color = read_sprite_color(frame, 2, y)
         if sender_color:
+            sender_shape = detect_sprite_shape(frame, 2, y)
             text_result = read_text_any_color(frame, 10, y)
             if text_result:
                 result.messages.append(ChatMessage(
                     sender_color=sender_color,
+                    sender_shape=sender_shape,
                     is_system=False,
                     text=text_result[0],
                     y_position=y,
@@ -117,6 +120,7 @@ def _parse_messages(
         if sys_text and len(sys_text.strip()) >= 2:
             result.messages.append(ChatMessage(
                 sender_color=None,
+                sender_shape=None,
                 is_system=True,
                 text=sys_text.strip(),
                 y_position=y,

@@ -16,7 +16,7 @@ from ._common import (
     SCREEN_WIDTH,
 )
 from ._ocr import normalize_text, read_text_any_color, read_text_at
-from ._sprites import read_sprite_color, scan_sprite_row
+from ._sprites import detect_sprite_shape, read_sprite_color, scan_sprite_row, scan_sprite_row_with_shapes
 from .types import ChatMessage, ChatroomBarState, ChatroomPerception
 
 
@@ -32,7 +32,9 @@ def parse_chatroom(frame: np.ndarray) -> ChatroomPerception:
     result = ChatroomPerception()
 
     # -- Header: occupant sprites at x=22, stride=9, y=1 ---------------------
-    result.occupant_colors = scan_sprite_row(frame, 22, 1, PLAYER_W + 2)
+    occupants = scan_sprite_row_with_shapes(frame, 22, 1, PLAYER_W + 2)
+    result.occupant_colors = [c for c, _ in occupants]
+    result.occupant_shapes = [s for _, s in occupants]
 
     # -- Pending entry indicator ----------------------------------------------
     _parse_pending_entry(frame, result)
@@ -60,6 +62,8 @@ def _parse_pending_entry(frame: np.ndarray, result: ChatroomPerception) -> None:
                     # Read requester sprite color at (8+3, 111+3) = (11, 114)
                     req_color = read_sprite_color(frame, 8, 111)
                     result.pending_entry_color = req_color
+                    # Also classify shape for full player ID
+                    result.pending_entry_shape = detect_sprite_shape(frame, 8, 111)
                     return
 
 
@@ -138,6 +142,7 @@ def _parse_messages(frame: np.ndarray, result: ChatroomPerception) -> None:
         if sys_text and len(sys_text.strip()) >= 2:
             result.messages.append(ChatMessage(
                 sender_color=None,
+                sender_shape=None,
                 is_system=True,
                 text=sys_text.strip(),
                 y_position=y,
@@ -147,10 +152,12 @@ def _parse_messages(frame: np.ndarray, result: ChatroomPerception) -> None:
         # Check for player message: sprite at x=2, text at x=10
         sender_color = read_sprite_color(frame, 2, y)
         if sender_color:
+            sender_shape = detect_sprite_shape(frame, 2, y)
             text_result = read_text_any_color(frame, 10, y)
             if text_result:
                 result.messages.append(ChatMessage(
                     sender_color=sender_color,
+                    sender_shape=sender_shape,
                     is_system=False,
                     text=text_result[0],
                     y_position=y,

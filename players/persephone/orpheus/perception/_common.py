@@ -119,6 +119,54 @@ MINIMAP_EXCLUDE_ROOM_B = MINIMAP_EXCLUDE_BASE | {ROOM_B_FLOOR}
 SHADOW_MAP = [0, 12, 9, 5, 5, 0, 5, 5, 5, 12, 9, 9, 0, 12, 12, 9]
 
 # ---------------------------------------------------------------------------
+# Shape detection
+# ---------------------------------------------------------------------------
+
+# Minimum fraction of non-transparent template pixels that must match for a
+# shape classification to succeed. Tune this value to trade off between false
+# negatives (too high — rejects partially occluded sprites) and false
+# positives (too low — misclassifies noise). 0.70 handles typical fog-of-war
+# partial occlusion while rejecting random pixel patterns.
+SHAPE_MATCH_THRESHOLD = 0.70
+
+# For each player color, the (normal, shadow) pair used for fill-pixel
+# matching. A fill pixel matches if it equals EITHER value in the pair.
+PLAYER_COLOR_PAIRS: dict[int, tuple[int, int]] = {
+    c: (c, SHADOW_MAP[c]) for c in PLAYER_COLORS
+}
+
+# Outline pixels match if they are either the normal outline color (1) or
+# the shadow-mapped outline color (SHADOW_MAP[1] = 12).
+OUTLINE_COLORS: tuple[int, int] = (1, SHADOW_MAP[1])
+
+# Reverse lookup: observed color → canonical player color. Maps both normal
+# and shadow-mapped colors back to the original player color. When a shadow
+# color is shared by multiple players (e.g., 5 maps to RED, YELLOW, ORANGE),
+# returns a frozenset of candidates.
+_SHADOW_TO_PLAYERS: dict[int, list[int]] = {}
+for _c in PLAYER_COLORS:
+    _s = SHADOW_MAP[_c]
+    if _s != 0:  # Ignore shadow=0 (invisible in shadow)
+        _SHADOW_TO_PLAYERS.setdefault(_s, []).append(_c)
+
+OBSERVED_TO_PLAYER_COLORS: dict[int, frozenset[int]] = {}
+# Normal colors map to themselves (unambiguous)
+for _c in PLAYER_COLORS:
+    OBSERVED_TO_PLAYER_COLORS[_c] = frozenset([_c])
+# Shadow colors may map to multiple candidates
+for _s, _candidates in _SHADOW_TO_PLAYERS.items():
+    if _s not in OBSERVED_TO_PLAYER_COLORS:
+        OBSERVED_TO_PLAYER_COLORS[_s] = frozenset(_candidates)
+    else:
+        # Shadow color is also a normal player color — merge
+        OBSERVED_TO_PLAYER_COLORS[_s] = frozenset(
+            [_s] + _candidates if _s not in _candidates else _candidates
+        )
+
+# Cleanup module-level temporaries
+del _c, _s, _candidates, _SHADOW_TO_PLAYERS
+
+# ---------------------------------------------------------------------------
 # Default room size (used when room_size is unknown)
 # ---------------------------------------------------------------------------
 

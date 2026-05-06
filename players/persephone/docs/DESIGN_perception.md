@@ -265,7 +265,37 @@ row y+1: 2 2 2 ≠2
 row y+2: ≠2 ≠2 ≠2 2
 ```
 Player sprite is at (pattern_x + 3, pattern_y + 3). Read center pixel
-at (+3, +3) offset for the player's color.
+at (+3, +3) offset for the player's color. Shape is classified via
+`detect_sprite_shape()` for full `(color, shape) → player_index`
+identification.
+
+**Shape classification**: Player sprites are 7x7 grids with 12 distinct
+shapes (CIRCLE, SQUARE, TRIANGLE, DIAMOND, STAR, CROSS, X_SHAPE, HEART,
+CRESCENT, BOLT, HOURGLASS, RING). Templates are stored in `_sprites.py`
+as precomputed boolean masks. The classifier:
+
+1. Extracts the 7x7 region at (x, y).
+2. Determines the player's fill color (from center pixel or dominant
+   non-background color if center is outline/transparent — needed for
+   CRESCENT and RING which have non-fill centers).
+3. Scores all 12 templates simultaneously (vectorized with NumPy):
+   - Fill positions match if pixel == `player_color` OR
+     `SHADOW_MAP[player_color]`
+   - Outline positions match if pixel == `1` OR `12` (shadowed outline)
+   - Score = matching pixels / total non-transparent pixels per template
+4. Best score above `SHAPE_MATCH_THRESHOLD` (default 0.70, tunable via
+   `_common.py` or per-call kwarg) → return shape. Below → return None.
+
+**Shadow collision**: BLUE(14) and PURPLE(9) both shadow-map to 12,
+which is also the shadow outline color. When `shadow_fill == shadow_outline`,
+fill and outline pixels are visually identical. The classifier restricts
+matching to normal colors only for these players, meaning:
+- Normal light / partial shadow: works perfectly
+- Full shadow: returns None (information genuinely lost)
+
+This is the honest result — agents should treat shape=None as
+"shape unknown" and rely on other cues (positional continuity, prior
+observations) for identification.
 
 **Unread global dot**: Check pixel at (124, 123). If color == 11
 (bright green), unread messages exist. Note this blinks (16 ticks
@@ -713,7 +743,7 @@ workload doesn't justify the complexity.
 ### Module Location
 
 ```
-persephone/
+orpheus/
   perception/
     __init__.py           # Public API: parse_frame(raw_bytes) -> FramePerception
     _unpack.py            # Frame unpacking (8192 bytes -> 128x128 array)
@@ -739,8 +769,8 @@ persephone/
 ### Public API
 
 ```python
-from perception import parse_frame
-from perception.types import FramePerception, View
+from orpheus.perception import parse_frame
+from orpheus.perception.types import FramePerception, View
 
 # From raw bytes (as received from WebSocket)
 result: FramePerception = parse_frame(raw_bytes)

@@ -14,6 +14,7 @@ from ._common import (
     SCREEN_WIDTH,
     TOP_BAR_H,
 )
+from ._sprites import detect_sprite_shape
 from .types import SpeechBubble
 
 
@@ -79,10 +80,13 @@ def scan_speech_bubbles(frame: np.ndarray) -> list[SpeechBubble]:
             if cx < SCREEN_WIDTH and cy < SCREEN_HEIGHT:
                 player_color = int(frame[cy, cx])
                 if player_color != 0 and player_color != 1:
+                    # Classify the sprite shape for full player ID
+                    shape = detect_sprite_shape(frame, sprite_x, sprite_y)
                     results.append(SpeechBubble(
                         screen_x=sprite_x,
                         screen_y=sprite_y,
                         player_color=player_color,
+                        player_shape=shape,
                     ))
 
     return results

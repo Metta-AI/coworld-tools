@@ -15,7 +15,7 @@ from ._common import (
 )
 from ._indicators import parse_role_indicator
 from ._ocr import normalize_text, read_text_at
-from ._sprites import read_sprite_color
+from ._sprites import detect_sprite_shape, read_sprite_color
 from .types import ExchangePerception, ExchangePlayer
 
 
@@ -72,9 +72,12 @@ def parse_exchange(frame: np.ndarray) -> ExchangePerception:
         if color is None:
             continue
 
+        # Classify sprite shape for full player identification
+        shape = detect_sprite_shape(frame, 10, y)
+
         # Parse role indicator below sprite
         indicator = parse_role_indicator(frame, 10, y + PLAYER_H + 1)
-        player = ExchangePlayer(color=color, role_indicator=indicator)
+        player = ExchangePlayer(color=color, shape=shape, role_indicator=indicator)
 
         if section == "leaders":
             result.leaders.append(player)

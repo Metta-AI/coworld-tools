@@ -114,6 +114,7 @@ class SpeechBubble:
     screen_x: int  # Top-left x of the player sprite (not the bubble)
     screen_y: int  # Top-left y of the player sprite
     player_color: int  # Color read from sprite center pixel
+    player_shape: PlayerShape | None = None  # Shape classification (None if failed)
 
 
 @dataclass
@@ -130,6 +131,7 @@ class ChatMessage:
     """A single visible chat message line."""
 
     sender_color: int | None  # Player color (None for system messages)
+    sender_shape: PlayerShape | None  # Shape classification (None for system/failed)
     is_system: bool  # True if rendered in color 8
     text: str  # OCR'd text content (best-effort)
     y_position: int  # Screen y where this message is drawn
@@ -148,6 +150,7 @@ class KnownPlayer:
     """A player entry from the info screen."""
 
     color: int  # Player's palette color
+    shape: PlayerShape | None  # Shape classification (None if failed)
     role_name: str | None  # Role name if fully revealed
     team_color: int | None  # Team color from indicator or dot
     is_self: bool  # First entry is always self
@@ -160,6 +163,7 @@ class UsurpCandidate:
 
     text: str | None = None  # "NONE", "ME", or None if showing a sprite
     player_color: int | None = None  # Player color if showing a sprite
+    player_shape: PlayerShape | None = None  # Shape classification if sprite
 
 
 @dataclass
@@ -178,6 +182,7 @@ class ExchangePlayer:
     """A player shown in the hostage exchange screen."""
 
     color: int  # Player color from sprite
+    shape: PlayerShape | None = None  # Shape classification
     role_indicator: RoleIndicator | None = None
 
 
@@ -227,9 +232,11 @@ class ChatroomPerception:
     """Symbolic data extracted from the chatroom view."""
 
     occupant_colors: list[int] = field(default_factory=list)
+    occupant_shapes: list[PlayerShape | None] = field(default_factory=list)
     messages: list[ChatMessage] = field(default_factory=list)
     has_pending_entry: bool = False
     pending_entry_color: int | None = None
+    pending_entry_shape: PlayerShape | None = None
     bottom_bar: ChatroomBarState = ChatroomBarState.DEFAULT
     # Default bar indicators
     pending_role_offer: bool = False

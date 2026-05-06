@@ -41,12 +41,6 @@ Key gotcha: the standard 27-action bitworld space omits Select, which
 gates global chat access, usurp voting, and hostage commit -- direct
 WebSocket agents should use the full 7-button mask.
 
-### [AGENT_DESIGN_NOTES.md](AGENT_DESIGN_NOTES.md) -- Institutional Knowledge
-
-Accumulated technical and strategic insights from building and testing
-agents. Updated as we learn what works, what fails, and why. Consult
-this before starting new agent work.
-
 ## Scripts
 
 ### `run_agents.py` -- Universal Agent Runner
@@ -129,6 +123,8 @@ python scripts/render_frame.py tests/fixtures/playing_round1.npy \
 
 ## Writing a New Agent
 
+### Standalone agents (raw policy)
+
 Create a directory under `agents/` with a `policy.py` file:
 
 ```
@@ -144,13 +140,22 @@ The `policy.py` contract:
 - Optional module-level `AGENT_ID` and `DESCRIPTION` constants for
   metadata (shown by `run_agents.py --list`)
 
+### Orpheus-based agents
+
+Agents built on the Orpheus framework define modes and a `meta_decide`
+function rather than a raw policy loop. See
+[orpheus/README.md](orpheus/README.md) for an overview and
+[orpheus/DESIGN.md](orpheus/DESIGN.md) for the full specification.
+(Implementation not yet available — design phase.)
+
 ### Perception Module
 
-Python agents can use the shared `perception/` module for frame parsing:
+Python agents can use the perception module (now at
+`orpheus/perception/`) for frame parsing:
 
 ```python
-from perception import parse_frame
-from perception.types import View
+from orpheus.perception import parse_frame
+from orpheus.perception.types import View
 
 result = parse_frame(raw_frame_bytes)
 if result.view == View.PLAYING:
@@ -163,7 +168,8 @@ lobby, role reveal, playing, hostage select, leader summit, hostage
 exchange, whisper (private chatroom), global chat (shout), info screen,
 waiting entry, reveal, and game over. See
 [docs/DESIGN_perception.md](docs/DESIGN_perception.md) for the full
-design and `perception/types.py` for output dataclass definitions.
+design and `orpheus/perception/types.py` for output dataclass
+definitions.
 
 #### Testing the Perception Module
 
@@ -172,30 +178,41 @@ are real frames captured from a running game server, stored in
 `tests/fixtures/`. Run with:
 
 ```bash
-PYTHONPATH=persephone .venv/bin/python -m pytest persephone/tests/ -v
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 ```
+
+**Note**: test imports currently reference the old `perception` path and
+need updating to `orpheus.perception`. See TODO.md.
 
 To capture new frames and add fixtures:
 
 ```bash
 # Capture frames from a live game
-.venv/bin/python persephone/scripts/capture.py \
+.venv/bin/python scripts/capture.py \
     --launch-server --seed 42 --fillers 9 --duration 30 \
     --output /tmp/capture
 
 # View the timeline of detected views
-.venv/bin/python persephone/scripts/view_timeline.py /tmp/capture.jsonl
+.venv/bin/python scripts/view_timeline.py /tmp/capture.jsonl
 
 # Extract a specific frame as a test fixture
-.venv/bin/python persephone/scripts/extract_fixture.py \
+.venv/bin/python scripts/extract_fixture.py \
     --input /tmp/capture.npy --tick 200 --name my_fixture
 
 # Render a frame to PNG for visual inspection
-.venv/bin/python persephone/scripts/render_frame.py \
-    persephone/tests/fixtures/my_fixture.npy --scale 4 -o /tmp/frame.png
+.venv/bin/python scripts/render_frame.py \
+    tests/fixtures/my_fixture.npy --scale 4 -o /tmp/frame.png
 ```
 
 ## Agents
+
+### [Orpheus framework](orpheus/)
+
+Agent framework (design phase). Provides perception, belief state,
+task execution, a hook system, and an async outer loop for mode
+selection. Agents built on Orpheus define modes and a `meta_decide`
+function rather than a raw `policy.py`. See
+[orpheus/DESIGN.md](orpheus/DESIGN.md) for the full specification.
 
 ### [baseline](agents/baseline/)
 
@@ -208,18 +225,4 @@ chatroom status). Serves as the reference baseline for comparison.
 
 **Results**: *No test results yet.*
 
-### [orpheus](agents/orpheus/)
 
-**Description**: LLM-driven dual-loop agent. A fast loop (24 FPS)
-handles perceive -> update belief -> act, where the action depends on
-the currently active "task." A separate, slower background loop queries
-an LLM with the belief state to set which task the fast loop executes.
-Tasks are coarse-grained multi-frame behaviors (explore, pursue player,
-open chatroom, execute menu sequences, etc.) so the LLM reasons at
-the strategic level while the fast loop handles frame-level execution.
-The `chat_and_observe` task blocks the fast loop to synchronously
-generate chat via LLM. Includes a full JSONL tracing system for
-post-mortem debugging. LLM provider is configurable (Anthropic, OpenAI,
-Bedrock, or a deterministic stub for testing).
-
-**Results**: *No test results yet.*

@@ -17,7 +17,7 @@ from ._common import (
 )
 from ._indicators import parse_role_indicator
 from ._ocr import normalize_text, read_text_any_color, read_text_at
-from ._sprites import read_sprite_color
+from ._sprites import detect_sprite_shape, read_sprite_color
 from .types import InfoMode, InfoScreenPerception, KnownPlayer
 
 
@@ -83,6 +83,9 @@ def _parse_shared_mode(frame: np.ndarray, result: InfoScreenPerception) -> None:
         if color is None:
             break  # No more entries
 
+        # Classify sprite shape for full player identification
+        shape = detect_sprite_shape(frame, _INFO_SPRITE_X, y)
+
         # Read role text at (15, y+2)
         text_result = read_text_any_color(frame, _INFO_TEXT_X, y + 2)
 
@@ -108,6 +111,7 @@ def _parse_shared_mode(frame: np.ndarray, result: InfoScreenPerception) -> None:
 
         result.known_players.append(KnownPlayer(
             color=color,
+            shape=shape,
             role_name=role_name,
             team_color=team_color,
             is_self=(row == 0),
