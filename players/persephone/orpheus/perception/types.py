@@ -20,6 +20,7 @@ class View(Enum):
     """Which view/phase is currently displayed in the frame."""
 
     ROLE_REVEAL = "role_reveal"
+    ROSTER_REVEAL = "roster_reveal"
     LOBBY = "lobby"
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
@@ -158,6 +159,16 @@ class KnownPlayer:
 
 
 @dataclass
+class RosterEntry:
+    """A single player entry from the roster reveal screen."""
+
+    color: int  # Player's palette color
+    shape: PlayerShape | None  # Shape classification
+    room: Room  # Which room they're assigned to
+    label: str | None = None  # Text label if OCR'd (e.g. "R.CRCL")
+
+
+@dataclass
 class UsurpCandidate:
     """Current usurp candidate shown in the global chat selector."""
 
@@ -288,6 +299,14 @@ class RoleRevealPerception:
 
 
 @dataclass
+class RosterRevealPerception:
+    """Symbolic data extracted from the roster reveal screen."""
+
+    players: list[RosterEntry] = field(default_factory=list)
+    countdown_secs: int | None = None
+
+
+@dataclass
 class ExchangePerception:
     """Symbolic data extracted from the hostage exchange screen."""
 
@@ -336,6 +355,7 @@ class FramePerception:
     global_chat: GlobalChatPerception | None = None
     info_screen: InfoScreenPerception | None = None
     role_reveal: RoleRevealPerception | None = None
+    roster_reveal: RosterRevealPerception | None = None
     exchange: ExchangePerception | None = None
     result: ResultPerception | None = None
     lobby: LobbyPerception | None = None

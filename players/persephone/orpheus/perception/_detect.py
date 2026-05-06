@@ -18,8 +18,11 @@ from ._common import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
-from ._ocr import normalize_text, read_text_at
+from ._ocr import GLYPH_H, normalize_text, read_text_at
 from .types import View
+
+
+_COLOR_ROOM_B_HEADER = 11
 
 
 def detect_view(frame: np.ndarray) -> View:
@@ -38,6 +41,11 @@ def detect_view(frame: np.ndarray) -> View:
     if border0 != 0 and border0 == border2:
         inner = int(frame[4, 4])
         if inner == 0:
+            if border0 == COLOR_HUD_NORMAL:
+                if _row_contains_any(frame, 6, COLOR_HUD_NORMAL, ("PLAYER", "ROSTER")):
+                    return View.ROSTER_REVEAL
+                if _has_roster_column_headers(frame):
+                    return View.ROSTER_REVEAL
             return View.ROLE_REVEAL  # Black interior = intro screen
         else:
             return View.INFO_SCREEN  # Non-black interior = info view
@@ -118,3 +126,44 @@ def detect_view(frame: np.ndarray) -> View:
 
     # Step 9: Fallback
     return View.UNKNOWN
+
+
+def _has_roster_column_headers(frame: np.ndarray) -> bool:
+    """Return True if the intro roster room headers are visible."""
+    has_underworld = _row_contains_any(
+        frame,
+        17,
+        COLOR_HUD_ALERT,
+        ("UNDERWORLD", "UNDER"),
+        max_chars=12,
+    )
+    has_mortal = _row_contains_any(
+        frame,
+        17,
+        _COLOR_ROOM_B_HEADER,
+        ("MORTAL", "REALM"),
+        max_chars=14,
+    )
+    return has_underworld and has_mortal
+
+
+def _row_contains_any(
+    frame: np.ndarray,
+    y: int,
+    color: int,
+    needles: tuple[str, ...],
+    max_chars: int = 16,
+) -> bool:
+    """Scan a text row for any expected OCR substring."""
+    if y < 0 or y + GLYPH_H > SCREEN_HEIGHT:
+        return False
+
+    upper_needles = tuple(n.upper() for n in needles)
+    for x in range(4, SCREEN_WIDTH - 6):
+        text = read_text_at(frame, x, y, color, max_chars)
+        if not text:
+            continue
+        norm = normalize_text(text).strip().upper()
+        if any(needle in norm for needle in upper_needles):
+            return True
+    return False

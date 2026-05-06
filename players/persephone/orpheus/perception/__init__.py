@@ -28,6 +28,7 @@ from ._lobby import parse_lobby
 from ._overworld import parse_overworld
 from ._result import parse_result
 from ._role_reveal import parse_role_reveal
+from ._roster_reveal import parse_roster_reveal
 from ._unpack import unpack_frame
 from .types import FramePerception, View
 
@@ -71,6 +72,9 @@ def parse_frame(
 
     elif view == View.ROLE_REVEAL:
         result.role_reveal = parse_role_reveal(frame)
+
+    elif view == View.ROSTER_REVEAL:
+        result.roster_reveal = parse_roster_reveal(frame)
 
     elif view == View.PLAYING:
         result.overworld = parse_overworld(frame, room_size)

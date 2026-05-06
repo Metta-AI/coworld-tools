@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from perception import parse_frame
+from perception._detect import detect_view
 from perception._unpack import unpack_frame
 from perception._ocr import (
     read_text_at,
@@ -16,8 +18,17 @@ from perception._ocr import (
     GLYPH_H,
     CHAR_ADVANCE,
     SPACE_WIDTH,
+    measure_text,
 )
-from perception._common import SCREEN_WIDTH, SCREEN_HEIGHT, PROTOCOL_BYTES
+from perception._common import (
+    PLAYER_H,
+    PLAYER_W,
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    PROTOCOL_BYTES,
+)
+from perception._sprites import _RAW_TEMPLATES
+from perception.types import PlayerShape, Room, View
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +131,80 @@ def _render_text_safe(text: str, x: int, y: int, color: int) -> np.ndarray:
     return frame
 
 
+def _draw_text(frame: np.ndarray, text: str, x: int, y: int, color: int) -> None:
+    """Draw text into an existing frame."""
+    rendered = _render_text_safe(text, x, y, color)
+    mask = rendered != 0
+    frame[mask] = rendered[mask]
+
+
+def _draw_centered_text(frame: np.ndarray, text: str, y: int, color: int) -> None:
+    """Draw centered text into an existing frame."""
+    x = (SCREEN_WIDTH - measure_text(text)) // 2
+    _draw_text(frame, text, x, y, color)
+
+
+def _draw_double_border(frame: np.ndarray, color: int) -> None:
+    """Draw the intro-screen double border."""
+    frame[0, :] = color
+    frame[-1, :] = color
+    frame[:, 0] = color
+    frame[:, -1] = color
+    frame[2, 2:-2] = color
+    frame[-3, 2:-2] = color
+    frame[2:-2, 2] = color
+    frame[2:-2, -3] = color
+
+
+def _draw_sprite(
+    frame: np.ndarray,
+    shape: PlayerShape,
+    color: int,
+    x: int,
+    y: int,
+) -> None:
+    """Draw a player sprite into an existing frame."""
+    template = _RAW_TEMPLATES[shape]
+    for dy in range(PLAYER_H):
+        for dx in range(PLAYER_W):
+            value = template[dy][dx]
+            if value == 2:
+                frame[y + dy, x + dx] = color
+            elif value == 1:
+                frame[y + dy, x + dx] = 1
+
+
+def _render_roster_reveal_frame() -> np.ndarray:
+    """Render a synthetic roster reveal frame."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_double_border(frame, 2)
+    _draw_centered_text(frame, "PLAYER ROSTER", 6, 2)
+    _draw_text(frame, "UNDERWORLD", 5, 17, 8)
+    _draw_text(frame, "MORTAL REALM", 67, 17, 11)
+
+    left_entries = [
+        (3, PlayerShape.CIRCLE, "R.CRCL"),
+        (8, PlayerShape.RING, "Y.RING"),
+    ]
+    right_entries = [
+        (14, PlayerShape.SQUARE, "B.SQR"),
+        (10, PlayerShape.TRIANGLE, "G.TRI"),
+    ]
+
+    for idx, (color, shape, label) in enumerate(left_entries):
+        y = 25 + idx * 15
+        _draw_sprite(frame, shape, color, 5, y)
+        _draw_text(frame, label, 14, y + 1, 1)
+
+    for idx, (color, shape, label) in enumerate(right_entries):
+        y = 25 + idx * 15
+        _draw_sprite(frame, shape, color, 67, y)
+        _draw_text(frame, label, 76, y + 1, 1)
+
+    _draw_centered_text(frame, "NEXT IN 7", 118, 2)
+    return frame
+
+
 class TestOCR:
     def test_read_single_char(self):
         """Read a single character."""
@@ -194,3 +279,35 @@ class TestOCR:
         result = read_text_at(frame, 2, 2, 2)
         normalized = normalize_digits(result)
         assert normalized == "128"
+
+
+# ---------------------------------------------------------------------------
+# Roster reveal tests
+# ---------------------------------------------------------------------------
+
+
+class TestRosterReveal:
+    def test_detects_roster_reveal(self):
+        """Double-border roster screen is not misclassified as role reveal."""
+        frame = _render_roster_reveal_frame()
+
+        assert detect_view(frame) == View.ROSTER_REVEAL
+
+    def test_parse_frame_extracts_roster_entries(self):
+        """Roster parser extracts player color, shape, room, label, countdown."""
+        frame = _render_roster_reveal_frame()
+
+        result = parse_frame(frame)
+
+        assert result.view == View.ROSTER_REVEAL
+        assert result.roster_reveal is not None
+        assert result.roster_reveal.countdown_secs == 7
+
+        players = result.roster_reveal.players
+        assert len(players) == 4
+        assert [(p.color, p.shape, p.room, p.label) for p in players] == [
+            (3, PlayerShape.CIRCLE, Room.UNDERWORLD, "R.CRCL"),
+            (8, PlayerShape.RING, Room.UNDERWORLD, "Y.RING"),
+            (14, PlayerShape.SQUARE, Room.MORTAL_REALM, "B.SQR"),
+            (10, PlayerShape.TRIANGLE, Room.MORTAL_REALM, "G.TRI"),
+        ]
