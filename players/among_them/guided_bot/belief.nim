@@ -256,7 +256,8 @@ proc ensureTaskSlotsInitialized*(belief: var Belief) =
       checkout: false,
       iconVisibleTick: -1,
       iconMissCount: 0,
-      resolvedNotMine: false)
+      resolvedNotMine: false,
+      radarExclusionCount: 0)
   belief.tasks.initialized = true
 
 proc resetTaskSlots*(belief: var Belief) =
@@ -268,7 +269,8 @@ proc resetTaskSlots*(belief: var Belief) =
       checkout: false,
       iconVisibleTick: -1,
       iconMissCount: 0,
-      resolvedNotMine: false)
+      resolvedNotMine: false,
+      radarExclusionCount: 0)
   belief.tasks.inProgressIndex = -1
 
 proc findIconForStation(stationIdx: int, station: TaskStation,
@@ -344,7 +346,10 @@ proc updateTaskState*(belief: var Belief, tick: int,
 
     # --- Radar-dot checkout (needs camera for projection) ---
     if localized:
-      let (projX, projY) = projectedRadarDot(station, camX, camY)
+      let selfX = belief.percep.selfX
+      let selfY = belief.percep.selfY
+      let (projX, projY) = projectedRadarDot(station, camX, camY,
+                                             selfX, selfY)
       var matched = false
       for dot in belief.percep.radarDots:
         if abs(dot.x - projX) <= RadarMatchTolerance and
@@ -353,5 +358,30 @@ proc updateTaskState*(belief: var Belief, tick: int,
           break
       if matched:
         belief.tasks.slots[i].checkout = true
+        belief.tasks.slots[i].radarExclusionCount = 0
         if belief.tasks.slots[i].state == TaskNotDoing:
           belief.tasks.slots[i].state = TaskCheckout
+
+      # --- Radar-ray exclusion (negative evidence from missing dots) ---
+      if not isAliveImposter:
+        # Only run exclusion when the task is off-screen (on-screen tasks
+        # show icons, not dots).
+        let offScreen = not taskIconOnScreen(station, camX, camY, 0)
+        if offScreen and belief.percep.radarDots.len >= RadarExclusionMinDots:
+          var nearEnough = false
+          for dot in belief.percep.radarDots:
+            if abs(dot.x - projX) <= RadarExclusionDistance and
+               abs(dot.y - projY) <= RadarExclusionDistance:
+              nearEnough = true
+              break
+          if not nearEnough:
+            if belief.tasks.slots[i].radarExclusionCount < RadarExclusionFrames:
+              belief.tasks.slots[i].radarExclusionCount += 1
+            # Saturate at threshold — selectTarget() tier-3 checks this.
+          else:
+            belief.tasks.slots[i].radarExclusionCount = 0
+        else:
+          # On-screen or no dots: reset counter (can't judge).
+          belief.tasks.slots[i].radarExclusionCount = 0
+    else:
+      belief.tasks.slots[i].radarExclusionCount = 0

@@ -121,12 +121,16 @@ proc selectTarget(belief: Belief,
     return bestIdx
 
   # Tier 3: unresolved stations (geometry fallback).
+  # Skip tasks soft-excluded by radar-ray evidence (count saturated at
+  # threshold). These re-enter tier-3 when the bot moves and the counter
+  # resets, or immediately enter tier-2 when a checkout match fires.
   bestDist = high(int)
   bestIdx = -1
   for i in 0 ..< tasks.len:
     if i >= nSlots: break
     let slot = belief.tasks.slots[i]
-    if slot.state != TaskCompleted and not slot.resolvedNotMine:
+    if slot.state != TaskCompleted and not slot.resolvedNotMine and
+       slot.radarExclusionCount < RadarExclusionFrames:
       let (cx, cy) = taskStationWorldCenter(tasks[i])
       let d = heuristic(selfX, selfY, cx, cy)
       if d < bestDist:

@@ -123,10 +123,11 @@ The mode's three-phase state machine, tracked in scratch via
 - **Duration:** `TaskHoldTicks` (84 ticks, ~3.5s). The server accepts
   the task within ~72 ticks; the 12-tick pad ensures the hold is never
   released prematurely.
-- **Negative evidence:** Hold does not shield the locked station from
-  `resolvedNotMine` pruning. Task icons render above the station rect,
-  while the A-press animation stays inside the rect, so missing icons
-  during Hold are valid evidence that this station is not ours.
+- **Negative evidence:** Hold shields only icon-confirmed targets from
+  `resolvedNotMine` pruning. If the locked station is already
+  `TaskConfirmed`, icon disappearance during Hold is treated as likely
+  server acceptance. Checkout-only holds (no icon ever seen) remain
+  unshielded so wrong-task detection still prunes quickly.
 - **Exit condition:** `tcHoldRemaining` decrements to 0.
 - **On entry:** sets `tcHoldRemaining = TaskHoldTicks`,
   `tcHoldStartTick = belief.tick`.
@@ -192,13 +193,14 @@ TaskSlot = object
   iconVisibleTick: int    # Last tick an icon was seen at this station.
   iconMissCount: int      # Consecutive icon-absent frames while on-screen.
   resolvedNotMine: bool   # Negative evidence: station inspected, no icon.
+  radarExclusionCount: int # Consecutive off-screen frames with no matching dot.
 ```
 
 Implementation in `types.nim:366-378`.
 
 ### 5.2 State transitions (updateTaskState)
 
-Run every gameplay frame in `belief.nim:266-331`. For each station `i`:
+Run every gameplay frame in `belief.nim:266-386`. For each station `i`:
 
 1. **Icon visible?** Check whether any `visibleTaskIcons` entry matches
    the station (icon world position within 16 px margin of station rect).
@@ -211,13 +213,20 @@ Run every gameplay frame in `belief.nim:266-331`. For each station `i`:
 2. **Negative evidence.** If `iconMissCount >= TaskIconMissResolveFrames`
    (2) and the station is not currently being confirmed:
    `resolvedNotMine = true`, `checkout = false`, `state = TaskNotDoing`.
-   Hold-phase targets are intentionally not shielded, because the task
-   icon remains visible above the station rect during the A-press.
+   Hold-phase targets are shielded only when already `TaskConfirmed`;
+   checkout-only holds remain unshielded.
 
 3. **Radar-dot checkout.** If a radar dot matches the station's
    projected screen-edge position (Chebyshev distance ≤
    `RadarMatchTolerance = 2`): `checkout = true`. If state was
-   `TaskNotDoing`, promote to `TaskCheckout`.
+   `TaskNotDoing`, promote to `TaskCheckout`. This also resets
+   `radarExclusionCount`.
+
+4. **Radar-ray exclusion.** If the station is off-screen and its
+   projected screen-edge position is far from every detected radar dot
+   for `RadarExclusionFrames` consecutive frames, mark it
+   `resolvedNotMine = true`, clear checkout, and return it to
+   `TaskNotDoing`.
 
 ### 5.3 Skips
 
@@ -227,12 +236,61 @@ Run every gameplay frame in `belief.nim:266-331`. For each station `i`:
 - Stations at `TaskCompleted` or `resolvedNotMine`: skip (terminal
   states within a round).
 
-### 5.4 Round reset
+### 5.4 Radar-ray exclusion (negative evidence from dot absence)
+
+In addition to icon-miss pruning (§5.2) which requires the task to be
+on-screen, the belief layer proactively excludes off-screen tasks using
+radar dot absence.
+
+**Principle:** the server draws a yellow radar dot on the screen edge
+for every assigned off-screen task. If a task's projected dot position
+is far from ALL detected dots for multiple consecutive frames, the task
+cannot be assigned to us.
+
+**Algorithm** (runs per-frame in `updateTaskState`, after the checkout
+pass):
+
+1. Skip if: not localized, alive imposter, task on-screen, or fewer
+   than `RadarExclusionMinDots` (1) dots detected.
+2. Compute the task's projected dot position via `projectedRadarDot`
+   (ray-clip from player screen pos to icon screen pos, clipped to
+   viewport boundary).
+3. Find the nearest detected dot (Chebyshev distance).
+4. If nearest > `RadarExclusionDistance` (8 px): increment
+   `radarExclusionCount` (saturates at `RadarExclusionFrames`).
+5. If nearest ≤ threshold: reset counter to 0.
+6. When counter reaches `RadarExclusionFrames` (12): the task is
+   **soft-excluded** from tier-3 target selection. Unlike icon-miss,
+   this does NOT set `resolvedNotMine` — the exclusion is reversible.
+   The task re-enters tier-3 when the counter resets (bot moves, dot
+   aligns again). Tier-1 (icon) and tier-2 (checkout) ignore the
+   counter entirely.
+
+**Shielding:** not needed — soft exclusion does not permanently latch
+state; the counter naturally resets when evidence changes.
+
+**Resets:** counter resets on: round reset, checkout latch fires (dot
+matched), task comes on-screen, localization loss.
+
+**Why soft?** Radar-ray evidence is positional: from the bot's current
+location a task's direction doesn't match any dot. But as the bot moves
+angles change, and a previously-excluded task may align with a dot from
+a new position. Permanent exclusion causes deadlocks when the dot set
+shrinks (tasks completed → fewer dots → remaining tasks falsely excluded
+from earlier positions).
+
+**Parameters** (in `tuning.nim`):
+- `RadarExclusionDistance = 8` — 4× match tolerance; conservative.
+- `RadarExclusionFrames = 12` — ~0.5s at 24 Hz.
+- `RadarExclusionMinDots = 1` — safety: don't exclude with 0 dots.
+
+### 5.5 Round reset
 
 On role-reveal interstitial: `resetTaskSlots` clears all slots to
-`TaskNotDoing`, clears `checkout`, `resolvedNotMine`, `iconMissCount`.
+`TaskNotDoing`, clears `checkout`, `resolvedNotMine`, `iconMissCount`,
+and `radarExclusionCount`.
 
-### 5.5 Mode-belief interaction
+### 5.6 Mode-belief interaction
 
 The mode doesn't write to `belief.tasks` directly (DESIGN.md §3
 invariant: belief updated only by the perceive/update stage). The mode
@@ -310,10 +368,12 @@ pipeline scans them every frame (`perception/tasks.nim:scanRadarDots`).
 
 ### 7.1 Matching radar dots to stations
 
-For each station, compute its projected radar-dot position: the point
-on the screen border closest to the station's world position from the
-current camera. Uses `projectedRadarDot` in
-`perception/geometry.nim`.
+For each station, compute its projected radar-dot position with
+`projectedRadarDot(station, camX, camY, playerWx, playerWy)` in
+`perception/geometry.nim`. The projection uses the player's screen
+position as the ray origin and clips the ray from player to task-icon
+centre against the viewport boundary, matching the server's radar-dot
+algorithm for diagonal off-screen tasks.
 
 A dot matches station `i` if any dot in `belief.percep.radarDots` is
 within Chebyshev distance `RadarMatchTolerance = 2` of the projected
@@ -422,6 +482,9 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 | `TaskIconMissResolveFrames` | 2 | Consecutive icon-absent frames for "not mine" pruning. |
 | `TaskClearScreenMargin` | 8 | Pixel margin for "icon area fully on-screen" check. |
 | `RadarMatchTolerance` | 2 | Chebyshev distance for radar-dot → station matching. |
+| `RadarExclusionDistance` | 8 | Chebyshev distance above which a projected dot counts absent. |
+| `RadarExclusionFrames` | 12 | Consecutive absent-dot frames before excluding a station. |
+| `RadarExclusionMinDots` | 1 | Minimum detected radar dots required before exclusion can run. |
 | `TaskCommitTicks` | 48 | Hysteresis: keep target for at least ~2s before reconsidering. |
 | `TaskReEvalPeriodTicks` | 24 | Minimum interval between post-hysteresis Navigate re-evaluations (~1s). |
 | `TaskSwitchDistanceRatio` | 0.5 | Same-tier switch threshold: candidate must be less than half the current distance. |

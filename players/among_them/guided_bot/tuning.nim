@@ -45,6 +45,9 @@ const
                                      ## matching is strict, and on-screen gating filters edge cases.
   TaskClearScreenMargin*      = 8    ## Pixel margin for "icon area fully on-screen" check.
   RadarMatchTolerance*        = 2    ## Chebyshev distance for radar-dot → station matching.
+  RadarExclusionDistance*     = 8    ## Chebyshev px: projected pos must be > this from ALL dots to count.
+  RadarExclusionFrames*       = 12   ## Consecutive qualifying frames before exclusion fires (~0.5s).
+  RadarExclusionMinDots*      = 1    ## Minimum detected dots required to run exclusion logic.
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
   TaskReEvalPeriodTicks*      = 24   ## After hysteresis, reconsider locked Navigate targets at most this often (~1s).
   TaskSwitchDistanceRatio*    = 0.5  ## Same-tier switch only when candidate distance is below this fraction of current distance.

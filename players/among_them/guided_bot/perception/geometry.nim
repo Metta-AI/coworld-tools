@@ -78,6 +78,9 @@ proc cameraHeight*(): int {.inline.} =
 proc clamp(v, lo, hi: int): int {.inline.} =
   if v < lo: lo elif v > hi: hi else: v
 
+proc clamp(v, lo, hi: float): float {.inline.} =
+  if v < lo: lo elif v > hi: hi else: v
+
 proc buttonCameraX*(map: GameMap): int =
   ## Initial camera X guess centred on the emergency button. Clamped
   ## to the camera-range so off-edge buttons don't push the seed past
@@ -172,14 +175,46 @@ proc taskIconOnScreen*(station: TaskStation,
   sy + SpriteSize <= ScreenHeight - margin
 
 proc projectedRadarDot*(station: TaskStation,
-                        camX, camY: int): (int, int) =
-  ## Where the server would draw a radar dot for this station. The
-  ## dot is clamped to the screen border. Used for radar-dot → task
-  ## checkout matching. See TASK_COMPLETING_DESIGN.md §5.1.
-  let wx = station.x + station.w div 2
-  let wy = station.y + station.h div 2
-  let sx = wx - camX - SpriteDrawOffX
-  let sy = wy - camY - SpriteDrawOffY
-  let cx = clamp(sx, 0, ScreenWidth - 1)
-  let cy = clamp(sy, 0, ScreenHeight - 1)
-  (cx, cy)
+                        camX, camY: int,
+                        playerWx, playerWy: int): (int, int) =
+  ## Where the server would draw a radar dot for this off-screen station.
+  ## Uses ray-clip from player screen position to icon screen position,
+  ## matching the server's projection algorithm faithfully.
+  ## See pixel_pipeline.py:258-320 for the Python reference port.
+  let iconSx = station.x + station.w div 2 - SpriteSize div 2 - camX
+  let iconSy = station.y - SpriteSize - 2 - camY
+  let iconX = iconSx + SpriteSize div 2
+  let iconY = iconSy + SpriteSize div 2
+
+  # If icon is on-screen, the server draws the icon, not a dot.
+  # Caller should check taskIconOnScreen() first; this returns the
+  # icon centre for convenience but it's not a dot position.
+  if iconSx + SpriteSize > 0 and iconSy + SpriteSize > 0 and
+     iconSx < ScreenWidth and iconSy < ScreenHeight:
+    return (iconX, iconY)
+
+  let px = float(playerWx - camX)
+  let py = float(playerWy - camY)
+  let dx = float(iconX) - px
+  let dy = float(iconY) - py
+
+  if abs(dx) < 0.5 and abs(dy) < 0.5:
+    return (0, 0)
+
+  var ex, ey: float
+  if abs(dx) > abs(dy):
+    ex = if dx > 0.0: float(ScreenWidth - 1) else: 0.0
+    ey = py + dy * (ex - px) / dx
+    ey = clamp(ey, 0.0, float(ScreenHeight - 1))
+  else:
+    ey = if dy > 0.0: float(ScreenHeight - 1) else: 0.0
+    ex = px + dx * (ey - py) / dy
+    ex = clamp(ex, 0.0, float(ScreenWidth - 1))
+  (int(ex), int(ey))
+
+proc projectedRadarDot*(station: TaskStation,
+                        camX, camY: int): (int, int) {.deprecated.} =
+  ## Backward-compatible wrapper for older callers that infer player
+  ## position from the camera lock.
+  projectedRadarDot(station, camX, camY,
+                    playerWorldX(camX), playerWorldY(camY))
