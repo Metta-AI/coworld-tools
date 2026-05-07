@@ -23,7 +23,7 @@ from orpheus.task import Task
 from orpheus.types import View
 
 
-def _wait_until(predicate, timeout: float = 0.5) -> bool:
+def _wait_until(predicate, timeout: float = 2.0) -> bool:
     """Poll a predicate until it succeeds or timeout elapses."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -175,7 +175,7 @@ def test_belief_buffer_thread_safety_basic() -> None:
             while not stop.is_set():
                 buffer.push(BeliefState(tick=tick), ActionMemory())
                 tick += 1
-                time.sleep(0.005)
+                stop.wait(0.005)
         except BaseException as exc:
             exceptions.append(exc)
 
@@ -196,7 +196,7 @@ def test_belief_buffer_thread_safety_basic() -> None:
     for thread in threads:
         thread.start()
     try:
-        time.sleep(0.2)
+        assert _wait_until(lambda: bool(received))
     finally:
         stop.set()
         for thread in threads:
@@ -217,7 +217,7 @@ def test_mode_buffer_thread_safety() -> None:
         try:
             while not stop.is_set():
                 buffer.push(ModeDirective(mode="idle", params=ModeParams()))
-                time.sleep(0.005)
+                stop.wait(0.005)
         except BaseException as exc:
             exceptions.append(exc)
 
@@ -228,7 +228,7 @@ def test_mode_buffer_thread_safety() -> None:
                 if entry is not None:
                     directive, _ = entry
                     received.append(directive.mode)
-                time.sleep(0.005)
+                stop.wait(0.005)
         except BaseException as exc:
             exceptions.append(exc)
 
@@ -239,7 +239,7 @@ def test_mode_buffer_thread_safety() -> None:
     for thread in threads:
         thread.start()
     try:
-        time.sleep(0.2)
+        assert _wait_until(lambda: bool(received))
     finally:
         stop.set()
         for thread in threads:
@@ -506,13 +506,13 @@ def test_outer_loop_pipeline_round_trip(pipeline_factory) -> None:
             _tick(pipeline)
         assert _wait_until(
             lambda: mode_buffer.has_entry() or pipeline.current_mode_name == "fallback_mode",
-            timeout=0.5,
         )
-        for _ in range(5):
+        def consumed_fallback_directive() -> bool:
             if pipeline.current_mode_name == "fallback_mode":
-                break
+                return True
             _tick(pipeline)
-            time.sleep(0.02)
-        assert pipeline.current_mode_name == "fallback_mode"
+            return pipeline.current_mode_name == "fallback_mode"
+
+        assert _wait_until(consumed_fallback_directive)
     finally:
         outer_loop.stop()

@@ -7,6 +7,7 @@ import numpy as np
 from orpheus import belief_update
 from orpheus.belief_state import BeliefState
 from orpheus.occupancy_grid import (
+    ROOM_A_FLOOR_COLORS,
     WALL_COLOR,
     CellState,
     OccupancyGrid,
@@ -120,6 +121,33 @@ def test_update_from_viewport_marks_wall_pixel() -> None:
     gx, gy = grid.world_to_grid(40, 40)
     assert grid.get(gx, gy) == CellState.WALL
     assert bool(grid.viewport_confirmed[gy, gx]) is True
+
+
+def test_viewport_wall_mapping_feeds_a_star_detour() -> None:
+    """A* avoids walls discovered from viewport pixels."""
+    grid = OccupancyGrid((100, 100), resolution=2)
+    frame = np.full((128, 128), ROOM_A_FLOOR_COLORS[0], dtype=np.uint8)
+    wall_world_x = 40
+    gap_world_y = 50
+
+    for world_y in range(10, 90):
+        if abs(world_y - gap_world_y) <= 2:
+            continue
+        frame[world_y + 9, wall_world_x] = WALL_COLOR
+
+    grid.update_from_viewport((50, 50), frame, Room.UNDERWORLD)
+
+    path = a_star(grid, (20, 50), (80, 50), expansion=0)
+
+    assert path is not None
+    wall_gx = grid.world_to_grid(wall_world_x, gap_world_y)[0]
+    gap_gys = {
+        grid.world_to_grid(wall_world_x, y)[1]
+        for y in range(gap_world_y - 2, gap_world_y + 3)
+    }
+    crossed_cells = [grid.world_to_grid(x, y) for x, y in path]
+    assert any(gx == wall_gx and gy in gap_gys for gx, gy in crossed_cells)
+    assert all(gx != wall_gx or gy in gap_gys for gx, gy in crossed_cells)
 
 
 def test_update_from_minimap_preserves_viewport_confirmed_free() -> None:

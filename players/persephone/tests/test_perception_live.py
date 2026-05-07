@@ -9,17 +9,17 @@ See scripts/capture.py, scripts/view_timeline.py, and
 scripts/extract_fixture.py for the capture and curation workflow.
 
 Run:
-    PYTHONPATH=persephone pytest persephone/tests/test_perception_live.py -v
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_perception_live.py -v
 """
 
 from __future__ import annotations
 
 import pytest
 
-from perception import parse_frame
-from perception.types import View
+from orpheus.perception import parse_frame
+from orpheus.perception.types import View
 
-from conftest import (
+from tests.conftest import (
     FixtureData,
     all_fixtures,
     assert_field,
@@ -28,6 +28,16 @@ from conftest import (
     fixtures_for_view,
     load_manifest,
 )
+
+
+def _fixtures_for_view_or_skip(
+    view: str,
+    reason: str,
+) -> tuple[list[FixtureData | pytest.ParameterSet], list[str]]:
+    fixtures = fixtures_for_view(view)
+    if fixtures:
+        return fixtures, fixture_ids(fixtures)
+    return [pytest.param(None, marks=pytest.mark.skip(reason=reason))], [f"no_{view}_fixture"]
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +300,53 @@ class TestHostageSelect:
         assert_fixture(result, fixture)
 
 
+class TestRosterReveal:
+    """Roster reveal live fixtures produce correct parsed output."""
+
+    _params, _ids = _fixtures_for_view_or_skip(
+        "roster_reveal",
+        "No live roster_reveal fixture available; synthetic coverage lives in test_perception_unit.py",
+    )
+
+    @pytest.fixture(params=_params, ids=_ids)
+    def fixture(self, request) -> FixtureData:
+        return request.param
+
+    def test_assertions(self, fixture: FixtureData):
+        result = parse_frame(fixture.frame)
+        assert result.view == View.ROSTER_REVEAL
+        assert result.roster_reveal is not None
+        assert_fixture(result, fixture)
+
+
+class TestLeaderSummit:
+    """Leader summit live fixtures produce correct parsed output."""
+
+    _params, _ids = _fixtures_for_view_or_skip(
+        "leader_summit",
+        "No live leader_summit fixture available; capture one from a leader summit phase",
+    )
+
+    @pytest.fixture(params=_params, ids=_ids)
+    def fixture(self, request) -> FixtureData:
+        return request.param
+
+    def test_assertions(self, fixture: FixtureData):
+        result = parse_frame(fixture.frame)
+        assert result.view == View.LEADER_SUMMIT
+        assert result.overworld is not None
+        assert_fixture(result, fixture)
+
+
 class TestWaitingEntry:
     """Waiting entry view fixtures produce correct parsed output."""
 
-    @pytest.fixture(
-        params=fixtures_for_view("waiting_entry"),
-        ids=fixture_ids(fixtures_for_view("waiting_entry")),
+    _params, _ids = _fixtures_for_view_or_skip(
+        "waiting_entry",
+        "No live waiting_entry fixture available; capture one from a join-request flow",
     )
+
+    @pytest.fixture(params=_params, ids=_ids)
     def fixture(self, request) -> FixtureData:
         return request.param
 

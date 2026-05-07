@@ -304,6 +304,37 @@ def test_role_reveal_set_once() -> None:
     assert belief_state.room_size == (100, 100)
 
 
+def test_role_reveal_missing_identity_fields_preserves_unknowns() -> None:
+    """RoleReveal frames with missing identity fields do not crash or invent data."""
+    belief_state = BeliefState()
+
+    _apply(
+        belief_state,
+        _frame(View.ROLE_REVEAL, role_reveal=RoleRevealPerception()),
+    )
+
+    assert belief_state.my_role is None
+    assert belief_state.my_team is None
+    assert belief_state.my_room is None
+
+
+def test_role_reveal_non_positive_room_size_does_not_create_grid() -> None:
+    """Invalid RoleReveal room sizes are ignored for spatial grid creation."""
+    for room_size in (0, -10):
+        belief_state = BeliefState()
+
+        _apply(
+            belief_state,
+            _frame(
+                View.ROLE_REVEAL,
+                role_reveal=RoleRevealPerception(room_size=room_size),
+            ),
+        )
+
+        assert belief_state.room_size is None
+        assert belief_state.occupancy_grid is None
+
+
 def test_overworld_self_position_and_room() -> None:
     """Overworld perception updates self position and current room."""
     belief_state = BeliefState()
@@ -316,6 +347,18 @@ def test_overworld_self_position_and_room() -> None:
 
     assert belief_state.position == (70, 80)
     assert belief_state.room == Room.MORTAL_REALM
+
+
+def test_overworld_without_self_position_preserves_existing_position() -> None:
+    """Overworld frames without localization do not erase the last known position."""
+    belief_state = BeliefState(position=(10, 10))
+
+    _apply(
+        belief_state,
+        _frame(View.PLAYING, overworld=OverworldPerception()),
+    )
+
+    assert belief_state.position == (10, 10)
 
 
 def test_overworld_speech_bubble_updates_player_position() -> None:
@@ -453,6 +496,44 @@ def test_whisper_occupants_decoded() -> None:
     _apply(belief_state, _frame(View.WHISPER, chatroom=chatroom))
 
     assert belief_state.whisper_occupants == [0, 9]
+
+
+def test_whisper_without_chatroom_marks_view_without_crashing() -> None:
+    """A WHISPER frame with no decoded chatroom payload still tracks the view."""
+    belief_state = BeliefState()
+
+    _apply(belief_state, _frame(View.WHISPER, chatroom=None))
+
+    assert belief_state.view == View.WHISPER
+    assert belief_state.in_whisper is True
+    assert belief_state.whisper_occupants == []
+
+
+def test_whisper_unrecognized_color_shape_pairs_are_skipped() -> None:
+    """Unrecognized chatroom sprite pairs are ignored instead of crashing."""
+    belief_state = BeliefState(player_count=10)
+    chatroom = ChatroomPerception(
+        occupant_colors=[99],
+        occupant_shapes=[_shape(0)],
+        has_pending_entry=True,
+        pending_entry_color=99,
+        pending_entry_shape=_shape(0),
+        messages=[
+            ChatMessage(
+                sender_color=99,
+                sender_shape=_shape(0),
+                is_system=False,
+                text="unknown sender",
+                y_position=40,
+            )
+        ],
+    )
+
+    _apply(belief_state, _frame(View.WHISPER, chatroom=chatroom))
+
+    assert belief_state.whisper_occupants == []
+    assert belief_state.pending_entry is None
+    assert belief_state.chat_history[0].sender_index is None
 
 
 def test_whisper_chat_history_appends_with_occupants_tag() -> None:

@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from perception import parse_frame
-from perception._bubbles import scan_speech_bubbles
-from perception._detect import detect_view
-from perception._hostage_grid import parse_hostage_grid
-from perception._overworld import parse_overworld
-from perception._unpack import unpack_frame
-from perception._ocr import (
+from orpheus.perception import parse_frame
+from orpheus.perception._bubbles import scan_speech_bubbles
+from orpheus.perception._detect import detect_view
+from orpheus.perception._hostage_grid import parse_hostage_grid
+from orpheus.perception._overworld import parse_overworld
+from orpheus.perception._unpack import unpack_frame
+from orpheus.perception._ocr import (
     read_text_at,
     read_text_any_color,
     normalize_text,
@@ -23,7 +23,7 @@ from perception._ocr import (
     SPACE_WIDTH,
     measure_text,
 )
-from perception._common import (
+from orpheus.perception._common import (
     COLOR_HOSTAGE_CHECK,
     COLOR_HUD_ALERT,
     COLOR_HUD_DIM,
@@ -37,8 +37,8 @@ from perception._common import (
     SCREEN_HEIGHT,
     PROTOCOL_BYTES,
 )
-from perception._sprites import _RAW_TEMPLATES
-from perception.types import PlayerShape, Room, View
+from orpheus.perception._sprites import _RAW_TEMPLATES
+from orpheus.perception.types import PlayerShape, Room, View
 
 
 # ---------------------------------------------------------------------------

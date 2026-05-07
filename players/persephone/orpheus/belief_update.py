@@ -222,7 +222,11 @@ def _apply_role_reveal(
     if belief_state.my_room is None:
         belief_state.my_room = room_string_to_enum(role_reveal.room)
 
-    if belief_state.room_size is None and role_reveal.room_size is not None:
+    if (
+        belief_state.room_size is None
+        and role_reveal.room_size is not None
+        and role_reveal.room_size > 0
+    ):
         belief_state.room_size = (
             role_reveal.room_size,
             role_reveal.room_size,
@@ -233,6 +237,7 @@ def _apply_role_reveal(
     if (
         belief_state.occupancy_grid is None
         and belief_state.room_size is not None
+        and _room_size_is_positive(belief_state.room_size)
     ):
         from orpheus.occupancy_grid import OccupancyGrid
 
@@ -378,6 +383,10 @@ def _screen_to_world(
 
 def _clamp(value: int, lower: int, upper: int) -> int:
     return min(max(value, lower), upper)
+
+
+def _room_size_is_positive(room_size: tuple[int, int]) -> bool:
+    return room_size[0] > 0 and room_size[1] > 0
 
 
 def _append_shout_if_new(belief_state: BeliefState, text: str) -> None:

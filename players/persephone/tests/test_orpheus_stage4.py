@@ -309,6 +309,44 @@ def test_move_to_task_repaths_after_stuck_detection() -> None:
     assert task.select_action(belief, memory).buttons
 
 
+def test_move_to_task_noops_without_position() -> None:
+    command = MoveToTask(50, 50).select_action(BeliefState(), ActionMemory())
+
+    assert command == ActCommand()
+
+
+def test_move_to_task_without_grid_uses_direct_path() -> None:
+    belief = BeliefState(
+        position=(10, 10),
+        room_size=(100, 100),
+        view=View.PLAYING,
+    )
+    memory = ActionMemory()
+
+    command = MoveToTask(50, 50).select_action(belief, memory)
+
+    assert command.buttons & BUTTON_RIGHT
+    assert command.buttons & BUTTON_DOWN
+    assert memory.path == [(10, 10), (50, 50)]
+
+
+def test_follow_task_noops_when_target_player_is_missing() -> None:
+    belief = _belief(position=(10, 10))
+
+    command = FollowTask(99).select_action(belief, ActionMemory())
+
+    assert command == ActCommand()
+
+
+def test_follow_task_noops_when_target_has_no_position() -> None:
+    belief = _belief(position=(10, 10))
+    belief.players[2] = PlayerInfo(position=None)
+
+    command = FollowTask(2).select_action(belief, ActionMemory())
+
+    assert command == ActCommand()
+
+
 def test_follow_task_noops_within_stop_distance() -> None:
     belief = _belief(position=(10, 10))
     belief.players[2] = PlayerInfo(position=(14, 14, 0))
@@ -336,6 +374,14 @@ def test_wander_task_picks_waypoint_and_moves() -> None:
 
     assert hasattr(memory, "wander_waypoint")
     assert command.buttons != 0
+
+
+def test_wander_task_noops_without_room_size() -> None:
+    belief = BeliefState(position=(10, 10), view=View.PLAYING)
+
+    command = WanderTask().select_action(belief, ActionMemory())
+
+    assert command == ActCommand()
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +439,15 @@ def test_request_entry_noops_when_close_but_whisper_sighting_is_stale() -> None:
     assert command == ActCommand()
 
 
+def test_request_entry_noops_when_target_has_no_position() -> None:
+    belief = _belief(position=(10, 10))
+    belief.players[1] = PlayerInfo(position=None, last_seen_in_whisper=80)
+
+    command = RequestEntryTask(1).select_action(belief, ActionMemory())
+
+    assert command == ActCommand()
+
+
 @pytest.mark.parametrize(
     ("task", "category", "item"),
     [
@@ -414,6 +469,30 @@ def test_menu_backed_tasks_confirm_matching_menu_item(task, category, item) -> N
     command = task.select_action(belief, ActionMemory())
 
     assert command == ActCommand(buttons=BUTTON_A)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        GrantEntryTask(),
+        OfferColorExchangeTask(),
+        AcceptColorExchangeTask(1),
+        WithdrawColorOfferTask(),
+        OfferRoleExchangeTask(),
+        AcceptRoleExchangeTask(1),
+        WithdrawRoleOfferTask(),
+        RevealRoleTask(),
+        PassLeadershipTask(),
+        TakeLeadershipTask(),
+    ],
+)
+def test_menu_backed_tasks_open_menu_when_menu_state_missing(task) -> None:
+    memory = ActionMemory()
+
+    command = task.select_action(BeliefState(menu_state=None), memory)
+
+    assert command == ActCommand(buttons=BUTTON_B)
+    assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand()
 
 
 def test_accept_role_exchange_confirms_target_after_item_confirm() -> None:

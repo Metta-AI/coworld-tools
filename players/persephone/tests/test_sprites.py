@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from perception._common import (
+from orpheus.perception._common import (
     OBSERVED_TO_PLAYER_COLORS,
     OUTLINE_COLORS,
     PLAYER_COLOR_PAIRS,
@@ -17,7 +17,7 @@ from perception._common import (
     SHADOW_MAP,
     SHAPE_MATCH_THRESHOLD,
 )
-from perception._sprites import (
+from orpheus.perception._sprites import (
     _RAW_TEMPLATES,
     _SHAPE_ORDER,
     detect_sprite_shape,
@@ -26,7 +26,7 @@ from perception._sprites import (
     resolve_player_color,
     scan_sprite_row_with_shapes,
 )
-from perception.types import PlayerShape
+from orpheus.perception.types import PlayerShape
 
 
 # ---------------------------------------------------------------------------
