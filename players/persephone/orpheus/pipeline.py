@@ -9,6 +9,7 @@ import numpy as np
 from orpheus import belief_update
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.hooks import HookPoint, HookRegistry
 from orpheus.mode import Mode, ModeRegistry
 from orpheus.perception import parse_frame
 from orpheus.perception.types import FramePerception
@@ -36,6 +37,9 @@ class Pipeline:
         mode_registry: ModeRegistry,
         send_input: Callable[[int], None],
         send_chat: Callable[[str], None],
+        hook_registry: HookRegistry | None = None,
+        current_mode_name: str = "idle",
+        logger: Callable[[str], None] | None = None,
     ) -> None:
         """Create an inner-loop pipeline with fresh owned runtime state."""
         self.belief_state: BeliefState = BeliefState()
@@ -45,13 +49,59 @@ class Pipeline:
         self.mode_registry: ModeRegistry = mode_registry
         self.send_input: Callable[[int], None] = send_input
         self.send_chat: Callable[[str], None] = send_chat
+        self.hook_registry: HookRegistry = (
+            hook_registry if hook_registry is not None else HookRegistry()
+        )
+        self.current_mode_name: str = current_mode_name
+        self.logger: Callable[[str], None] | None = logger
 
     def tick(self, frame: bytes | bytearray | np.ndarray) -> ActCommand:
         """Run one inner-loop tick for `frame` and return the emitted command."""
+        frame = self.hook_registry.dispatch(
+            HookPoint.PRE_PERCEPTION,
+            self.current_mode_name,
+            self.belief_state,
+            frame,
+            logger=self.logger,
+        )
+
         perception = parse_frame(frame)
+
+        self.hook_registry.dispatch(
+            HookPoint.POST_PERCEPTION,
+            self.current_mode_name,
+            self.belief_state,
+            frame,
+            perception,
+            logger=self.logger,
+        )
+
+        self.hook_registry.dispatch(
+            HookPoint.PRE_BELIEF_UPDATE,
+            self.current_mode_name,
+            self.belief_state,
+            perception,
+            logger=self.logger,
+        )
+
         self._belief_update(perception)
 
+        self.hook_registry.dispatch(
+            HookPoint.POST_BELIEF_UPDATE,
+            self.current_mode_name,
+            self.belief_state,
+            logger=self.logger,
+        )
+
         # TODO Stage 6: consume the outer-loop mode buffer before decide.
+
+        self.hook_registry.dispatch(
+            HookPoint.PRE_DECIDE,
+            self.current_mode_name,
+            self.belief_state,
+            self.action_memory,
+            logger=self.logger,
+        )
 
         task = self.current_mode.select_task(
             self.belief_state,
@@ -66,6 +116,22 @@ class Pipeline:
 
         self.belief_state.current_task = self.current_task
 
+        self.hook_registry.dispatch(
+            HookPoint.POST_DECIDE,
+            self.current_mode_name,
+            self.belief_state,
+            self.action_memory,
+            logger=self.logger,
+        )
+
+        self.hook_registry.dispatch(
+            HookPoint.PRE_ACT,
+            self.current_mode_name,
+            self.belief_state,
+            self.action_memory,
+            logger=self.logger,
+        )
+
         if self.current_task is None:
             command = ActCommand()
         elif self.belief_state.view not in self.current_task.valid_views:
@@ -76,6 +142,7 @@ class Pipeline:
                 self.action_memory,
             )
 
+        # Action memory is updated before POST_ACT so hooks see post-tick state.
         self.action_memory.ticks_active += 1
         self.action_memory.last_command = command
         self.action_memory.command_history.append(command)
@@ -83,6 +150,16 @@ class Pipeline:
             self.action_memory.commands_sent += 1
 
         self._send_act_command(command)
+
+        self.hook_registry.dispatch(
+            HookPoint.POST_ACT,
+            self.current_mode_name,
+            self.belief_state,
+            self.action_memory,
+            command,
+            logger=self.logger,
+        )
+
         return command
 
     def _belief_update(self, perception: FramePerception) -> None:
