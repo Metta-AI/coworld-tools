@@ -15,8 +15,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from perception import parse_frame
-from perception.types import FramePerception, View
+from orpheus.perception import parse_frame
+from orpheus.perception.types import FramePerception, View
 
 # ---------------------------------------------------------------------------
 # Fixture directory
