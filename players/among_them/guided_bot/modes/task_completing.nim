@@ -50,6 +50,8 @@ proc onEnter*(belief: Belief, params: ModeParams, scratch: var ModeScratch) =
                         tcConfirmMissCount: 0,
                         tcCompletedTaskIndex: -1,
                         tcLockTick: 0,
+                        tcLastReEvalTick: 0,
+                        tcLockedTier: TierGeometry,
                         tcSelectionTier: TierGeometry)
   discard params
 
@@ -136,6 +138,33 @@ proc selectTarget(belief: Belief,
 
   -1
 
+proc shouldSwitch(belief: Belief,
+                  currentIdx: int,
+                  currentTier: TaskSelectionTier,
+                  candidateIdx: int,
+                  candidateTier: TaskSelectionTier): bool =
+  ## True when a post-hysteresis candidate is strong enough to replace
+  ## the locked target without causing oscillation.
+  if candidateIdx < 0 or candidateIdx == currentIdx:
+    return false
+  if ord(candidateTier) < ord(currentTier):
+    return true
+  if candidateTier != currentTier:
+    return false
+
+  let tasks = referenceData.map.tasks
+  if currentIdx < 0 or currentIdx >= tasks.len or
+     candidateIdx < 0 or candidateIdx >= tasks.len:
+    return false
+
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  let (currentX, currentY) = taskStationWorldCenter(tasks[currentIdx])
+  let (candidateX, candidateY) = taskStationWorldCenter(tasks[candidateIdx])
+  let currentDist = heuristic(selfX, selfY, currentX, currentY)
+  let candidateDist = heuristic(selfX, selfY, candidateX, candidateY)
+  float(candidateDist) < float(currentDist) * TaskSwitchDistanceRatio
+
 # ---------------------------------------------------------------------------
 # Icon-match check for Confirm phase
 # ---------------------------------------------------------------------------
@@ -198,6 +227,23 @@ proc decide*(belief: Belief, params: ModeParams,
     if targetIdx >= 0:
       scratch.tcLockedTaskIndex = targetIdx
       scratch.tcLockTick = belief.tick
+      scratch.tcLockedTier = scratch.tcSelectionTier
+  else:
+    if scratch.tcPhase == TpNavigate and
+       belief.tick - scratch.tcLastReEvalTick >= TaskReEvalPeriodTicks:
+      scratch.tcLastReEvalTick = belief.tick
+      let currentTier = scratch.tcLockedTier
+      let candidateIdx = selectTarget(belief, scratch)
+      let candidateTier = scratch.tcSelectionTier
+      if shouldSwitch(belief, targetIdx, currentTier, candidateIdx, candidateTier):
+        targetIdx = candidateIdx
+        scratch.tcLockedTaskIndex = targetIdx
+        scratch.tcLockTick = belief.tick
+        scratch.tcPhase = TpNavigate
+        scratch.tcLockedTier = candidateTier
+        scratch.tcSelectionTier = candidateTier
+      else:
+        scratch.tcSelectionTier = scratch.tcLockedTier
 
   # No target at all — idle.
   if targetIdx < 0:
@@ -226,6 +272,7 @@ proc decide*(belief: Belief, params: ModeParams,
       if newTarget >= 0:
         scratch.tcLockedTaskIndex = newTarget
         scratch.tcLockTick = belief.tick
+        scratch.tcLockedTier = scratch.tcSelectionTier
         let newTs = tasks[newTarget]
         let (nx, ny) = taskStationWorldCenter(newTs)
         return ActionIntent(
@@ -253,6 +300,7 @@ proc decide*(belief: Belief, params: ModeParams,
       if newTarget >= 0:
         scratch.tcLockedTaskIndex = newTarget
         scratch.tcLockTick = belief.tick
+        scratch.tcLockedTier = scratch.tcSelectionTier
         let newTs = tasks[newTarget]
         let (nx, ny) = taskStationWorldCenter(newTs)
         return ActionIntent(

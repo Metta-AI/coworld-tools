@@ -274,11 +274,21 @@ This is the weakest tier — the station might not be assigned to us.
 
 All tiers skip `TaskCompleted` and `resolvedNotMine` stations.
 
-### 6.2 Target hysteresis
+### 6.2 Target hysteresis and opportunistic switching
 
 Once locked (`tcLockedTaskIndex >= 0`), the target is kept for at
-least `TaskCommitTicks` (48 ticks, ~2s) before the mode considers
-re-selection. This prevents thrashing when icon visibility flickers.
+least `TaskCommitTicks` (48 ticks, ~2s). This prevents thrashing when
+icon visibility flickers or movement changes the nearest station by a
+few pixels.
+
+After the commit window expires, Navigate phase periodically
+re-evaluates the best available candidate every
+`TaskReEvalPeriodTicks` (24 ticks, ~1s). It switches only when the
+candidate is a stronger evidence tier than the locked target
+(`TierIcon` > `TierCheckout` > `TierGeometry`), or when it is the same
+tier but much closer (`candidateDist < currentDist *
+TaskSwitchDistanceRatio`, default 0.5). Hold and Confirm phases never
+run this opportunistic re-selection.
 
 If the locked target becomes `TaskCompleted` or `resolvedNotMine`,
 the lock is broken immediately regardless of the commit window.
@@ -380,6 +390,8 @@ of ModeTaskCompleting:
   tcConfirmMissCount*: int         # Consecutive icon-absent frames in Confirm.
   tcCompletedTaskIndex*: int       # Set on completion; bot.nim applies to belief.
   tcLockTick*: int                 # Tick when target was locked (hysteresis).
+  tcLastReEvalTick*: int           # Last periodic target re-evaluation tick.
+  tcLockedTier*: TaskSelectionTier # Tier recorded when the current target was locked.
   tcSelectionTier*: TaskSelectionTier  # Tier that selected the current target.
 ```
 
@@ -392,13 +404,15 @@ Initial values on `onEnter`:
 - `tcConfirmMissCount = 0`
 - `tcCompletedTaskIndex = -1`
 - `tcLockTick = 0`
+- `tcLastReEvalTick = 0`
+- `tcLockedTier = TierGeometry`
 - `tcSelectionTier = TierGeometry`
 
 ---
 
 ## 11. Tuning constants
 
-All live in `tuning.nim:33-40`:
+All live in the task-completing lifecycle block in `tuning.nim`:
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -409,6 +423,8 @@ All live in `tuning.nim:33-40`:
 | `TaskClearScreenMargin` | 8 | Pixel margin for "icon area fully on-screen" check. |
 | `RadarMatchTolerance` | 2 | Chebyshev distance for radar-dot → station matching. |
 | `TaskCommitTicks` | 48 | Hysteresis: keep target for at least ~2s before reconsidering. |
+| `TaskReEvalPeriodTicks` | 24 | Minimum interval between post-hysteresis Navigate re-evaluations (~1s). |
+| `TaskSwitchDistanceRatio` | 0.5 | Same-tier switch threshold: candidate must be less than half the current distance. |
 
 ---
 

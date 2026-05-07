@@ -46,6 +46,8 @@ const
   TaskClearScreenMargin*      = 8    ## Pixel margin for "icon area fully on-screen" check.
   RadarMatchTolerance*        = 2    ## Chebyshev distance for radar-dot → station matching.
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
+  TaskReEvalPeriodTicks*      = 24   ## After hysteresis, reconsider locked Navigate targets at most this often (~1s).
+  TaskSwitchDistanceRatio*    = 0.5  ## Same-tier switch only when candidate distance is below this fraction of current distance.
 
   # --- Idle-mode wander -----------------------------------------------
   IdleWanderPeriod*           = 36   ## Ticks per direction change in idle wander (~1.5s at 24Hz).

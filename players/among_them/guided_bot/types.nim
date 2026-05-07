@@ -528,6 +528,8 @@ type
       tcConfirmMissCount*: int      ## Consecutive icon-absent frames in Confirm.
       tcCompletedTaskIndex*: int    ## Set on completion; bot.nim applies to belief.
       tcLockTick*: int              ## Tick when target was locked (hysteresis).
+      tcLastReEvalTick*: int        ## Last periodic target re-evaluation tick.
+      tcLockedTier*: TaskSelectionTier  ## Tier recorded when the current target was locked.
       tcSelectionTier*: TaskSelectionTier  ## Tier that selected the current target.
     of ModeFear:
       fearEnterTick*: int
