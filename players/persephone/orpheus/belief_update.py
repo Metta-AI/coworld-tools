@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from orpheus.belief_state import (
     BeliefState,
     ChatMessageRecord,
@@ -36,6 +38,11 @@ OVERWORLD_VIEWS = {
     View.WAITING_ENTRY,
 }
 
+# BeliefState instances live for the lifetime of a Pipeline, so id() reuse is
+# acceptable in practice despite not being a general-purpose object identity
+# cache strategy.
+_previous_positions: dict[int, tuple[int, int]] = {}
+
 
 def apply(
     belief_state: BeliefState,
@@ -52,6 +59,7 @@ def apply(
     """
     if _is_lobby_reset(perception.view, previous_view):
         belief_state.reset()
+        _previous_positions.pop(id(belief_state), None)
 
     _apply_universal_updates(belief_state, perception.view)
 
@@ -62,7 +70,12 @@ def apply(
     elif perception.view == View.ROLE_REVEAL:
         _apply_role_reveal(belief_state, perception.role_reveal)
     elif perception.view in OVERWORLD_VIEWS:
-        _apply_overworld(belief_state, perception.overworld, perception.view)
+        _apply_overworld(
+            belief_state,
+            perception.overworld,
+            perception.view,
+            perception.raw_pixels,
+        )
     elif perception.view == View.WHISPER:
         _apply_whisper(belief_state, perception.chatroom)
     elif perception.view == View.GLOBAL_CHAT:
@@ -217,8 +230,16 @@ def _apply_role_reveal(
 
     # TODO Stage 2 perception gap: round_schedule not yet extracted by
     # perception.RoleRevealPerception.
-    # TODO Stage 3: initialize OccupancyGrid here once room_size is known
-    # (border WALL, interior UNKNOWN).
+    if (
+        belief_state.occupancy_grid is None
+        and belief_state.room_size is not None
+    ):
+        from orpheus.occupancy_grid import OccupancyGrid
+
+        belief_state.occupancy_grid = OccupancyGrid(
+            belief_state.room_size,
+            resolution=2,
+        )
     # TODO Stage 2 perception gap: RoleRevealPerception does not yet surface
     # own-sprite color/shape, so my_color/my_shape/my_index cannot be decoded.
 
@@ -227,15 +248,18 @@ def _apply_overworld(
     belief_state: BeliefState,
     overworld: OverworldPerception | None,
     view: View,
+    raw_pixels: np.ndarray | None,
 ) -> None:
     if overworld is None:
         return
 
+    new_position: tuple[int, int] | None = None
     if overworld.self_position is not None:
-        belief_state.position = (
+        new_position = (
             overworld.self_position.x,
             overworld.self_position.y,
         )
+        belief_state.position = new_position
 
     if overworld.room is not None:
         belief_state.room = overworld.room
@@ -264,8 +288,25 @@ def _apply_overworld(
 
     # TODO Stage 2 perception gap: overworld visible-player sprites and role
     # indicators are not yet exposed separately from speech bubbles.
-    # TODO Stage 3: update occupancy_grid from viewport pixels, minimap
-    # obstacle dots, and movement confirmation.
+    occupancy_grid = belief_state.occupancy_grid
+    if occupancy_grid is not None:
+        previous_position = _previous_positions.get(id(belief_state))
+        if new_position is not None and new_position != previous_position:
+            occupancy_grid.update_from_movement(new_position)
+        if raw_pixels is not None and new_position is not None:
+            occupancy_grid.update_from_viewport(
+                new_position,
+                raw_pixels,
+                belief_state.room,
+            )
+        if belief_state.room_size is not None and overworld.minimap_dots:
+            occupancy_grid.update_from_minimap(
+                overworld.minimap_dots,
+                belief_state.room_size,
+                belief_state.my_color,
+            )
+        if new_position is not None:
+            _previous_positions[id(belief_state)] = new_position
 
     if (
         view == View.HOSTAGE_SELECT

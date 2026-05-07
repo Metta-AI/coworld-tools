@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+from typing import TYPE_CHECKING
 
 from orpheus.types import KnowledgeSource, PlayerShape, Room, View
+
+if TYPE_CHECKING:
+    from orpheus.occupancy_grid import OccupancyGrid
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +83,7 @@ class BeliefState:
     position: tuple[int, int] | None = None
     room: Room | None = None
     room_size: tuple[int, int] | None = None
-    occupancy_grid: object | None = None
+    occupancy_grid: OccupancyGrid | None = None
 
     # Player registry
     players: dict[int, PlayerInfo] = field(default_factory=dict)
