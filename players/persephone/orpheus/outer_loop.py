@@ -8,6 +8,7 @@ from collections.abc import Callable
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
 from orpheus.buffers import BeliefBuffer
+from orpheus.logging import LogLevel, Logger
 from orpheus.mode import ModeDirective
 from orpheus.mode_buffer import ModeBuffer
 
@@ -71,28 +72,121 @@ class OuterLoop:
                 if snapshot is None:
                     continue
                 belief_state, action_memory = snapshot
+                self._refresh_logger_metadata(belief_state)
+                self._event(
+                    "meta_decide_input",
+                    {
+                        "tick": belief_state.tick,
+                        "view": _view_name(getattr(belief_state, "view", None)),
+                        "task": _task_name(getattr(belief_state, "current_task", None)),
+                    },
+                    level=LogLevel.DECISIONS,
+                )
                 try:
                     result = self.meta_decide(belief_state, action_memory)
                 except Exception as exc:
-                    self._log(f"meta_decide_failed: {exc!r}")
+                    self._emit(
+                        "meta_decide_failed",
+                        {"exception": repr(exc), "consumed_tick": belief_state.tick},
+                        f"meta_decide_failed: {exc!r}",
+                    )
                     continue
                 try:
                     directive, inferences = result
                 except (TypeError, ValueError) as exc:
-                    self._log(f"meta_decide_bad_return: {exc!r} value={result!r}")
+                    self._emit(
+                        "meta_decide_bad_return",
+                        {
+                            "exception": repr(exc),
+                            "value": repr(result),
+                            "consumed_tick": belief_state.tick,
+                        },
+                        f"meta_decide_bad_return: {exc!r} value={result!r}",
+                    )
                     continue
+                self._event(
+                    "meta_decide_output",
+                    {
+                        "directive": repr(directive)
+                        if directive is not None
+                        else None,
+                        "inferences": inferences,
+                    },
+                    level=LogLevel.DECISIONS,
+                )
                 self.mode_buffer.push(directive, inferences)
+                self._event(
+                    "outer_loop_cycle",
+                    {
+                        "consumed_tick": belief_state.tick,
+                        # The outer loop has no direct access to the current
+                        # live pipeline tick, only the consumed snapshot tick.
+                        "staleness": None,
+                        "directive": repr(directive)
+                        if directive is not None
+                        else None,
+                    },
+                )
             except Exception as exc:
                 # Catch-all keeps the thread alive across unexpected errors.
-                self._log(f"outer_loop_restart: {exc!r}")
+                self._emit(
+                    "outer_loop_restart",
+                    {"exception": repr(exc)},
+                    f"outer_loop_restart: {exc!r}",
+                )
                 # Loop continues, effectively a "restart in place".
 
-    def _log(self, message: str) -> None:
-        if self._logger is not None:
-            try:
-                self._logger(message)
-            except Exception:
-                pass
+    def _emit(
+        self,
+        category: str,
+        data: dict,
+        legacy_msg: str,
+        level: LogLevel = LogLevel.EVENTS,
+    ) -> None:
+        try:
+            if isinstance(self._logger, Logger):
+                self._logger.event(category, data, level)
+            elif self._logger is not None:
+                self._logger(legacy_msg)
+        except Exception:
+            pass
+
+    def _event(
+        self,
+        category: str,
+        data: dict,
+        level: LogLevel = LogLevel.EVENTS,
+    ) -> None:
+        try:
+            if isinstance(self._logger, Logger):
+                self._logger.event(category, data, level)
+        except Exception:
+            pass
+
+    def _refresh_logger_metadata(self, belief_state: BeliefState) -> None:
+        if not isinstance(self._logger, Logger):
+            return
+        self._logger.update_metadata(
+            tick=belief_state.tick,
+            view=_view_name(getattr(belief_state, "view", None)),
+            mode=None,
+            task=_task_name(getattr(belief_state, "current_task", None)),
+        )
+
+
+def _view_name(view: object) -> str | None:
+    if view is None:
+        return None
+    value = getattr(view, "value", None)
+    if isinstance(value, str):
+        return value
+    return str(view)
+
+
+def _task_name(task: object) -> str | None:
+    if task is None:
+        return None
+    return type(task).__name__
 
 
 __all__ = ["OuterLoop"]

@@ -22,6 +22,7 @@ from typing import Any
 
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.logging import Logger
 from orpheus.mode import ModeDirective, ModeRegistry
 
 
@@ -177,14 +178,26 @@ class HookRegistry:
                 current_directive = override
             elif logger is not None:
                 callback_name = getattr(callback, "__name__", repr(callback))
-                logger(
-                    "invalid_mode_switch_override: "
-                    "point=mode_switch "
-                    f"mode={current_mode_name!r} "
-                    f"kind={kind} "
-                    f"hook={callback_name} "
-                    f"directive={override!r}"
-                )
+                if isinstance(logger, Logger):
+                    logger.event(
+                        "invalid_mode_switch_override",
+                        {
+                            "hook_point": "mode_switch",
+                            "mode": current_mode_name,
+                            "kind": kind,
+                            "hook_name": callback_name,
+                            "directive": repr(override),
+                        },
+                    )
+                else:
+                    logger(
+                        "invalid_mode_switch_override: "
+                        "point=mode_switch "
+                        f"mode={current_mode_name!r} "
+                        f"kind={kind} "
+                        f"hook={callback_name} "
+                        f"directive={override!r}"
+                    )
         return current_directive
 
     def _iter_hooks(
@@ -272,6 +285,21 @@ class HookRegistry:
         hook_name = getattr(hook, "__name__", repr(hook))
         point = hook_point.value if isinstance(hook_point, HookPoint) else hook_point
         tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        if isinstance(logger, Logger):
+            logger.event(
+                "hook_failure",
+                {
+                    "hook_point": point,
+                    "mode": current_mode_name,
+                    "kind": kind,
+                    "hook_name": hook_name,
+                    "exception": repr(exc),
+                    "traceback": tb,
+                    "tick": belief_state.tick,
+                },
+            )
+            return
+
         logger(
             "hook_failed: "
             f"point={point} "

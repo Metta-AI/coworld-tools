@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 import numpy as np
@@ -11,6 +12,7 @@ from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
 from orpheus.buffers import BeliefBuffer
 from orpheus.hooks import HookPoint, HookRegistry
+from orpheus.logging import LogLevel, Logger
 from orpheus.mode import Mode, ModeDirective, ModeRegistry
 from orpheus.mode_buffer import ModeBuffer
 from orpheus.perception import parse_frame
@@ -73,6 +75,9 @@ class Pipeline:
 
     def tick(self, frame: bytes | bytearray | np.ndarray) -> ActCommand:
         """Run one inner-loop tick for `frame` and return the emitted command."""
+        self._attach_logger_to_belief_state()
+        self._refresh_logger_metadata()
+
         frame = self.hook_registry.dispatch(
             HookPoint.PRE_PERCEPTION,
             self.current_mode_name,
@@ -82,6 +87,7 @@ class Pipeline:
         )
 
         perception = parse_frame(frame)
+        previous_view = self.belief_state.view
 
         self.hook_registry.dispatch(
             HookPoint.POST_PERCEPTION,
@@ -101,6 +107,20 @@ class Pipeline:
         )
 
         self._belief_update(perception)
+        self._refresh_logger_metadata()
+        self._log_event(
+            "perception",
+            {"perception": repr(perception)},
+            level=LogLevel.VERBOSE,
+        )
+        if self.belief_state.view != previous_view:
+            self._log_event(
+                "view_transition",
+                {
+                    "old": _view_name(previous_view),
+                    "new": _view_name(self.belief_state.view),
+                },
+            )
 
         self.hook_registry.dispatch(
             HookPoint.POST_BELIEF_UPDATE,
@@ -129,14 +149,20 @@ class Pipeline:
                     mode=self.current_mode_name,
                     params=self.current_mode.params,
                 )
-                if self.logger is not None:
-                    tick = getattr(self.belief_state, "tick", None)
-                    if tick is None:
-                        self.logger(f"watchdog_fired: fallback={fallback.mode}")
-                    else:
-                        self.logger(
-                            f"watchdog_fired: tick={tick} fallback={fallback.mode}"
-                        )
+                tick = getattr(self.belief_state, "tick", None)
+                legacy = (
+                    f"watchdog_fired: fallback={fallback.mode}"
+                    if tick is None
+                    else f"watchdog_fired: tick={tick} fallback={fallback.mode}"
+                )
+                self._emit(
+                    "watchdog_activation",
+                    {
+                        "fallback_mode": fallback.mode,
+                        "reason": "directive_timeout",
+                    },
+                    legacy,
+                )
                 self.mode_buffer.push(fallback, None)
                 # Apply the fallback immediately; _consume_mode_buffer mutates
                 # mode state only, leaving watchdog accounting centralized here.
@@ -156,14 +182,30 @@ class Pipeline:
             self.belief_state,
             self.action_memory,
         )
+        self._log_event(
+            "select_task",
+            _task_event_data(task),
+            level=LogLevel.DECISIONS,
+        )
         if task is not None:
             if self.current_task is None:
+                old_task = self.current_task
                 self.current_task = task
+                self._log_event(
+                    "task_change",
+                    {"old": _task_name(old_task), "new": _task_name(self.current_task)},
+                )
             elif not _tasks_equivalent(task, self.current_task):
+                old_task = self.current_task
                 self.action_memory.clear()
                 self.current_task = task
+                self._log_event(
+                    "task_change",
+                    {"old": _task_name(old_task), "new": _task_name(self.current_task)},
+                )
 
         self.belief_state.current_task = self.current_task
+        self._refresh_logger_metadata()
 
         self.hook_registry.dispatch(
             HookPoint.POST_DECIDE,
@@ -184,12 +226,31 @@ class Pipeline:
         if self.current_task is None:
             command = ActCommand()
         elif self.belief_state.view not in self.current_task.valid_views:
+            self._log_event(
+                "valid_views_mismatch",
+                {
+                    "view": _view_name(self.belief_state.view),
+                    "valid_views": [
+                        _view_name(view) for view in self.current_task.valid_views
+                    ],
+                    "task_type": _task_name(self.current_task),
+                },
+                level=LogLevel.DECISIONS,
+            )
             command = ActCommand()
         else:
             command = self.current_task.select_action(
                 self.belief_state,
                 self.action_memory,
             )
+        self._log_event(
+            "act_command",
+            {"command": str(command)},
+            level=LogLevel.VERBOSE,
+        )
+        # TODO Stage 8 follow-up: add verbose belief_diff, cooldown_change,
+        # minimap_sighting, grid_change, and action_memory_mutation events
+        # once those mutation paths have stable diff hooks.
 
         # Action memory is updated before POST_ACT so hooks see post-tick state.
         self.action_memory.ticks_active += 1
@@ -232,8 +293,14 @@ class Pipeline:
             self.belief_state.inferences = inferences
 
         if not self._is_directive_valid(directive):
-            if self.logger is not None:
-                self.logger(f"invalid_directive: {directive!r}")
+            self._emit(
+                "invalid_directive",
+                {
+                    "directive": repr(directive),
+                    "reason": self._directive_invalid_reason(directive),
+                },
+                f"invalid_directive: {directive!r}",
+            )
             return True
 
         directive = self.hook_registry.dispatch_mode_switch(
@@ -252,6 +319,12 @@ class Pipeline:
         if directive == current_directive:
             return True
 
+        old_mode_name = self.current_mode_name
+        self._log_event(
+            "mode_switch_cleanup",
+            {"old_mode": old_mode_name},
+            level=LogLevel.DECISIONS,
+        )
         self.current_mode.mode_switch_cleanup(
             self.belief_state,
             self.action_memory,
@@ -264,8 +337,23 @@ class Pipeline:
         new_mode.params = directive.params
         self.current_mode = new_mode
         self.current_mode_name = directive.mode
+        self._refresh_logger_metadata()
 
+        self._log_event(
+            "mode_enter",
+            {"mode": self.current_mode_name, "directive": repr(directive)},
+            level=LogLevel.DECISIONS,
+        )
         self.current_mode.mode_enter(self.belief_state, self.action_memory)
+        self._refresh_logger_metadata()
+        self._log_event(
+            "mode_transition",
+            {
+                "old": old_mode_name,
+                "new": self.current_mode_name,
+                "directive": repr(directive) if directive is not None else None,
+            },
+        )
         return True
 
     def _is_directive_valid(self, directive: ModeDirective) -> bool:
@@ -274,6 +362,53 @@ class Pipeline:
         return mode_cls is not None and isinstance(
             directive.params,
             mode_cls.params_type,
+        )
+
+    def _directive_invalid_reason(self, directive: ModeDirective) -> str:
+        mode_cls = self.mode_registry.get(directive.mode)
+        if mode_cls is None:
+            return "mode_not_registered"
+        if not isinstance(directive.params, mode_cls.params_type):
+            return "params_wrong_type"
+        return "unknown"
+
+    def _emit(
+        self,
+        category: str,
+        data: dict,
+        legacy_msg: str,
+        level: LogLevel = LogLevel.EVENTS,
+    ) -> None:
+        if isinstance(self.logger, Logger):
+            self.logger.event(category, data, level)
+        elif self.logger is not None:
+            self.logger(legacy_msg)
+
+    def _log_event(
+        self,
+        category: str,
+        data: dict,
+        level: LogLevel = LogLevel.EVENTS,
+    ) -> None:
+        if isinstance(self.logger, Logger):
+            self.logger.event(category, data, level)
+
+    def _refresh_logger_metadata(self) -> None:
+        if not isinstance(self.logger, Logger):
+            return
+        self.logger.update_metadata(
+            tick=getattr(self.belief_state, "tick", None),
+            view=_view_name(getattr(self.belief_state, "view", None)),
+            mode=self.current_mode_name,
+            task=_task_name(self.current_task),
+        )
+
+    def _attach_logger_to_belief_state(self) -> None:
+        # Agent hooks/modes can use log_event(belief_state._logger, ...).
+        setattr(
+            self.belief_state,
+            "_logger",
+            self.logger if isinstance(self.logger, Logger) else None,
         )
 
     def _send_act_command(self, command: ActCommand) -> None:
@@ -293,6 +428,39 @@ def _command_is_non_noop(command: ActCommand) -> bool:
         or command.buttons != 0
         or command.chat_text is not None
     )
+
+
+def _task_name(task: Task | None) -> str | None:
+    if task is None:
+        return None
+    return type(task).__name__
+
+
+def _task_event_data(task: Task | None) -> dict:
+    if task is None:
+        return {"task": None}
+    return {"task_type": type(task).__name__, "params": _task_params(task)}
+
+
+def _task_params(task: Task) -> dict:
+    if dataclasses.is_dataclass(task):
+        return dataclasses.asdict(task)
+    if hasattr(task, "__dict__"):
+        return {
+            key: value
+            for key, value in vars(task).items()
+            if not key.startswith("_")
+        }
+    return {}
+
+
+def _view_name(view: object) -> str | None:
+    if view is None:
+        return None
+    value = getattr(view, "value", None)
+    if isinstance(value, str):
+        return value
+    return str(view)
 
 
 __all__ = [
