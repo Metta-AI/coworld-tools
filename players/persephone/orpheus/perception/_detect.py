@@ -69,7 +69,22 @@ def detect_view(frame: np.ndarray) -> View:
     if bar_norm_8.startswith("WAITING"):
         return View.WAITING_ENTRY
 
-    # Step 4: Continue with text at (2, 2) in color 2
+    # Step 4: Phase labels rendered beside the clock at (42, 2)
+    phase_text_8 = read_text_at(frame, 42, 2, COLOR_HUD_ALERT, 12)
+    phase_norm_8 = normalize_text(phase_text_8)
+    if phase_norm_8.startswith("SUMMIT"):
+        return View.LEADER_SUMMIT
+    if phase_norm_8.startswith("SELECT"):
+        return View.HOSTAGE_SELECT
+
+    phase_text_1 = read_text_at(frame, 42, 2, COLOR_HUD_DIM, 20)
+    phase_norm_1 = normalize_text(phase_text_1)
+    if phase_norm_1.startswith("LEADERS"):
+        return View.LEADER_SUMMIT
+    if phase_norm_1.startswith("SELECT"):
+        return View.HOSTAGE_SELECT
+
+    # Step 5: Continue with text at (2, 2) in color 2
     # Playing: "R{n} M:SS"
     if hud_norm_2 and hud_norm_2[0] == "R" and ":" in hud_norm_2:
         return View.PLAYING
@@ -82,7 +97,7 @@ def detect_view(frame: np.ndarray) -> View:
     if hud_norm_2.startswith("REVEAL"):
         return View.REVEAL
 
-    # Step 5: Read text at (2, 2) in color 8 (alert color)
+    # Step 6: Read text at (2, 2) in color 8 (alert color)
     hud_text_8 = read_text_at(frame, 2, 2, COLOR_HUD_ALERT, 12)
     hud_norm_8 = normalize_text(hud_text_8)
 
@@ -91,20 +106,20 @@ def detect_view(frame: np.ndarray) -> View:
     if hud_norm_8.startswith("EXCHANGING"):
         return View.HOSTAGE_EXCHANGE
 
-    # Step 5b: Hostage exchange (centered "HOSTAGE EXCHANGE" at y=14, color 8)
+    # Step 6b: Hostage exchange (centered "HOSTAGE EXCHANGE" at y=14, color 8)
     # The exchange screen renders this title centered, not at x=2.
     for x in range(20, 50):
         exchange_text = read_text_at(frame, x, 14, COLOR_HUD_ALERT, 20)
         if exchange_text and "HOSTAGE" in exchange_text:
             return View.HOSTAGE_EXCHANGE
 
-    # Step 6: Check for non-leader hostage select ("PICK" in dim text)
+    # Step 7: Check for non-leader hostage select ("PICK" in dim text)
     hud_text_1 = read_text_at(frame, 2, 2, COLOR_HUD_DIM, 20)
     hud_norm_1 = normalize_text(hud_text_1)
     if "PICK" in hud_norm_1:
         return View.HOSTAGE_SELECT
 
-    # Step 7: Global chat detection ("{RoomName} CHAT" or "{RoomName} SHOUT")
+    # Step 8: Global chat detection ("{RoomName} CHAT" or "{RoomName} SHOUT")
     # The text at (2,2) in color 2 would be e.g. "Underworld CHAT" or
     # "Underworld SHOUT" depending on game version/config.
     if len(hud_norm_2) > 4 and (
@@ -112,11 +127,7 @@ def detect_view(frame: np.ndarray) -> View:
     ):
         return View.GLOBAL_CHAT
 
-    # Step 7.5: Leader summit ("LEADERS MEET" in dim text)
-    if hud_norm_1.startswith("LEADERS"):
-        return View.LEADER_SUMMIT
-
-    # Step 8: Game over (win text at y=60, centered)
+    # Step 9: Game over (win text at y=60, centered)
     # Text may be centered anywhere on the row, so scan multiple x offsets.
     for color in [3, 14, 1]:  # TeamA, TeamB, draw
         for x_start in [0, 20, 30, 40, 50]:
@@ -124,7 +135,7 @@ def detect_view(frame: np.ndarray) -> View:
             if win_text and ("WIN" in win_text or "ONE" in win_text):
                 return View.GAME_OVER
 
-    # Step 9: Fallback
+    # Step 10: Fallback
     return View.UNKNOWN
 
 

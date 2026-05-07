@@ -26,7 +26,7 @@ def scan_speech_bubbles(frame: np.ndarray) -> list[SpeechBubble]:
         row y+1: 2 2 2 !2
         row y+2: !2 !2 !2 2
 
-    The player sprite's top-left is at (bubble_x + 3, bubble_y + 3).
+    The player sprite's top-left is at (bubble_x + 3, bubble_y + 4).
 
     Args:
         frame: (128, 128) pixel array.
@@ -70,9 +70,9 @@ def scan_speech_bubbles(frame: np.ndarray) -> list[SpeechBubble]:
             if frame[y + 2, x + 3] != c:
                 continue
 
-            # Match! Player sprite top-left is at (x+3, y+3)
+            # Match! Player sprite top-left is at (x+3, y+4)
             sprite_x = x + 3
-            sprite_y = y + 3
+            sprite_y = y + 4
 
             # Read player color from sprite center
             cx = sprite_x + PLAYER_W // 2

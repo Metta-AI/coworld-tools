@@ -77,16 +77,16 @@ def parse_frame(
         result.roster_reveal = parse_roster_reveal(frame)
 
     elif view == View.PLAYING:
-        result.overworld = parse_overworld(frame, room_size)
+        result.overworld = parse_overworld(frame, room_size, view=view)
 
     elif view in (View.HOSTAGE_SELECT, View.LEADER_SUMMIT):
-        result.overworld = parse_overworld(frame, room_size)
+        result.overworld = parse_overworld(frame, room_size, view=view)
 
     elif view == View.WAITING_ENTRY:
         # Waiting entry is an overworld sub-state: the game world is
         # still rendered. Populate overworld data so agents have spatial
         # info while waiting.
-        result.overworld = parse_overworld(frame, room_size)
+        result.overworld = parse_overworld(frame, room_size, view=view)
 
     elif view == View.WHISPER:
         result.chatroom = parse_chatroom(frame)

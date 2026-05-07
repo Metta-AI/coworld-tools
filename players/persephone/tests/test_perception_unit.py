@@ -6,7 +6,10 @@ import numpy as np
 import pytest
 
 from perception import parse_frame
+from perception._bubbles import scan_speech_bubbles
 from perception._detect import detect_view
+from perception._hostage_grid import parse_hostage_grid
+from perception._overworld import parse_overworld
 from perception._unpack import unpack_frame
 from perception._ocr import (
     read_text_at,
@@ -21,6 +24,13 @@ from perception._ocr import (
     measure_text,
 )
 from perception._common import (
+    COLOR_HOSTAGE_CHECK,
+    COLOR_HUD_ALERT,
+    COLOR_HUD_DIM,
+    COLOR_HUD_NORMAL,
+    HOSTAGE_CELL_H,
+    HOSTAGE_CELL_W,
+    HOSTAGE_GRID_Y,
     PLAYER_H,
     PLAYER_W,
     SCREEN_WIDTH,
@@ -174,6 +184,21 @@ def _draw_sprite(
                 frame[y + dy, x + dx] = 1
 
 
+def _draw_rect(
+    frame: np.ndarray,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    color: int,
+) -> None:
+    """Draw a 1px rectangle outline into an existing frame."""
+    frame[y, x:x + w] = color
+    frame[y + h - 1, x:x + w] = color
+    frame[y:y + h, x] = color
+    frame[y:y + h, x + w - 1] = color
+
+
 def _render_roster_reveal_frame() -> np.ndarray:
     """Render a synthetic roster reveal frame."""
     frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
@@ -203,6 +228,121 @@ def _render_roster_reveal_frame() -> np.ndarray:
 
     _draw_centered_text(frame, "NEXT IN 7", 118, 2)
     return frame
+
+
+def _render_hostage_grid_frame() -> np.ndarray:
+    """Render a synthetic leader hostage-select frame with a 3-column grid."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_text(frame, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+    _draw_text(frame, "SELECT 14S", 42, 2, COLOR_HUD_ALERT)
+
+    cols = 3
+    grid_w = cols * HOSTAGE_CELL_W
+    grid_x = (SCREEN_WIDTH - grid_w) // 2
+    entries = [
+        (3, PlayerShape.CIRCLE),
+        (14, PlayerShape.SQUARE),
+        (8, PlayerShape.TRIANGLE),
+    ]
+
+    for index, (color, shape) in enumerate(entries):
+        cell_x = grid_x + index * HOSTAGE_CELL_W
+        cell_y = HOSTAGE_GRID_Y
+        sprite_x = cell_x + (HOSTAGE_CELL_W - PLAYER_W) // 2
+        sprite_y = cell_y + 1
+        _draw_sprite(frame, shape, color, sprite_x, sprite_y)
+
+    # Cursor on the second eligible player.
+    _draw_rect(
+        frame,
+        grid_x + HOSTAGE_CELL_W,
+        HOSTAGE_GRID_Y,
+        HOSTAGE_CELL_W,
+        HOSTAGE_CELL_H,
+        COLOR_HUD_NORMAL,
+    )
+
+    # Green checkmark probe on the third eligible player.
+    selected_cell_x = grid_x + 2 * HOSTAGE_CELL_W
+    frame[HOSTAGE_GRID_Y + 1, selected_cell_x + HOSTAGE_CELL_W - 3] = (
+        COLOR_HOSTAGE_CHECK
+    )
+
+    _draw_text(frame, "1/2 HOSTAGES", grid_x, HOSTAGE_GRID_Y + HOSTAGE_CELL_H + 2, 2)
+    return frame
+
+
+class TestPerceptionBugFixes:
+    def test_speech_bubble_sprite_y_uses_renderer_offset(self):
+        """Speech bubbles map back to sprite top-left with y+4."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        sprite_x, sprite_y = 30, 30
+        bubble_x, bubble_y = sprite_x - 3, sprite_y - 4
+        _draw_sprite(frame, PlayerShape.CIRCLE, 3, sprite_x, sprite_y)
+        frame[bubble_y, bubble_x:bubble_x + 3] = 2
+        frame[bubble_y + 1, bubble_x:bubble_x + 3] = 2
+        frame[bubble_y + 2, bubble_x + 3] = 2
+
+        bubbles = scan_speech_bubbles(frame)
+
+        assert len(bubbles) == 1
+        assert bubbles[0].screen_x == sprite_x
+        assert bubbles[0].screen_y == sprite_y
+
+    def test_detects_phase_labels_at_x42_before_round_clock(self):
+        """Summit/hostage labels at x=42 are not masked by the round clock."""
+        summit = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(summit, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(summit, "SUMMIT 14S", 42, 2, COLOR_HUD_ALERT)
+        assert detect_view(summit) == View.LEADER_SUMMIT
+
+        leaders = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(leaders, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(leaders, "LEADERS MEET 14S", 42, 2, COLOR_HUD_DIM)
+        assert detect_view(leaders) == View.LEADER_SUMMIT
+
+        hostage = _render_hostage_grid_frame()
+        assert detect_view(hostage) == View.HOSTAGE_SELECT
+
+    def test_role_leader_suffix_is_stripped(self):
+        """A leader star suffix is separated from the role name."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        role = "CERBER*"
+        role_x = SCREEN_WIDTH - 20 - 4 - measure_text(role)
+        _draw_text(frame, role, role_x, 2, 3)
+
+        result = parse_overworld(frame, view=View.PLAYING)
+
+        assert result.role_name == "CERBER"
+        assert result.role_team_color == 3
+        assert result.is_leader is True
+
+    def test_hostage_grid_parser_reads_entries_selection_and_cursor(self):
+        """The hostage grid parser mirrors the centered 12x14 cell layout."""
+        frame = _render_hostage_grid_frame()
+
+        grid = parse_hostage_grid(frame)
+
+        assert grid is not None
+        assert grid.eligible_colors == [3, 14, 8]
+        assert grid.eligible_shapes == [
+            PlayerShape.CIRCLE,
+            PlayerShape.SQUARE,
+            PlayerShape.TRIANGLE,
+        ]
+        assert grid.selected_positions == [2]
+        assert grid.selected_colors == [8]
+        assert grid.cursor_index == 1
+        assert grid.count_label == "1/2 HOSTAGES"
+
+    def test_parse_frame_populates_hostage_grid_for_hostage_select(self):
+        """HOSTAGE_SELECT frames expose the parsed grid on overworld output."""
+        result = parse_frame(_render_hostage_grid_frame())
+
+        assert result.view == View.HOSTAGE_SELECT
+        assert result.overworld is not None
+        assert result.overworld.hostage_grid is not None
+        assert result.overworld.hostage_grid.eligible_colors == [3, 14, 8]
 
 
 class TestOCR:

@@ -90,6 +90,15 @@ COLOR_BUBBLE = 2  # Speech bubble color
 COLOR_HOSTAGE_CHECK = 11  # Green checkmark on selected hostages
 
 # ---------------------------------------------------------------------------
+# Hostage selection grid
+# ---------------------------------------------------------------------------
+
+HOSTAGE_CELL_W = 12
+HOSTAGE_CELL_H = 14
+HOSTAGE_GRID_Y = 11
+HOSTAGE_MAX_COLS = 4
+
+# ---------------------------------------------------------------------------
 # Floor grid
 # ---------------------------------------------------------------------------
 
