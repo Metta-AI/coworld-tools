@@ -9,6 +9,7 @@ import numpy as np
 from orpheus import belief_update
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.buffers import BeliefBuffer
 from orpheus.hooks import HookPoint, HookRegistry
 from orpheus.mode import Mode, ModeDirective, ModeRegistry
 from orpheus.mode_buffer import ModeBuffer
@@ -42,6 +43,9 @@ class Pipeline:
         current_mode_name: str = "idle",
         logger: Callable[[str], None] | None = None,
         mode_buffer: ModeBuffer | None = None,
+        belief_buffer: BeliefBuffer | None = None,
+        fallback_directive: ModeDirective | None = None,
+        watchdog_threshold: int = 120,
     ) -> None:
         """Create an inner-loop pipeline with fresh owned runtime state."""
         self.belief_state: BeliefState = BeliefState()
@@ -58,6 +62,13 @@ class Pipeline:
         self.mode_buffer: ModeBuffer = (
             mode_buffer if mode_buffer is not None else ModeBuffer()
         )
+        self.belief_buffer: BeliefBuffer = (
+            belief_buffer if belief_buffer is not None else BeliefBuffer()
+        )
+        self.fallback_directive: ModeDirective | None = fallback_directive
+        self.watchdog_threshold: int = watchdog_threshold
+        self.ticks_since_last_mode_directive: int = 0
+        self._watchdog_fired: bool = False
         self.logger: Callable[[str], None] | None = logger
 
     def tick(self, frame: bytes | bytearray | np.ndarray) -> ActCommand:
@@ -98,7 +109,40 @@ class Pipeline:
             logger=self.logger,
         )
 
-        self._consume_mode_buffer()
+        # The async outer loop consumes deep-copied snapshots from this buffer.
+        # BeliefBuffer owns the copy so the inner loop stays non-blocking here.
+        self.belief_buffer.push(self.belief_state, self.action_memory)
+
+        consumed = self._consume_mode_buffer()
+        if consumed:
+            # Any consumed directive, including reaffirmations and invalid
+            # directives, proves the outer loop is still producing output.
+            self.ticks_since_last_mode_directive = 0
+            self._watchdog_fired = False
+        else:
+            self.ticks_since_last_mode_directive += 1
+            if (
+                not self._watchdog_fired
+                and self.ticks_since_last_mode_directive >= self.watchdog_threshold
+            ):
+                fallback = self.fallback_directive or ModeDirective(
+                    mode=self.current_mode_name,
+                    params=self.current_mode.params,
+                )
+                if self.logger is not None:
+                    tick = getattr(self.belief_state, "tick", None)
+                    if tick is None:
+                        self.logger(f"watchdog_fired: fallback={fallback.mode}")
+                    else:
+                        self.logger(
+                            f"watchdog_fired: tick={tick} fallback={fallback.mode}"
+                        )
+                self.mode_buffer.push(fallback, None)
+                # Apply the fallback immediately; _consume_mode_buffer mutates
+                # mode state only, leaving watchdog accounting centralized here.
+                self._consume_mode_buffer()
+                self.ticks_since_last_mode_directive = 0
+                self._watchdog_fired = True
 
         self.hook_registry.dispatch(
             HookPoint.PRE_DECIDE,
@@ -172,11 +216,16 @@ class Pipeline:
         previous_view = self.belief_state.view
         belief_update.apply(self.belief_state, perception, previous_view)
 
-    def _consume_mode_buffer(self) -> None:
-        """Consume a pending outer-loop mode directive, if one is available."""
+    def _consume_mode_buffer(self) -> bool:
+        """Consume a pending outer-loop mode directive, if one is available.
+
+        Returns True iff an entry was consumed, even when that directive is a
+        reaffirmation or is rejected as invalid. The watchdog uses this as an
+        outer-loop liveness signal.
+        """
         entry = self.mode_buffer.consume()
         if entry is None:
-            return
+            return False
 
         directive, inferences = entry
         if inferences is not None:
@@ -185,7 +234,7 @@ class Pipeline:
         if not self._is_directive_valid(directive):
             if self.logger is not None:
                 self.logger(f"invalid_directive: {directive!r}")
-            return
+            return True
 
         directive = self.hook_registry.dispatch_mode_switch(
             current_mode_name=self.current_mode_name,
@@ -201,7 +250,7 @@ class Pipeline:
             params=self.current_mode.params,
         )
         if directive == current_directive:
-            return
+            return True
 
         self.current_mode.mode_switch_cleanup(
             self.belief_state,
@@ -217,6 +266,7 @@ class Pipeline:
         self.current_mode_name = directive.mode
 
         self.current_mode.mode_enter(self.belief_state, self.action_memory)
+        return True
 
     def _is_directive_valid(self, directive: ModeDirective) -> bool:
         """Return True when a directive targets a registered mode with valid params."""
