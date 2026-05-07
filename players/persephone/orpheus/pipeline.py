@@ -10,7 +10,8 @@ from orpheus import belief_update
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
 from orpheus.hooks import HookPoint, HookRegistry
-from orpheus.mode import Mode, ModeRegistry
+from orpheus.mode import Mode, ModeDirective, ModeRegistry
+from orpheus.mode_buffer import ModeBuffer
 from orpheus.perception import parse_frame
 from orpheus.perception.types import FramePerception
 from orpheus.task import ActCommand, Task
@@ -40,6 +41,7 @@ class Pipeline:
         hook_registry: HookRegistry | None = None,
         current_mode_name: str = "idle",
         logger: Callable[[str], None] | None = None,
+        mode_buffer: ModeBuffer | None = None,
     ) -> None:
         """Create an inner-loop pipeline with fresh owned runtime state."""
         self.belief_state: BeliefState = BeliefState()
@@ -53,6 +55,9 @@ class Pipeline:
             hook_registry if hook_registry is not None else HookRegistry()
         )
         self.current_mode_name: str = current_mode_name
+        self.mode_buffer: ModeBuffer = (
+            mode_buffer if mode_buffer is not None else ModeBuffer()
+        )
         self.logger: Callable[[str], None] | None = logger
 
     def tick(self, frame: bytes | bytearray | np.ndarray) -> ActCommand:
@@ -93,7 +98,7 @@ class Pipeline:
             logger=self.logger,
         )
 
-        # TODO Stage 6: consume the outer-loop mode buffer before decide.
+        self._consume_mode_buffer()
 
         self.hook_registry.dispatch(
             HookPoint.PRE_DECIDE,
@@ -166,6 +171,60 @@ class Pipeline:
         """Integrate perception output into the persistent belief state."""
         previous_view = self.belief_state.view
         belief_update.apply(self.belief_state, perception, previous_view)
+
+    def _consume_mode_buffer(self) -> None:
+        """Consume a pending outer-loop mode directive, if one is available."""
+        entry = self.mode_buffer.consume()
+        if entry is None:
+            return
+
+        directive, inferences = entry
+        if inferences is not None:
+            self.belief_state.inferences = inferences
+
+        if not self._is_directive_valid(directive):
+            if self.logger is not None:
+                self.logger(f"invalid_directive: {directive!r}")
+            return
+
+        directive = self.hook_registry.dispatch_mode_switch(
+            current_mode_name=self.current_mode_name,
+            belief_state=self.belief_state,
+            action_memory=self.action_memory,
+            directive=directive,
+            mode_registry=self.mode_registry,
+            logger=self.logger,
+        )
+
+        current_directive = ModeDirective(
+            mode=self.current_mode_name,
+            params=self.current_mode.params,
+        )
+        if directive == current_directive:
+            return
+
+        self.current_mode.mode_switch_cleanup(
+            self.belief_state,
+            self.action_memory,
+            directive,
+        )
+
+        new_mode_cls = self.mode_registry.get(directive.mode)
+        assert new_mode_cls is not None
+        new_mode = new_mode_cls()
+        new_mode.params = directive.params
+        self.current_mode = new_mode
+        self.current_mode_name = directive.mode
+
+        self.current_mode.mode_enter(self.belief_state, self.action_memory)
+
+    def _is_directive_valid(self, directive: ModeDirective) -> bool:
+        """Return True when a directive targets a registered mode with valid params."""
+        mode_cls = self.mode_registry.get(directive.mode)
+        return mode_cls is not None and isinstance(
+            directive.params,
+            mode_cls.params_type,
+        )
 
     def _send_act_command(self, command: ActCommand) -> None:
         """Lower an ActCommand into the transport callables."""

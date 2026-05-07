@@ -47,11 +47,17 @@ class Mode(ABC):
     Modes are registered in a ModeRegistry by string key. The agent is in
     exactly one mode at a time. See DESIGN.md §"Mode interface" and
     §"Mode switching".
+
+    The framework activates a mode by calling the registered class with no
+    arguments, then immediately assigning `mode.params` from the consumed
+    ModeDirective. The class-level default keeps initial modes usable before
+    the framework has explicitly activated them.
     """
 
     # Frozen dataclass subclass of ModeParams that this mode accepts.
     # Default is the bare ModeParams (no fields). Subclasses override.
     params_type: type[ModeParams] = ModeParams
+    params: ModeParams = ModeParams()
 
     @abstractmethod
     def select_task(self, belief_state, action_memory) -> Task | None:

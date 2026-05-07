@@ -20,7 +20,9 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
+from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.mode import ModeDirective, ModeRegistry
 
 
 class HookPoint(Enum):
@@ -54,6 +56,8 @@ class HookRegistry:
         self._mode_hooks: dict[HookPoint, dict[str, list[Callable]]] = {
             hp: {} for hp in HookPoint
         }
+        self._agent_mode_switch_callbacks: list[Callable] = []
+        self._mode_switch_callbacks: dict[str, list[Callable]] = {}
 
     def register_hook(
         self,
@@ -68,6 +72,19 @@ class HookRegistry:
 
         for mode in modes:
             self._mode_hooks[hook_point].setdefault(mode, []).append(callback)
+
+    def register_mode_switch_callback(
+        self,
+        callback: Callable,
+        modes: list[str] | None = None,
+    ) -> None:
+        """Register a mode-switch callback, optionally scoped to departing modes."""
+        if modes is None:
+            self._agent_mode_switch_callbacks.append(callback)
+            return
+
+        for mode in modes:
+            self._mode_switch_callbacks.setdefault(mode, []).append(callback)
 
     def dispatch(
         self,
@@ -116,6 +133,60 @@ class HookRegistry:
                 )
         return None
 
+    def dispatch_mode_switch(
+        self,
+        current_mode_name: str,
+        belief_state: BeliefState,
+        action_memory: ActionMemory,
+        directive: ModeDirective,
+        mode_registry: ModeRegistry,
+        logger: Callable[[str], None] | None = None,
+    ) -> ModeDirective:
+        """Dispatch mode-switch callbacks and return the final directive.
+
+        Agent-level callbacks fire first, followed by callbacks registered for
+        the mode being departed. A callback may mutate belief state and may
+        return a replacement ModeDirective; invalid replacements are logged and
+        discarded.
+        """
+        current_directive = directive
+        for kind, callback in self._iter_mode_switch_callbacks(current_mode_name):
+            snapshot = copy.deepcopy(belief_state)
+            try:
+                override = callback(
+                    belief_state,
+                    action_memory,
+                    current_directive,
+                )
+            except Exception as exc:
+                self._rollback(belief_state, snapshot)
+                self._log_failure(
+                    logger,
+                    "mode_switch",
+                    current_mode_name,
+                    kind,
+                    callback,
+                    belief_state,
+                    exc,
+                )
+                continue
+
+            if override is None:
+                continue
+            if self._is_directive_valid(override, mode_registry):
+                current_directive = override
+            elif logger is not None:
+                callback_name = getattr(callback, "__name__", repr(callback))
+                logger(
+                    "invalid_mode_switch_override: "
+                    "point=mode_switch "
+                    f"mode={current_mode_name!r} "
+                    f"kind={kind} "
+                    f"hook={callback_name} "
+                    f"directive={override!r}"
+                )
+        return current_directive
+
     def _iter_hooks(
         self,
         hook_point: HookPoint,
@@ -133,6 +204,21 @@ class HookRegistry:
                 )
             )
         return hooks
+
+    def _iter_mode_switch_callbacks(
+        self,
+        current_mode_name: str,
+    ) -> list[tuple[str, Callable]]:
+        """Return agent callbacks followed by departing-mode callbacks."""
+        callbacks: list[tuple[str, Callable]] = [
+            ("agent", callback)
+            for callback in self._agent_mode_switch_callbacks
+        ]
+        callbacks.extend(
+            ("mode", callback)
+            for callback in self._mode_switch_callbacks.get(current_mode_name, [])
+        )
+        return callbacks
 
     def _call_hook(
         self,
@@ -172,7 +258,7 @@ class HookRegistry:
     def _log_failure(
         self,
         logger: Callable[[str], None] | None,
-        hook_point: HookPoint,
+        hook_point: HookPoint | str,
         current_mode_name: str | None,
         kind: str,
         hook: Callable,
@@ -184,15 +270,28 @@ class HookRegistry:
             return
 
         hook_name = getattr(hook, "__name__", repr(hook))
+        point = hook_point.value if isinstance(hook_point, HookPoint) else hook_point
         tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         logger(
             "hook_failed: "
-            f"point={hook_point.value} "
+            f"point={point} "
             f"mode={current_mode_name!r} "
             f"kind={kind} "
             f"hook={hook_name} "
             f"tick={belief_state.tick}: "
             f"{exc!r}\n{tb}"
+        )
+
+    def _is_directive_valid(
+        self,
+        directive: ModeDirective,
+        mode_registry: ModeRegistry,
+    ) -> bool:
+        """Return True when a directive targets a registered mode with valid params."""
+        mode_cls = mode_registry.get(directive.mode)
+        return mode_cls is not None and isinstance(
+            directive.params,
+            mode_cls.params_type,
         )
 
 
