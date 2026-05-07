@@ -52,6 +52,20 @@ class ActionMemory:
         self.pressed_last_tick = False
         self.sequence_step = 0
 
+    def step_button_press(self, button: int) -> int:
+        """Return ``button`` on a press tick or ``0`` on a release tick.
+
+        Rising-edge sequencing alternates press/release based on
+        ``pressed_last_tick``. Tasks call this each tick they want to press a
+        button; the helper emits the required release tick automatically.
+        """
+        if self.pressed_last_tick:
+            self.pressed_last_tick = False
+            return 0
+
+        self.pressed_last_tick = True
+        return button
+
 
 __all__ = [
     "ActionMemory",
