@@ -40,6 +40,22 @@ Known issues and planned work for the persephone project.
 - **Fix**: Use less-aggressive filler bots or a two-bot choreography
   where one bot creates a whisper and the other requests entry.
 
+### Shape classification in chatroom header sprites
+
+- **Status**: Not implemented
+- **Impact**: The chatroom header renders occupant sprites at known
+  positions (x=22, stride 9, y=1-7). Currently `_chatroom.py` only
+  extracts the dominant color per slot. Without shape classification,
+  `chatroom_occupants` in the Orpheus belief state cannot be resolved
+  to unambiguous player indices (up to 3 candidates share a color).
+- **Fix**: Run `detect_sprite_shape()` on chatroom header sprites in
+  addition to color extraction. The sprites are standard 7x7 templates
+  at known positions — the same classifier used in overworld detection
+  applies. Return `(color, shape)` pairs from `ChatroomPerception`,
+  allowing the belief update to resolve exact player indices. When shape
+  detection fails (full shadow collision), report color-only candidates.
+- **Ref**: Orpheus DESIGN.md open question #8 resolution.
+
 ### Global chat parser: messages and hostage grid not validated
 
 - **Status**: Partial

@@ -15,7 +15,15 @@ What an agent supplies:
 
 - A set of **modes** (registered in a mode registry).
 - **LLM directives** for the outer loop (mode selection).
+- A **fallback mode** (activated by the watchdog if the outer loop dies).
 - Optional **inter-stage hooks**.
+
+**Scope boundary**: this document specifies the framework only — the
+pipeline, the interfaces, the task catalogue, and the execution semantics.
+It does not design any concrete agent, mode, or `meta_decide`
+implementation. Mode names used in examples (e.g., `FindPlayerMode`,
+`ExploreMode`) are illustrative placeholders, not framework-provided
+components.
 
 ---
 
@@ -99,7 +107,7 @@ A mode is a class with three required methods:
 | Method | When called | Purpose |
 |--------|-------------|---------|
 | `select_task(belief_state, action_memory) -> Task | None` | Every tick (decide phase) | Task selection; may also mutate belief state |
-| `mode_enter(belief_state, action_memory) -> Task | None` | Once, on activation | One-time setup when mode becomes active |
+| `mode_enter(belief_state, action_memory) -> None` | Once, on activation | One-time setup when mode becomes active |
 | `mode_switch_cleanup(belief_state, action_memory, new_mode_directive) -> None` | Once, on deactivation | Teardown when being replaced by another mode |
 
 ### select_task
@@ -122,7 +130,9 @@ Its responsibilities:
 ### mode_enter / mode_switch_cleanup
 
 See the [mode switching](#mode-switching) section for the full lifecycle
-and calling semantics.
+and calling semantics. `mode_enter` performs one-time setup (mutating
+belief state to initialize mode-specific fields); it does not select
+tasks. `mode_switch_cleanup` handles teardown.
 
 Modes may also attach logic via the pre/post hooks on any phase.
 
@@ -217,6 +227,18 @@ work (movement, chatting, etc.). Tasks are the unit of act-phase logic.
 Task.select_action(belief_state, action_memory) -> ActCommand
 ```
 
+Each task also declares:
+
+```
+Task.valid_views: set[View]
+```
+
+The `valid_views` field specifies which game views the task can operate in.
+Before calling `select_action`, the framework checks `belief_state.view`
+against `task.valid_views`. On mismatch, the framework outputs a no-op
+(`ActCommand()`) for that tick without calling the task — the mode's next
+`select_task` sees the view change and selects an appropriate task.
+
 `ActCommand` is the framework's per-tick transport envelope:
 
 ```
@@ -303,6 +325,31 @@ carry out multi-tick tasks:
 ActionMemory is scoped to the current task. It is cleared whenever the task
 changes (see lifecycle above).
 
+**Standard fields** (maintained by the framework, read-only to modes):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ticks_active` | int | Ticks since the current task started |
+| `commands_sent` | int | Count of non-noop ActCommands emitted |
+| `last_command` | ActCommand | Most recent ActCommand output |
+| `command_history` | ring buffer (size 16) | Recent ActCommands for pattern detection |
+
+These are universally available regardless of task type, allowing modes to
+detect stuck conditions (e.g., same movement mask repeated 20 times) without
+knowing task-specific internals.
+
+**Task-specific fields**: tasks may store additional fields (path waypoints,
+menu navigation state, sequence step, etc.). These are documented per-task
+type so agent developers can write modes that inspect them when the current
+task type is known. Modes receive action_memory as read-only — they inspect
+but do not mutate.
+
+**Rising-edge sequencing infrastructure**: ActionMemory includes shared
+press/release state management used by all button-sequencing tasks. The
+minimum cycle is 2 ticks (1 tick pressed + 1 tick released). This
+infrastructure guarantees proper alternation for menu navigation and all
+multi-press sequences.
+
 ### Task catalogue
 
 #### Movement
@@ -310,7 +357,7 @@ changes (see lifecycle above).
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
 | `move_to` | `x, y` | A* pathfinding to target; outputs directional masks along waypoints | Position matches target |
-| `follow` | `player_index` | A* path to target's last-known position; re-paths when target moves | Never — mode switches away |
+| `follow` | `player_index, stop_distance=10` | A* path to target's last-known position; re-paths when target moves; no-ops within stop_distance | Never — mode switches away |
 | `wander` | — | Exploratory movement pattern (random waypoints, avoid revisiting areas) | Never — mode switches away |
 
 #### Chatroom lifecycle
@@ -318,7 +365,8 @@ changes (see lifecycle above).
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
 | `create_whisper` | — | Press A/J in current position (mode ensures open space) | View → whisper |
-| `request_entry` | `player_index` | A* path to target player, B/K-press when close | View → whisper (or WAITING state) |
+| `request_entry` | `player_index` | A* path to target player, A-press when close. Checks preconditions before pressing: target must have recent `last_seen_in_chatroom` tick and be within interaction proximity. No-ops if preconditions unmet | View → whisper (or WAITING state) |
+| `cancel_entry` | — | Press B while WAITING_ENTRY | View → overworld |
 | `exit_whisper` | — | Menu navigate: EXIT category → EXIT item → confirm (or Select/L shortcut) | View → overworld |
 | `grant_entry` | — | Menu navigate: LEADER category → GRANT item → confirm | System message confirms |
 
@@ -352,7 +400,7 @@ changes (see lifecycle above).
 
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
-| `send_message` | `text, channel` | Send a `PACKET_CHAT` with `buttons=0`; no button press is required. `channel` is the intended route (`whisper`, `global`, or `auto`) and is checked against belief state because the server routes by whether the player is inside a whisper. Respects chat cooldown internally | Message appears in chat history |
+| `send_message` | `text, channel=auto` | Send a `PACKET_CHAT` with `buttons=0`; no button press is required. `channel` controls routing assertion: `auto` (default) sends regardless of state; `chatroom` and `global` assert that `in_chatroom` matches — no-op if mismatched. Respects chat cooldown internally | Message appears in chat history |
 
 #### View management
 
@@ -375,20 +423,31 @@ changes (see lifecycle above).
   (left/right) → navigate item (up/down) → confirm (A) → optionally navigate
   target picker (left/right) → confirm (A). Rising-edge button sequencing
   (press/release alternation) is handled by shared infrastructure in
-  ActionMemory.
+  ActionMemory. Each step follows the rising-edge/falling-edge pattern:
+  press on tick N, perceive result on tick N+1 (release tick), press next
+  button on tick N+2.
 
 - `request_entry` bundles approach + button press into one task. The mode
   doesn't need to micromanage proximity — the task handles both pathfinding
-  and the A-press.
+  and the A-press. The task validates preconditions from belief state before
+  pressing A (target's `last_seen_in_chatroom` is recent, target is within
+  proximity) to avoid accidentally creating a chatroom in open space.
 
 - `follow` is distinct from repeated `move_to(player_pos)` to avoid clearing
   ActionMemory (and re-computing A*) every tick the target moves. Its identity
-  is `("follow", player_index)`, stable regardless of target position.
+  is `("follow", player_index, stop_distance)`, stable regardless of target
+  position. Outputs no-op movement when within `stop_distance` of target.
 
 - `send_message` respects the chat cooldown internally, outputting no-op
   commands until the cooldown expires. When it sends, it emits an `ActCommand`
   with `chat_text` populated and `buttons=0`. The mode can re-affirm the task
   each tick without concern for timing.
+
+- Task completion is never self-reported. Tasks have no privileged feedback
+  channel from the server — the only evidence of whether a command succeeded
+  is what perception observes on subsequent ticks. Modes infer progress and
+  completion from belief state. Stuck detection is a mode responsibility,
+  aided by ActionMemory's standard fields (`ticks_active`, `command_history`).
 
 ---
 
@@ -443,7 +502,9 @@ Source: `~/coding/bitworld/persephones_escape/game/constants.ts`,
 
 **Player registry:**
 - `players` — map of player index → known info per player:
-  - `position` — last-known `(x, y, tick)` from minimap or viewport
+  - `position` — last-known `(x, y, tick)` from viewport sprite observation
+    (unambiguous color + shape). Minimap sightings are stored separately
+    in `minimap_sightings` due to color ambiguity.
   - `room` — last-known room
   - `team` — known team (with source, see knowledge provenance below)
   - `role` — known role (with source)
@@ -472,8 +533,9 @@ Source: `~/coding/bitworld/persephones_escape/game/constants.ts`,
 
 **Action state:**
 - `cooldowns` — map of action type → tick when next available. Updated by
-  the framework when actions are sent. Tasks consult this to respect the
-  48-tick rate limit (chat, menu actions).
+  the framework when actions are sent (with conservative padding: server
+  cooldown + 2 ticks). Tasks consult this to respect per-action rate limits:
+  48 ticks for whisper chat, 240 ticks for menu actions and shout.
 
 **Chatroom state:**
 - `in_whisper` — whether self is currently in a whisper (derivable from
@@ -492,13 +554,21 @@ Source: `~/coding/bitworld/persephones_escape/game/constants.ts`,
   leader. Parsed from `GlobalChatPerception.hostage_grid`.
 
 **Social / knowledge:**
-- `chat_history` — recent messages observed (whisper + global + shouts),
+- `chat_history` — all messages observed (whisper + global + shouts),
   with sender index, tick, channel (whisper/global/shout), and for
   whisper messages: the list of occupant indices present when the message
   was sent. This captures not just who said what, but who they intended to
-  hear it.
+  hear it. The framework stores all messages without pruning — chat history
+  management (windowing, summarization, TTL) is an agent-level concern,
+  implementable via hooks or the outer loop.
 - `my_exchange_partner` — player index we have completed a mutual role
   exchange with (satisfies win condition), or None
+
+**Spatial observations:**
+- `minimap_sightings` — list of `(color, position, tick)` tuples from
+  minimap dots. Raw observations without index resolution — disambiguation
+  is agent-level logic. Appended each tick for each non-self minimap dot
+  observed. Agents may prune via hooks.
 
 **Knowledge provenance:**
 
@@ -527,15 +597,29 @@ mechanically revealed information is always truthful.
 **Leadership/hostage:**
 - `is_leader` — whether self holds the crown
 - `leader_colors` — known leader colors per room
+- `leader_last_confirmed_tick` — per room, tick when leadership was last
+  confirmed (crown indicator observed or leadership system message
+  processed). Agent implementations decide how much to trust stale data.
 
 **Task (framework-managed, read-only to modes):**
 - `current_task` — active task identifier + parameters (set by the framework
   from `select_task`'s return value; exposed for hooks and outer loop
   visibility)
 
+**Outer loop inferences (written by outer loop only):**
+- `inferences` — dedicated namespace for LLM-derived or outer-loop-produced
+  data. Arbitrarily nested dict. Replaced wholesale each time the outer loop
+  produces output. Modes read from this to access strategic assessments
+  (e.g., `inferences["player_assessments"][3]["suspected_role"]`). Framework-
+  managed fields are not writable by the outer loop — this namespace is the
+  only channel for outer loop → belief state data (beyond mode directives).
+
 **Flexible space:**
 - All other keys are mode-defined. Modes may create arbitrary nested
-  structures for their own use.
+  structures for their own use. Multiple modes intentionally reading/writing
+  the same keys is a valid pattern (e.g., shared counters, cross-mode
+  coordination). Agent developers manage their own namespace — standard
+  shared-memory discipline applies.
 
 ### Spatial knowledge and map building
 
@@ -606,6 +690,12 @@ cameraX = clamp(playerCenterX - 64, 0, roomW - 128)
 cameraY = clamp(playerCenterY - 64, -9, roomH - 119)
 ```
 
+**Position source requirement**: self-position is always derived from direct
+viewport/camera localization (floor grid dots provide exact camera offset
+within 1-2 ticks). Self-position is **never** estimated from the minimap —
+the minimap is too imprecise for the grid mapping above. This is an explicit
+requirement on the perception module.
+
 **2. Minimap obstacle hints (coarse, approximate):**
 
 The minimap renders each obstacle as a single color-5 dot at:
@@ -633,9 +723,10 @@ is traversable. All grid cells within the player's footprint are marked
 
 #### A* pathfinding
 
-The occupancy grid is the cost map for A*:
+The occupancy grid is the cost map for A* with **8-directional connectivity**
+(matching player movement capabilities):
 - `WALL` → impassable
-- `FREE` → cost 1
+- `FREE` → cost 1 (√2 for diagonals)
 - `UNKNOWN` → treated as traversable (optimistic pathfinding)
 
 Optimistic handling of `UNKNOWN` is appropriate because rooms are mostly
@@ -646,6 +737,12 @@ wall, stuck detection triggers re-pathing with updated knowledge.
 agent cannot pass through gaps narrower than 7px (~4 grid cells at 2:1).
 A* expands walls by the player's half-width (3px → 2 grid cells) to compute
 the free configuration space. This ensures paths are physically navigable.
+The expansion value is an implementation tuning parameter.
+
+**Grid resolution**: the default 2:1 ratio (one grid cell per 2x2 world
+pixels) is tunable. The map geometry is simple (room-edge walls + regularly
+spaced 8x8 pillars) and narrow-gap navigation is unlikely to be a critical
+bottleneck.
 
 #### Dynamic obstacles (other players)
 
@@ -730,8 +827,11 @@ All views that show the game world with minimap:
 - `room` — from `perception.overworld.room`.
 - `round` — from `perception.overworld.round`.
 - `timer_secs` — from `perception.overworld.timer_secs`.
-- `players` registry positions — updated from minimap dots (color → candidate
-  indices) and viewport sprite observations (color + shape → exact index).
+- `players` registry positions — updated from viewport sprite observations
+  (color + shape → exact index → position update in registry).
+- `minimap_sightings` — append `(color, position, tick)` for each non-self
+  minimap dot. These are raw observations; disambiguation into player
+  indices is agent-level logic.
 - `players` registry `last_seen_in_whisper` — for each speech bubble
   observed (from `perception.overworld.speech_bubbles`), set the identified
   player's `last_seen_in_whisper` to the current tick. This signals that the
@@ -890,9 +990,18 @@ No interleaving between agent-level and mode-level hooks.
 
 ### Error handling
 
-If a hook raises an exception, the error is caught and logged. The pipeline
-continues with the next hook (or next phase). Hooks must not assume prior
-hooks succeeded.
+Before invoking each hook, the framework takes a deep copy of the belief
+state. If the hook raises an exception:
+
+1. The belief state is **rolled back** to the pre-hook snapshot, undoing any
+   partial mutations the hook made before crashing.
+2. The error is logged with full context: hook name, hook point, active mode,
+   current tick, and exception traceback.
+3. The pipeline continues with the next hook (or next phase).
+
+This ensures hook failures never corrupt belief state while keeping the agent
+operational. Hooks must not assume prior hooks succeeded (a prior hook may
+have been rolled back).
 
 ---
 
@@ -947,8 +1056,9 @@ unconsumed item (latest-wins).
 - Written by the outer loop after `meta_decide` returns.
 - Read by the inner loop each tick, between post_belief_update and pre_decide.
   If the buffer is non-empty, the inner loop consumes it — applies the
-  belief state updates (if any) and processes the mode directive. If empty,
-  the inner loop continues with the current mode unchanged.
+  inferences update (if any) to `belief_state.inferences` and processes the
+  mode directive. If empty, the inner loop continues with the current mode
+  unchanged.
 
 ### meta_decide
 
@@ -963,16 +1073,23 @@ inner loop's live state). Returns:
 - `ModeDirective`: a complete mode specification — mode type + parameters.
   May be the same as the current mode (reaffirmation) or a new mode
   (transition).
-- `dict | None`: optional belief state updates to apply when the inner loop
-  consumes the mode buffer. Keys are top-level belief state field names;
-  values replace the corresponding fields. Used for LLM-derived inferences
-  (e.g., `{"players": updated_registry}`) that the outer loop wants to
-  inject into the inner loop's live state. `None` means no updates.
+- `dict | None`: optional inferences to write into `belief_state.inferences`.
+  Replaces the entire `inferences` namespace wholesale — the outer loop is
+  responsible for including anything it wants to persist from previous
+  iterations. `None` means no inference update. The dict may be arbitrarily
+  nested. Framework-managed belief state fields are not writable by the outer
+  loop; this namespace is the only data channel from outer loop to inner loop
+  state (beyond mode directives).
 
 The internals of `meta_decide` are **agent-defined**. Implementations may:
 - Call an LLM with a summary of belief state + agent directives.
 - Run a symbolic rule system.
 - Use a hybrid approach.
+
+How `meta_decide` summarizes the belief state for an LLM (serialization,
+filtering, prompt construction) is entirely the agent's responsibility —
+different agents may focus on different aspects and require radically
+different summarization strategies.
 
 ### Timing and staleness
 
@@ -1015,6 +1132,23 @@ The inner loop **never blocks** on the outer loop. Each tick it:
 If the outer loop is slow, crashes, or is absent entirely, the inner loop
 continues operating in its current mode indefinitely.
 
+### Resilience: watchdog and restart
+
+The framework provides two mechanisms to handle outer loop failure:
+
+**Watchdog**: the framework tracks `ticks_since_last_mode_directive`. If it
+exceeds a configurable threshold (default: 120 ticks = 5 seconds), the
+framework activates a **fallback mode** specified by the agent at
+construction time. The fallback mode is agent-defined (like all modes) and
+should provide reasonable default behavior for any game phase (e.g.,
+wander + accept exchanges). The watchdog fires once; subsequent outer loop
+output resumes normal mode switching.
+
+**Outer loop restart**: the framework monitors the outer loop thread/task.
+If it terminates unexpectedly (exception, crash), the framework restarts it.
+The restarted instance blocks on the belief buffer as usual and resumes
+producing ModeDirectives normally. Restart is logged at the `events` level.
+
 ---
 
 ## Mode switching
@@ -1039,12 +1173,12 @@ the mode buffer:
 2. Run mode-switch callbacks (may mutate belief state, may override directive)
 3. Run OLD mode's mode_switch_cleanup (may mutate belief state)
 4. Activate new mode
-5. Run NEW mode's mode_enter (may mutate belief state, may return initial task)
+5. Run NEW mode's mode_enter (may mutate belief state)
 6. Continue to pre_decide phase
 ```
 
 **Step 1**: The optional `dict` bundled with the `ModeDirective` in the mode
-buffer is applied first (top-level field assignment on the belief state).
+buffer is applied first — it replaces `belief_state.inferences` wholesale.
 
 **Step 2**: Registered mode-switch callbacks fire in order (agent-level
 first, then mode-level for the old mode, FIFO within each group). Each
@@ -1081,17 +1215,16 @@ etc. May be a no-op.
 **Step 5**: The new mode's entry method runs:
 
 ```
-Mode.mode_enter(belief_state, action_memory) -> Task | None
+Mode.mode_enter(belief_state, action_memory) -> None
 ```
 
 One-time initialization for the mode. Mutates belief state directly to set
-up mode-specific fields, reset counters, etc. Returns an optional initial
-task — if `None`, the framework waits for `select_task` on the next decide
-phase. If a `Task` is returned, it becomes the active task immediately
-(avoiding one tick of no-op).
+up mode-specific fields, reset counters, etc. Does not select tasks — the
+first task comes from `select_task` during the decide phase on this same
+tick.
 
 **Step 6**: Pipeline resumes with pre_decide. The new mode's `select_task`
-will be called during the decide phase.
+will be called during the decide phase to select the first task.
 
 ### ActionMemory on mode switch
 
@@ -1107,248 +1240,59 @@ Every mode must implement:
 | Method | Purpose |
 |--------|---------|
 | `select_task(belief_state, action_memory) -> Task | None` | Per-tick task selection (decide phase) |
-| `mode_enter(belief_state, action_memory) -> Task | None` | One-time setup on activation |
+| `mode_enter(belief_state, action_memory) -> None` | One-time setup on activation |
 | `mode_switch_cleanup(belief_state, action_memory, new_mode_directive) -> None` | Teardown when being replaced |
 
 ---
 
-## Open design questions
+## Logging and tracing
 
-### Critical (blocks implementation)
+The framework provides structured logging (JSONL format) at configurable
+granularity. Output is written to a per-agent log file (path configurable at
+agent construction).
 
-1. ~~**`BeliefStateDelta` is undefined.**~~ **Resolved**: eliminated. Modes,
-   hooks, and tasks mutate state directly. The outer loop sends a plain
-   `dict | None` of top-level field assignments across the async boundary.
+### Log levels
 
-2. ~~**`ModeDirective` is partially undefined.**~~ **Resolved**: frozen
-   dataclass with `mode` (registry key) and `params` (per-mode frozen
-   dataclass subclassing `ModeParams`). Equality is structural. Params are
-   validated against the target mode's declared `params_type` at consumption
-   time. `ModeDirectiveDelta` eliminated — callbacks return
-   `ModeDirective | None` to override.
+Each level includes everything from lower levels:
 
-3. ~~**`select_task` buries task selection in a delta.**~~ **Resolved**:
-   `select_task` now returns `Task | None` explicitly. `None` = keep current
-   task.
+| Level | Contents |
+|-------|----------|
+| `off` | No logging |
+| `events` | Mode transitions (old→new, directive, tick). Task changes (old→new, params). Outer loop cycles (consumed tick, staleness delta, directive produced). Hook failures (with rollback context). View transitions. Game phase changes (lobby reset, round changes). Watchdog activations. Outer loop restarts. |
+| `decisions` | `select_task` returns each tick (task type, params, or None). Outer loop `meta_decide` input summary (belief snapshot tick, key fields). `meta_decide` output (directive + inferences dict). `mode_enter` / `mode_switch_cleanup` calls. `valid_views` mismatch no-ops. |
+| `verbose` | Full perception output each tick (`FramePerception` serialized). All belief state mutations (field, old value, new value — diffed per tick). All action memory mutations. `ActCommand` output each tick (buttons, chat_text, reset_input). Cooldown state changes. `minimap_sightings` appended. Occupancy grid cells changed (viewport-confirmed transitions). |
 
-### Significant (requires design decisions before implementation)
+### Metadata
 
-4. ~~**No game lifecycle management.**~~ **Resolved**: the framework is
-   phase-agnostic. The pipeline runs identically every tick. Phase-specific
-   behavior is the responsibility of the belief update pipeline (which
-   integrates perception per-view) and agent modes (which decide what to do
-   based on `belief_state.view`). Game reset is handled by the belief update
-   clearing state on Lobby detection after a non-Lobby view. Identity fields
-   are populated when perception returns RoleReveal/RosterReveal data.
+All log entries (regardless of level) include: tick number, wall-clock
+timestamp, active mode, current task type, and current view.
 
-5. ~~**No phase-transition awareness.**~~ **Resolved by design**: the
-   framework does not special-case phase transitions. Modes observe
-   `belief_state.view` changing and adapt (e.g., returning `IdleTask()` when
-   the view is non-interactive, or abandoning a whisper menu sequence when
-   `in_whisper` becomes `False`). The framework's only responsibility is
-   ensuring the belief state accurately reflects the current phase — which
-   the belief update pipeline handles.
+### Custom log entries
 
-6. ~~**No task-to-mode escalation channel.**~~ **Resolved — by design.** Tasks
-   return `ActCommand` with no status signal, which is correct because tasks
-   have no privileged feedback channel from the server. The only evidence of
-   whether a command succeeded is what perception observes on subsequent ticks
-   — the same evidence available to the mode via belief state. Adding status
-   reporting to tasks would duplicate observer logic that belongs in the mode.
-   Tasks record what they sent (in ActionMemory); modes infer progress from
-   belief state. Stuck detection is a mode responsibility — implemented by
-   checking position change, view transitions, or other belief state evidence
-   across ticks.
+Hooks and modes may emit custom log entries via a framework-provided method:
 
-7. ~~**Whisper entry vs. creation ambiguity.**~~ **Resolved.** The
-   `request_entry` task checks preconditions from belief state before
-   pressing B/K: target player must have a recent `last_seen_in_whisper`
-   tick (confirming speech bubble was observed) and must be within
-   interaction proximity. If preconditions are not met, the task outputs
-   a no-op rather than risking accidental whisper creation. Modes may
-   add additional checks before issuing the task, but the task itself
-   is not "blindly press B."
+```
+log_event(category: str, data: dict, level: str = "events")
+```
 
-8. ~~**Whisper occupant identification gap.**~~ **Resolved.** Perception
-   runs shape classification (via `detect_sprite_shape()`) on whisper
-   header sprites in addition to color extraction. The header renders
-   standard 7x7 sprites at known positions (x=22, stride 9, y=1-7),
-   which are the same templates used in overworld detection. With both
-   color and shape, perception returns unambiguous player indices for
-   whisper occupants. When shape detection fails (e.g., full shadow
-   collision), the occupant is reported with color-only candidates —
-   the belief update handles this as a narrowed candidate set resolved
-   via context (room assignments, prior observations).
+The entry is written only if the configured log level is ≥ the specified
+level. This allows agent-defined tracing without coupling to the framework's
+internal categories.
 
-9. ~~**`wander` memory doesn't survive task interruption.**~~ **Resolved.**
-   The occupancy grid's viewport-confirmed flag already tracks which cells
-   the agent has directly observed. Cells lacking viewport-confirmed status
-   are "unexplored" — exactly what wander needs to target. This data lives
-   in belief state, persists across task and mode changes, and is maintained
-   by the framework's belief update pipeline. The `wander` task reads the
-   grid from belief state and targets unconfirmed cells. No task-level
-   exploration memory needed.
+### Post-mortem analysis
 
-10. ~~**No view-change safety check in act phase.**~~ **Resolved.** Tasks
-    declare a `valid_views` field — a set of `View` values in which the
-    task can operate. Before calling `task.select_action`, the framework
-    checks `belief_state.view` against `task.valid_views`. On mismatch,
-    the framework outputs a no-op (`ActCommand()`) for that tick without
-    calling the task. The mode's next `select_task` sees the view change
-    in belief state and selects an appropriate task. Tasks with broad
-    applicability (e.g., `idle`) declare multiple valid views. This is a
-    declarative safety net — tasks may still perform additional internal
-    checks, but the framework guarantees they never execute in a view
-    they weren't designed for.
+JSONL format enables filtering by tick range, event type, mode, or task.
+Each line is a self-contained JSON object with a `type` field for
+categorization (e.g., `"mode_transition"`, `"task_change"`, `"act_command"`,
+`"perception"`, `"belief_diff"`).
 
-11. ~~**Outer loop belief dict injection is untyped and unsandboxed.**~~
-    **Resolved.** The outer loop's `dict | None` return writes exclusively
-    to `belief_state.inferences` — a dedicated namespace for LLM-derived
-    or outer-loop-produced data. The dict may be arbitrarily nested (not
-    flat). Framework-managed fields (`tick`, `position`, `view`,
-    `occupancy_grid`, `players`, etc.) are not writable by the outer loop.
-    Modes read `belief_state.inferences` to access outer loop output (e.g.,
-    `belief_state.inferences["player_assessments"][3]["suspected_role"]`).
-    The framework applies the returned dict as a deep replace of
-    `belief_state.inferences` — each outer loop iteration overwrites the
-    previous inferences entirely (the outer loop is responsible for
-    including anything it wants to persist). `meta_decide` signature
-    remains `(ModeDirective, dict | None)` — `None` means no inference
-    update; a dict replaces `belief_state.inferences` wholesale.
+---
 
-12. **RosterReveal has no perception specification.** The belief update
-    references `RosterReveal` and says it populates the player registry
-    with (color, shape, room) for all players. But the perception design
-    doc has no `ROSTER_REVEAL` view enum, no detection rule, and no
-    `RosterRevealPerception` dataclass. The `_roster_reveal.py` file
-    exists in code but the design contract is unspecified.
+## Testing
 
-13. **No outer loop death recovery.** The non-blocking guarantee ensures
-    the inner loop continues if the outer loop crashes, but it continues
-    in whatever mode was last set — potentially `idle`. No watchdog, no
-    fallback mode promotion, no "N ticks without directive → escalate."
-    In a 3-minute game, an early outer loop crash means a fully inert
-    agent.
-
-14. **Chat history grows unbounded.** `chat_history` accumulates from
-    three channels for the entire game with no pruning specification.
-    Each entry carries sender, tick, channel, text, and full occupant
-    list. At max chat rate across 10 players for 180s, this can reach
-    hundreds of entries. The outer loop copies the entire thing every
-    tick for the belief snapshot. No max-length, no TTL, no summarization
-    boundary defined.
-
-15. **Minimap color→index ambiguity has no resolution model.** Up to 3
-    player indices share a color. The belief update says positions are
-    "updated from minimap dots" but doesn't specify how ambiguous
-    sightings are stored — does it update all candidates? Pick the
-    nearest? Create a probabilistic sighting? The player registry has
-    a single `position` per player with no representation for "one of
-    players {0, 8, 16} is at position X."
-
-16. **`mode_enter` Task vs. `select_task` ordering on the same tick.**
-    If `mode_enter` returns a Task, it becomes active immediately (step
-    5). Then the pipeline resumes at pre_decide, and `select_task` runs
-    during decide phase. Does `select_task` see mode_enter's task as the
-    "current task" and return None to affirm it? Or might it replace it
-    immediately, wasting the mode_enter setup? The interaction needs
-    clarification.
-
-17. **No A* pathfinding parameters specified.** Grid connectivity
-    (4-dir vs 8-dir), heuristic function, path smoothing from grid
-    waypoints to world coordinates, max search iterations / timeout,
-    and behavior on unreachable goals are all unspecified.
-
-18. **Rising-edge button sequencing timing undefined.** Menu navigation
-    requires press/release alternation (server reads rising edges). The
-    doc says this is "handled by shared infrastructure in ActionMemory"
-    but doesn't specify: minimum press duration (1 tick?), guaranteed
-    release between presses, or behavior when a mode switch interrupts
-    mid-sequence.
-
-19. **Occupancy grid coordinate precision gap.** Viewport→world mapping
-    depends on camera position, which derives from self-position, which
-    may be a minimap estimate (±roomW/20 px). Config-space expansion
-    ("3px → 2 grid cells" at 2:1) involves a rounding decision (1.5
-    cells) that isn't specified. Floor vs ceil determines whether the
-    agent attempts gaps it can't fit through.
-
-20. **Flexible belief state namespace collisions.** Modes create
-    arbitrary keys in the belief state for their own use. No namespacing
-    convention exists. Two modes using the same key (e.g., `"target"`)
-    stomp each other silently. `mode_switch_cleanup` is expected to
-    clean up manually, but nothing enforces it. The outer loop's LLM
-    sees all mode-specific state in its belief snapshot — polluting the
-    prompt with irrelevant internal bookkeeping.
-
-### Minor (solvable locally but worth noting)
-
-21. **No urgency/interrupt mechanism.** Outer loop may take 1-2s; no "kick"
-    to force re-evaluation when something urgent happens (becoming leader
-    mid-HostageSelect, key player appearing).
-
-22. **Hook error handling too permissive.** Catch-and-continue means
-    half-applied state (now via direct mutation, not partial deltas), silent
-    corruption, difficult debugging.
-
-23. **No position precision tracking.** Player registry doesn't distinguish
-    ±5px viewport observations from ±(roomW/20)px minimap estimates.
-
-24. **`send_message` channel conflict unspecified.** What happens when
-    desired channel (global) conflicts with player state (in whisper)?
-
-25. **Missing task: cancel whisper entry request.** Game supports B-press
-    while WAITING_ENTRY. No task exists for giving up on entry.
-
-26. **Missing task: scroll.** Chat messages scroll off screen. No way to
-    recover history that perception can't see on the current frame.
-
-27. **Cooldown tracking assumes action acceptance.** Server silently drops
-    rate-limited actions. Framework cooldown tracker can drift from reality.
-
-28. **Leader change detection is fragile.** Usurp and PASS/TAKE happen in
-    contexts the agent may not be observing. No staleness detection for
-    `leader_colors`.
-
-29. **No tracing/debugging specification.** Decision logging, mode transition
-    timeline, outer loop staleness visibility — all absent.
-
-30. **ActionMemory read interface unspecified.** Modes receive action_memory
-    as read-only but its structure is per-task and never documented. Modes
-    can't reliably inspect it for status information.
-
-31. **Leader summit behavioral gap.** The view is detected and spatial data
-    extracted, but there are no summit-specific tasks, no guidance on what
-    leaders do during the summit, and no specification of the negotiation
-    interface (if any).
-
-32. **`follow` task has no proximity threshold.** Unlike `move_to` (complete
-    when position matches), `follow` never completes. Unclear when the agent
-    stops moving — adjacent? Overlapping? A configurable distance?
-
-33. **Rate limit scope ambiguous.** The 48-tick cooldown applies to "whisper
-    actions and chat messages" — but is the rate limit per semantic action
-    (e.g., "role offer") or per confirm button press? Does navigating the
-    menu (open menu → select category → select item → confirm) count as one
-    action or multiple? Are sequential tasks (offer then exit) gated by a
-    single shared cooldown?
-
-34. **`select_hostages` depends on perception feedback mid-execution.** The
-    task must toggle specific grid cells, but cursor position is only known
-    from perception (previous tick's frame). Multi-step sequences with
-    visual feedback operate on 1-tick-stale data. For fast sequences this
-    may cause misstoggling.
-
-35. **No connection failure or game-full handling.** The framework assumes
-    successful WebSocket connection. No retry, no error state, no "game
-    full" path.
-
-36. **No testing strategy.** The system has async loops, mutable shared
-    state, multi-tick tasks, and LLM integration — but no specification
-    for how to unit-test modes, integration-test the inner loop without a
-    server, or regression-test mode switching edge cases.
-
-37. **No LLM prompt construction guidance.** `meta_decide` receives the
-    full belief state (spatial grid, player registry, chat history) but
-    no guidance on how to summarize it for an LLM context window. The
-    occupancy grid alone (10K cells) cannot be passed verbatim.
+The framework requires an agent implementation to exercise. A minimal **test
+agent** should be implemented alongside the framework: a few simple modes
+(e.g., idle, wander, approach-nearest-player) and a trivial `meta_decide`
+(rule-based, no LLM). This provides scaffolding for unit testing modes/tasks
+in isolation, integration testing the inner loop with mocked perception, and
+end-to-end testing against a real server with a fixed seed.
