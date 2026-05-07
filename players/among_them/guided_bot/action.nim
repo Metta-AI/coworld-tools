@@ -28,17 +28,146 @@ const
   ReportRange = 20       ## World-pixel distance for report ButtonA.
 
 # ---------------------------------------------------------------------------
-# Direction buttons from current position to target
+# Momentum-aware steering controller
 # ---------------------------------------------------------------------------
 
-proc steerButtons(selfX, selfY, targetX, targetY: int): uint8 {.inline.} =
-  ## Produce direction-button bits to move from self toward target.
-  var mask: uint8 = 0
-  if targetX < selfX: mask = mask or ButtonLeft
-  elif targetX > selfX: mask = mask or ButtonRight
-  if targetY < selfY: mask = mask or ButtonUp
-  elif targetY > selfY: mask = mask or ButtonDown
-  mask
+proc hasMovement(mask: uint8): bool {.inline.} =
+  ## True if any direction button is set in the mask.
+  (mask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0
+
+proc updateMotionState*(state: var ActionState, selfX, selfY: int,
+                        localized: bool) =
+  ## Track frame-to-frame velocity. Call once per tick before steering.
+  if not localized:
+    state.haveMotionSample = false
+    state.velocityX = 0
+    state.velocityY = 0
+    state.stuckFrames = 0
+    state.jiggleTicks = 0
+    return
+
+  if state.haveMotionSample and state.lastEmittedMask.hasMovement():
+    state.velocityX = selfX - state.previousSelfX
+    state.velocityY = selfY - state.previousSelfY
+    let moved = abs(state.velocityX) + abs(state.velocityY)
+    if moved == 0:
+      inc state.stuckFrames
+    else:
+      state.stuckFrames = 0
+    if state.stuckFrames >= StuckFrameThreshold:
+      state.stuckFrames = 0
+      state.jiggleTicks = JiggleDuration
+      state.jiggleSide = 1 - state.jiggleSide
+  else:
+    state.velocityX = 0
+    state.velocityY = 0
+    state.stuckFrames = 0
+
+  state.haveMotionSample = true
+  state.previousSelfX = selfX
+  state.previousSelfY = selfY
+
+proc coastDistance(velocity: int): int =
+  ## Simulate friction decay to predict how far current velocity carries.
+  var speed = abs(velocity)
+  for _ in 0 ..< CoastLookaheadTicks:
+    if speed <= 0:
+      break
+    result += speed
+    speed = (speed * FrictionNum) div FrictionDen
+
+proc shouldCoast(delta, velocity: int): bool =
+  ## True when existing velocity will carry us to the target.
+  if delta > 0 and velocity > 0:
+    return delta <= coastDistance(velocity) + CoastArrivalPadding
+  if delta < 0 and velocity < 0:
+    return -delta <= coastDistance(velocity) + CoastArrivalPadding
+  false
+
+proc axisMask(delta, velocity: int, negativeMask, positiveMask: uint8): uint8 =
+  ## Momentum-aware single-axis steering with coasting and active braking.
+  ## - Far from target: accelerate toward it (or coast/brake if appropriate)
+  ## - Within deadband: only brake residual velocity
+  if delta > SteerDeadband:
+    if shouldCoast(delta, velocity):
+      return 0
+    if velocity > 1 and delta <= abs(velocity) + BrakeDeadband:
+      return negativeMask
+    return positiveMask
+  if delta < -SteerDeadband:
+    if shouldCoast(delta, velocity):
+      return 0
+    if velocity < -1 and -delta <= abs(velocity) + BrakeDeadband:
+      return positiveMask
+    return negativeMask
+  if velocity > 0:
+    return negativeMask
+  if velocity < 0:
+    return positiveMask
+  0
+
+proc preciseAxisMask(delta, velocity: int,
+                     negativeMask, positiveMask: uint8): uint8 =
+  ## Zero-deadband variant for final approach. Uses coast/brake but
+  ## targets delta=0 exactly instead of accepting a 2px band.
+  if delta > 0:
+    if shouldCoast(delta, velocity):
+      return 0
+    if velocity > 1 and delta <= abs(velocity) + BrakeDeadband:
+      return negativeMask
+    return positiveMask
+  if delta < 0:
+    if shouldCoast(delta, velocity):
+      return 0
+    if velocity < -1 and -delta <= abs(velocity) + BrakeDeadband:
+      return positiveMask
+    return negativeMask
+  if velocity > 0:
+    return negativeMask
+  if velocity < 0:
+    return positiveMask
+  0
+
+proc steerButtons(selfX, selfY, targetX, targetY: int,
+                  velX, velY: int): uint8 {.inline.} =
+  ## Momentum-aware steering: coast/brake/accelerate per axis.
+  let dx = targetX - selfX
+  let dy = targetY - selfY
+  result = axisMask(dx, velX, ButtonLeft, ButtonRight) or
+           axisMask(dy, velY, ButtonUp, ButtonDown)
+
+proc preciseSteerButtons(selfX, selfY, targetX, targetY: int,
+                         velX, velY: int): uint8 {.inline.} =
+  ## Zero-deadband final-approach steering with coast/brake.
+  let dx = targetX - selfX
+  let dy = targetY - selfY
+  result = preciseAxisMask(dx, velX, ButtonLeft, ButtonRight) or
+           preciseAxisMask(dy, velY, ButtonUp, ButtonDown)
+
+proc applyJiggle(state: var ActionState, mask: uint8): uint8 =
+  ## Add perpendicular correction while keeping intent direction held.
+  ## Only applies when stuck detection has triggered a jiggle window.
+  result = mask
+  if state.jiggleTicks <= 0 or not mask.hasMovement():
+    return
+  dec state.jiggleTicks
+  let
+    vertical = (mask and (ButtonUp or ButtonDown)) != 0
+    horizontal = (mask and (ButtonLeft or ButtonRight)) != 0
+  if vertical and not horizontal:
+    if state.jiggleSide == 0:
+      result = result or ButtonLeft
+    else:
+      result = result or ButtonRight
+  elif horizontal and not vertical:
+    if state.jiggleSide == 0:
+      result = result or ButtonUp
+    else:
+      result = result or ButtonDown
+  elif state.jiggleSide == 0:
+    result = result or ButtonLeft
+  else:
+    result = result or ButtonRight
 
 proc addIntentButtons(mask: var uint8, intent: ActionIntent) {.inline.} =
   if intent.pressA: mask = mask or ButtonA
@@ -157,6 +286,10 @@ proc applyIntent*(
   state.lastLookaheadValid = false
 
   let graph = navGraph()[]
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  let localized = belief.percep.localized
+  updateMotionState(state, selfX, selfY, localized)
 
   # --- DisciplineNoOp ---
   if intent.discipline == DisciplineNoOp:
@@ -174,7 +307,8 @@ proc applyIntent*(
     if intent.steerValid:
       let sx = belief.percep.selfX
       let sy = belief.percep.selfY
-      mask = steerButtons(sx, sy, intent.steerTo.x, intent.steerTo.y)
+      mask = steerButtons(sx, sy, intent.steerTo.x, intent.steerTo.y,
+                          state.velocityX, state.velocityY)
     else:
       case intent.steerTo.x
       of 0: mask = ButtonUp
@@ -186,10 +320,6 @@ proc applyIntent*(
     if intent.pressB: mask = mask or ButtonB
     state.lastEmittedMask = mask
     return mask
-
-  let selfX = belief.percep.selfX
-  let selfY = belief.percep.selfY
-  let localized = belief.percep.localized
 
   # --- DisciplineTaskHold ---
   if intent.discipline == DisciplineTaskHold:
@@ -204,7 +334,8 @@ proc applyIntent*(
   if intent.discipline == DisciplineKillStrike:
     var mask: uint8 = 0
     if intent.steerValid and localized:
-      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y,
+                          state.velocityX, state.velocityY)
       let dist = heuristic(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
       if dist <= KillStrikeRange:
         mask = mask or ButtonA
@@ -217,7 +348,8 @@ proc applyIntent*(
   if intent.discipline == DisciplineReport:
     var mask: uint8 = 0
     if intent.steerValid and localized:
-      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
+      mask = steerButtons(selfX, selfY, intent.steerTo.x, intent.steerTo.y,
+                          state.velocityX, state.velocityY)
       let dist = heuristic(selfX, selfY, intent.steerTo.x, intent.steerTo.y)
       if dist <= ReportRange:
         mask = mask or ButtonA
@@ -252,7 +384,9 @@ proc applyIntent*(
 
   # Ghost: greedy straight-line (no obstacles)
   if belief.self.isGhost:
-    mask = steerButtons(selfX, selfY, goalX, goalY)
+    mask = steerButtons(selfX, selfY, goalX, goalY,
+                        state.velocityX, state.velocityY)
+    mask = applyJiggle(state, mask)
     addIntentButtons(mask, intent)
     state.lastSelfX = selfX
     state.lastSelfY = selfY
@@ -261,7 +395,9 @@ proc applyIntent*(
 
   # Final approach: if very close to goal, steer directly (skip waypoints)
   if heuristic(selfX, selfY, goalX, goalY) <= FinalApproachRadius:
-    mask = steerButtons(selfX, selfY, goalX, goalY)
+    mask = preciseSteerButtons(selfX, selfY, goalX, goalY,
+                               state.velocityX, state.velocityY)
+    mask = applyJiggle(state, mask)
     addIntentButtons(mask, intent)
     state.lastSelfX = selfX
     state.lastSelfY = selfY
@@ -383,7 +519,8 @@ proc applyIntent*(
             let fromDist = heuristic(selfX, selfY, fromWp.x, fromWp.y)
             if fromDist <= 100:
               state.navErrorReason = "path_resync_to_edge_start"
-              mask = steerButtons(selfX, selfY, fromWp.x, fromWp.y)
+              mask = steerButtons(selfX, selfY, fromWp.x, fromWp.y,
+                                  state.velocityX, state.velocityY)
             else:
               setNavError(state, tick, "path_snap_too_far")
               state.lastSelfX = selfX
@@ -401,7 +538,8 @@ proc applyIntent*(
             state.lastProgressTick = tick
           state.pathProgress = look.newProgress
           state.navErrorReason = ""
-          mask = steerButtons(selfX, selfY, look.target.x, look.target.y)
+          mask = steerButtons(selfX, selfY, look.target.x, look.target.y,
+                              state.velocityX, state.velocityY)
     else:
       setNavError(state, tick, "missing_baked_path")
       state.lastSelfX = selfX
@@ -412,9 +550,11 @@ proc applyIntent*(
   # With no strategic path remaining, steer toward the exact goal pixel.
   if mask == 0 and state.strategicPath.len == 0:
     state.navErrorReason = ""
-    mask = steerButtons(selfX, selfY, goalX, goalY)
+    mask = steerButtons(selfX, selfY, goalX, goalY,
+                        state.velocityX, state.velocityY)
 
   # Apply button overrides
+  mask = applyJiggle(state, mask)
   addIntentButtons(mask, intent)
 
   state.lastSelfX = selfX

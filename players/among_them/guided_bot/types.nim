@@ -472,7 +472,7 @@ type
 type
   ActionState* = object
     ## Navigation state for the hierarchical waypoint system.
-    ## Replaces the old A*/jiggle/stuck-detection state.
+    ## Extends waypoint routing with tactical motion control state.
     ## See NAVIGATION_DESIGN.md §5.2.
     currentGoal*: Point
     currentGoalValid*: bool
@@ -491,6 +491,15 @@ type
     navErrorReason*: string        ## Last defensive navigation error.
     ventAttemptTicks*: int         ## Consecutive ButtonB ticks on a vent edge.
     lastEmittedMask*: uint8
+    ## Momentum-aware steering state. Updated every tick by updateMotionState.
+    haveMotionSample*: bool       ## True after first valid position sample.
+    previousSelfX*: int           ## Last-frame world X (for velocity calculation).
+    previousSelfY*: int           ## Last-frame world Y (for velocity calculation).
+    velocityX*: int               ## Estimated velocity: pixels/frame, X axis.
+    velocityY*: int               ## Estimated velocity: pixels/frame, Y axis.
+    stuckFrames*: int             ## Consecutive frames of zero movement while pressing direction.
+    jiggleTicks*: int             ## Remaining frames of perpendicular jiggle.
+    jiggleSide*: int              ## 0 or 1; alternates each stuck event.
     taskHoldTicks*: int            ## Counter for TaskHold discipline.
     lastLookahead*: Point          ## World-space pixel target from selectLookahead.
     lastLookaheadValid*: bool      ## True when lastLookahead was set this tick.

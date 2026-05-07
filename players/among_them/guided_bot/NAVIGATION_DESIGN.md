@@ -98,13 +98,12 @@ position to that waypoint:
    -> target waypoint).
 2. Find the closest point on that path to the bot's actual position
    (snap-to-path, handles localization drift).
-3. Select the lookahead point (6-12 pixels ahead on the path).
-4. Emit direction buttons to steer toward the lookahead point.
-5. Add small random perturbation (1-2px offset on lookahead) to help
-   the localizer by preventing perfectly uniform motion.
+3. Select the lookahead point (18 pixels ahead on the path).
+4. Emit direction buttons via the momentum-aware `axisMask` controller
+   which uses coast prediction, active braking, and a 2px deadband.
 
 **Waypoint arrival:** The bot has "arrived" at a waypoint when its
-position is within `WaypointArrivalRadius` (tunable, default 7px) of
+position is within `WaypointArrivalRadius` (tunable, default 12px) of
 the waypoint center. On arrival, advance to the next segment.
 
 **Hysteresis:** Once the bot commits to heading toward waypoint N+1,
@@ -425,14 +424,11 @@ proc selectLookahead(state: ActionState, graph: NavGraph,
   # Advance pathProgress to at least snapIdx (never go backward)
   state.pathProgress = max(state.pathProgress, snapIdx)
 
-  # Select lookahead point (8-12 pixels ahead)
+  # Select lookahead point (18 pixels ahead)
   let lookaheadIdx = min(state.pathProgress + PathLookahead, path.points.len - 1)
   var target = path.points[lookaheadIdx]
 
-  # Small random perturbation to aid localization
-  target.x += randomPerturbation()  # -1, 0, or +1
-  target.y += randomPerturbation()
-
+  # Steer via momentum-aware controller (coast/brake/accelerate per axis)
   return target
 ```
 
@@ -505,12 +501,20 @@ All in one place (top of `action.nim` or `tuning.nim`):
 ```nim
 const
   # Strategic
-  WaypointArrivalRadius* = 7      ## px; bot considers itself "at" a waypoint
+  WaypointArrivalRadius* = 12     ## px; bot considers itself "at" a waypoint
 
   # Tactical
-  PathLookahead* = 10             ## Points ahead on path to aim at
-  PathSnapRadius* = 20            ## Max distance to snap to path (drift tolerance)
-  PerturbationChance* = 3         ## 1-in-N chance per tick of +-1px offset
+  PathLookahead* = 18             ## Points ahead on path to aim at
+  PathSnapRadius* = 30            ## Max distance to snap to path (drift tolerance)
+  PerturbationChance* = 0         ## Disabled; perturbation conflicts with momentum control
+
+  # Steering (momentum-aware controller)
+  SteerDeadband* = 2              ## px; within this, only brake residual velocity
+  BrakeDeadband* = 1              ## Extra pixel tolerance for braking condition
+  CoastLookaheadTicks* = 8        ## Ticks of friction simulation for coast prediction
+  CoastArrivalPadding* = 1        ## Extra pixel tolerance for coast-arrival check
+  StuckFrameThreshold* = 8        ## Frames of zero movement before jiggle triggers
+  JiggleDuration* = 16            ## Frames of perpendicular correction when stuck
 
   # Vent
   VentActivationRadius* = 16     ## Must be within this to press B (server VentRange)
@@ -613,8 +617,11 @@ Retained as a shared utility. Used by:
 
 ### `steerButtons()` (currently in action.nim)
 
-Retained. Converts (selfX, selfY, targetX, targetY) into direction
-button bits. This is the leaf-level output formatter — it's fine.
+Momentum-aware steering controller. Converts (selfX, selfY, targetX,
+targetY, velX, velY) into direction button bits using per-axis
+coast prediction, active braking, and deadband logic. Supported by
+`axisMask`, `preciseAxisMask`, `coastDistance`, and `shouldCoast`
+helper procs. See `action.nim` for the full implementation.
 
 ### `snapToPassable()` (currently in action.nim)
 
@@ -770,11 +777,10 @@ it.
    waypoints is fine. If perf matters, a
    grid-based spatial hash would work, but probably unnecessary.
 
-2. **Path perturbation details:** Random +-1px helps localization but
-   must never steer into a wall. Options: only perturb perpendicular
-   to the path direction, or validate against walk mask before
-   applying. Given that paths follow walkable pixels and walls are
-   typically >3px away in corridors, a simple +-1 is likely safe.
+2. **~~Path perturbation details~~:** Resolved — perturbation disabled
+   (`PerturbationChance = 0`). It conflicted with momentum-aware
+   steering by introducing spurious direction changes that compounded
+   with the game's velocity/friction physics.
 
 3. **Multiple goals in sequence:** Some modes might benefit from
    "visit these N waypoints in order" (patrol loops for impostors).

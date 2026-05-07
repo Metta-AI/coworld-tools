@@ -34,3 +34,20 @@ const
 
   ## Number of player colour slots. Shadows the BitWorld `PlayerColors.len`.
   PlayerColorCount* = 8
+
+  ## Movement physics constants (from sim.nim). Used by the momentum-
+  ## aware steering controller to predict coasting distance.
+  MotionScale* = 256       ## Sub-pixel units per pixel.
+  Accel* = 76              ## Velocity added per tick of held input.
+  FrictionNum* = 144       ## Friction multiplier numerator.
+  FrictionDen* = 256       ## Friction multiplier denominator.
+  MaxSpeed* = 704          ## Max velocity in sub-pixel units.
+  StopThreshold* = 8       ## Velocity snaps to zero below this.
+
+  ## Steering controller tuning.
+  SteerDeadband* = 2       ## Pixels; within this, only brake residual velocity.
+  BrakeDeadband* = 1       ## Extra pixel tolerance for braking condition.
+  CoastLookaheadTicks* = 8 ## Ticks of friction simulation for coast prediction.
+  CoastArrivalPadding* = 1 ## Extra pixel tolerance for coast-arrival check.
+  StuckFrameThreshold* = 8 ## Frames of zero movement before jiggle triggers.
+  JiggleDuration* = 16     ## Frames of perpendicular correction when stuck.

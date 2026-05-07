@@ -115,6 +115,13 @@ proc testVentPolicyFiltering() =
   expect(always.len == 1 and always[0] == dstIdx,
          "vent policy: VentAlways includes direct vent edge")
 
+proc navPathLength(path: NavPath): int =
+  if path.points.len <= 1:
+    return 0
+  for i in 0 ..< path.points.len - 1:
+    result += heuristic(path.points[i].x, path.points[i].y,
+                        path.points[i + 1].x, path.points[i + 1].y)
+
 proc testReverseLookahead() =
   let graph = navGraph()[]
   var path: NavPath
@@ -122,7 +129,7 @@ proc testReverseLookahead() =
   for edgeIdx, edge in graph.edges:
     if not edge.isVent:
       let pathIdx = walkingEdgeIndex(graph, edgeIdx)
-      if pathIdx >= 0 and graph.paths[pathIdx].points.len > PathLookahead + 2:
+      if pathIdx >= 0 and navPathLength(graph.paths[pathIdx]) > PathLookahead + 2:
         path = graph.paths[pathIdx]
         found = true
         break

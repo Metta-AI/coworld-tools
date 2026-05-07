@@ -214,10 +214,10 @@ proc navGraph*(): ptr NavGraph =
 # ---------------------------------------------------------------------------
 
 const
-  WaypointArrivalRadius* = 7    ## px; bot considers itself "at" a waypoint.
-  PathLookahead* = 10           ## Points ahead on path to aim at.
+  WaypointArrivalRadius* = 12   ## px; bot considers itself "at" a waypoint.
+  PathLookahead* = 18           ## Points ahead on path to aim at.
   PathSnapRadius* = 30          ## Max distance to snap to path (drift tolerance).
-  PerturbationChance* = 3       ## 1-in-N pseudo-random perturbation chance.
+  PerturbationChance* = 0       ## 1-in-N pseudo-random perturbation chance.
   FinalApproachRadius* = 12     ## Within this of steerTo, steer directly to it.
   ReplanIntervalTicks* = 72      ## Periodic drift recovery cadence.
   StallProgressTicks* = 48       ## Replan if waypoint distance does not improve.
@@ -553,6 +553,14 @@ proc initActionState*(): ActionState =
     navErrorReason: "",
     ventAttemptTicks: 0,
     lastEmittedMask: 0,
+    haveMotionSample: false,
+    previousSelfX: 0,
+    previousSelfY: 0,
+    velocityX: 0,
+    velocityY: 0,
+    stuckFrames: 0,
+    jiggleTicks: 0,
+    jiggleSide: 0,
     taskHoldTicks: 0,
     lastLookahead: Point(x: 0, y: 0),
     lastLookaheadValid: false,
