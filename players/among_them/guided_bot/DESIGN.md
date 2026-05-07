@@ -1,9 +1,9 @@
 # guided_bot — Design Report (v0.5)
 
-> **Status:** phases 0–5 implemented. Phase 0 scaffolded the type
+> **Status:** phases 0–6.6 implemented. Phase 0 scaffolded the type
 > system and no-op pipeline. Phase 1 (1.0–1.6) built the full
-> perception pipeline. Phase 2 (2.0–2.7) built the action layer (A*,
-> button masks, stuck detection) and six mode handlers
+> perception pipeline. Phase 2 (2.0–2.7) built the action layer
+> (button masks, hierarchical waypoint navigation) and six mode handlers
 > (`task_completing`, `meeting`, `hunting`, `pretending`, `reporting`,
 > `fleeing`) plus the four-reflex system. Phase 3 (3.1–3.6) wired the
 > LLM guidance loop: `snapshot.nim` renders beliefs to JSON,
@@ -15,12 +15,11 @@
 > Phase 4 added the structured trace writer (7 JSONL streams +
 > manifest). Phase 5 added fallback-only playability: a stale-default
 > re-evaluation in `reconcileDirective` that transitions idle→gameplay
-> modes on role detection, an A\* node limit (30K) to prevent
-> unbounded search, fixture-replay fallback tests (8th test suite),
-> and a Docker-compatible `mettagrid.bitworld` import fallback.
-> **Blocker for live play:** the spiral localization fallback takes
-> ~11s/frame on non-matching frames; needs a radius cap (see
-> README.md § Known gaps).
+> modes on role detection, fixture-replay fallback tests (8th test
+> suite), and a Docker-compatible `mettagrid.bitworld` import
+> fallback. Phase 6 completed the core mode lifecycles and replaced
+> per-pixel runtime pathfinding with the hierarchical waypoint system
+> described in §6.3 and `NAVIGATION_DESIGN.md`.
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
 > eventually consume this file. This doc describes the *shape* of the
@@ -95,7 +94,7 @@
 
 ## 2. Architecture at a glance
 
-```
+```text
                      ┌──────────────────────────────────┐
                      │        GUIDANCE LOOP             │
                      │   (worker thread, LLM-driven)    │
@@ -125,8 +124,8 @@
          │                                         │
          ▼                                         ▼
   persistent state:                         persistent state:
-    belief store                              action layer (A*, motion,
-    per-mode scratch                          jiggle, last-mask, task-hold)
+    belief store                              action layer (route,
+    per-mode scratch                          edge progress, task-hold)
 ```
 
 The three first-class components:
@@ -146,9 +145,9 @@ loop:
 - **Per-mode scratch state** — one slot per mode, reset on mode
   switch, read/written only by that mode's handler. Holds things like
   fake-task timers, investigation deadlines, kill-approach sub-state.
-- **Action-layer state** — the motion model, current A\* path and its
-  goal, jiggle counters, last-emitted mask, task-hold discipline.
-  Owned by the action module, persisted across ticks.
+- **Action-layer state** — current waypoint-graph route, edge
+  progress, vent traversal state, last-emitted mask, task-hold
+  discipline. Owned by the action module, persisted across ticks.
 
 The rest of this document describes these components and their
 interactions.
@@ -195,8 +194,8 @@ The belief state is the agent's working model of the world. It is:
    `passableCX/passableCY` — the geometric centre snapped to the
    nearest walkable pixel at init time. All modes that steer toward
    task stations use these instead of computing the raw centre inline,
-   so A\* never receives an impassable goal (see §6.3 for the full
-   rationale).
+   so the waypoint system receives a reachable target (see §6.3 for
+   the full rationale).
 5. **Social.** Recent chat lines (speaker-attributed per modulabot's
    voting-screen OCR), accusations heard, votes cast, votes received,
    most-recent meeting transcript.
@@ -228,8 +227,9 @@ The belief state is the agent's working model of the world. It is:
 - **Per-mode scratch state.** See §5.6. Modes own their own transient
   memory. The belief captures world truth; mode scratch captures
   agent planning.
-- **Action-layer state.** Current A\* path, motion model, jiggle
-  counters. Lives in the action module.
+- **Action-layer state.** Current waypoint-graph route, edge progress,
+  vent traversal state, and task-hold counters. Lives in the action
+  module.
 
 The belief is passed by const reference to modes. Modes cannot
 invalidate any other mode's view of the world.
@@ -240,7 +240,7 @@ invalidate any other mode's view of the world.
 
 The inner loop is a pipeline with four stages.
 
-```
+```text
 frame ──► perceive ──► update belief ──► decide ──► act
            (read)         (write)         (read)    (write)
 ```
@@ -302,23 +302,21 @@ frame ──► perceive ──► update belief ──► decide ──► act
 - Input: action intent (§6).
 - Output: button mask, optional chat payload.
 - Owns all persistent tactical state:
-  - Current A\* path + goal (for invalidation).
+  - Current waypoint-graph route + edge progress.
   - Motion model (velocity, previous position).
-  - Jiggle/stuck counters.
   - Last emitted mask (edge detection, "only send on change").
+  - Vent traversal retry state.
   - Task-hold state (currently holding A for task completion?).
-- Recomputes A\* only when `steer_to` changes or the current path is
-  invalidated (per tick cost is therefore bounded; long paths are
-  amortized). When A\* returns an empty path (impassable or unreachable
-  goal), falls back to straight-line greedy steering toward the goal
-  with the anti-stuck jiggle handling wall collisions (see §6.3).
+- Delegates pathfinding to a precomputed waypoint graph
+  (`navigation.nim`). Path-following uses baked pixel-paths between
+  waypoints. No runtime A\* or jiggle.
 - Translates the `discipline` hint into a movement policy:
   `normal` = momentum steering; `task_hold` = hold A only, no
   movement; `kill_strike` = direct line, press A on contact;
   `report` = direct line, press A in report range.
 
-**Modes do not know about A\*, jiggle, or button edges.** The action
-layer is the single place those live.
+**Modes do not know about the waypoint graph, path edges, or button
+bits.** The action layer is the single place those live.
 
 ---
 
@@ -356,7 +354,7 @@ before the directive is published to the inner loop.
 **First-pass param schemas** for the modes in §5.4. These will
 change; they are starting points, not contracts.
 
-```
+```text
 idle {
   # Stand somewhere, observe, respond to reflexes only.
   linger_at?: point        # specific spot to hold near
@@ -441,6 +439,11 @@ sabotage_watching {
 }
 ```
 
+Field names above are conceptual; the Nim implementation uses
+prefixed discriminated-union fields (e.g., `huntPreferredTarget` for
+hunting's `preferred_target`). See `types.nim:230-271` for exact field
+names.
+
 All `color_index`, `room_id`, `task_index`, `point` types are ints /
 tuples of ints; the exact enumerations come from the game constants
 (see `among_them/README.md` § Game constants).
@@ -511,9 +514,8 @@ by ticking them off. So:
   nearest_mandatory, abandon_on_nearby_body: false }`.
 - `task_completing` mode's handler checks `belief.self.is_ghost` and
   passes a ghost-aware hint to the action layer:
-  - Ghosts can move through walls → the action layer's A\* uses a
-    different passability mask (or no mask at all — straight-line
-    steering).
+  - Ghosts can move through walls → the action layer bypasses the
+    waypoint graph and uses straight-line steering.
   - Ghosts don't react to bodies, kills, or imposter threats → no
     reflex interrupts fire.
   - Ghosts don't report.
@@ -618,8 +620,8 @@ strategy-shifting). They're traced separately
 
 The output of every mode. A small, flat record:
 
-- `steer_to: point | none` — destination. Action layer owns A\* and
-  momentum steering to get there.
+- `steer_to: point | none` — destination. Action layer owns waypoint
+  routing and tactical steering to get there.
 - `press_a: bool`
 - `press_b: bool`
 - `cursor: left | right | none` — meeting-screen cursor movement.
@@ -637,7 +639,7 @@ touches a button bit directly.
 ### 6.1. `DisciplineWander`
 
 Added to support the idle-mode pre-localization wander. Emits raw
-direction buttons without A\*, walk-mask checks, stuck detection, or
+direction buttons without waypoint routing, walk-mask checks, or
 localization gates. When `steer_valid` is true, steers toward
 `steer_to` using whatever (possibly stale) self-position the bot has.
 When `steer_valid` is false, cycles through cardinal directions based
@@ -647,7 +649,8 @@ on a tick-modulo phase encoded in `steer_to.x` (0=up, 1=right,
 Purpose: the bot must physically move during the window between game
 start and the first successful camera lock so the localizer sees fresh
 map pixels. All other disciplines either gate on `localized` or
-require A\* paths, making them useless before the localizer fires.
+require waypoint routes, making them useless before the localizer
+fires.
 
 ### 6.2. FFI action-index contract
 
@@ -661,62 +664,48 @@ modifiers = 27 actions. A compile-time assertion in `ffi/lib.nim`
 enforces this; a Python unit test
 (`test/test_action_table.py`) cross-checks the `mettagrid` package.
 
-### 6.3. A\* path replan and stall recovery
+### 6.3. Hierarchical waypoint navigation
 
-The `DisciplineNormal` path through `applyIntent` runs A\* on the
-952×534 walk mask (4-connected, Manhattan heuristic, 30K node cap).
-The path is a sequence of single-pixel steps from the current
-self-position to the goal.
+The `DisciplineNormal` path through `applyIntent` delegates navigation
+to `navigation.nim`. The runtime planner uses a baked waypoint graph
+(`perception/baked/nav_graph.json`) with 85 nodes and a baked path
+blob (`nav_paths.bin`) containing pixel-paths between adjacent walking
+waypoints.
 
-**Path following** trims steps the bot has passed (Manhattan distance
-≤ 2 from current self-position), then picks a lookahead waypoint at
-`path[min(path.len-1, PathLookahead)]` and feeds it to `steerButtons`
-for a direction-button mask.
+**Strategic planning** finds the nearest waypoint to the current
+self-position, the nearest waypoint to `steer_to`, then runs Dijkstra
+over the waypoint graph. The graph is small enough that the simple
+O(N²) implementation is effectively free at tick rate. Replans happen
+when the goal changes, on a periodic drift-recovery cadence, or after
+progress toward the current waypoint stalls.
 
-**Problem discovered (2026-05-01):** Camera localization has ~2 px
-frame-to-frame jitter. This jitter corrupts the path-trimming state:
-the bot's estimated position wobbles, trimming eats different steps
-each tick, and the lookahead waypoint ends up past corridor turns or
-behind walls. `steerButtons` then aims straight at the off-axis
-waypoint, hits walls, and reverses — creating a stable orbit (±5 px,
-indefinite). The original `PathLookahead=18` amplified the problem by
-choosing waypoints far enough ahead to cross wall boundaries.
+**Tactical following** consumes the next edge in the strategic route.
+For walking edges, the action layer looks up the precomputed
+pixel-path, snaps the current position to the nearest path point,
+advances monotonically along that path, selects a lookahead point, and
+feeds that target to `steerButtons`. If localization drift puts the
+bot off the baked edge path, the action layer first steers back to the
+edge's start waypoint instead of inventing a new runtime path.
 
-**Fix:** Three mechanisms work together:
+**Ghost mode** bypasses the graph. Ghosts ignore walls, so the action
+layer uses straight-line greedy steering directly toward `steer_to`.
 
-1. **`PathLookahead = 4`** (was 18). The waypoint stays within 4
-   single-pixel A\* steps of the path front, keeping it tightly on
-   the corridor even through turns.
+**Vent routing** is represented as conditional graph edges. Crewmates
+exclude vent edges. Imposters in hunting use `VentIfSafe` (visible
+witness check), and fleeing uses `VentAlways`. When the current route
+contains a vent edge, the action layer walks to the entry waypoint,
+presses B within the server's vent activation range, detects the
+teleport by position jump / exit proximity, then resumes normal
+edge-following.
 
-2. **Periodic replan** every `ReplanIntervalTicks = 24` (~1 s at
-   24 Hz). Recomputes A\* from the current estimated self-position
-   regardless of whether the goal changed. This clears any corruption
-   accumulated in the trimmed path state due to position noise.
+**Stall recovery** is route-level, not local collision recovery. The
+action state tracks the last tick that waypoint/path progress improved. If
+progress times out, it replans from the current localized position.
+Defensive no-op windows are reserved for baked-data errors such as a
+missing edge or path.
 
-3. **Stall detector.** Tracks the best (lowest) Manhattan distance to
-   goal seen so far (`bestGoalDist`) and the tick it was set. If
-   `StallProgressTicks = 48` (~2 s) elapse without the distance
-   decreasing, forces a replan. Catches edge cases the periodic timer
-   misses (e.g. bot stuck in a corner for exactly one replan cycle).
-
-4. **Greedy-steering fallback (2026-05-04).** When `findPath` returns
-   an empty path (goal impassable, unreachable, or node cap exceeded),
-   the waypoint-following block is skipped and `mask` would stay 0 —
-   permanently freezing the bot. The fallback calls
-   `steerButtons(selfX, selfY, goalX, goalY)` directly whenever
-   `mask == 0 and currentPath.len == 0`, providing at least
-   straight-line movement toward the goal. The anti-stuck jiggle
-   handles wall collisions. This mirrors modulabot's
-   `policies/base.py` fallback.
-
-5. **Stuck detector scope fix (2026-05-04).** The stuck detector
-   originally required `currentPath.len > 0`, which prevented it
-   from firing when the path *was* the problem (empty). The greedy
-   fallback now ensures `lastEmittedMask` has direction bits even
-   without a path, so the condition was simplified to: velocity is
-   zero AND `lastEmittedMask` has direction bits. This covers both
-   "path following but physically stuck" and "greedy fallback but
-   hitting a wall."
+For implementation details, data formats, and tuning constants, see
+`NAVIGATION_DESIGN.md`.
 
 ---
 
@@ -724,9 +713,9 @@ choosing waypoints far enough ahead to cross wall boundaries.
 
 Meetings are special. They are:
 
-- Long enough for multiple LLM calls (`voteTimerTicks = 1200` ≈ 50 s
-  at 24 Hz; typical LLM latency 1-5 s → 10-50 round trips in the
-  limit, realistically ≈ 5-15 with prompt size).
+- Long enough for multiple LLM calls (`voteTimerTicks = 600` ≈ 25 s
+  at 24 Hz; typical LLM latency 1-5 s → 5-25 round trips in the
+  limit, realistically ≈ 3-8 with prompt size).
 - Action-space-minimal (move cursor, press A, emit chat text).
 - Language-heavy and high-stakes — precisely the LLM's advantage.
 
@@ -735,7 +724,7 @@ Meetings are special. They are:
 When the `meeting` mode activates, **the inner loop hands the LLM a
 direct action channel**. Each LLM turn produces one action:
 
-```
+```text
 meeting_action =
   | { kind: "speak",  text: string }
   | { kind: "vote",   target: color_index | "skip" }
@@ -891,7 +880,7 @@ Hybrid periodic + event-driven:
 **Decision (per review note #14):** a JSON dump of a curated view of
 the belief state. Structure, not prose. Initial shape:
 
-```
+```text
 {
   "tick": int,
   "self": { "role": str, "color": str, "is_ghost": bool,
@@ -1087,30 +1076,44 @@ libcurl dependency turns painful. Preserved as §10.4 below.
 
 ### 10.2 Threads
 
-Two threads inside the Nim process:
+Each active bot has a main-thread handle plus its own guidance worker
+thread:
 
 - **Main thread.** The cogames policy entry point. Runs the inner
   loop (perceive/update/decide/act) and owns the belief + mode
   scratch + action-layer state.
-- **Guidance worker thread.** Blocks on an incoming-snapshot
-  channel, calls the LLM synchronously via `curly`, parses and
-  validates the response, and pushes a directive onto the outgoing
-  channel. During meetings, also pushes meeting actions.
+- **Per-bot guidance worker thread.** Blocks on that bot's
+  incoming-snapshot channel, calls the LLM synchronously via `curly`,
+  parses and validates the response, and pushes a directive onto that
+  bot's outgoing channel. During meetings, also pushes meeting
+  actions.
+
+The worker receives a heap-stable `GuidanceRuntime` pointer owned by
+`GuidanceState`, not a pointer to `Bot` or `GuidanceState`; policy bot
+arrays can resize, but the runtime pointer stays stable until
+`stopGuidance`.
 
 ### 10.3 Channels
 
-Nim's `system.Channel[T]` or a minimal equivalent:
+Nim's `system.Channel[T]` or a minimal equivalent, owned per
+`GuidanceState`:
 
-- `snapshotChan: Channel[Snapshot]` — main → worker. Bounded size 1
-  (newest wins); main drops old entries rather than blocking.
-- `directiveChan: Channel[Directive]` — worker → main. Main
-  non-blocking reads at the start of the update-belief stage; takes
-  the latest, discards older.
-- `meetingActionChan: Channel[MeetingAction]` — worker → main.
-  FIFO; main consumes one per tick while in meeting mode.
+- `snapshotChan: Channel[Snapshot]` — this bot's main loop → this
+  bot's worker. Bounded size 1 (newest wins); main drops old entries
+  rather than blocking.
+- `directiveChan: Channel[Directive]` — this bot's worker → this
+  bot's main loop. Main non-blocking reads at the start of the
+  update-belief stage; takes the latest, discards older.
+- `meetingActionChan: Channel[MeetingAction]` — this bot's worker →
+  this bot's main loop. FIFO; main consumes one per tick while in
+  meeting mode.
+- `traceEventChan: Channel[string]` — this bot's worker → this bot's
+  trace writer. Carries pre-serialized JSONL events so the worker
+  never touches the main thread's trace ref object.
 
-The worker is never on the main thread's critical path. If the
-worker is busy (LLM in flight), the main thread continues unimpeded.
+No guidance channel or worker thread is module-global. The worker is
+never on the main thread's critical path. If the worker is busy (LLM
+in flight), the main thread continues unimpeded.
 
 ### 10.4 Python sidecar alternative (not chosen)
 
@@ -1165,7 +1168,7 @@ best-effort safety net only.
 
 ### 11.2 `events.jsonl` event kinds (starter set)
 
-```
+```text
 { "t": tick, "kind": "body_seen",        "body_id": int, "position": [x,y],
   "room": str, "is_new": bool, "witnesses": [color, ...] }
 { "t": tick, "kind": "body_reported",    "reporter": color }
@@ -1205,7 +1208,7 @@ it (`t` = game tick).
 
 One record per decision (typically per frame during gameplay):
 
-```
+```text
 {
   "t": tick,
   "mode": str,
@@ -1230,7 +1233,7 @@ Auto-generated catalogue per build; drift detection in CI.
 
 ### 11.4 `guidance.jsonl` shape
 
-```
+```text
 { "t": tick, "kind": "snapshot_sent",
   "snapshot_id": str, "snapshot": {...},   // the JSON sent to LLM
   "trigger": "periodic" | "wake_up:<reason>" }
@@ -1259,7 +1262,7 @@ paired deterministically.
 
 ### 11.5 `modes.jsonl`
 
-```
+```text
 { "t": tick, "kind": "mode_entered", "mode": str,
   "params": {...}, "from_mode": str | null,
   "reason": "llm_directive" | "default" | "reflex:<name>"
@@ -1273,7 +1276,7 @@ match.
 
 ### 11.6 `reflexes.jsonl`
 
-```
+```text
 { "t": tick, "kind": "reflex_fired",
   "name": str,                        // stable reflex ID
   "from_mode": str,                   // mode that owned the reflex
@@ -1325,7 +1328,7 @@ adapters in v0 — we upgrade tools when we change the schema.
 | LLM is part of submission or optional | **Part of submission.** Secrets via `--secret-env`. |
 | What the LLM sees | **JSON dump of curated belief subset** (§8.3). Token budget deferred. |
 | Mode scratch state reset semantics | **Reset on mode switch, preserved across directive changes within mode** (§5.6). |
-| Action layer owns A\* and motion | **Yes.** Modes emit `steer_to`; action layer does pathing and momentum (§4.4, §6). |
+| Action layer owns navigation | **Yes.** Modes emit `steer_to`; action layer does waypoint routing and tactical steering (§4.4, §6). |
 | Ghost behavior | **Ghosts use `task_completing`.** No separate `ghost_observing` mode (§5.7). |
 | Imposter default directive | **`hunting`** with no specific target, opportunistic, cover via pretending (§9.1). |
 | Meeting mode | **LLM in direct control** via action queue, not a single plan (§7). |
@@ -1434,7 +1437,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | Trace schema | §11 drafted. Extends modulabot schema. |
 | Concurrency / LLM placement | §10: in-Nim worker thread. Python sidecar preserved as fallback. |
 | Mode scratch state lifecycle | §5.6: reset on mode switch, preserved within mode across directive changes. |
-| Action layer owns navigation | §4.4 + §6. Modes emit `steer_to`; action layer owns A\*, motion, jiggle, task-hold discipline. |
+| Action layer owns navigation | §4.4 + §6. Modes emit `steer_to`; action layer owns waypoint routing, edge progress, vent traversal, and task-hold discipline. |
 
 ### Items explicitly deferred
 
@@ -1458,8 +1461,8 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D2 | LLM host process | In-Nim worker thread. | §10 |
 | D3 | Belief state writable by | Inner-loop update stage only; directive slot writable by guidance thread. | §3 invariants |
 | D4 | Mode scratch lifecycle | Reset on mode switch, persist within mode. | §5.6 |
-| D5 | Action-layer owns A\* | Modes emit `steer_to`, action layer owns pathing + motion + discipline. | §4.4, §6 |
-| D6 | Ghost behavior | Forced to `task_completing`; ghost-aware A\* mask. | §5.7 |
+| D5 | Action-layer owns navigation | Modes emit `steer_to`, action layer owns waypoint routing + tactical steering + discipline. | §4.4, §6 |
+| D6 | Ghost behavior | Forced to `task_completing`; action layer uses straight-line steering for ghosts. | §5.7 |
 | D7 | Meeting mode | LLM direct control via action queue; safety-net fallback vote skip. | §7 |
 | D8 | LLM snapshot format | JSON dump of curated belief subset. | §8.3 |
 | D9 | Validation | Guidance validates once; inner loop re-validates every tick. | §8.4 |
@@ -1483,7 +1486,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 Further decisions get appended here as they're made.
 
 | D26 | Phase 3 LLM client | Adapted bitworld's `claude.nim`. Uses `curly` + `jsony` via nimby. Fresh `CurlPool` per call to avoid GC-safety issues with globals; overhead negligible at <1 Hz. | `llm.nim` |
-| D27 | Phase 3 threading | `system.Channel[T]` (Nim 2.2.4). Worker thread holds meeting conversation history as thread-local state. Main thread: non-blocking `tryRecv`. No shared GC-managed globals. | `guidance.nim` |
+| D27 | Phase 3 threading | `system.Channel[T]` (Nim 2.2.4), owned per `GuidanceState` through a heap-stable `GuidanceRuntime` pointer. Worker thread holds meeting conversation history as thread-local state. Main thread: non-blocking `tryRecv`. No module-global guidance channels or worker handles. | `guidance.nim` |
 | D28 | Phase 3 snapshot rendering | `std/json` (not jsony) for structured, readable output. Room name lookups via `geometry.roomNameAt`. Screen→world via `visibleCrewmateWorldX/Y`. | `snapshot.nim` |
 | D29 | Phase 3 wake-flag lifecycle | Flags raised during update-belief, consumed (snapshot submitted) and cleared at end of `decideNextMask`. External code (tests) cannot observe flags after `stepUnpackedFrame`. | `bot.nim` |
 | D30 | Phase 3 LLM model | `claude-sonnet-4-20250514` — fast enough for ~1-5 Hz call rate, smart enough for strategic directives. Max 1024 response tokens. | `llm.nim` |
@@ -1556,4 +1559,3 @@ on `ocr.nim`'s `mb_best_glyph` and `mb_text_matches` (imported via
 
 See [`among_them/common/README.md`](../common/README.md) for the
 shared-directory convention.
-

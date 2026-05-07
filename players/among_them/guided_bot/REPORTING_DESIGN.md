@@ -38,7 +38,7 @@ the legality check would reject it.
 
 The reflex (or LLM) sets these when issuing a `reporting` directive:
 
-```
+```text
 reporting {
   repBodyLocation: Point   # World-space position of the body to report.
 }
@@ -110,10 +110,11 @@ If the bot has been in reporting mode for more than
 `ReportApproachTimeoutTicks` (240 ticks, ~10s) and has never entered
 report range (`repReachedRange` is false): give up.
 
-This catches cases where A\* can't find a path to the body (body in an
-unreachable location, walk mask error) or the body is extremely far
-away. The greedy-steering fallback in `action.nim` partially mitigates
-pathfinding failures, but 10s of fruitless navigation is enough.
+This catches cases where the waypoint route cannot make progress
+toward the body (stale body position, walk mask error, unreachable
+target) or the body is extremely far away. The action layer can replan
+from the current localized position, but 10s of fruitless navigation is
+enough.
 
 Sets `repGaveUp = true`, `repGaveUpReason = "approach_timeout"`.
 

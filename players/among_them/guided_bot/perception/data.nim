@@ -425,6 +425,7 @@ proc loadFont(): PixelFont =
 
   PixelFont(height: height, spacing: spacing, glyphs: glyphs)
 
+
 proc buildReferenceData(): ReferenceData =
   ReferenceData(
     map: loadMap(),

@@ -37,7 +37,7 @@ voting.
 
 ## 2. Mode parameters
 
-```
+```text
 meeting {
   meetWantToSpeakFirst: bool   # Hint to the LLM: generate chat before voting.
                                # Not read by decide() — purely informational for

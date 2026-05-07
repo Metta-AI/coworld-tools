@@ -33,7 +33,8 @@ The single biggest gameplay improvement. The bot currently spends 75%
 of a match holding A at one station.
 
 **What exists:** target selection (icon-based + nearest fallback),
-A\* navigation to station, enter `DisciplineTaskHold` on arrival.
+waypoint navigation to station, enter `DisciplineTaskHold` on
+arrival.
 
 **What's missing:** The mode has no lifecycle after arriving at the
 station. It holds A forever — no hold-duration cap, no
@@ -43,7 +44,7 @@ icon-disappearance detection, no target unlock/re-selection.
 
 | Sub-phase | Duration | Behavior | Exit condition |
 |---|---|---|---|
-| Navigate | Variable | A\* to target station | `isInsideTaskRect` true |
+| Navigate | Variable | waypoint navigation to target station | `isInsideTaskRect` true |
 | Hold | `TaskHoldTicks` (84) | Press A, no movement | Timer expires |
 | Confirm | Up to `ConfirmWindowTicks` (48) | Stay still, watch icon | Icon absent 24 consecutive frames, OR timeout |
 
@@ -100,7 +101,7 @@ action layer presses A within `ReportRange = 20` px.
 **What exists:** LLM-driven action queue (speak, vote, confirm,
 unvote, wait). Safety-net fallback forces SKIP near timer expiry.
 
-**What's missing (3 gaps):**
+**What's missing:**
 
 1. **Chat is dead.** `MeetingActSpeak` sets `intent.chat` but
    `action.nim:emitChat` is a stub (always returns false). Chat text
@@ -109,17 +110,8 @@ unvote, wait). Safety-net fallback forces SKIP near timer expiry.
    game protocol, or the chat field needs to be wired through the
    button-mask output in a way the Python harness can forward.
 
-2. **Cursor is blind.** `cursorDirectionForTarget` always returns
-   `CursorRight`. The mode has no cursor-position tracking. Fix: use
-   the voting-screen parse (`belief.percep` via `mergeVotingPercept`)
-   to read the current cursor position and compute the shortest path
-   to the target slot. The voting parser already detects the cursor
-   position (phase 1.6).
-
-3. **Meeting timer is estimated.** Uses `typicalMeetingDuration =
-   1200` minus ticks-in-meeting. Fix: parse the vote timer from the
-   voting screen if the server renders one, or at minimum make the
-   constant configurable via tuning.
+Cursor tracking and the 600-tick meeting timer estimate are done;
+chat emission remains deferred.
 
 ### 6.4 `hunting` — cover rotation + target memory (P2)
 
@@ -180,7 +172,8 @@ kill, `DisciplineKillStrike`.
   (away from the body) and navigate there via `DisciplineNormal`.
   Eliminates idle gap.
 - Snap the flee target to passable terrain via `snapToPassable`
-  before feeding it to the action layer, giving A* a valid goal.
+  before feeding it to the action layer, giving navigation a valid
+  goal.
 - New scratch fields: `fleeCoverTargetX`, `fleeCoverTargetY`,
   `fleeCoverSet`.
 
@@ -265,14 +258,16 @@ stub until needed.
 
 ## Summary table
 
+For historical phase completion, see [`README.md`](README.md).
+
 | Phase | Item | Priority | Effort | Status |
 |---|---|---|---|---|
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
 | 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; live verification now possible via `--force-role imposter` — run a match and confirm meetings trigger) |
-| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** — kills land (A fires at ≤20px), confirmation blocked by localization-drop bug (see TODO.md). Use `--seed 100 --force-role imposter` with `imposterCooldownTicks=48` to test. |
-| 6.5 | `pretending` fake A-press | P2 | Small | **Done** — fake-hold sub-phase (`PreFakeHoldTicks=60`) + witness swap. See `PRETENDING_DESIGN.md`. |
-| 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** — post-flee cover navigation + `snapToPassable` on flee target. See `FLEEING_DESIGN.md`. |
+| 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (kill confirmation still affected by localization-drop bug; see TODO.md) |
+| 6.5 | `pretending` fake A-press | P2 | Small | **Done** |
+| 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |
 | 7.1 | `fear` implementation | P3 | Medium | Open |
 | 7.2 | `investigating` implementation | P3 | Medium | Open |

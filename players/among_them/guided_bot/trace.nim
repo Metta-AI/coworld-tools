@@ -1,20 +1,26 @@
 ## Structured trace writer — phase 4.
 ##
 ## Emits structured JSONL trace output per DESIGN.md section 11, enabling
-## post-match replay and offline analysis. Trace output is a session
-## directory containing JSONL streams plus a manifest:
+## post-match replay and offline analysis. Each call to openTrace generates
+## a unique session subdirectory under the root trace dir:
 ##
-##   - manifest.json    (round metadata, tuning snapshot, schema version)
-##   - events.jsonl     (body_seen, chat_observed, meeting_started, ...)
-##   - decisions.jsonl   (per-frame mode / branch / intent)
-##   - modes.jsonl      (mode_entered / mode_exited)
-##   - guidance.jsonl   (snapshot_sent / llm_response / directive_published)
-##   - reflexes.jsonl   (reflex_fired / reflex_suppressed)
-##   - snapshots.jsonl  (periodic full-belief snapshots)
-##   - frames.bin       (optional, gated by TraceFull)
+##   <GUIDED_BOT_TRACE_DIR>/
+##     <ISO-timestamp>-<pid>-<instance>/
+##       manifest.json    (round metadata, tuning snapshot, schema version)
+##       events.jsonl     (body_seen, chat_observed, meeting_started, ...)
+##       decisions.jsonl  (per-frame mode / branch / intent)
+##       modes.jsonl      (mode_entered / mode_exited)
+##       guidance.jsonl   (snapshot_sent / llm_response / directive_published)
+##       reflexes.jsonl   (reflex_fired / reflex_suppressed)
+##       snapshots.jsonl  (periodic full-belief snapshots)
+##       frames.bin       (optional, gated by TraceFull)
+##
+## Multiple bots in the same process get unique session directories via a
+## monotonic instance counter, mirroring modulabot's TraceWriter design.
 ##
 ## Tracing is opt-in via GUIDED_BOT_TRACE_DIR / GUIDED_BOT_TRACE_LEVEL
-## env vars. When off, every log* call is near-zero-cost (check
+## env vars (or per-instance override via the FFI guidedbot_set_trace_dir
+## export). When off, every log* call is near-zero-cost (check
 ## trace == nil early return).
 ##
 ## GC-safety: the guidance worker thread cannot access ref/seq/string
@@ -26,6 +32,7 @@
 
 import std/[json, os, streams, times]
 import types
+import navigation
 import snapshot as snapshotMod
 
 const
@@ -33,6 +40,11 @@ const
   ## Periodic snapshot interval (in ticks). Snapshots are also
   ## emitted on major events via wake reasons.
   SnapshotIntervalTicks = 240  ## ~10s at 24Hz.
+
+# Process-wide monotonic counter so multiple bots in the same process
+# (e.g. 8 agents via play_match.py) get unique session directories
+# even when the wall-clock second and PID are identical.
+var instanceCounter {.global.}: int = 0
 
 type
   TraceLevel* = enum
@@ -44,6 +56,7 @@ type
   TraceWriter* = ref object
     level*: TraceLevel
     rootDir*: string
+    botIndex*: int              ## Index of this bot within the policy (-1 = unknown).
     ## File streams for each JSONL output.
     eventsFile: FileStream
     decisionsFile: FileStream
@@ -182,6 +195,47 @@ proc intentToJson(intent: ActionIntent): JsonNode =
     result["chat"] = newJString(intent.chat)
   result["discipline"] = newJString($intent.discipline)
 
+proc ventPolicyStr(policy: VentPolicy): string =
+  case policy
+  of VentNever:  "never"
+  of VentIfSafe: "if_safe"
+  of VentAlways: "always"
+
+proc navToJson(state: ActionState): JsonNode =
+  ## Serialize action-layer navigation diagnostics. State stores waypoint
+  ## indices for fast access; trace emits waypoint IDs for stable replay.
+  let graph = navGraph()[]
+  result = newJObject()
+
+  var path = newJArray()
+  for wpIdx in state.strategicPath:
+    if wpIdx >= 0 and wpIdx < graph.waypoints.len:
+      path.add(newJInt(graph.waypoints[wpIdx].id))
+    else:
+      path.add(newJInt(wpIdx))
+  result["strategic_path"] = path
+
+  if state.currentEdgeTo >= 0 and state.currentEdgeTo < graph.waypoints.len:
+    result["current_wp"] = newJInt(graph.waypoints[state.currentEdgeTo].id)
+  else:
+    result["current_wp"] = newJNull()
+
+  result["current_edge"] = newJInt(state.currentEdgeIdx)
+  result["edge_progress"] = newJInt(state.pathProgress)
+  var edgeLength = 0
+  if state.currentEdgeIdx >= 0 and state.currentEdgeIdx < graph.edges.len:
+    if graph.edges[state.currentEdgeIdx].isVent:
+      edgeLength = 1
+    else:
+      let pathIdx = walkingEdgeIndex(graph, state.currentEdgeIdx)
+      if pathIdx >= 0 and pathIdx < graph.paths.len:
+        edgeLength = graph.paths[pathIdx].points.len
+  result["edge_length"] = newJInt(edgeLength)
+  result["arrived"] = newJBool(state.arrivedAtWaypoint)
+  result["vent_policy"] = newJString(ventPolicyStr(state.ventPolicy))
+  if state.navErrorReason.len > 0:
+    result["last_error"] = newJString(state.navErrorReason)
+
 proc writeLine(fs: FileStream, line: string) =
   ## Write a line + newline to a file stream, flushing immediately so
   ## data survives unclean shutdown. No-op if stream is nil.
@@ -202,6 +256,8 @@ proc writeManifest(trace: TraceWriter, final: bool = false) =
   m["level"] = newJString($trace.level)
   m["start_tick"] = newJInt(trace.startTick)
   m["created_at"] = newJString(now().format("yyyy-MM-dd'T'HH:mm:sszzz"))
+  if trace.botIndex >= 0:
+    m["bot_index"] = newJInt(trace.botIndex)
   if trace.role.len > 0:
     m["role"] = newJString(trace.role)
   if final:
@@ -218,17 +274,30 @@ proc writeManifest(trace: TraceWriter, final: bool = false) =
 # Public API — lifecycle
 # ---------------------------------------------------------------------------
 
-proc openTrace*(rootDir: string, level: TraceLevel): TraceWriter =
-  ## Create the trace directory and open file handles for each JSONL
-  ## stream. Returns nil if tracing is off or rootDir is empty.
+proc openTrace*(rootDir: string, level: TraceLevel, botIndex: int = -1): TraceWriter =
+  ## Create a unique session subdirectory under rootDir and open file
+  ## handles for each JSONL stream. Returns nil if tracing is off or
+  ## rootDir is empty.
+  ##
+  ## Each invocation generates a unique session path:
+  ##   <rootDir>/<ISO-timestamp>-<pid>-<instance>/
+  ## The monotonic instanceCounter ensures no collisions even when
+  ## multiple bots are created in the same process and second.
   if level == TraceOff or rootDir.len == 0:
     return nil
 
-  createDir(rootDir)
+  # Generate unique session directory.
+  let ts = now().format("yyyy-MM-dd'T'HH-mm-ss")
+  let pid = getCurrentProcessId()
+  let n = instanceCounter
+  inc instanceCounter
+  let sessionDir = rootDir / (ts & "-" & $pid & "-" & $n)
+  createDir(sessionDir)
 
   result = TraceWriter(
     level: level,
-    rootDir: rootDir,
+    rootDir: sessionDir,
+    botIndex: botIndex,
     startTick: 0,
     endTick: 0,
     outcome: "",
@@ -239,17 +308,17 @@ proc openTrace*(rootDir: string, level: TraceLevel): TraceWriter =
 
   # Open JSONL streams based on trace level.
   # TraceEvents: events only.
-  result.eventsFile = newFileStream(rootDir / "events.jsonl", fmWrite)
+  result.eventsFile = newFileStream(sessionDir / "events.jsonl", fmWrite)
 
   if level >= TraceDecisions:
-    result.decisionsFile = newFileStream(rootDir / "decisions.jsonl", fmWrite)
-    result.modesFile = newFileStream(rootDir / "modes.jsonl", fmWrite)
-    result.reflexesFile = newFileStream(rootDir / "reflexes.jsonl", fmWrite)
-    result.guidanceFile = newFileStream(rootDir / "guidance.jsonl", fmWrite)
+    result.decisionsFile = newFileStream(sessionDir / "decisions.jsonl", fmWrite)
+    result.modesFile = newFileStream(sessionDir / "modes.jsonl", fmWrite)
+    result.reflexesFile = newFileStream(sessionDir / "reflexes.jsonl", fmWrite)
+    result.guidanceFile = newFileStream(sessionDir / "guidance.jsonl", fmWrite)
 
   if level >= TraceFull:
-    result.snapshotsFile = newFileStream(rootDir / "snapshots.jsonl", fmWrite)
-    result.framesFile = newFileStream(rootDir / "frames.bin", fmWrite)
+    result.snapshotsFile = newFileStream(sessionDir / "snapshots.jsonl", fmWrite)
+    result.framesFile = newFileStream(sessionDir / "frames.bin", fmWrite)
 
   # Write the initial manifest.
   writeManifest(result, final = false)
@@ -292,7 +361,7 @@ proc closeTrace*(trace: TraceWriter) =
 
 proc logDecision*(trace: TraceWriter, belief: Belief,
                   intent: ActionIntent, branchId: string,
-                  mask: uint8 = 0) =
+                  actionState: ActionState, mask: uint8 = 0) =
   ## Log one decision record to decisions.jsonl (DESIGN.md section 11.3).
   ## Called once per frame from bot.nim:decideNextMask after applyIntent()
   ## so the final button mask is available.
@@ -315,6 +384,8 @@ proc logDecision*(trace: TraceWriter, belief: Belief,
   rec["self_x"] = newJInt(belief.percep.selfX)
   rec["self_y"] = newJInt(belief.percep.selfY)
   rec["localized"] = newJBool(belief.percep.localized)
+  if intent.discipline == DisciplineNormal:
+    rec["nav"] = navToJson(actionState)
   if belief.directive.reasoning.len > 0:
     rec["reason"] = newJString(belief.directive.reasoning)
   trace.decisionsFile.writeLine($rec)

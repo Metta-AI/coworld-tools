@@ -415,29 +415,83 @@ type
     flags*: FlagState
 
 # ---------------------------------------------------------------------------
-# Action-layer persistent state
+# Navigation graph types (NAVIGATION_DESIGN.md §5)
+# ---------------------------------------------------------------------------
+
+type
+  WaypointKind* = enum
+    WpDoorway
+    WpIntersection
+    WpTask
+    WpVent
+    WpButton
+    WpHome
+    WpPoi
+
+  Waypoint* = object
+    id*: int
+    x*, y*: int
+    kind*: WaypointKind
+    room*: string
+    label*: string
+    ventGroup*: char       ## '\0' if not a vent.
+    ventIndex*: int        ## 0 if not a vent.
+
+  NavEdge* = object
+    src*, dst*: int        ## Waypoint IDs.
+    cost*: int             ## Precomputed walk distance (pixels).
+    isVent*: bool
+    ventGroup*: char
+
+  NavPath* = object
+    ## Precomputed pixel-path for one walking edge. Points go from
+    ## src waypoint toward dst waypoint (exclusive of src, inclusive
+    ## of dst). Simplified via Douglas-Peucker at bake time.
+    src*, dst*: int                ## Waypoint IDs from the baked path record.
+    points*: seq[Point]
+
+  NavGraph* = object
+    waypoints*: seq[Waypoint]
+    edges*: seq[NavEdge]
+    paths*: seq[NavPath]          ## Indexed same as edges (walking only).
+    ## Acceleration structures built at load time:
+    adjacency*: seq[seq[int]]     ## waypoint index -> list of edge indices.
+    idToIndex*: seq[int]          ## waypoint ID -> waypoint index, -1 if absent.
+    edgeToPathIndex*: seq[int]    ## edge index -> paths index, -1 for vent edges.
+    waypointCount*: int
+
+  VentPolicy* = enum
+    VentNever              ## Exclude vent edges (crewmate default).
+    VentIfSafe             ## Include only if no witnesses visible.
+    VentAlways             ## Always include (flee/emergency).
+
+# ---------------------------------------------------------------------------
+# Action-layer persistent state (navigation)
 # ---------------------------------------------------------------------------
 
 type
   ActionState* = object
-    ## Persistent tactical state owned by the action layer. See DESIGN.md
-    ## §4.4. Phase 0 carries the fields so signatures are stable; phase-2
-    ## movement logic fills them in.
-    currentPath*: seq[Point]
+    ## Navigation state for the hierarchical waypoint system.
+    ## Replaces the old A*/jiggle/stuck-detection state.
+    ## See NAVIGATION_DESIGN.md §5.2.
     currentGoal*: Point
     currentGoalValid*: bool
+    strategicPath*: seq[int]       ## Waypoint indices; head = next target.
+    currentEdgeIdx*: int           ## Index into NavGraph.edges (-1 = none).
+    currentEdgeFrom*: int          ## Waypoint index departed from (-1 = none).
+    currentEdgeTo*: int            ## Waypoint index being targeted (-1 = none).
+    ventPolicy*: VentPolicy
+    pathProgress*: int             ## Index into current edge's NavPath.points.
+    lastSelfX*, lastSelfY*: int   ## For drift detection.
+    lastPlanTick*: int             ## Last tick a strategic path was planned.
+    lastProgressTick*: int         ## Last tick path/waypoint progress advanced.
+    lastWaypointDistance*: int     ## Last distance to current waypoint.
+    arrivedAtWaypoint*: bool       ## True on the tick a waypoint is consumed.
+    navNoopUntilTick*: int         ## Defensive pause window after nav data errors.
+    navErrorReason*: string        ## Last defensive navigation error.
+    ventAttemptTicks*: int         ## Consecutive ButtonB ticks on a vent edge.
     lastEmittedMask*: uint8
-    lastVelocityX*, lastVelocityY*: int
-    stuckFrames*: int
-    jiggleTicks*: int
-    taskHoldTicks*: int
-    ## Periodic path recompute and stall detection (fixes orbit bug).
-    lastReplanTick*: int          ## Tick of last A* path computation.
-    bestGoalDist*: int            ## Best Manhattan distance to goal seen.
-    bestGoalDistTick*: int        ## Tick when bestGoalDist was set.
-    ## Velocity smoothing: 4-frame history for stuck detection.
-    velHistory*: array[4, tuple[x: int, y: int]]
-    velHistoryIdx*: int
+    taskHoldTicks*: int            ## Counter for TaskHold discipline.
 
 # ---------------------------------------------------------------------------
 # Mode scratch state

@@ -1,0 +1,2114 @@
+{
+  "version": 1,
+  "waypoints": [
+    {
+      "id": 0,
+      "x": 536,
+      "y": 103,
+      "kind": "home",
+      "room": "Cafeteria",
+      "label": "home"
+    },
+    {
+      "id": 1,
+      "x": 538,
+      "y": 138,
+      "kind": "button",
+      "room": "Cafeteria",
+      "label": "emergency_button"
+    },
+    {
+      "id": 2,
+      "x": 562,
+      "y": 473,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 3,
+      "x": 675,
+      "y": 429,
+      "kind": "task",
+      "room": "Coms",
+      "label": "Upload Data From Communications"
+    },
+    {
+      "id": 4,
+      "x": 582,
+      "y": 277,
+      "kind": "task",
+      "room": "Admin Hallway",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 5,
+      "x": 452,
+      "y": 39,
+      "kind": "task",
+      "room": "North Cafeteria",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 6,
+      "x": 518,
+      "y": 330,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 7,
+      "x": 400,
+      "y": 304,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 8,
+      "x": 846,
+      "y": 230,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 9,
+      "x": 360,
+      "y": 301,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Download Data"
+    },
+    {
+      "id": 10,
+      "x": 436,
+      "y": 303,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Calibrate Distributor"
+    },
+    {
+      "id": 11,
+      "x": 408,
+      "y": 242,
+      "kind": "task",
+      "room": "MedBay",
+      "label": "Submit Scan"
+    },
+    {
+      "id": 12,
+      "x": 380,
+      "y": 301,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Divert Power"
+    },
+    {
+      "id": 13,
+      "x": 768,
+      "y": 102,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Divert Power"
+    },
+    {
+      "id": 14,
+      "x": 876,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Divert Power"
+    },
+    {
+      "id": 15,
+      "x": 194,
+      "y": 336,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Divert Power"
+    },
+    {
+      "id": 16,
+      "x": 210,
+      "y": 90,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Divert Power"
+    },
+    {
+      "id": 17,
+      "x": 305,
+      "y": 214,
+      "kind": "task",
+      "room": "Security",
+      "label": "Divert Power"
+    },
+    {
+      "id": 18,
+      "x": 154,
+      "y": 217,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Divert Power"
+    },
+    {
+      "id": 19,
+      "x": 131,
+      "y": 252,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Start Reactor"
+    },
+    {
+      "id": 20,
+      "x": 115,
+      "y": 194,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Unlock Manifolds"
+    },
+    {
+      "id": 21,
+      "x": 772,
+      "y": 356,
+      "kind": "task",
+      "room": "Shields",
+      "label": "Divert Power"
+    },
+    {
+      "id": 22,
+      "x": 711,
+      "y": 427,
+      "kind": "task",
+      "room": "Shields",
+      "label": "Prime Shields"
+    },
+    {
+      "id": 23,
+      "x": 723,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav Hallway",
+      "label": "Divert Power"
+    },
+    {
+      "id": 24,
+      "x": 739,
+      "y": 103,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Clear Asteroids"
+    },
+    {
+      "id": 25,
+      "x": 424,
+      "y": 230,
+      "kind": "task",
+      "room": "MedBay",
+      "label": "Inspect Sample"
+    },
+    {
+      "id": 26,
+      "x": 605,
+      "y": 275,
+      "kind": "task",
+      "room": "Admin",
+      "label": "Upload Data"
+    },
+    {
+      "id": 27,
+      "x": 170,
+      "y": 406,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Align Engine Output"
+    },
+    {
+      "id": 28,
+      "x": 170,
+      "y": 164,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Align Engine Output"
+    },
+    {
+      "id": 29,
+      "x": 678,
+      "y": 314,
+      "kind": "task",
+      "room": "Admin",
+      "label": "Swipe Card"
+    },
+    {
+      "id": 30,
+      "x": 620,
+      "y": 47,
+      "kind": "task",
+      "room": "North Cafeteria",
+      "label": "Download Data"
+    },
+    {
+      "id": 31,
+      "x": 904,
+      "y": 233,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Chart Course"
+    },
+    {
+      "id": 32,
+      "x": 896,
+      "y": 258,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Stabilize Steering"
+    },
+    {
+      "id": 33,
+      "x": 896,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Download Data"
+    },
+    {
+      "id": 34,
+      "x": 634,
+      "y": 440,
+      "kind": "task",
+      "room": "Coms",
+      "label": "Download Data"
+    },
+    {
+      "id": 35,
+      "x": 494,
+      "y": 427,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 36,
+      "x": 194,
+      "y": 401,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 37,
+      "x": 194,
+      "y": 159,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 38,
+      "x": 675,
+      "y": 205,
+      "kind": "task",
+      "room": "O2",
+      "label": "Clean O2 Filter"
+    },
+    {
+      "id": 39,
+      "x": 731,
+      "y": 71,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Download Data"
+    },
+    {
+      "id": 40,
+      "x": 638,
+      "y": 68,
+      "kind": "task",
+      "room": "East Cafeteria",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 41,
+      "x": 659,
+      "y": 220,
+      "kind": "task",
+      "room": "O2",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 42,
+      "x": 606,
+      "y": 339,
+      "kind": "vent",
+      "room": "Admin",
+      "label": "vent_A1",
+      "vent_group": "A",
+      "vent_index": 1
+    },
+    {
+      "id": 43,
+      "x": 742,
+      "y": 269,
+      "kind": "vent",
+      "room": "Nav Hallway",
+      "label": "vent_A2",
+      "vent_group": "A",
+      "vent_index": 2
+    },
+    {
+      "id": 44,
+      "x": 640,
+      "y": 147,
+      "kind": "vent",
+      "room": "East Cafeteria",
+      "label": "vent_A3",
+      "vent_group": "A",
+      "vent_index": 3
+    },
+    {
+      "id": 45,
+      "x": 730,
+      "y": 75,
+      "kind": "vent",
+      "room": "Weapons",
+      "label": "vent_B1",
+      "vent_group": "B",
+      "vent_index": 1
+    },
+    {
+      "id": 46,
+      "x": 880,
+      "y": 219,
+      "kind": "vent",
+      "room": "Nav",
+      "label": "vent_B2",
+      "vent_group": "B",
+      "vent_index": 2
+    },
+    {
+      "id": 47,
+      "x": 746,
+      "y": 427,
+      "kind": "vent",
+      "room": "Shields",
+      "label": "vent_C1",
+      "vent_group": "C",
+      "vent_index": 1
+    },
+    {
+      "id": 48,
+      "x": 880,
+      "y": 267,
+      "kind": "vent",
+      "room": "Nav",
+      "label": "vent_C2",
+      "vent_group": "C",
+      "vent_index": 2
+    },
+    {
+      "id": 49,
+      "x": 342,
+      "y": 225,
+      "kind": "vent",
+      "room": "MedBay",
+      "label": "vent_D1",
+      "vent_group": "D",
+      "vent_index": 1
+    },
+    {
+      "id": 50,
+      "x": 358,
+      "y": 303,
+      "kind": "vent",
+      "room": "Electrical",
+      "label": "vent_D2",
+      "vent_group": "D",
+      "vent_index": 2
+    },
+    {
+      "id": 51,
+      "x": 302,
+      "y": 279,
+      "kind": "vent",
+      "room": "Security",
+      "label": "vent_D3",
+      "vent_group": "D",
+      "vent_index": 3
+    },
+    {
+      "id": 52,
+      "x": 93,
+      "y": 94,
+      "kind": "vent",
+      "room": "",
+      "label": "vent_E1",
+      "vent_group": "E",
+      "vent_index": 1
+    },
+    {
+      "id": 53,
+      "x": 138,
+      "y": 277,
+      "kind": "vent",
+      "room": "Reactor",
+      "label": "vent_E2",
+      "vent_group": "E",
+      "vent_index": 2
+    },
+    {
+      "id": 54,
+      "x": 248,
+      "y": 413,
+      "kind": "vent",
+      "room": "Lower Engine",
+      "label": "vent_E3",
+      "vent_group": "E",
+      "vent_index": 3
+    },
+    {
+      "id": 55,
+      "x": 116,
+      "y": 201,
+      "kind": "vent",
+      "room": "Reactor",
+      "label": "vent_F1",
+      "vent_group": "F",
+      "vent_index": 1
+    },
+    {
+      "id": 56,
+      "x": 248,
+      "y": 89,
+      "kind": "vent",
+      "room": "Upper Engine",
+      "label": "vent_F2",
+      "vent_group": "F",
+      "vent_index": 2
+    },
+    {
+      "id": 75,
+      "x": 570,
+      "y": 284,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 84,
+      "x": 658,
+      "y": 387,
+      "kind": "intersection",
+      "room": "Coms Hallway",
+      "label": ""
+    },
+    {
+      "id": 85,
+      "x": 788,
+      "y": 238,
+      "kind": "intersection",
+      "room": "Nav Hallway",
+      "label": ""
+    },
+    {
+      "id": 86,
+      "x": 731,
+      "y": 380,
+      "kind": "intersection",
+      "room": "Shields",
+      "label": ""
+    },
+    {
+      "id": 87,
+      "x": 577,
+      "y": 388,
+      "kind": "doorway",
+      "room": "Coms Hallway",
+      "label": ""
+    },
+    {
+      "id": 88,
+      "x": 541,
+      "y": 312,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 89,
+      "x": 451,
+      "y": 434,
+      "kind": "doorway",
+      "room": "Electrial Hallway",
+      "label": ""
+    },
+    {
+      "id": 90,
+      "x": 540,
+      "y": 232,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 91,
+      "x": 414,
+      "y": 334,
+      "kind": "doorway",
+      "room": "Electrical",
+      "label": ""
+    },
+    {
+      "id": 92,
+      "x": 262,
+      "y": 377,
+      "kind": "doorway",
+      "room": "Electrial Hallway Bend",
+      "label": ""
+    },
+    {
+      "id": 93,
+      "x": 216,
+      "y": 322,
+      "kind": "doorway",
+      "room": "Lower Engine",
+      "label": ""
+    },
+    {
+      "id": 94,
+      "x": 174,
+      "y": 249,
+      "kind": "doorway",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 95,
+      "x": 262,
+      "y": 248,
+      "kind": "doorway",
+      "room": "Security",
+      "label": ""
+    },
+    {
+      "id": 96,
+      "x": 214,
+      "y": 176,
+      "kind": "doorway",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 97,
+      "x": 264,
+      "y": 120,
+      "kind": "doorway",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 98,
+      "x": 426,
+      "y": 122,
+      "kind": "doorway",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 99,
+      "x": 374,
+      "y": 202,
+      "kind": "doorway",
+      "room": "MedBay",
+      "label": ""
+    },
+    {
+      "id": 100,
+      "x": 661,
+      "y": 120,
+      "kind": "doorway",
+      "room": "East Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 101,
+      "x": 745,
+      "y": 194,
+      "kind": "doorway",
+      "room": "Weapons",
+      "label": ""
+    },
+    {
+      "id": 102,
+      "x": 825,
+      "y": 237,
+      "kind": "doorway",
+      "room": "Nav",
+      "label": ""
+    },
+    {
+      "id": 103,
+      "x": 657,
+      "y": 420,
+      "kind": "doorway",
+      "room": "Coms",
+      "label": ""
+    },
+    {
+      "id": 107,
+      "x": 485,
+      "y": 119,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 108,
+      "x": 536,
+      "y": 65,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 109,
+      "x": 593,
+      "y": 118,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 110,
+      "x": 536,
+      "y": 176,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 111,
+      "x": 463,
+      "y": 196,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 112,
+      "x": 618,
+      "y": 195,
+      "kind": "poi",
+      "room": "East Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 124,
+      "x": 340,
+      "y": 431,
+      "kind": "intersection",
+      "room": "Electrial Hallway",
+      "label": ""
+    }
+  ],
+  "edges": [
+    {
+      "src": 98,
+      "dst": 5,
+      "cost": 109
+    },
+    {
+      "src": 98,
+      "dst": 90,
+      "cost": 224
+    },
+    {
+      "src": 98,
+      "dst": 1,
+      "cost": 128
+    },
+    {
+      "src": 98,
+      "dst": 0,
+      "cost": 129
+    },
+    {
+      "src": 30,
+      "dst": 98,
+      "cost": 269
+    },
+    {
+      "src": 98,
+      "dst": 40,
+      "cost": 266
+    },
+    {
+      "src": 100,
+      "dst": 98,
+      "cost": 269
+    },
+    {
+      "src": 1,
+      "dst": 44,
+      "cost": 111
+    },
+    {
+      "src": 5,
+      "dst": 90,
+      "cost": 281
+    },
+    {
+      "src": 90,
+      "dst": 1,
+      "cost": 96
+    },
+    {
+      "src": 1,
+      "dst": 0,
+      "cost": 79
+    },
+    {
+      "src": 0,
+      "dst": 90,
+      "cost": 171
+    },
+    {
+      "src": 90,
+      "dst": 30,
+      "cost": 265
+    },
+    {
+      "src": 40,
+      "dst": 90,
+      "cost": 262
+    },
+    {
+      "src": 90,
+      "dst": 100,
+      "cost": 233
+    },
+    {
+      "src": 44,
+      "dst": 90,
+      "cost": 185
+    },
+    {
+      "src": 5,
+      "dst": 0,
+      "cost": 148
+    },
+    {
+      "src": 0,
+      "dst": 30,
+      "cost": 140
+    },
+    {
+      "src": 30,
+      "dst": 5,
+      "cost": 176
+    },
+    {
+      "src": 0,
+      "dst": 40,
+      "cost": 137
+    },
+    {
+      "src": 40,
+      "dst": 30,
+      "cost": 39
+    },
+    {
+      "src": 40,
+      "dst": 100,
+      "cost": 75
+    },
+    {
+      "src": 100,
+      "dst": 0,
+      "cost": 142
+    },
+    {
+      "src": 44,
+      "dst": 100,
+      "cost": 48
+    },
+    {
+      "src": 100,
+      "dst": 1,
+      "cost": 141
+    },
+    {
+      "src": 100,
+      "dst": 30,
+      "cost": 114
+    },
+    {
+      "src": 100,
+      "dst": 5,
+      "cost": 290
+    },
+    {
+      "src": 44,
+      "dst": 40,
+      "cost": 81
+    },
+    {
+      "src": 30,
+      "dst": 44,
+      "cost": 120
+    },
+    {
+      "src": 44,
+      "dst": 0,
+      "cost": 148
+    },
+    {
+      "src": 44,
+      "dst": 5,
+      "cost": 296
+    },
+    {
+      "src": 40,
+      "dst": 1,
+      "cost": 170
+    },
+    {
+      "src": 5,
+      "dst": 1,
+      "cost": 185
+    },
+    {
+      "src": 1,
+      "dst": 30,
+      "cost": 173
+    },
+    {
+      "src": 100,
+      "dst": 101,
+      "cost": 158
+    },
+    {
+      "src": 112,
+      "dst": 90,
+      "cost": 115
+    },
+    {
+      "src": 98,
+      "dst": 112,
+      "cost": 265
+    },
+    {
+      "src": 30,
+      "dst": 112,
+      "cost": 150
+    },
+    {
+      "src": 112,
+      "dst": 40,
+      "cost": 147
+    },
+    {
+      "src": 44,
+      "dst": 112,
+      "cost": 70
+    },
+    {
+      "src": 112,
+      "dst": 100,
+      "cost": 118
+    },
+    {
+      "src": 100,
+      "dst": 110,
+      "cost": 181
+    },
+    {
+      "src": 110,
+      "dst": 112,
+      "cost": 101
+    },
+    {
+      "src": 112,
+      "dst": 109,
+      "cost": 102
+    },
+    {
+      "src": 109,
+      "dst": 108,
+      "cost": 110
+    },
+    {
+      "src": 108,
+      "dst": 112,
+      "cost": 212
+    },
+    {
+      "src": 112,
+      "dst": 107,
+      "cost": 209
+    },
+    {
+      "src": 111,
+      "dst": 112,
+      "cost": 156
+    },
+    {
+      "src": 90,
+      "dst": 111,
+      "cost": 113
+    },
+    {
+      "src": 111,
+      "dst": 98,
+      "cost": 111
+    },
+    {
+      "src": 5,
+      "dst": 111,
+      "cost": 168
+    },
+    {
+      "src": 111,
+      "dst": 107,
+      "cost": 99
+    },
+    {
+      "src": 111,
+      "dst": 0,
+      "cost": 166
+    },
+    {
+      "src": 1,
+      "dst": 111,
+      "cost": 133
+    },
+    {
+      "src": 111,
+      "dst": 110,
+      "cost": 93
+    },
+    {
+      "src": 109,
+      "dst": 111,
+      "cost": 208
+    },
+    {
+      "src": 110,
+      "dst": 107,
+      "cost": 108
+    },
+    {
+      "src": 107,
+      "dst": 108,
+      "cost": 105
+    },
+    {
+      "src": 109,
+      "dst": 110,
+      "cost": 115
+    },
+    {
+      "src": 110,
+      "dst": 98,
+      "cost": 164
+    },
+    {
+      "src": 5,
+      "dst": 40,
+      "cost": 215
+    },
+    {
+      "src": 5,
+      "dst": 112,
+      "cost": 322
+    },
+    {
+      "src": 108,
+      "dst": 111,
+      "cost": 204
+    },
+    {
+      "src": 111,
+      "dst": 30,
+      "cost": 306
+    },
+    {
+      "src": 40,
+      "dst": 111,
+      "cost": 303
+    },
+    {
+      "src": 111,
+      "dst": 100,
+      "cost": 274
+    },
+    {
+      "src": 44,
+      "dst": 111,
+      "cost": 226
+    },
+    {
+      "src": 107,
+      "dst": 5,
+      "cost": 113
+    },
+    {
+      "src": 107,
+      "dst": 98,
+      "cost": 62
+    },
+    {
+      "src": 0,
+      "dst": 107,
+      "cost": 67
+    },
+    {
+      "src": 107,
+      "dst": 1,
+      "cost": 72
+    },
+    {
+      "src": 1,
+      "dst": 110,
+      "cost": 40
+    },
+    {
+      "src": 107,
+      "dst": 109,
+      "cost": 139
+    },
+    {
+      "src": 109,
+      "dst": 30,
+      "cost": 98
+    },
+    {
+      "src": 30,
+      "dst": 107,
+      "cost": 207
+    },
+    {
+      "src": 107,
+      "dst": 40,
+      "cost": 204
+    },
+    {
+      "src": 40,
+      "dst": 109,
+      "cost": 95
+    },
+    {
+      "src": 107,
+      "dst": 100,
+      "cost": 209
+    },
+    {
+      "src": 44,
+      "dst": 107,
+      "cost": 183
+    },
+    {
+      "src": 1,
+      "dst": 109,
+      "cost": 75
+    },
+    {
+      "src": 108,
+      "dst": 5,
+      "cost": 110
+    },
+    {
+      "src": 30,
+      "dst": 108,
+      "cost": 102
+    },
+    {
+      "src": 108,
+      "dst": 40,
+      "cost": 137
+    },
+    {
+      "src": 108,
+      "dst": 100,
+      "cost": 180
+    },
+    {
+      "src": 100,
+      "dst": 109,
+      "cost": 70
+    },
+    {
+      "src": 0,
+      "dst": 109,
+      "cost": 72
+    },
+    {
+      "src": 109,
+      "dst": 98,
+      "cost": 201
+    },
+    {
+      "src": 109,
+      "dst": 90,
+      "cost": 167
+    },
+    {
+      "src": 0,
+      "dst": 112,
+      "cost": 174
+    },
+    {
+      "src": 112,
+      "dst": 1,
+      "cost": 137
+    },
+    {
+      "src": 100,
+      "dst": 39,
+      "cost": 119
+    },
+    {
+      "src": 39,
+      "dst": 45,
+      "cost": 5
+    },
+    {
+      "src": 45,
+      "dst": 100,
+      "cost": 114
+    },
+    {
+      "src": 100,
+      "dst": 24,
+      "cost": 95
+    },
+    {
+      "src": 24,
+      "dst": 13,
+      "cost": 30
+    },
+    {
+      "src": 13,
+      "dst": 100,
+      "cost": 125
+    },
+    {
+      "src": 24,
+      "dst": 45,
+      "cost": 37
+    },
+    {
+      "src": 39,
+      "dst": 24,
+      "cost": 40
+    },
+    {
+      "src": 13,
+      "dst": 39,
+      "cost": 68
+    },
+    {
+      "src": 45,
+      "dst": 13,
+      "cost": 65
+    },
+    {
+      "src": 39,
+      "dst": 101,
+      "cost": 137
+    },
+    {
+      "src": 101,
+      "dst": 45,
+      "cost": 134
+    },
+    {
+      "src": 24,
+      "dst": 101,
+      "cost": 97
+    },
+    {
+      "src": 101,
+      "dst": 13,
+      "cost": 115
+    },
+    {
+      "src": 23,
+      "dst": 101,
+      "cost": 32
+    },
+    {
+      "src": 101,
+      "dst": 38,
+      "cost": 81
+    },
+    {
+      "src": 41,
+      "dst": 101,
+      "cost": 112
+    },
+    {
+      "src": 23,
+      "dst": 38,
+      "cost": 49
+    },
+    {
+      "src": 38,
+      "dst": 41,
+      "cost": 31
+    },
+    {
+      "src": 41,
+      "dst": 23,
+      "cost": 80
+    },
+    {
+      "src": 85,
+      "dst": 101,
+      "cost": 87
+    },
+    {
+      "src": 101,
+      "dst": 102,
+      "cost": 123
+    },
+    {
+      "src": 102,
+      "dst": 85,
+      "cost": 38
+    },
+    {
+      "src": 8,
+      "dst": 102,
+      "cost": 28
+    },
+    {
+      "src": 102,
+      "dst": 48,
+      "cost": 85
+    },
+    {
+      "src": 32,
+      "dst": 102,
+      "cost": 92
+    },
+    {
+      "src": 102,
+      "dst": 31,
+      "cost": 83
+    },
+    {
+      "src": 46,
+      "dst": 102,
+      "cost": 73
+    },
+    {
+      "src": 102,
+      "dst": 14,
+      "cost": 84
+    },
+    {
+      "src": 33,
+      "dst": 102,
+      "cost": 104
+    },
+    {
+      "src": 8,
+      "dst": 48,
+      "cost": 71
+    },
+    {
+      "src": 32,
+      "dst": 8,
+      "cost": 78
+    },
+    {
+      "src": 8,
+      "dst": 31,
+      "cost": 61
+    },
+    {
+      "src": 46,
+      "dst": 8,
+      "cost": 45
+    },
+    {
+      "src": 8,
+      "dst": 14,
+      "cost": 56
+    },
+    {
+      "src": 33,
+      "dst": 8,
+      "cost": 76
+    },
+    {
+      "src": 48,
+      "dst": 14,
+      "cost": 67
+    },
+    {
+      "src": 46,
+      "dst": 48,
+      "cost": 48
+    },
+    {
+      "src": 48,
+      "dst": 33,
+      "cost": 79
+    },
+    {
+      "src": 31,
+      "dst": 48,
+      "cost": 58
+    },
+    {
+      "src": 48,
+      "dst": 32,
+      "cost": 25
+    },
+    {
+      "src": 32,
+      "dst": 46,
+      "cost": 55
+    },
+    {
+      "src": 31,
+      "dst": 32,
+      "cost": 33
+    },
+    {
+      "src": 32,
+      "dst": 33,
+      "cost": 54
+    },
+    {
+      "src": 14,
+      "dst": 32,
+      "cost": 74
+    },
+    {
+      "src": 31,
+      "dst": 46,
+      "cost": 38
+    },
+    {
+      "src": 14,
+      "dst": 31,
+      "cost": 57
+    },
+    {
+      "src": 31,
+      "dst": 33,
+      "cost": 37
+    },
+    {
+      "src": 33,
+      "dst": 46,
+      "cost": 31
+    },
+    {
+      "src": 46,
+      "dst": 14,
+      "cost": 19
+    },
+    {
+      "src": 14,
+      "dst": 33,
+      "cost": 20
+    },
+    {
+      "src": 85,
+      "dst": 43,
+      "cost": 77
+    },
+    {
+      "src": 102,
+      "dst": 43,
+      "cost": 115
+    },
+    {
+      "src": 85,
+      "dst": 86,
+      "cost": 199
+    },
+    {
+      "src": 86,
+      "dst": 43,
+      "cost": 122
+    },
+    {
+      "src": 21,
+      "dst": 86,
+      "cost": 65
+    },
+    {
+      "src": 43,
+      "dst": 21,
+      "cost": 117
+    },
+    {
+      "src": 21,
+      "dst": 85,
+      "cost": 166
+    },
+    {
+      "src": 102,
+      "dst": 21,
+      "cost": 204
+    },
+    {
+      "src": 86,
+      "dst": 47,
+      "cost": 62
+    },
+    {
+      "src": 47,
+      "dst": 22,
+      "cost": 35
+    },
+    {
+      "src": 22,
+      "dst": 86,
+      "cost": 69
+    },
+    {
+      "src": 86,
+      "dst": 84,
+      "cost": 80
+    },
+    {
+      "src": 84,
+      "dst": 87,
+      "cost": 82
+    },
+    {
+      "src": 87,
+      "dst": 103,
+      "cost": 112
+    },
+    {
+      "src": 103,
+      "dst": 84,
+      "cost": 34
+    },
+    {
+      "src": 21,
+      "dst": 47,
+      "cost": 97
+    },
+    {
+      "src": 22,
+      "dst": 21,
+      "cost": 132
+    },
+    {
+      "src": 86,
+      "dst": 103,
+      "cost": 114
+    },
+    {
+      "src": 103,
+      "dst": 34,
+      "cost": 43
+    },
+    {
+      "src": 34,
+      "dst": 3,
+      "cost": 52
+    },
+    {
+      "src": 3,
+      "dst": 103,
+      "cost": 27
+    },
+    {
+      "src": 87,
+      "dst": 89,
+      "cost": 186
+    },
+    {
+      "src": 89,
+      "dst": 88,
+      "cost": 212
+    },
+    {
+      "src": 88,
+      "dst": 87,
+      "cost": 112
+    },
+    {
+      "src": 87,
+      "dst": 6,
+      "cost": 117
+    },
+    {
+      "src": 87,
+      "dst": 2,
+      "cost": 100
+    },
+    {
+      "src": 35,
+      "dst": 87,
+      "cost": 150
+    },
+    {
+      "src": 88,
+      "dst": 6,
+      "cost": 41
+    },
+    {
+      "src": 6,
+      "dst": 35,
+      "cost": 167
+    },
+    {
+      "src": 35,
+      "dst": 2,
+      "cost": 114
+    },
+    {
+      "src": 2,
+      "dst": 6,
+      "cost": 187
+    },
+    {
+      "src": 35,
+      "dst": 89,
+      "cost": 50
+    },
+    {
+      "src": 88,
+      "dst": 35,
+      "cost": 208
+    },
+    {
+      "src": 2,
+      "dst": 88,
+      "cost": 182
+    },
+    {
+      "src": 6,
+      "dst": 89,
+      "cost": 171
+    },
+    {
+      "src": 89,
+      "dst": 2,
+      "cost": 150
+    },
+    {
+      "src": 90,
+      "dst": 88,
+      "cost": 81
+    },
+    {
+      "src": 88,
+      "dst": 75,
+      "cost": 57
+    },
+    {
+      "src": 75,
+      "dst": 90,
+      "cost": 82
+    },
+    {
+      "src": 75,
+      "dst": 4,
+      "cost": 19
+    },
+    {
+      "src": 26,
+      "dst": 75,
+      "cost": 44
+    },
+    {
+      "src": 75,
+      "dst": 29,
+      "cost": 138
+    },
+    {
+      "src": 42,
+      "dst": 75,
+      "cost": 91
+    },
+    {
+      "src": 4,
+      "dst": 42,
+      "cost": 86
+    },
+    {
+      "src": 42,
+      "dst": 26,
+      "cost": 65
+    },
+    {
+      "src": 29,
+      "dst": 42,
+      "cost": 97
+    },
+    {
+      "src": 26,
+      "dst": 29,
+      "cost": 112
+    },
+    {
+      "src": 29,
+      "dst": 4,
+      "cost": 133
+    },
+    {
+      "src": 4,
+      "dst": 26,
+      "cost": 25
+    },
+    {
+      "src": 9,
+      "dst": 50,
+      "cost": 4
+    },
+    {
+      "src": 9,
+      "dst": 12,
+      "cost": 20
+    },
+    {
+      "src": 12,
+      "dst": 7,
+      "cost": 23
+    },
+    {
+      "src": 7,
+      "dst": 10,
+      "cost": 37
+    },
+    {
+      "src": 91,
+      "dst": 7,
+      "cost": 44
+    },
+    {
+      "src": 10,
+      "dst": 91,
+      "cost": 53
+    },
+    {
+      "src": 91,
+      "dst": 12,
+      "cost": 67
+    },
+    {
+      "src": 9,
+      "dst": 91,
+      "cost": 87
+    },
+    {
+      "src": 50,
+      "dst": 91,
+      "cost": 87
+    },
+    {
+      "src": 12,
+      "dst": 50,
+      "cost": 24
+    },
+    {
+      "src": 7,
+      "dst": 50,
+      "cost": 43
+    },
+    {
+      "src": 9,
+      "dst": 7,
+      "cost": 43
+    },
+    {
+      "src": 91,
+      "dst": 89,
+      "cost": 217
+    },
+    {
+      "src": 89,
+      "dst": 92,
+      "cost": 246
+    },
+    {
+      "src": 92,
+      "dst": 91,
+      "cost": 287
+    },
+    {
+      "src": 124,
+      "dst": 92,
+      "cost": 132
+    },
+    {
+      "src": 91,
+      "dst": 124,
+      "cost": 171
+    },
+    {
+      "src": 124,
+      "dst": 89,
+      "cost": 114
+    },
+    {
+      "src": 92,
+      "dst": 54,
+      "cost": 50
+    },
+    {
+      "src": 54,
+      "dst": 36,
+      "cost": 66
+    },
+    {
+      "src": 36,
+      "dst": 27,
+      "cost": 29
+    },
+    {
+      "src": 27,
+      "dst": 54,
+      "cost": 85
+    },
+    {
+      "src": 36,
+      "dst": 92,
+      "cost": 92
+    },
+    {
+      "src": 92,
+      "dst": 93,
+      "cost": 101
+    },
+    {
+      "src": 93,
+      "dst": 15,
+      "cost": 36
+    },
+    {
+      "src": 15,
+      "dst": 92,
+      "cost": 109
+    },
+    {
+      "src": 36,
+      "dst": 15,
+      "cost": 155
+    },
+    {
+      "src": 15,
+      "dst": 54,
+      "cost": 131
+    },
+    {
+      "src": 27,
+      "dst": 15,
+      "cost": 184
+    },
+    {
+      "src": 93,
+      "dst": 27,
+      "cost": 176
+    },
+    {
+      "src": 36,
+      "dst": 93,
+      "cost": 147
+    },
+    {
+      "src": 93,
+      "dst": 54,
+      "cost": 123
+    },
+    {
+      "src": 93,
+      "dst": 96,
+      "cost": 148
+    },
+    {
+      "src": 96,
+      "dst": 94,
+      "cost": 113
+    },
+    {
+      "src": 94,
+      "dst": 95,
+      "cost": 89
+    },
+    {
+      "src": 95,
+      "dst": 93,
+      "cost": 120
+    },
+    {
+      "src": 96,
+      "dst": 95,
+      "cost": 120
+    },
+    {
+      "src": 94,
+      "dst": 93,
+      "cost": 115
+    },
+    {
+      "src": 20,
+      "dst": 94,
+      "cost": 114
+    },
+    {
+      "src": 94,
+      "dst": 18,
+      "cost": 52
+    },
+    {
+      "src": 55,
+      "dst": 94,
+      "cost": 106
+    },
+    {
+      "src": 94,
+      "dst": 19,
+      "cost": 46
+    },
+    {
+      "src": 53,
+      "dst": 94,
+      "cost": 64
+    },
+    {
+      "src": 18,
+      "dst": 53,
+      "cost": 76
+    },
+    {
+      "src": 19,
+      "dst": 18,
+      "cost": 58
+    },
+    {
+      "src": 18,
+      "dst": 20,
+      "cost": 62
+    },
+    {
+      "src": 55,
+      "dst": 18,
+      "cost": 54
+    },
+    {
+      "src": 53,
+      "dst": 20,
+      "cost": 106
+    },
+    {
+      "src": 53,
+      "dst": 19,
+      "cost": 32
+    },
+    {
+      "src": 55,
+      "dst": 53,
+      "cost": 98
+    },
+    {
+      "src": 20,
+      "dst": 19,
+      "cost": 74
+    },
+    {
+      "src": 19,
+      "dst": 55,
+      "cost": 66
+    },
+    {
+      "src": 20,
+      "dst": 55,
+      "cost": 8
+    },
+    {
+      "src": 95,
+      "dst": 51,
+      "cost": 71
+    },
+    {
+      "src": 51,
+      "dst": 17,
+      "cost": 82
+    },
+    {
+      "src": 17,
+      "dst": 95,
+      "cost": 77
+    },
+    {
+      "src": 96,
+      "dst": 28,
+      "cost": 56
+    },
+    {
+      "src": 28,
+      "dst": 37,
+      "cost": 29
+    },
+    {
+      "src": 37,
+      "dst": 96,
+      "cost": 37
+    },
+    {
+      "src": 96,
+      "dst": 97,
+      "cost": 106
+    },
+    {
+      "src": 97,
+      "dst": 37,
+      "cost": 109
+    },
+    {
+      "src": 37,
+      "dst": 56,
+      "cost": 124
+    },
+    {
+      "src": 56,
+      "dst": 16,
+      "cost": 39
+    },
+    {
+      "src": 16,
+      "dst": 37,
+      "cost": 145
+    },
+    {
+      "src": 97,
+      "dst": 16,
+      "cost": 84
+    },
+    {
+      "src": 56,
+      "dst": 97,
+      "cost": 47
+    },
+    {
+      "src": 98,
+      "dst": 99,
+      "cost": 132
+    },
+    {
+      "src": 99,
+      "dst": 97,
+      "cost": 192
+    },
+    {
+      "src": 97,
+      "dst": 98,
+      "cost": 164
+    },
+    {
+      "src": 99,
+      "dst": 49,
+      "cost": 55
+    },
+    {
+      "src": 11,
+      "dst": 99,
+      "cost": 74
+    },
+    {
+      "src": 99,
+      "dst": 25,
+      "cost": 78
+    },
+    {
+      "src": 25,
+      "dst": 49,
+      "cost": 87
+    },
+    {
+      "src": 49,
+      "dst": 11,
+      "cost": 83
+    },
+    {
+      "src": 11,
+      "dst": 25,
+      "cost": 28
+    },
+    {
+      "src": 56,
+      "dst": 55,
+      "is_vent": true,
+      "vent_group": "F"
+    },
+    {
+      "src": 52,
+      "dst": 53,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 53,
+      "dst": 54,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 54,
+      "dst": 52,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 51,
+      "dst": 49,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 49,
+      "dst": 50,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 50,
+      "dst": 51,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 42,
+      "dst": 44,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 44,
+      "dst": 43,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 43,
+      "dst": 42,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 45,
+      "dst": 46,
+      "is_vent": true,
+      "vent_group": "B"
+    },
+    {
+      "src": 47,
+      "dst": 48,
+      "is_vent": true,
+      "vent_group": "C"
+    }
+  ]
+}

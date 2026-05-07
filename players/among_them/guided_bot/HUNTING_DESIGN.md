@@ -4,7 +4,7 @@
 > design details live here; `DESIGN.md` contains only a brief overview and
 > cross-reference.
 >
-> **Implementation:** `modes/hunting.nim` (293 LOC)
+> **Implementation:** `modes/hunting.nim` (300 LOC)
 >
 > Last updated: 2026-05-05
 
@@ -37,7 +37,7 @@ additionally enforces phase-appropriateness — no hunting during voting).
 The LLM (or reflex/default system) sets these when issuing a `hunting`
 directive:
 
-```
+```text
 hunting {
   preferred_target: color_index | -1   # -1 = no specific target
   max_witnesses: int                   # refuse kill if > N non-target crewmates visible
@@ -239,12 +239,12 @@ Picks a station that is:
 
 Uses precomputed `passableCX/passableCY` (the station's geometric
 centre snapped to the nearest walkable pixel) as the navigation target,
-ensuring A\* never receives an impassable goal.
+ensuring navigation receives a reachable goal.
 
 ### 7.2 Navigation
 
-Steers toward the cover station via `DisciplineNormal` (A\*-backed
-pathfinding through the action layer).
+Steers toward the cover station via `DisciplineNormal`
+(waypoint-backed pathfinding through the action layer).
 
 ### 7.3 Arrival and loiter
 
@@ -402,7 +402,7 @@ event is emitted.
 When no LLM directive is active (startup, TTL expiry, LLM failure),
 the imposter's default directive is:
 
-```
+```text
 hunting {
   preferred_target: -1,
   max_witnesses: 0,
@@ -425,10 +425,10 @@ The hunting mode communicates with the action layer via two disciplines:
 - **`DisciplineKillStrike`** — used when pursuing a visible target or
   waiting for kill confirmation. The action layer steers toward
   `steerTo` and ORs `ButtonA` when within `KillStrikeRange` (20 px).
-  No A\* pathfinding — direct line steering.
+  No waypoint routing — direct line steering.
 - **`DisciplineNormal`** — used during target memory pursuit and cover
-  patrol navigation. The action layer uses A\* pathfinding on the walk
-  mask to reach `steerTo`.
+  patrol navigation. The action layer uses the waypoint graph and
+  baked edge paths to reach `steerTo`.
 
 The mode never sets `pressA` directly. Button presses are the action
 layer's responsibility based on the discipline hint.

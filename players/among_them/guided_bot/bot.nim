@@ -65,8 +65,14 @@ type
     ## per interstitial run.
     interstitialClassified*: bool  ## True once we've run OCR on this run.
     cachedInterstitialKind*: InterstitialKind  ## Cached classification.
+    ## Voting-screen detection fallback. The voting screen doesn't always
+    ## pass the 30%-black interstitial gate, causing the localizer to fail
+    ## without the voting parse ever running. This fallback probes
+    ## parseVotingScreen on a cooldown when localization is lost on a
+    ## non-interstitial frame.
+    lastVotingProbeTick*: int      ## Last tick we tried parseVotingScreen as fallback.
 
-proc initBot*(): Bot =
+proc initBot*(botIndex: int = -1): Bot =
   result.frameTick = 0
   result.belief = initBelief()
   result.modeScratch = ModeScratch(mode: ModeIdle, idleEnterTick: 0)
@@ -96,7 +102,7 @@ proc initBot*(): Bot =
     of "decisions": TraceDecisions
     of "full":      TraceFull
     else:           TraceOff
-  result.trace = openTrace(traceDir, traceLevel)
+  result.trace = openTrace(traceDir, traceLevel, botIndex)
 
   # Localization diagnostics: announce if debug logging is enabled.
   if localizeDebug:
@@ -269,11 +275,29 @@ proc reconcileDirective(bot: var Bot) =
     switchMode(bot, defaultDirectiveFor(bot.belief))
     return
 
+proc decideNextMaskInner(bot: var Bot): uint8  # forward decl
+
 proc decideNextMask*(bot: var Bot): uint8 =
   ## One full inner-loop step. Perception → belief update → LLM
   ## directive read → reflex evaluation → mode decide → action layer
   ## → button mask.
   inc bot.frameTick
+  try:
+    return decideNextMaskInner(bot)
+  except Exception:
+    # Pre-existing perception/OCR IndexDefects (actors.nim, ocr.nim)
+    # crash on some frames. Fall back to last mask (same as the old
+    # behavior where the FFI boundary silently swallowed the exception).
+    return bot.lastMask
+
+proc decideNextMaskInner(bot: var Bot): uint8 =
+
+  # One-shot diagnostic on first frame: verify reference data integrity.
+  if bot.frameTick == 1:
+    stderr.writeLine "[diag] font.height=" & $referenceData.font.height &
+      " font.spacing=" & $referenceData.font.spacing &
+      " sprites.player.w=" & $referenceData.sprites.player.width &
+      " sprites.player.pixels.len=" & $referenceData.sprites.player.pixels.len
 
   # Phase 3: ensure guidance worker is running.
   ensureGuidanceStarted(bot)
@@ -297,7 +321,6 @@ proc decideNextMask*(bot: var Bot): uint8 =
     referenceData.sprites,
     bot.unpacked,
     percept.interstitial.isInterstitial)
-
   # Stamp actor sprite + nameplate exclusions into the ignore mask.
   # Sprite rects cover the detected sprite bounding box. Nameplate
   # rects cover the player-name text rendered by the server above
@@ -337,6 +360,33 @@ proc decideNextMask*(bot: var Bot): uint8 =
        bot.localizer.diag.successes == 1:
       stderr.writeLine &"[localize t={bot.frameTick}] FIRST LOCK  cam=({bot.belief.percep.cameraX},{bot.belief.percep.cameraY}) self=({bot.belief.percep.selfX},{bot.belief.percep.selfY})"
 
+    # 2b'. Voting-screen fallback probe. The voting screen often doesn't
+    #      pass the 30%-black interstitial gate, so parseVotingScreen
+    #      never runs and the bot idles through the entire meeting.
+    #      When the localizer fails on a "gameplay" frame, periodically
+    #      try the voting parse to catch this case.
+    if not bot.belief.percep.localized and
+       bot.belief.self.phase != PhaseVoting and
+       (bot.frameTick - bot.lastVotingProbeTick) >= VotingProbeIntervalTicks:
+      bot.lastVotingProbeTick = bot.frameTick
+      let probe = parseVotingScreen(
+        bot.unpacked,
+        referenceData.sprites,
+        bot.belief.self.colorIndex)
+      if probe.valid:
+        # The voting screen is up but the interstitial detector missed it.
+        # Override phase and interstitial state so the rest of the pipeline
+        # (reflex evaluation, mode switching) sees PhaseVoting correctly.
+        bot.belief.self.phase = PhaseVoting
+        bot.belief.percep.interstitialKind = InterstitialVoting
+        percept.interstitial.isInterstitial = true
+        percept.interstitial.kind = InterstitialVoting
+        percept.votingParse = probe
+        mergeVotingPercept(bot.belief, probe)
+        # Reseed localizer so it doesn't keep trying to match map pixels
+        # against the voting screen.
+        bot.localizer.reseedCameraAtHome(bot.belief.percep)
+
   # 2c. Merge actor scan results into belief (needs camera for world
   #     coords, so stays after localization).
   mergeActorPercept(bot.belief, percept.actors)
@@ -375,11 +425,10 @@ proc decideNextMask*(bot: var Bot): uint8 =
   updateTaskState(bot.belief, bot.frameTick, holdIdx, confirmIdx)
 
   # 2f. Interstitial classification (phase 1.5) + voting-screen parse
-  #     (phase 1.6).
-  if percept.interstitial.isInterstitial:
-    # Voting parse is cheap (early-exits on the SKIP text check),
-    # so run it every interstitial frame — the voting screen can
-    # appear mid-run after a role-reveal interstitial.
+  #     (phase 1.6). Skip if the voting-fallback probe (2b') already
+  #     detected a valid voting screen this tick.
+  if percept.interstitial.isInterstitial and
+     bot.belief.self.phase != PhaseVoting:
     percept.votingParse = parseVotingScreen(
       bot.unpacked,
       referenceData.sprites,
@@ -392,12 +441,6 @@ proc decideNextMask*(bot: var Bot): uint8 =
       bot.interstitialClassified = false
     else:
       # classifyInterstitial is a full-frame OCR sweep (~22 ms).
-      # Cache the result across consecutive interstitial frames.
-      # The banner text doesn't change within a single
-      # interstitial run, so one sweep is enough. Only cache when
-      # we find a known banner — early all-black frames return
-      # InterstitialUnknown and we need to retry on later frames
-      # when the role reveal content actually appears.
       if not bot.interstitialClassified:
         let kind = classifyInterstitial(bot.unpacked)
         bot.cachedInterstitialKind = kind
@@ -405,12 +448,6 @@ proc decideNextMask*(bot: var Bot): uint8 =
           bot.interstitialClassified = true
       if bot.cachedInterstitialKind != InterstitialUnknown:
         bot.belief.percep.interstitialKind = bot.cachedInterstitialKind
-      # Role inference from role-reveal interstitial text. Mirrors
-      # italkalot/nottoodumb's `rememberRoleReveal`: set the role
-      # during the interstitial so it's known before the first
-      # gameplay frame arrives. Without this, the crewmate default
-      # in updateRole fires on seeds where the kill button isn't
-      # rendered on the very first post-interstitial frame.
       if bot.belief.self.role == RoleUnknown:
         case bot.cachedInterstitialKind
         of InterstitialRoleRevealImposter:
@@ -418,14 +455,8 @@ proc decideNextMask*(bot: var Bot): uint8 =
         of InterstitialRoleRevealCrewmate:
           bot.belief.self.role = RoleCrewmate
         else: discard
-      # Scan for imposter colors on every interstitial frame. The role
-      # reveal screen has black bg + text (Y≈15-21) + colored sprites.
-      # Any PlayerColor palette value present identifies an imposter.
-      # The imposter reveal shows ONLY imposters; the crewmate reveal
-      # shows ALL players. Guard: only scan when title text is present
-      # (non-black pixels at Y=15-21) to avoid firing during lobby.
+      # Scan for imposter colors on every interstitial frame.
       if bot.belief.self.knownImposterColors.len == 0:
-        # Check for title text presence (Y=15-21 should have non-black).
         var textPixels = 0
         for y in 15 .. 21:
           for x in 40 ..< 90:
@@ -435,14 +466,12 @@ proc decideNextMask*(bot: var Bot): uint8 =
           let colors = scanRoleRevealImposters(
             bot.actorScanner, referenceData.sprites, bot.unpacked)
           if colors.len >= 1 and colors.len < PlayerColorCount:
-            # Stability: require same result for 3 consecutive frames.
             if colors == bot.prevRevealColors:
               inc bot.revealStableFrames
             else:
               bot.revealStableFrames = 1
               bot.prevRevealColors = colors
             if bot.revealStableFrames >= 24:
-              # Confirmed imposter reveal screen.
               if bot.belief.self.role == RoleUnknown:
                 bot.belief.self.role = RoleImposter
               for ci in colors:
@@ -458,7 +487,6 @@ proc decideNextMask*(bot: var Bot): uint8 =
                 payload["all_detected"] = %colors
                 logGameEvent(bot.trace, "imposters_detected", bot.frameTick, $payload)
           elif colors.len == PlayerColorCount:
-            # Crewmate reveal — all players visible. Mark as done.
             bot.belief.self.knownImposterColors = @[-1]
           else:
             bot.revealStableFrames = 0
@@ -659,12 +687,12 @@ proc decideNextMask*(bot: var Bot): uint8 =
       bot.modeScratch.huntKillConfirmed = false
 
   # 5. Act.
-  let mask = applyIntent(bot.actionState, bot.belief, intent)
+  var mask = applyIntent(bot.actionState, bot.belief, intent)
 
   # Phase 4: log the decision and periodic snapshots. Runs after
   # applyIntent so the final button mask is included in the trace.
   if bot.trace != nil:
-    logDecision(bot.trace, bot.belief, intent, "", mask)
+    logDecision(bot.trace, bot.belief, intent, "", bot.actionState, mask)
     logSnapshot(bot.trace, bot.belief.tick, bot.belief)
 
   bot.lastMask = mask

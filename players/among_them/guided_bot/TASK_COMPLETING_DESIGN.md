@@ -38,7 +38,7 @@ isGhost`). It is **not legal** for alive imposters (they use
 The LLM (or default system) sets these when issuing a `task_completing`
 directive:
 
-```
+```text
 task_completing {
   tcTarget: TaskTarget     # Which station to pursue
   tcAbandonOnNearbyBody: bool  # Whether body-seen reflex applies
@@ -90,7 +90,7 @@ the reflex system already gates body→reporting on `not isGhost`.
 5. **Phase dispatch** — execute the current phase (Navigate, Hold,
    or Confirm).
 
-```
+```text
      ┌─────────┐      isInsideTaskRect     ┌──────┐     timer=0     ┌─────────┐
      │ Navigate ├─────────────────────────► │ Hold ├───────────────► │ Confirm │
      └────┬────┘                            └──────┘                └────┬────┘
@@ -110,7 +110,7 @@ The mode's three-phase state machine, tracked in scratch via
 
 ### 4.1 Navigate phase
 
-- **Discipline:** `DisciplineNormal` (A\*-backed pathfinding).
+- **Discipline:** `DisciplineNormal` (waypoint-backed pathfinding).
 - **Goal:** the locked station's passable centre (`passableCX/CY`).
 - **Exit condition:** bot enters the station's bounding rect
   (`isInsideTaskRect` — exact match to server's check at
@@ -478,7 +478,7 @@ a `"reason": "confirm_timeout"` event.
 When no LLM directive is active (startup, TTL expiry, LLM failure),
 the crewmate's default directive is:
 
-```
+```text
 task_completing {
   tcTarget: { kind: TgtNearestMandatory, taskIndex: -1, roomId: -1 }
   tcAbandonOnNearbyBody: true
@@ -498,9 +498,8 @@ For ghosts, the same default with `tcAbandonOnNearbyBody: false`.
 The mode communicates with the action layer via three disciplines:
 
 - **`DisciplineNormal`** — used during the Navigate phase. The action
-  layer uses A\* pathfinding on the walk mask to reach `steerTo`
-  (`action.nim:345+`). For ghosts, straight-line steering (no walk
-  mask) is used instead.
+  layer uses the waypoint graph and baked edge paths to reach
+  `steerTo`. For ghosts, straight-line steering is used instead.
 - **`DisciplineTaskHold`** — used during the Hold phase. The action
   layer emits `ButtonA` with no directional buttons
   (`action.nim:316-321`). No movement occurs.
@@ -549,7 +548,7 @@ stored in `referenceData.map.tasks`. Each station has:
   to the nearest walkable pixel at init time.
 
 The mode always navigates to `passableCX/CY` (not the raw centre),
-ensuring A\* never receives an impassable goal. Arrival is detected
+ensuring navigation receives a reachable goal. Arrival is detected
 by `isInsideTaskRect` which checks exact rect containment (matching
 the server's check — no margin).
 

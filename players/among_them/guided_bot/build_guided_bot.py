@@ -24,7 +24,7 @@ GUIDED_BOT_DIR = Path(__file__).resolve().parent
 NIM_VERSION = "2.2.4"
 NIMBY_VERSION = "0.1.26"
 # Keep in sync with `ffi/lib.nim:GuidedBotAbiVersion`.
-GUIDED_BOT_ABI_VERSION = 1
+GUIDED_BOT_ABI_VERSION = 2
 
 
 def build_guided_bot() -> Path:
@@ -40,6 +40,7 @@ def build_guided_bot() -> Path:
         "-d:guidedBotLibrary",
         "--threads:on",
         "--mm:orc",
+        f"--nimcache:{GUIDED_BOT_DIR / 'nimcache'}",
         f"--out:{out_path}",
         str(GUIDED_BOT_DIR / "guided_bot.nim"),
     ]

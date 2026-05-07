@@ -26,6 +26,12 @@ const
   MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote SKIP after 15s with no LLM action.
   MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor direction per step.
 
+  # --- Voting-screen detection fallback --------------------------------
+  VotingProbeIntervalTicks*   = 12   ## Min ticks between voting-parse attempts on non-
+                                     ## interstitial frames when localization is lost (~0.5s).
+                                     ## Prevents expensive parse from running every tick during
+                                     ## non-voting localization failures (kill animations, etc.).
+
   # --- Call-rate caps (LLM) -------------------------------------------
   LlmMaxCallsPerMatch*        = 120  ## Hard cap across a full match.
   LlmMinIntervalTicks*        = 12   ## Floor on LLM call frequency (~0.5s).

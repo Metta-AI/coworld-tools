@@ -28,6 +28,8 @@ const
   VoteCellH* = 17
   VoteStartY* = 2
   VoteSkipW* = 28
+  VoteSkipTextH = 8
+  VoteSkipMinTextPixels = 35
   MaxPlayers* = 16
 
   VoteUnknown* = -1
@@ -193,7 +195,7 @@ type
     colorIndex*: int   ## PlayerColors index or VoteUnknown
     alive*: bool
 
-proc parseVoteSlot(
+proc parseVoteSlot*(
     frame: openArray[uint8], sprites: Sprites,
     count, index: int): VoteSlot =
   let layout = voteGridLayout(count)
@@ -278,13 +280,27 @@ proc voteDotColorIndex(frame: openArray[uint8], x, y: int): int =
 # SKIP text check
 # ---------------------------------------------------------------------------
 
-proc voteSkipTextMatches(
+proc voteSkipTextPixelCount(
+    frame: openArray[uint8], skipX, skipY: int): int =
+  ## Count cursor-colour pixels in the expected 7px-tall SKIP text box.
+  for y in skipY ..< skipY + VoteSkipTextH:
+    if y < 0 or y >= ScreenHeight: continue
+    for x in skipX ..< skipX + VoteSkipW:
+      if x < 0 or x >= ScreenWidth: continue
+      if frame[y * ScreenWidth + x] == CursorColor:
+        inc result
+
+proc voteSkipTextMatches*(
     frame: openArray[uint8], skipX, skipY: int): bool =
   ## Search a small window around the expected SKIP position.
+  ##
+  ## The live voting screen renders SKIP with a 7px-tall font, while the
+  ## baked OCR font is 6px tall. Validate the button by its actual pixel
+  ## signature instead of trying to OCR-match the text.
   for dy in -1 .. 1:
     for dx in -2 .. 2:
-      if textMatches(frame, "SKIP", skipX + dx, skipY + dy,
-                     maxErrors = 0, background = TextBackground):
+      if voteSkipTextPixelCount(frame, skipX + dx, skipY + dy) >=
+          VoteSkipMinTextPixels:
         return true
   false
 

@@ -154,6 +154,92 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
 
 ---
 
+## Standard live test
+
+A "standard live test" is the canonical end-to-end validation run for
+Among Them agents. It exercises the full pipeline (perception →
+belief → navigation → mode decision → action) under realistic
+tournament conditions.
+
+### Parameters
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Players | 8 | Tournament lobby size |
+| Imposters | 2 | Tournament default |
+| Kill cooldown | 1200 ticks (~50s) | Realistic; forces cover/patrol behavior between kills |
+| Vote timer | 600 ticks (~25s) | Tournament default |
+| Duration | 180s (3 min) | Long enough for multiple kill/meeting cycles |
+| Seed | 42 (default) | Reproducible; known to produce both roles |
+| Agents | All 8 slots filled by the policy under test | No filler bots; tests agent-vs-agent interaction |
+| Trace level | `decisions` | Per-frame mode/mask/position + events + reflexes |
+
+### Command
+
+```sh
+PYTHONPATH=among_them \
+GUIDED_BOT_TRACE_DIR=/tmp/gb_standard_test \
+GUIDED_BOT_TRACE_LEVEL=decisions \
+.venv/bin/python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 8 \
+    --duration 180 \
+    --seed 42 \
+    --trace-dir /tmp/gb_standard_test
+```
+
+### What to check in traces
+
+After the match, each bot's trace lives in
+`<trace_dir>/bot_N/<session>/`. Evaluate:
+
+1. **Manifest finalized.** All `manifest.json` show `"closed": true`
+   with a non-zero `end_tick` and a detected `role`.
+2. **Role detection.** Every bot's manifest has `role` set to
+   `"crewmate"` or `"imposter"` (not `"unknown"`). Should happen by
+   t≈30-160 (interstitial OCR).
+3. **Mode transitions.** `modes.jsonl` shows the bot left `idle` and
+   entered a gameplay mode (`task_completing` for crew, `hunting` for
+   imposter) shortly after role detection.
+4. **Crewmate productivity.** Crewmate bots should complete ≥1 task
+   per 3-minute match. Check `events.jsonl` for `task_completed`
+   entries. Current baseline: 1-3 tasks per crewmate.
+5. **Imposter agency.** Imposter bots should attempt kills
+   (`kill_attempted` events), enter `fleeing` after body sightings
+   (reflex fires), and cycle through `hunting`→`fleeing`→`hunting`.
+6. **Localization.** `decisions.jsonl` should show `localized: true`
+   within 200 ticks of game start. Sustained localization loss
+   (>100 consecutive `localized: false` frames during gameplay)
+   indicates a perception bug.
+7. **Noop ratio.** Total `mask=0` frames should be <60% for crewmates,
+   <80% for imposters. Higher indicates stuck/idle behavior.
+8. **Meeting participation.** If bodies are reported and meetings
+   occur, bots should have `meeting_started` events and enter
+   `meeting` mode. (Known gap: meeting detection sometimes fails —
+   see TODO.md.)
+9. **Reflex firings.** Crewmates seeing bodies should trigger
+   `body_newly_in_view_report`; imposters should trigger
+   `body_newly_in_view_flee`. Check `reflexes.jsonl`.
+10. **No crashes.** All 8 agents ran for the full duration (compare
+    `end_tick` across bots — should be within ~40 ticks of each other,
+    reflecting only connection-order stagger).
+
+### Quick summary script
+
+```sh
+for i in $(seq 0 7); do
+  session=$(ls /tmp/gb_standard_test/bot_$i/ | head -1)
+  dir="/tmp/gb_standard_test/bot_$i/$session"
+  python3 -c "
+import json
+m = json.load(open('$dir/manifest.json'))
+print(f'Bot $i [{m.get(\"role\",\"?\")}] end_tick={m.get(\"end_tick\",0)}')
+"
+done
+```
+
+---
+
 ## Temporary verification notes
 
 > Remove each item once its condition is resolved.

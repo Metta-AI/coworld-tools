@@ -36,7 +36,7 @@ ghost state).
 
 The reflex (or LLM) sets these when issuing a `fleeing` directive:
 
-```
+```text
 fleeing {
   fleeAwayFrom: Point       # World-space position to flee from (the body).
   fleeMinDistance: int       # Minimum distance before flee is satisfied.
@@ -75,14 +75,14 @@ of ModeFleeing:
 3. **Active fleeing** — compute a flee target (away from body), snap
    to passable terrain, steer via `DisciplineNormal`.
 
-```
+```text
      ┌──────────────┐     timer expired or distance met     ┌───────────────┐
      │ Active flee  ├─────────────────────────────────────► │ Cover transit │
      └──────────────┘                                       └───────────────┘
 ```
 
-Both phases use `DisciplineNormal` (A\*-backed pathfinding). The mode
-never stands idle except when not localized.
+Both phases use `DisciplineNormal` (waypoint-backed pathfinding). The
+mode never stands idle except when not localized.
 
 ---
 
@@ -92,7 +92,7 @@ never stands idle except when not localized.
 
 The mode computes a point away from the body:
 
-```
+```text
 fleeX = selfX + (selfX - bodyX) * 2
 fleeY = selfY + (selfY - bodyY) * 2
 ```
@@ -114,12 +114,13 @@ The flee target is clamped to valid map coordinates:
 
 After clamping, the target is snapped to the nearest walkable pixel
 using `snapToPassable(walkMask, fleeX, fleeY)` from
-`perception/geometry.nim`. This ensures A\* receives a valid goal.
+`action.nim`. This ensures navigation receives a valid goal.
 
 If `snapToPassable` returns `found = false` (no walkable pixel within
 its search radius — unlikely on skeld2), the raw clamped coordinates
-are used. The action layer's greedy-steering fallback handles
-impassable goals with wall-collision jiggle.
+are used. The action layer will still route through the waypoint graph
+and surface any baked-data or reachability error through its defensive
+navigation state.
 
 ### 4.4 Flee completion conditions
 
@@ -162,8 +163,8 @@ there for the remainder of the directive's TTL.
 
 ### 5.3 Cover navigation
 
-Steers toward the selected station via `DisciplineNormal` (A\*-backed
-pathfinding). The bot continues walking until:
+Steers toward the selected station via `DisciplineNormal`
+(waypoint-backed pathfinding). The bot continues walking until:
 - The directive TTL expires (240 ticks from reflex issuance), OR
 - The LLM issues a new directive, OR
 - A higher-priority reflex fires (e.g. `voting_screen_appeared`).
@@ -266,8 +267,8 @@ that triggers the reflex, providing the body position in the trace.
 The mode communicates with the action layer via a single discipline:
 
 - **`DisciplineNormal`** — used for both active fleeing and post-flee
-  cover navigation. The action layer uses A\* pathfinding on the walk
-  mask to reach `steerTo`.
+  cover navigation. The action layer uses the waypoint graph and baked
+  edge paths to reach `steerTo`.
 
 The mode never sets `pressA` or `pressB`. No buttons are pressed
 during fleeing — the bot only moves.
@@ -305,9 +306,10 @@ happens via the normal guidance channel.
 2. **Flee target quality.** The projection `self + 2*(self - body)` is
    naive — it doesn't account for the map layout. If the bot is in a
    dead-end room, it may flee toward a wall and waste time with
-   `snapToPassable` jitter before A\* finds a viable path. A smarter
+   `snapToPassable` retargeting before navigation finds a viable
+   route. A smarter
    approach would flee toward the nearest room exit. Low priority —
-   the snap + A\* combination handles most cases.
+   the snap + waypoint-route combination handles most cases.
 
 3. **Cover station arrival.** The mode doesn't detect arrival at the
    cover station. If the bot reaches the station before the directive

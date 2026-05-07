@@ -161,10 +161,23 @@ class AmongThemPolicy(MultiAgentPolicy):
         if self._destroy_fn is not None:
             self._destroy_fn.argtypes = [ctypes.c_int]
             self._destroy_fn.restype = None
+        # Trace-dir override export — additive, may be absent in old libs.
+        self._set_trace_dir_fn = getattr(self._lib, "guidedbot_set_trace_dir", None)
+        if self._set_trace_dir_fn is not None:
+            self._set_trace_dir_fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p]
+            self._set_trace_dir_fn.restype = None
         self._num_agents = max(1, int(policy_env_info.num_agents))
         self._handle = int(self._lib.guidedbot_new_policy(self._num_agents))
         self._closed = False
         self._last_actions = np.zeros(self._num_agents, dtype=np.int32)
+
+        # Per-instance trace override: kwarg wins over env var.
+        # When set, closes existing env-var-derived trace writers and
+        # reopens with the specified directory.
+        trace_dir = kwargs.get("trace_dir")
+        trace_level = kwargs.get("trace_level", "decisions")
+        if trace_dir:
+            self._set_trace_dir(trace_dir, trace_level)
 
     def agent_policy(self, agent_id: int) -> AgentPolicy:
         return _GuidedBotAgentPolicy(self._policy_env_info, self, agent_id)
@@ -197,6 +210,25 @@ class AmongThemPolicy(MultiAgentPolicy):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def _set_trace_dir(self, trace_dir: str, trace_level: str = "decisions") -> None:
+        """Override trace output directory for all bots in this policy.
+
+        Closes any existing trace writers (opened via env var during
+        initBot) and reopens with the specified directory. Each bot
+        gets a unique session subdirectory via the Nim-side instance
+        counter.
+
+        No-op if the library doesn't export guidedbot_set_trace_dir
+        (old builds without this feature).
+        """
+        if self._set_trace_dir_fn is None:
+            return
+        self._set_trace_dir_fn(
+            self._handle,
+            trace_dir.encode("utf-8"),
+            trace_level.encode("utf-8"),
+        )
 
     def close(self, *, reason: str = "session_end") -> None:
         """Tear down the Nim policy: stops guidance worker, flushes traces.
@@ -263,7 +295,37 @@ class AmongThemPolicy(MultiAgentPolicy):
             stamp = int(self._build._abi_stamp_path(lib_path).read_text().strip())
         except (OSError, ValueError):
             return True
-        return stamp != self._build.GUIDED_BOT_ABI_VERSION
+        if stamp != self._build.GUIDED_BOT_ABI_VERSION:
+            return True
+        return self._source_tree_newer_than(lib_path)
+
+    def _source_tree_newer_than(self, lib_path: Path) -> bool:
+        """Return True when source inputs are newer than the shared library.
+
+        The ABI stamp catches intentional FFI changes, but guided_bot is
+        mostly Nim strategy/perception code. Rebuild locally when those
+        files move so an old no-op dylib cannot silently shadow fresh source.
+        """
+        try:
+            lib_mtime = lib_path.stat().st_mtime
+        except OSError:
+            return True
+
+        skip_dirs = {"nimcache", "__pycache__", ".git"}
+        suffixes = {".nim", ".py", ".cfg", ".bin", ".json"}
+        for path in self._guided_bot_dir.rglob("*"):
+            if any(part in skip_dirs for part in path.parts):
+                continue
+            if not path.is_file() or path.suffix not in suffixes:
+                continue
+            if path.name.startswith("libguidedbot."):
+                continue
+            try:
+                if path.stat().st_mtime > lib_mtime:
+                    return True
+            except OSError:
+                return True
+        return False
 
     def _verify_library_abi(self, lib: ctypes.CDLL, lib_path: Path) -> None:
         try:

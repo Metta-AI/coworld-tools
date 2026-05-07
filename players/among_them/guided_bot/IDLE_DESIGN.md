@@ -39,7 +39,7 @@ unconditionally (`modes/idle.nim:17-19`). Any role, any phase.
 
 ## 2. Mode parameters
 
-```
+```text
 idle {
   idleLingerAt: Point     # Reserved for future "linger at a spot" behavior.
   idleLingerValid: bool   # Whether idleLingerAt is meaningful.
@@ -81,9 +81,9 @@ idle behavior (e.g. "stay near this group" or "wait at this location").
 
 ## 4. Pre-localization wander
 
-Before the localizer locks, the bot can't use A\* or world-space
-steering. The idle mode works around this by emitting raw directional
-buttons.
+Before the localizer locks, the bot can't use waypoint routing or
+world-space steering. The idle mode works around this by emitting raw
+directional buttons.
 
 **Direction cycling:** `(elapsed div IdleWanderPeriod) mod 4` produces
 a phase 0–3, mapping to Up, Right, Down, Left. The bot changes
@@ -114,7 +114,7 @@ and `DisciplineWander`.
 **Action layer behavior:** when `steerValid` is true,
 `DisciplineWander` uses `steerButtons` to compute direction toward
 the goal (`action.nim:292-297`). This is simple directional steering
-(no A\*, no stuck detection) — adequate for the few frames before the
+(no waypoint route) — adequate for the few frames before the
 role transition fires.
 
 ---
@@ -171,8 +171,9 @@ for the LLM.
 
 The mode uses a single discipline:
 
-- **`DisciplineWander`** — raw directional movement without A\*,
-  stuck detection, or path replanning (`action.nim:283-309`).
+- **`DisciplineWander`** — raw directional movement without
+  localization or waypoint routing (`action.nim` `DisciplineWander`
+  branch).
   - When `steerValid: true`: emits direction buttons toward `steerTo`
     using `steerButtons`.
   - When `steerValid: false`: reads `steerTo.x` as a direction phase
@@ -193,7 +194,7 @@ uses it.
    the implementation is deferred.
 
 2. **Post-localization discipline choice.** Once localized, the mode
-   could use `DisciplineNormal` (A\*-backed) instead of
+   could use `DisciplineNormal` (waypoint-backed) instead of
    `DisciplineWander` for more reliable navigation. However, idle
    only runs for a few frames post-localization before the role
    transition fires, so the quality difference is negligible.

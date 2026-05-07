@@ -12,6 +12,9 @@ editing.
 **Implementation plan:** [`IMPL_PLAN.md`](IMPL_PLAN.md). Phase 6+
 roadmap based on a full mode audit (2026-05-01).
 
+**Task mode design:** [`TASK_COMPLETING_DESIGN.md`](TASK_COMPLETING_DESIGN.md).
+Detailed task lifecycle and completion detection.
+
 **Open bugs:** [`TODO.md`](TODO.md). Known issues and reproduction
 steps.
 
@@ -51,8 +54,9 @@ dominated by chat OCR line count.
 | 1.4 | Task-icon scanning via `mb_scan_task_icons` + radar-dot scanning | done |
 | 1.5 | ASCII OCR — `mb_best_glyph` + `mb_text_matches` + `findText` + interstitial classification | done |
 | 1.6 | Voting-screen parse — grid layout, slot/cursor/vote-dot parsing, chat OCR + speaker attribution | done |
-| 2.0 | A\* pathfinding on walk mask + button-mask generation + stuck detection + jiggle + ghost steering | done |
-| 2.1 | `task_completing` mode — task-icon-based target selection, A\* navigation, hold-A completion | done |
+| 2.0 | Initial action layer — button-mask generation, discipline dispatch, ghost steering | done |
+| — | Hierarchical waypoint navigation — replaces per-pixel A\* with precomputed graph + paths | done |
+| 2.1 | `task_completing` mode — task-icon-based target selection, navigation, hold-A completion | done |
 | 2.2 | `meeting` mode — vote-skip fallback (cursor-right to SKIP, press A) | done |
 | 2.3 | Reflex system — 4 starter reflexes: body→reporting, body→fleeing, lone-crew→hunting, voting→meeting | done |
 | 2.4 | `hunting` mode — preferred/opportunistic kill-strike + cover-behavior wander | done |
@@ -67,13 +71,11 @@ dominated by chat OCR line count.
 | 3.6 | `prompts.nim` — system prompts for gameplay directives and meeting actions | done |
 | 4 | Trace writer — structured JSONL output per DESIGN.md §11 | done |
 | 5 | Fallback-only playability test; first submission | done |
-| — | Orbit bug fix: PathLookahead 18→4, periodic replan, stall detector | done |
 | — | Trace enhancement: decision records include mask + self position | done |
 | 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
 | 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
-| — | A\* noop-lock fix: passable task centres, greedy fallback, stuck detector scope | done |
 | 6.5 | `pretending` fake A-press during loiter + witness swap | done |
 | 6.6 | `fleeing` post-flee cover navigation + flee target snap-to-passable | done |
 
@@ -87,7 +89,7 @@ See DESIGN.md §5 (modes), §7 (meetings), §9 (fallback), §5.8 (reflexes).
 
 ## Directory layout
 
-```
+```text
 guided_bot/
   DESIGN.md                 # design doc (living)
   README.md                 # this file
@@ -96,6 +98,7 @@ guided_bot/
   tuning.nim                # cross-cutting tunable knobs
   bot.nim                   # initBot, decideNextMask, pipeline
   belief.nim                # initBelief, updateBelief
+  navigation.nim            # hierarchical waypoint navigation (strategic + tactical)
   perception.nim            # phase-1 perception orchestrator
   perception/
     data.nim                # phase 1.1 — palette, sprites, map, font (baked);
@@ -110,8 +113,8 @@ guided_bot/
     ocr.nim                 # phase 1.5 — pixel-font OCR (mb_best_glyph, textMatches, findText)
     voting.nim              # phase 1.6 — voting-screen parse (grid, slots, chat OCR)
     baked/                  # *.bin blobs (regen via tools/bake_assets.sh)
-  action.nim                # ActionIntent -> button mask (A*, stuck detect,
-                            #   jiggle, greedy fallback, snapToPassable)
+  action.nim                # ActionIntent -> button mask (discipline dispatch,
+                            #   waypoint nav, snapToPassable utility)
   mode_registry.nim         # mode lookup + default directive
   reflex.nim                # reflex evaluation (edge-triggered mode switches)
   guidance.nim              # worker-thread + channels (phase 3)
@@ -131,6 +134,8 @@ guided_bot/
   tools/
     bake_assets.nim         # regenerate perception/baked/ from upstream bitworld
     bake_assets.sh          # wrapper that wires nim --path: flags
+    bake_nav.py             # compute nav_paths.bin from nav_graph.json + walk_mask
+    waypoint_editor.py      # GUI tool for waypoint graph editing
   cogames/
     amongthem_policy.py     # cogames MultiAgentPolicy wrapper
     ship.sh                 # dry-run / upload / ship convenience wrapper
@@ -218,6 +223,11 @@ nim c -r -d:release --threads:on --mm:orc \
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/fallback_test.nim
 
+# Navigation — baked waypoint graph/path loading, strategic planning,
+# reverse edge following, and ActionIntent wiring.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/navigation_test.nim
+
 # Python — action-table ordering guard. Verifies BITWORLD_ACTION_MASKS
 # matches the canonical direction×modifier formula that ffi/lib.nim's
 # TrainableMasks relies on.
@@ -252,6 +262,20 @@ among_them/guided_bot/tools/bake_assets.sh
 BITWORLD_DIR=/path/to/bitworld among_them/guided_bot/tools/bake_assets.sh
 ```
 
+Regenerate the navigation path blob after editing the waypoint graph:
+
+```sh
+PYTHONPATH=among_them .venv/bin/python \
+    among_them/guided_bot/tools/bake_nav.py
+```
+
+Edit the waypoint graph interactively:
+
+```sh
+PYTHONPATH=among_them .venv/bin/python \
+    among_them/guided_bot/tools/waypoint_editor.py
+```
+
 Requirements: `nim` + `nimby`-installed `pixie` and `zippy` (already
 available on any machine that's built bitworld). The `guided_bot`
 runtime binary itself does not depend on either.
@@ -262,28 +286,31 @@ trips the compile-time shape asserts.
 
 ## Running
 
-The CLI entry point does not yet open a WebSocket to the game server
-(the runner loop mirroring `modulabot/viewer/runner.nim` is a future
-deliverable). Currently it prints parsed flags and runs one decide
-call on a zero frame so you can confirm the binary builds and the
-pipeline wires through.
+The CLI entry point is primarily for build verification. For actual
+gameplay, use the cogames FFI path —
+`cogames/amongthem_policy.py` loads the shared library and routes
+`step_batch` through it. See `among_them/scripts/play_local.py` for
+live matches.
 
 ```sh
 among_them/guided_bot/guided_bot --port:2000 --name:gb0
 ```
 
-For actual gameplay, use the cogames FFI path — `cogames/amongthem_policy.py`
-loads the shared library and routes `step_batch` through it.
-
 ## Tracing
 
-Structured trace output is opt-in via environment variables. When enabled,
-the bot writes JSONL streams and a manifest to the trace directory. When
-disabled (the default), every trace call is a nil-check early return with
-near-zero cost.
+Structured trace output is opt-in via environment variables or per-instance
+kwargs. When enabled, each bot writes JSONL streams and a manifest to a
+**unique session subdirectory** under the trace root. Multiple bots sharing
+the same `GUIDED_BOT_TRACE_DIR` are safe — a monotonic instance counter
+ensures no collisions.
+
+When disabled (the default), every trace call is a nil-check early return
+with near-zero cost.
+
+### Configuration
 
 ```sh
-# Enable tracing with decisions-level detail:
+# Enable tracing with decisions-level detail (env var path):
 GUIDED_BOT_TRACE_DIR=/tmp/guided_bot_trace \
 GUIDED_BOT_TRACE_LEVEL=decisions \
   among_them/guided_bot/guided_bot --port:2000
@@ -292,13 +319,45 @@ GUIDED_BOT_TRACE_LEVEL=decisions \
 #   events     — events.jsonl only
 #   decisions  — events + decisions + modes + reflexes + guidance
 #   full       — all of the above + snapshots.jsonl + frames.bin
+
+# Via play_match.py --trace-dir (sets env var for all bots, plus passes
+# per-bot kwarg as trace_dir/bot_<i>):
+PYTHONPATH=among_them python among_them/scripts/play_match.py \
+    --trace-dir /tmp/match_trace
+
+# Via policy kwarg (per-instance override, wins over env var):
+#   --policy-kwarg trace_dir=/tmp/my_bot_trace
+#   --policy-kwarg trace_level=decisions
 ```
 
-Output files per session (in `GUIDED_BOT_TRACE_DIR`):
+### Output directory layout
+
+Each bot invocation creates a unique session subdirectory:
+
+```text
+<GUIDED_BOT_TRACE_DIR>/
+  2026-05-05T12-30-00-12345-0/    (bot 0, session 0)
+    manifest.json
+    events.jsonl
+    decisions.jsonl
+    modes.jsonl
+    reflexes.jsonl
+    guidance.jsonl
+    snapshots.jsonl   (TraceFull only)
+    frames.bin        (TraceFull only)
+  2026-05-05T12-30-00-12345-1/    (bot 1, session 1)
+    ...
+```
+
+The session directory name is `<ISO-timestamp>-<pid>-<instance-counter>`.
+The `manifest.json` includes a `bot_index` field when the bot was created
+with a known index (e.g. via the FFI `guidedbot_new_policy` call).
+
+### Output files
 
 | File | Level | Content |
 |---|---|---|
-| `manifest.json` | events | Round metadata, schema version, role, start/end ticks, outcome |
+| `manifest.json` | events | Round metadata, schema version, bot_index, role, start/end ticks, outcome |
 | `events.jsonl` | events | Game events: body_seen, meeting_started, role_revealed, chat_observed, game_over |
 | `decisions.jsonl` | decisions | Per-frame mode, directive source, params, intent, final button mask, self position, localized flag |
 | `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |
@@ -365,52 +424,6 @@ only ship `mettagrid` without the `bitworld` extra.
   (t≈30-61) and target only crewmates. Zero false kills on partners.
   All crewmate agents correctly produce no detection.
 
-**2026-05-04 — A\* noop-lock fix**
-
-- **`perception/data.nim`:** `TaskStation` gained `passableCX`,
-  `passableCY` fields — the geometric centre snapped to the nearest
-  walkable pixel on the baked walk mask at init time. Some task station
-  centres (computed as `ts.x + ts.w div 2, ts.y + ts.h div 2`) fall
-  on impassable wall pixels, causing `findPath` to return an empty path
-  and the bot to freeze permanently at mask=0. All three modes that
-  steer toward task stations now use the precomputed passable centres.
-- **`action.nim`:** (a) `snapToPassable` exported helper — BFS
-  nearest-passable pixel search (Manhattan shells, radius 32).
-  (b) Greedy-steering fallback in the `DisciplineNormal` path — when
-  `findPath` returns empty, `steerButtons(self, goal)` fires as a
-  last resort so the bot never freezes. (c) Stuck detector no longer
-  requires `currentPath.len > 0`; fires whenever `lastEmittedMask`
-  has direction bits but velocity is zero, covering both path-following
-  and greedy-fallback stuck scenarios.
-- **`modes/task_completing.nim`:** `taskStationWorldCenter` returns
-  `passableCX/CY` instead of the raw geometric centre.
-- **`modes/pretending.nim`:** Inline centre computations replaced with
-  `passableCX/CY`.
-- **`modes/hunting.nim`:** `pickCoverStation` and cover-patrol steer
-  target use `passableCX/CY`.
-- **Result:** Seeds 100 and 7 (both 50% repro of the noop-lock) now
-  show active navigation for the full 30 s match. Zero sustained
-  mask=0 runs after the pre-game interstitial. See TODO.md for full
-  root-cause analysis. See DESIGN.md §6.3 for the updated action-layer
-  behavior.
-
-**2026-05-01 — orbit bug fix + trace enhancements**
-
-- **`action.nim`:** Fixed the A\* path-following oscillation bug.
-  `PathLookahead` reduced from 18 to 4 so the waypoint stays on the
-  A\* corridor through turns. Added periodic path recomputation every
-  `ReplanIntervalTicks=24` (~1 s) and a stall detector that forces
-  replan when distance to goal hasn't decreased in
-  `StallProgressTicks=48` (~2 s). See DESIGN.md §6.3 for the full
-  analysis.
-- **`trace.nim` / `bot.nim`:** `logDecision` now includes the final
-  button mask (`mask`), self position (`self_x`, `self_y`), and
-  `localized` flag. The log call moved from before `applyIntent` to
-  after so the mask is available.
-- **`types.nim`:** `ActionState` gained three fields for
-  replan/stall tracking: `lastReplanTick`, `bestGoalDist`,
-  `bestGoalDistTick`.
-
 **2026-05-01 — action-table fix + idle wander + compile-time guard**
 
 - **`ffi/lib.nim`:** `TrainableMasks` reordered to match
@@ -425,16 +438,17 @@ only ship `mettagrid` without the `bitworld` extra.
   `BITWORLD_ACTION_MASKS` itself follows the canonical
   direction×modifier formula.
 - **`types.nim` / `action.nim` / `tuning.nim` / `modes/idle.nim`:**
-  New `DisciplineWander` — raw directional movement without A\* or
-  localization. Idle mode now cycles through cardinal directions on
-  non-interstitial frames instead of returning noop. Helps the
-  localizer see fresh map pixels and passes the cogames 10-step gate.
+  New `DisciplineWander` — raw directional movement without
+  localization or waypoint routing. Idle mode now cycles through
+  cardinal directions on non-interstitial frames instead of returning
+  noop. Helps the localizer see fresh map pixels and passes the
+  cogames 10-step gate.
 - **`DESIGN.md`:** §6.1 (`DisciplineWander`) and §6.2 (FFI
   action-index contract) added.
 
 ## Known gaps / next steps
 
-See [`IMPL_PLAN.md`](IMPL_PLAN.md) for the full phase 6+ roadmap.
+For forward-looking work, see [`IMPL_PLAN.md`](IMPL_PLAN.md).
 
 ### Done (phase 6.1–6.6)
 
@@ -492,7 +506,6 @@ Imposter hunting + partner avoidance is now verified.
 - **Self-colour recall.** `updateSelfColor` drops the colour on
   frames where the player sprite doesn't match cleanly. Carry the
   last known colour forward.
-- **A\* path caching.** Recomputes from scratch on every goal change.
 - **Prompt iteration.** System prompts in `prompts.nim` are starting
   points.
 - **CurlPool reuse.** Fresh pool per LLM call; thread-local pool

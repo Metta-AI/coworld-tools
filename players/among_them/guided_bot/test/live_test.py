@@ -106,6 +106,7 @@ SCENARIOS = {
         "assertions": [
             ("role_detected", "imposter"),
             ("mode_entered", "hunting"),
+            ("nav_diagnostics", True),
             ("manifest_closed", True),
         ],
     },
@@ -116,6 +117,7 @@ SCENARIOS = {
         "assertions": [
             ("role_detected", "crewmate"),
             ("mode_entered", "task_completing"),
+            ("nav_diagnostics", True),
             ("manifest_closed", True),
         ],
     },
@@ -143,7 +145,9 @@ def run_game(
 
     trace_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set trace env vars for the guided_bot library.
+    # Set trace env vars for the guided_bot library (fallback path).
+    # The kwarg path below is preferred, but the env var ensures tracing
+    # works even if the library predates the guidedbot_set_trace_dir export.
     os.environ["GUIDED_BOT_TRACE_DIR"] = str(trace_dir)
     os.environ["GUIDED_BOT_TRACE_LEVEL"] = "decisions"
 
@@ -171,9 +175,18 @@ def run_game(
             log.error("Filler binary not found — cannot run live test.")
             raise
 
-        # Build policy.
+        # Build policy with explicit trace_dir kwarg so the output path
+        # is deterministic and doesn't rely solely on the env var.
         env_info = build_env_info(frame_stack=4, num_agents=1)
-        policy = resolve_policy(POLICY_CLASS, env_info, policy_kwargs={"seed": "0"})
+        policy = resolve_policy(
+            POLICY_CLASS,
+            env_info,
+            policy_kwargs={
+                "seed": "0",
+                "trace_dir": str(trace_dir),
+                "trace_level": "decisions",
+            },
+        )
 
         # Run until game ends, max ticks, or wall-clock deadline.
         stop_event = threading.Event()
@@ -217,35 +230,52 @@ def run_game(
 
 
 def read_traces(trace_dir: Path) -> dict:
-    """Read and parse trace files into a structured dict."""
+    """Read and parse trace files into a structured dict.
+
+    After the session-dir refactor, trace files live in a unique
+    subdirectory under trace_dir (e.g. <trace_dir>/<timestamp>-<pid>-<N>/).
+    This function finds the first session subdirectory and reads from it.
+    Falls back to reading directly from trace_dir for backward compat.
+    """
     result = {
         "manifest": {},
         "events": [],
         "modes": [],
+        "decisions": [],
         "decisions_count": 0,
     }
 
-    manifest_path = trace_dir / "manifest.json"
+    # Find the session directory. After the session-dir refactor, openTrace
+    # creates a subdirectory like "2026-05-05T12-30-00-12345-0/".
+    session_dir = trace_dir
+    subdirs = [d for d in trace_dir.iterdir() if d.is_dir()] if trace_dir.exists() else []
+    if subdirs:
+        # Use the most recently modified session subdir.
+        session_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+
+    manifest_path = session_dir / "manifest.json"
     if manifest_path.exists():
         result["manifest"] = json.loads(manifest_path.read_text())
 
-    events_path = trace_dir / "events.jsonl"
+    events_path = session_dir / "events.jsonl"
     if events_path.exists():
         for line in events_path.read_text().strip().splitlines():
             if line:
                 result["events"].append(json.loads(line))
 
-    modes_path = trace_dir / "modes.jsonl"
+    modes_path = session_dir / "modes.jsonl"
     if modes_path.exists():
         for line in modes_path.read_text().strip().splitlines():
             if line:
                 result["modes"].append(json.loads(line))
 
-    decisions_path = trace_dir / "decisions.jsonl"
+    decisions_path = session_dir / "decisions.jsonl"
     if decisions_path.exists():
-        result["decisions_count"] = sum(
-            1 for line in decisions_path.read_text().strip().splitlines() if line
-        )
+        for line in decisions_path.read_text().strip().splitlines():
+            if line:
+                result["decisions_count"] += 1
+                if len(result["decisions"]) < 2000:
+                    result["decisions"].append(json.loads(line))
 
     return result
 
@@ -295,6 +325,22 @@ def check_assertions(
                     f"expected={expected}"
                 )
 
+        elif assertion_type == "nav_diagnostics":
+            nav_decisions = [
+                d for d in traces["decisions"]
+                if d.get("intent", {}).get("discipline") == "DisciplineNormal"
+                and isinstance(d.get("nav"), dict)
+            ]
+            active_nav = [
+                d for d in nav_decisions
+                if d["nav"].get("edge_length", 0) > 0
+                or d["nav"].get("strategic_path")
+            ]
+            if expected and not nav_decisions:
+                failures.append("  FAIL: no DisciplineNormal decisions had nav diagnostics")
+            elif expected and not active_nav:
+                failures.append("  FAIL: nav diagnostics never showed an active route")
+
     # Additional soft checks (reported but not failures).
     manifest = traces["manifest"]
     end_tick = manifest.get("end_tick", 0)
@@ -309,6 +355,9 @@ def check_assertions(
              [f"{e['kind']}@t{e['t']}" for e in events[:10]])
     log.info("    Mode transitions: %s",
              [f"{m['mode']}@t{m['t']}" for m in modes if m.get("kind") == "mode_entered"])
+    nav_count = sum(1 for d in traces["decisions"] if isinstance(d.get("nav"), dict))
+    log.info("    Nav diagnostics: %d / %d sampled decisions",
+             nav_count, len(traces["decisions"]))
 
     # Check for kill events (imposter scenario, informational).
     kill_events = [e for e in events if "kill" in e.get("kind", "")]

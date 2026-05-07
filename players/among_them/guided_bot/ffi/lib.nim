@@ -19,8 +19,10 @@ when defined(guidedBotLibrary):
   import ../constants
   import ../types
   import ../bot
+  import ../trace
+  import std/strutils
 
-  const GuidedBotAbiVersion* = 1
+  const GuidedBotAbiVersion* = 2
 
   ## Action-index table. Ordering must match
   ## `mettagrid.bitworld.BITWORLD_ACTION_MASKS` exactly. Pattern:
@@ -107,7 +109,7 @@ when defined(guidedBotLibrary):
     let count = max(1, int(numAgents))
     var policy = GuidedBotPolicy(bots: newSeq[Bot](count))
     for i in 0 ..< count:
-      policy.bots[i] = initBot()
+      policy.bots[i] = initBot(botIndex = i)
     GuidedBotPolicies.add(policy)
     cint(GuidedBotPolicies.len - 1)
 
@@ -140,7 +142,7 @@ when defined(guidedBotLibrary):
       let oldLen = policy.bots.len
       policy.bots.setLen(int(numAgents))
       for i in oldLen ..< policy.bots.len:
-        policy.bots[i] = initBot()
+        policy.bots[i] = initBot(botIndex = i)
 
     for row in 0 ..< int(numAgentIds):
       let agentId = int(agentIds[row])
@@ -166,3 +168,33 @@ when defined(guidedBotLibrary):
     for i in 0 ..< policy.bots.len:
       destroyBot(policy.bots[i])
     GuidedBotPolicies[int(handle)] = nil
+
+  proc guidedbot_set_trace_dir*(handle: cint, traceDir: cstring,
+                                 traceLevel: cstring) {.exportc, dynlib.} =
+    ## Override trace configuration for all bots in a policy.
+    ## Must be called BEFORE the first step_batch for correct results.
+    ## Closes any existing trace writers and reopens with the new
+    ## directory. Each bot gets a unique session subdirectory via the
+    ## instance counter in openTrace.
+    ##
+    ## Pass an empty traceDir to disable tracing.
+    ## This is an additive FFI export — old callers that don't know about
+    ## it simply never call it and the env-var path still works.
+    if handle < 0 or int(handle) >= GuidedBotPolicies.len:
+      return
+    let policy = GuidedBotPolicies[int(handle)]
+    if policy.isNil:
+      return
+    let dir = $traceDir
+    let levelStr = ($traceLevel).toLowerAscii()
+    let level = case levelStr
+      of "events":    TraceEvents
+      of "decisions": TraceDecisions
+      of "full":      TraceFull
+      else:           TraceOff
+    for i in 0 ..< policy.bots.len:
+      if policy.bots[i].trace != nil:
+        closeTrace(policy.bots[i].trace)
+        policy.bots[i].trace = nil
+      if dir.len > 0 and level != TraceOff:
+        policy.bots[i].trace = openTrace(dir, level, botIndex = i)

@@ -40,7 +40,7 @@ and ghost state).
 The LLM (or default system) sets these when issuing a `pretending`
 directive:
 
-```
+```text
 pretending {
   preTarget: TaskTarget           # Which station to visit (currently unused
                                   #   by decide() — reserved for LLM-directed
@@ -81,7 +81,7 @@ of ModePretending:
    loiter with fake-hold.
 6. **Navigation** — steer toward station with `DisciplineNormal`.
 
-```
+```text
      ┌──────────┐      inside station+8px    ┌─────────────┐    timer    ┌────────┐
      │ Navigate ├───────────────────────────► │ Fake-hold A ├──────────► │ Linger │
      └────┬─────┘                             └─────────────┘            └───┬────┘
@@ -281,7 +281,7 @@ Mode entry/exit is logged by the standard `modes.jsonl` events.
 The mode communicates with the action layer via two disciplines:
 
 - **`DisciplineNormal`** — used during navigation. The action layer
-  uses A\* pathfinding on the walk mask to reach `steerTo`.
+  uses the waypoint graph and baked edge paths to reach `steerTo`.
 - **`DisciplineTaskHold`** — used during the fake-hold sub-phase.
   The action layer emits `ButtonA` with no directional buttons
   (`action.nim:316-321`). The mode also sets `pressA: true`

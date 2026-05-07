@@ -1,291 +1,230 @@
 # guided_bot TODO
 
-Open bugs and tasks. Newest first.
+Organized by category, then by feature/mode. Priority in brackets.
 
 ---
 
-## BUG: Meeting detection failure — bot idles through entire meetings (2026-05-04, CRITICAL)
+## New Features
 
-The bot loses localization for 670+ ticks during meetings but never
-detects the voting screen. No `meeting_started` event is logged, no
-meeting mode is entered, no vote is cast. The bot emits mask=0 (noop)
-for the entire meeting duration (~28 seconds). After the meeting ends
-and players are teleported back to cafeteria, localization re-acquires
-at the spawn point (564,120).
+### Meeting chat emission [MEDIUM]
 
-### Evidence (2 runs, seed 100)
+Agents don't chat during meetings. LLM generates `MeetingActSpeak` w/ text,
+infra queues it through meeting mode, but emission to server is stubbed.
 
-- Run 1: localized=false from t=920 to t=1591 (671 ticks). Position
-  frozen at (699,125). Re-locks at spawn (564,120).
-- Run 2: localized=false from t=1071 to t=1742 (671 ticks). Position
-  frozen at (193,169). Re-locks at spawn (564,120).
-- Zero meeting events in either run's trace.
-- The duration (~671 ticks) matches the server's `voteTimerTicks=600`
-  plus interstitial/teleport overhead.
+**Current state:**
+- `meeting.nim:185-193`: sets `intent.chat` but actual emission deferred
+- `action.nim:471-476`: `emitChat` is hard no-op (`discard; false`)
+- `ffi/lib.nim`: only returns button-mask action indices; no text mechanism
+- Server accepts chat via separate WS text message, not button presses
 
-### Hypotheses
+**Needed:**
+1. New FFI export — `guidedbot_get_chat(handle, agentId)` returning pending text
+2. Python wrapper — after `step_batch`, poll agents for chat, send via
+   `ws.send(json.dumps({"type":"chat", "text": ...}))`
+3. Rate limiting — `MeetingChatLineGapTicks=12` defined in `tuning.nim` but unused
 
-1. **Interstitial threshold not met.** The voting screen may have
-   enough non-black pixels (player icons, text, UI chrome) that the
-   30% black threshold isn't reached.
-2. **Localizer failure precedes interstitial.** The localizer might
-   fail on a gameplay frame (edge of map, crowded scene) moments
-   before the meeting screen renders. Since the bot is already
-   `localized=false`, the frame pipeline continues trying localization
-   against what is now a voting screen, failing every frame.
-3. **Frame timing race.** The meeting transition may deliver a
-   "twilight frame" that has partial gameplay + partial black,
-   confusing both the localizer and interstitial detector.
+**Note:** Without `ANTHROPIC_API_KEY`, guidance worker never starts, no meeting
+actions generated, bot auto-vote-skips after `MeetingAutoVoteDelayTicks=360`.
 
-### Impact
-
-40-54% of total game time is completely wasted. The bot never
-participates in meetings, making it extremely suspicious and unable
-to defend itself from accusations.
-
-### Key code paths
-
-- Interstitial detector: `perception/interstitial.nim:41-58`
-- Voting screen parse: `perception/voting.nim` (parseVotingScreen)
-- Voting reflex: `reflex.nim:66-86`
-- Bot pipeline gate: `bot.nim:321-322`
+**Key code:** `meeting.nim:185-193`, `action.nim:471-476`, `ffi/lib.nim:114-154`,
+`cogames/amongthem_policy.py:172-191`, `tuning.nim:24`
 
 ---
 
-## BUG: No pretending/cover behavior observed in imposter games (2026-05-04, LOW)
+## Improvements
 
-Across 2 full imposter games (~2000 ticks each, seed 100), zero ticks
-were spent in pretending mode. The bot moves exclusively toward
-crewmates, making it look extremely predatory.
+### Hunting mode design [MEDIUM] (2026-05-05)
 
-### Cause
+Collected from HUNTING_DESIGN.md. Address behavior quality + human-likeness.
 
-The hunting cover patrol only triggers when: no visible target, target
-memory expired, AND the bot has reached a cover station and loitered.
-With the test's 48-tick kill cooldown, `killReady` is almost always
-true and the bot always finds an opportunistic target before cover
-kicks in.
+#### 1. Reduce `HuntKillStrikeRange` below `KillStrikeRange`
 
-At realistic kill cooldowns (1200 ticks), there would be ~1000 ticks
-between kills where cover behavior should be active. This needs
-verification at realistic settings.
+Both currently 20px — confirmation timer starts same tick as A-press. No window
+where action layer pressed A but confirmation hasn't started.
 
-### Improvement ideas
+**Fix:** Reduce `HuntKillStrikeRange` to ~18px. Action layer presses A at 20px,
+hunting starts confirmation on next tick when distance closes further.
 
-- Force pretending mode for N ticks after a successful kill (look
-  busy at a nearby station to establish alibi).
-- Add a "cover cooldown" after kill where the bot avoids chasing
-  even if killReady is true (delay re-engagement).
-- Make cover patrol the PRIMARY behavior with kill as an interrupt
-  when opportunity arises (more human-like).
+**Key code:** `tuning.nim` `HuntKillStrikeRange`,
+`action.nim` `KillStrikeRange`, `modes/hunting.nim` `decide`
 
----
+#### 2. Use kill cooldown as primary kill-detection signal
 
-## BUG: Self-body flee loop — imposter flees from own kills (2026-05-05, HIGH)
+Current confirmation requires BOTH body-appearance AND cooldown-reset
+(`modes/hunting.nim` `decide`). Body detection fragile: body spawns overlapping player
+sprite, ignore mask may occlude, actor scanner struggles w/ kill-animation pixels.
 
-The `body_newly_in_view_flee` reflex fires on bodies the bot itself
-created, and re-fires on the same body when it re-enters the viewport.
-24-36% of imposter game time is wasted fleeing from known bodies.
+Kill cooldown timer (`killReady→false`) is authoritative — server resets on
+successful kill, renders shadowed kill button (easier to parse).
 
-### Evidence (2 runs, seed 100)
+**Proposal:** `killReady→false` as PRIMARY signal; demote/drop body-appearance.
 
-- Run 1: 3 flee episodes (t=311, t=614, t=885), all from own kills.
-  720 ticks (36%) spent fleeing. Third flee (t=885) is same body
-  position (741,103) as first flee — a re-encounter.
-- Run 2: 2 flee episodes (t=429, t=682). Second is same body at
-  (178,89), only 13 ticks after flee ended — immediate re-fire.
+**Key code:** `modes/hunting.nim` `decide` / `bodyNearTarget`,
+`perception/actors.nim`
 
-### Root cause
+#### 3. Cover patrol: random-not-in-current-room station selection
 
-The reflex edge-trigger (`reflex.nim:89`) uses a raw frame-count
-comparison: `visibleBodies.len > prevBodyCount`. This is a
-viewport-level check, not an identity-based one.
+`pickCoverStation` picks nearest station beyond 30px —
+keeps imposter in same area, reducing target diversity.
 
-1. `visibleBodies` is replaced wholesale each frame (`belief.nim:155`)
-   with whatever body sprites the actor scanner finds on-screen.
-2. `prevBodyCount` (`reflex.nim:31,179`) tracks the count from the
-   previous frame. When a body exits the viewport, count drops to 0.
-3. When the bot walks back near the same body, the count goes from
-   0 → 1, passing the `len > prevBodyCount` check as "new."
-4. The reflex has no memory of WHICH bodies it has reacted to. It
-   cannot distinguish own kills, previously-seen bodies, or genuinely
-   new bodies found by other players.
-5. `ReflexCooldownTicks` (96) < `fleeDurationTicks` (240), so by the
-   time flee ends, cooldown has expired and the same body re-triggers.
+**Fix:** Select random station NOT in current room (or beyond larger distance
+threshold). Ensures map coverage + encounters w/ isolated crewmates.
 
-### Code path
+**Key code:** `modes/hunting.nim` `pickCoverStation`
 
-```
-belief.nim:155     → visibleBodies = actors.bodies (raw frame scan)
-reflex.nim:89      → newBodySeen = len > prevBodyCount
-reflex.nim:120-124 → mode==Hunting AND imposter AND newBodySeen
-reflex.nim:124     → tick - lastBodyFleeTick > 96? (cooldown)
-reflex.nim:128-145 → Fire flee: 240-tick duration, away from body
-reflex.nim:179     → prevBodyCount = visibleBodies.len
-```
+#### 4. Station arrival: inside task rect, not 8px margin around it
 
-### Fix plan
+`isAtStation` uses 8px margin around task bbox — bot
+considers itself "arrived" while still outside actual task rect.
 
-Add `knownBodyPositions: seq[Point]` to `ReflexState`:
-1. Before firing body-flee, check if ALL newly-visible bodies are
-   within 30px (manhattan) of a position in the known set. If so,
-   suppress the reflex.
-2. On every flee trigger, add the body world-position to the set.
-3. Also add body position on post-kill flee (from the post-kill
-   pursuit fix below).
-4. Clear the set on meeting end / round start.
+**Fix:** Require being inside task rect (no margin / negative margin).
 
-This handles: own kills, re-encounter after walking away, and bodies
-seen by other players that the bot walks past repeatedly.
+**Key code:** `modes/hunting.nim` `isAtStation`
 
-### Key code paths
+#### 5. Remove kill fleeing — switch to pretending immediately
 
-- Edge trigger: `reflex.nim:89`
-- Body-flee reflex: `reflex.nim:119-145`
-- prevBodyCount update: `reflex.nim:179`
-- visibleBodies source: `belief.nim:155` ← `perception/actors.nim`
-- Cooldown constant: `tuning.nim:20` (ReflexCooldownTicks = 96)
-- Flee duration: `reflex.nim:136` (240 ticks, hardcoded)
+`hunting→fleeing` reflex on body-newly-in-view is problematic (see self-body
+flee loop bug). Skilled humans walk to nearby task + fake it for alibi.
+
+**Fix:** Remove flee transition from hunting. After kill (or failed confirm
+window), immediately switch to pretending mode. Also resolves self-body flee
+loop for hunting case.
+
+**Key code:** `reflex.nim` `body_newly_in_view_flee` branch,
+`modes/hunting.nim` kill-confirmation branch in `decide`
+
+#### 6. Expose mode scratches to LLM
+
+Per HUNTING_DESIGN.md §14, LLM can't see hunting scratch state (target color,
+ticks active, pursuit status, kill attempts).
+
+**Fix:** Add `summarize_for_llm` hook exposing key scratch state in LLM snapshot.
+E.g.: "stalking red for 200 ticks, 1 kill attempt failed, currently in cover patrol."
+
+**Key code:** `HUNTING_DESIGN.md` §14, LLM snapshot rendering in
+`snapshot.nim` / guidance worker
 
 ---
 
-## BUG: Post-kill pursuit — bot chases new targets after kill (2026-05-05, HIGH)
+## Bugs (Open)
 
-After a kill lands, the bot continues `DisciplineKillStrike` for 60+
-ticks — first toward the corpse during the failed confirmation window,
-then toward a new crewmate when it falls through to target search.
-The bot should immediately disengage and enter cover/flee behavior.
+### Meeting detection failure — bot idles through entire meetings [CRITICAL]
 
-### Evidence (2 runs, seed 100)
+Bot loses localization 670+ ticks during meetings, never detects voting screen.
+No `meeting_started` event, no vote cast, emits mask=0 (noop) entire duration
+(~28s). Re-acquires at spawn (564,120) after meeting ends.
 
-- Run 1, kill at t=251: DisciplineKillStrike continues until t=310
-  (59 ticks post-kill). Steer target shifts from corpse (587,103) to
-  a new crewmate (623,103→713,106) at t=264 when confirm expires.
-- Run 1, kill at t=1719: Localization drops at t=1720, bot becomes
-  inert (separate bug). No post-kill transition possible.
-- Run 2, kill at t=427: Body-flee reflex fires at t=429 (2 ticks
-  later), which accidentally provides the correct behavior via the
-  wrong mechanism.
+**Evidence (2 runs, seed 100):**
+- Run 1: localized=false t=920–1591 (671 ticks), pos frozen (699,125)
+- Run 2: localized=false t=1071–1742 (671 ticks), pos frozen (193,169)
+- Zero meeting events; duration matches `voteTimerTicks=600` + overhead
 
-### Root cause
+**Hypotheses:**
+1. Voting screen has enough non-black pixels (icons, text, chrome) that 30%
+   black threshold isn't reached
+2. Localizer fails on gameplay frame moments before meeting screen renders;
+   already `localized=false` when voting screen appears
+3. Frame timing race: partial gameplay + partial black confuses both detectors
 
-Kill confirmation (`hunting.nim:152-178`) requires BOTH:
-- `gotBody`: `visibleBodies.len > preStrikeBodyCount` AND body
-  within `HuntKillConfirmRadius` (30px) of strike position
-- `cooldownReset`: `killReady` was true pre-strike AND is now false
+**Impact:** 40-54% of game time wasted. Never participates in meetings.
 
-Both signals fail within the 12-frame window:
-
-1. **Body detection failure**: The body spawns at the kill location,
-   ≤20px from the player sprite. The player-centre ignore mask
-   (stamped into `percept.ignoreMask` for the localizer) may occlude
-   the body sprite. The kill animation renders overlapping pixels
-   that confuse the actor scanner.
-
-2. **killReady lag**: The server sets cooldown on the same tick as
-   the kill, and renders the shadowed kill button on the NEXT frame.
-   But the bot's perception pipeline may take 2-3 frames to detect
-   the shadowed→unlit transition (sprite matching threshold).
-
-3. **Window too short**: `HuntKillConfirmTicks = 12` (0.5s). If both
-   signals don't arrive simultaneously within those 12 frames,
-   confirmation fails.
-
-When the window expires (line 177-178):
-- `huntStrikeTick` resets to -1
-- Code falls through to the target-search section (line 183+)
-- `killReady` may still read as true (perception lag)
-- A new visible crewmate satisfies the opportunistic-kill check
-- Bot immediately enters a new DisciplineKillStrike pursuit
-- This continues until something else interrupts (body-flee reflex,
-  localization drop, or the kill button genuinely goes dark)
-
-### Compound interaction with self-body flee
-
-The two bugs form a chain:
-```
-Kill → 12-tick failed confirm → re-pursuit (this bug)
-  → body enters view → flee 240 ticks (self-body flee bug)
-  → return → body re-enters → flee 240 ticks again
-```
-
-### Fix plan
-
-After `huntStrikeTick` is set (a kill was ATTEMPTED), ALWAYS
-transition to flee/cover after the confirm window, regardless of
-confirmation outcome:
-
-1. Add `huntPostKillFlee: bool` flag to `ModeScratch`.
-2. When confirm window expires (line 177) OR confirmation succeeds
-   (line 161), set `huntPostKillFlee = true`.
-3. In `bot.nim`, after `decide()` returns, check this flag. If set,
-   force a mode switch to fleeing with short duration (72 ticks = 3s)
-   and `fleeAwayFrom` = strike target position.
-4. Add the strike position to `knownBodyPositions` (from Bug 1 fix)
-   so the body-flee reflex won't re-trigger on return.
-
-Alternative (simpler): Instead of a flag read by bot.nim, have
-`hunting.decide()` return a special `ActionIntent` with a sentinel
-discipline (e.g., `DisciplinePostKillFlee`) that `bot.nim` intercepts
-to force the mode switch. This keeps the transition logic in one place.
-
-### Key code paths
-
-- Confirm window: `hunting.nim:152-178`
-- Strike tick set: `hunting.nim:198-203, 222-227`
-- Window expiry fallthrough: `hunting.nim:177-178` → `183+`
-- Opportunistic-kill re-entry: `hunting.nim:211-233`
-- Action layer kill press: `action.nim:324-332`
-- Kill confirm constants: `tuning.nim:57-58`
-- Kill event logging: `bot.nim:588-604`
+**Key code:** `perception/interstitial.nim:41-58`, `perception/voting.nim`
+(parseVotingScreen), `reflex.nim:66-86`, `bot.nim:321-322`
 
 ---
 
-## BUG: Localization drops on kill animation (2026-05-04, MEDIUM)
+### Self-body flee loop — imposter flees from own kills [HIGH]
 
-After the imposter's kill A-press lands (server accepts the kill),
-the localizer loses lock on the very next frame (t+1). The bot
-emits `noOpIntent()` for 15+ frames because `decide()` early-returns
-on `not localized`. This prevents:
+`body_newly_in_view_flee` reflex fires on bodies bot created, re-fires on same
+body when it re-enters viewport. 24-36% of imposter time wasted fleeing known
+bodies.
 
-1. **Kill confirmation** — the `huntStrikeTick` confirmation block
-   never runs, so `kill_confirmed` is never emitted even though the
-   kill succeeded server-side.
-2. **Post-kill fleeing** — the fleeing reflex can't fire without
-   body detection, which requires localization.
+**Evidence (2 runs, seed 100):**
+- Run 1: 3 flee episodes (t=311,614,885), all own kills. 720 ticks (36%) fleeing.
+  Third flee same body pos (741,103) as first — re-encounter.
+- Run 2: 2 episodes (t=429,682). Second same body (178,89), 13 ticks after
+  previous flee ended — immediate re-fire.
 
-### Root cause (hypothesis)
+**Root cause:** Reflex edge-trigger (`reflex.nim:89`) uses raw frame-count
+comparison `visibleBodies.len > prevBodyCount`. Viewport-level, not identity-based.
+- `visibleBodies` replaced each frame (`belief.nim:155`)
+- Body exits viewport → count drops to 0 → re-enters → 0→1 passes check
+- No memory of WHICH bodies already reacted to
+- `ReflexCooldownTicks`(96) < `fleeDurationTicks`(240): cooldown expires before
+  flee ends, same body re-triggers
 
-The kill animation renders the victim's death sprite + blood effect
-at/near the player position. These extra pixels break the camera-fit
-scoring in `localize.nim` (too many non-map pixels fail the
-patch-hash comparison, pushing the error count above the localizer's
-acceptance threshold).
+**Fix plan:** Add `knownBodyPositions: seq[Point]` to `ReflexState`:
+1. Before firing, check if ALL newly-visible bodies within 30px (manhattan) of
+   known set — suppress if so
+2. On every flee trigger, add body world-pos to set
+3. Add body pos on post-kill flee (from post-kill pursuit fix)
+4. Clear on meeting end / round start
 
-The actor-exclusion ignore mask should in theory cover the kill
-animation, but it may not account for:
-- The death sprite being larger than a normal crewmate sprite
-- Blood splatter pixels outside the sprite bounding box
-- The momentary rendering of both the dying player + the imposter
-  overlapping
+**Key code:** `reflex.nim:89,119-145,179`, `belief.nim:155`,
+`perception/actors.nim`, `tuning.nim:20`
 
-### Possible fixes
+---
 
-- **Widen the ignore mask around self during the kill window.**
-  After pressing A in DisciplineKillStrike, expand the player-centre
-  ignore radius for ~12 frames to cover the death animation.
-- **Carry localization through short drops.** If the localizer was
-  locked on the previous frame and the camera didn't move (velocity
-  = 0 during kill animation), assume the previous lock is still
-  valid for up to N frames.
-- **Accept the miss.** Kill confirmation is informational — the
-  bot's behavior is correct regardless (it should flee/resume patrol
-  anyway). A simpler fix is to unconditionally enter the
-  post-kill-flee state after pressing A in range, without waiting
-  for visual confirmation.
+### Post-kill pursuit — bot chases new targets after kill [HIGH]
 
-### Reproduction
+After kill lands, bot continues `DisciplineKillStrike` 60+ ticks — first toward
+corpse during failed confirm window, then toward new crewmate on fallthrough.
+Should immediately disengage → cover/flee.
 
+**Evidence (2 runs, seed 100):**
+- Run 1, kill t=251: DisciplineKillStrike until t=310 (59 ticks post-kill).
+  Steer shifts from corpse (587,103) to new crewmate (623→713,106) at t=264.
+- Run 2, kill t=427: body-flee reflex fires t=429 (2 ticks later) — accidentally
+  correct behavior via wrong mechanism.
+
+**Root cause:** Kill confirmation (`hunting.nim:152-178`) requires both
+`gotBody` + `cooldownReset`. Both fail within 12-frame window:
+1. Body spawns ≤20px from player, ignore mask may occlude, kill animation confuses scanner
+2. `killReady` perception lag: 2-3 frames to detect shadowed→unlit transition
+3. `HuntKillConfirmTicks=12` too short for simultaneous arrival of both signals
+
+On window expiry (line 177-178): `huntStrikeTick` resets, falls through to
+target-search, new crewmate satisfies opportunistic-kill → new pursuit begins.
+
+**Compound interaction:** kill → failed confirm → re-pursuit → body enters view
+→ flee 240t (self-body bug) → return → re-trigger → flee again
+
+**Fix plan:** After `huntStrikeTick` set, ALWAYS transition to flee/cover on
+window expiry regardless of outcome:
+1. Add `huntPostKillFlee: bool` to `ModeScratch`
+2. Set flag on window expiry (line 177) OR confirm success (line 161)
+3. In `bot.nim`, check flag after `decide()` — force mode switch to fleeing
+   (72 ticks, away from strike pos)
+4. Add strike pos to `knownBodyPositions` (self-body fix)
+
+Alt: Return special `DisciplinePostKillFlee` ActionIntent from `hunting.decide()`
+for `bot.nim` to intercept.
+
+**Key code:** `hunting.nim:152-178,198-203,222-227,177-178,183+,211-233`,
+`action.nim:324-332`, `tuning.nim:57-58`, `bot.nim:588-604`
+
+---
+
+### Localization drops on kill animation [MEDIUM]
+
+After kill A-press lands, localizer loses lock on t+1. Bot emits `noOpIntent()`
+15+ frames (early-returns on `not localized`). Prevents kill confirmation +
+post-kill fleeing.
+
+**Root cause (hypothesis):** Kill animation renders death sprite + blood at/near
+player pos. Extra pixels break camera-fit scoring in `localize.nim` (too many
+non-map pixels exceed acceptance threshold). Actor-exclusion ignore mask may not
+account for oversized death sprite, blood splatter outside bbox, or
+dying+imposter overlap.
+
+**Possible fixes:**
+- Widen ignore mask around self during kill window (~12 frames post A-press)
+- Carry localization through short drops (if previous frame locked + velocity=0,
+  assume valid for N frames)
+- Accept the miss — unconditionally enter post-kill-flee after A-press in range
+  without waiting for visual confirmation
+
+**Reproduction:**
 ```sh
 GUIDED_BOT_TRACE_DIR=/tmp/gb_kill GUIDED_BOT_TRACE_LEVEL=decisions \
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
@@ -294,371 +233,88 @@ PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
     --policy-kwarg imposter_cooldown_ticks=48
 ```
 
-Or use the live integration test:
-```sh
-PYTHONPATH=among_them .venv/bin/python \
-    among_them/guided_bot/test/live_test.py --scenario imposter --keep-traces
-```
-
-Check `decisions.jsonl` around `kill_attempted` events: `localized`
-will be `false` on the frame after A=true.
-
-### Key code paths
-
-- Early return on `not localized`: `modes/hunting.nim:140`
-- Kill confirmation block: `modes/hunting.nim:148-173`
-- Localizer scoring: `perception/localize.nim`
-- Actor ignore mask: `bot.nim:304-316`
+**Key code:** `modes/hunting.nim:140,148-173`, `perception/localize.nim`,
+`bot.nim:304-316`
 
 ---
 
-## BUG: A\* empty-path noop lock (2026-05-04, HIGH) — FIXED
+### Ghost crewmates idle in cafeteria instead of completing tasks [MEDIUM]
 
-Bot had a `steer_to` target and `DisciplineNormal` but emitted `mask=0`
-(noop) for the rest of the match. Position never changed. Observed on
-2 of 4 seeds tested (50% frequency).
+Ghosts sit motionless after death. Should continue objectives (ghosts traverse
+walls). Code correctly assigns `ModeTaskCompleting` and uses straight-line paths.
 
-Example trace (seed 100, forced crewmate):
-```
-t=305-674: mode=task_completing, discipline=DisciplineNormal,
-  steer_to=[768,103], self_x=712, self_y=105, mask=0, localized=true
-```
+**Root cause (hypothesis):** Localization lost on death/respawn.
+`localizer.reseedCameraAtHome` resets camera pos; ghost may fail to re-acquire
+(semi-transparent sprites, teleport invalidates lock, appearance mismatch).
+Without localization, `task_completing.decide()` returns `noOpIntent()` (line 173).
 
-### Root cause
+**Possible fixes:**
+1. Skip localization requirement for ghosts — seed pos from cafeteria centre,
+   update via velocity (straight-line paths don't need walk mask)
+2. Force re-localize on ghost transition (lower threshold, wider search)
+3. Use `DisciplineWander` for ghosts until localized
 
-`findPath` (`action.nim:60-175`) returns `@[]` when the goal cell is
-impassable on the baked walk mask. The most likely trigger is
-`action.nim:66`: the task station center (`taskStationWorldCenter`
-computes `(ts.x + ts.w div 2, ts.y + ts.h div 2)`) falls on an
-impassable walk-mask pixel.
-
-When the path is empty, the waypoint-following block at
-`action.nim:406-418` is skipped (`if state.currentPath.len > 0`),
-leaving `mask` at 0.
-
-The stuck detector (`action.nim:375-381`) never fires because it
-requires `currentPath.len > 0` AND `lastEmittedMask != 0` — both
-false. The progress-stall detector does fire every 48 ticks, but just
-re-runs A\* with the same impassable endpoints.
-
-### Fix (2026-05-04)
-
-Three-layer fix:
-
-1. **Precomputed passable task-station centres** (`data.nim`).
-   `TaskStation` now carries `passableCX/passableCY`, computed at
-   init time by snapping the geometric centre to the nearest walkable
-   pixel via BFS on the walk mask. All three modes that steer toward
-   task stations (`task_completing`, `pretending`, `hunting` cover
-   patrol) now use these instead of computing the raw centre inline.
-   This eliminates the trigger.
-
-2. **Greedy-steering fallback** (`action.nim`). When `findPath`
-   returns an empty path in the `DisciplineNormal` block,
-   `steerButtons(self, goal)` is called as a last resort. This
-   mirrors `modulabot/policies/base.py`'s fallback and prevents
-   mask=0 regardless of the cause (impassable goal, unreachable
-   goal, node-cap exceeded). Defense-in-depth for non-task steer
-   targets (hunting last-seen, fleeing escape point) that could
-   also land on impassable pixels.
-
-3. **Stuck detector fix** (`action.nim`). Removed the
-   `currentPath.len > 0` precondition. The stuck detector now fires
-   whenever `lastEmittedMask` has direction bits but velocity is
-   zero, covering both "path following but physically stuck" and
-   "greedy fallback but hitting a wall." The greedy fallback ensures
-   `lastEmittedMask` has direction bits even without a path, so the
-   jiggle mechanism can break the bot free.
-
-Also added `snapToPassable` as an exported proc in `action.nim` for
-future callers.
-
-### Reproduction
-
-```sh
-GUIDED_BOT_TRACE_DIR=/tmp/gb_stuck GUIDED_BOT_TRACE_LEVEL=decisions \
-PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
-    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
-    --duration 30 --seed 100 --force-role crewmate
-```
-
-Also reproduces with seed 7 (default role).
-
-### Key code paths
-
-- `findPath` empty returns: `action.nim:90-91, 96, 161, 200`
-- `snapToPassable`: `action.nim:60-83`
-- Precomputed passable centres: `data.nim:loadMap` (BFS snap loop)
-- Greedy fallback: `action.nim` (after waypoint block)
-- Stuck detector: `action.nim` (removed `currentPath.len > 0` guard)
-- Modes updated: `task_completing.nim`, `pretending.nim`, `hunting.nim`
+**Key code:** `bot.nim:231-232`, `action.nim:381-382`,
+`task_completing.nim:173`, `perception/localize.nim` (reseedCameraAtHome),
+`belief.nim` (isGhost, alive)
 
 ---
 
-## BUG: Imposter role never detected (2026-05-04, HIGH) — FIXED
+### No pretending/cover behavior in imposter games [LOW]
 
-`role_revealed` always reports `crewmate`, even with `--force-role
-imposter`. The bot enters `task_completing` instead of
-`hunting`/`pretending`. No imposter-specific behavior has ever been
-observed in live play.
+Across 2 full imposter games (~2000 ticks, seed 100), zero ticks in pretending
+mode. Bot moves exclusively toward crewmates — looks predatory.
 
-### Root cause
+**Cause:** Cover patrol only triggers when no visible target + memory expired +
+reached station + loitered. With test's 48-tick kill cooldown, `killReady`
+almost always true, bot always finds target before cover kicks in. At realistic
+cooldowns (1200 ticks), ~1000 ticks between kills should allow cover. Needs
+verification at realistic settings.
 
-Two compounding errors:
-
-1. **Wrong kill-button HUD coordinates.** `KillIconX` / `KillIconY`
-   were `(109, 110)` (bottom-right) but the server renders the kill
-   button at `(1, 115)` (bottom-left). The server source confirms:
-   `sim.nim:3395-3407` sets `iconX = 1`,
-   `iconY = ScreenHeight - SpriteSize - 1 = 115`. Every other bot
-   in the ecosystem uses `(1, 115)`.
-
-2. **No OCR-based role inference.** The `classifyInterstitial` OCR
-   correctly detected "IMPS" / "CREWMATE" text during the
-   role-reveal interstitial, but this result was stored in
-   `belief.percep.interstitialKind` and **never used to set the
-   role**. The italkalot and nottoodumb reference bots both have a
-   `rememberRoleReveal` function that reads the banner text during
-   the interstitial and sets the role *before* the first gameplay
-   frame — eliminating any dependence on the kill button being
-   rendered on frame 1.
-
-   Without this, even with correct coordinates, the kill button
-   isn't always rendered on the very first gameplay frame (server
-   rendering timing), causing the crewmate default to latch on
-   some seeds.
-
-### Fix (2026-05-04)
-
-Two-layer fix:
-
-1. **Correct HUD coordinates** (`perception/actors.nim:74-77`):
-   ```nim
-   KillIconX* = 1
-   KillIconY* = ScreenHeight - SpriteSize - 1  ## = 115
-   ```
-   This also fixes ghost-icon detection (same HUD slot).
-
-2. **OCR-based role inference during interstitials** (`bot.nim`
-   and `types.nim` / `perception/ocr.nim`):
-   - Split `InterstitialRoleReveal` into two enum variants:
-     `InterstitialRoleRevealCrewmate` and
-     `InterstitialRoleRevealImposter`.
-   - During interstitial classification, when the banner text is
-     identified, set `belief.self.role` immediately — mirroring
-     italkalot/nottoodumb's `rememberRoleReveal` pattern.
-   - The role is now known before the first gameplay frame arrives,
-     so the crewmate fallback in `updateRole` never fires from
-     `RoleUnknown`.
-
-### Verification (2026-05-04)
-
-Live-verified with tracing:
-- **Seed 100** (imposter): `events.jsonl` shows
-  `{"kind": "role_revealed", "role": "imposter"}` at tick 139.
-  `modes.jsonl` shows `idle` → `hunting` (correct imposter
-  behavior).
-- **Seed 7** (crewmate per server): `events.jsonl` shows
-  `{"kind": "role_revealed", "role": "crewmate"}` at tick 142.
-  Visual frame capture of the role-reveal interstitial confirms
-  "CREWMATE" text on screen.
-
-Both detection paths confirmed working:
-- Kill-button sprite match at `(1, 115)` detects imposter on
-  gameplay frames.
-- Interstitial OCR detects "IMPS" during the role-reveal and
-  sets the role before gameplay begins.
-
-### Note on `--force-role`
-
-`--force-role imposter` is **not reliable** in the local test
-harness. Despite the flag, some seeds result in the bot being
-assigned crewmate. This is a race condition in the harness (filler
-bots may claim slot 0 before the policy bot's first game tick is
-processed), not a detection bug.
-
-**Known working imposter seeds**: 50, 100.
-**Known crewmate-despite-flag seeds**: 1, 7, 42, 99, 200.
-
-To test imposter behavior, use a known-good seed:
-```sh
-GUIDED_BOT_TRACE_DIR=/tmp/gb_imp GUIDED_BOT_TRACE_LEVEL=decisions \
-PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
-    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
-    --duration 20 --seed 100 --force-role imposter
-```
-
-### Key code paths
-
-- Kill button constants: `perception/actors.nim:74-77`
-- `updateRole` (HUD check): `perception/actors.nim:415-461`
-- OCR role inference: `bot.nim` (interstitial classification block)
-- InterstitialKind enum: `types.nim:38-50`
-- Banner table: `perception/ocr.nim:262-268`
-- Server rendering: `bitworld/among_them/sim.nim:3395-3407`
-- Reference bots: `italkalot.nim:1536-1558`,
-  `nottoodumb.nim:1465-1485` (`rememberRoleReveal`)
+**Improvement ideas:**
+- Force pretending N ticks after successful kill (alibi at nearby station)
+- Add "cover cooldown" after kill — avoid chasing even if killReady=true
+- Make cover patrol PRIMARY behavior, kill as interrupt on opportunity
 
 ---
 
-## BUG: Navigation quality — jitter, orbiting, missed tasks, random redirects (2026-05-04, HIGH)
+## Fixed (historical)
 
-Observed in live play: walking is jittery and prone to orbiting,
-agents miss task interaction points, trajectory changes frequently
-for no visible reason, and agents sometimes move to seemingly random
-nearby points.
+### Imposter role never detected [HIGH] — FIXED 2026-05-04
 
-See `NAVIGATION_FIX.md` for full root cause analysis and fix plan.
+`role_revealed` always reports crewmate even w/ `--force-role imposter`.
 
-### Sub-issues
+**Root causes:**
+1. Wrong kill-button HUD coords: was (109,110), actual (1,115) per server
+   `sim.nim:3395-3407`
+2. No OCR-based role inference: interstitial OCR detected "IMPS"/"CREWMATE"
+   but never used to set role
 
-- **1a. Jittery walking / orbiting / random stops-starts.**
-  Root causes: PathLookahead=4 too small, ReplanIntervalTicks=24 too
-  aggressive, StuckThreshold=8 too sensitive, no velocity smoothing.
-- **1b. Missing task interaction points.** — FIXED
-  Root cause: `isInsideTaskRect` used a margin that triggered the
-  Hold phase while the bot was still outside the server's exact task
-  rect. Fix: use the server's exact rect (no margin) and keep the
-  final path waypoint so the bot navigates all the way in.
-- **1c. Random movement to nearby points.**
-  Root cause: TaskCommitTicks hysteresis is documented but never
-  enforced in task_completing.nim.
-- **1d. Frequent trajectory changes without reason.**
-  Root cause: combination of 24-tick replans, missing commit lock,
-  and reflex interrupts with 48-tick cooldown.
+**Fix (2-layer):**
+1. Corrected coords: `KillIconX=1`, `KillIconY=115` (`perception/actors.nim:74-77`)
+2. OCR role inference during interstitials: split `InterstitialRoleReveal` into
+   crewmate/imposter variants, set `belief.self.role` immediately during
+   classification (mirrors italkalot/nottoodumb `rememberRoleReveal`)
 
-### Key code paths
+**Verified:** Seed 100 (imposter) + Seed 7 (crewmate) both correct.
 
-- A* + path following + stuck/jiggle: `action.nim:30-465`
-- Task target selection + commit: `task_completing.nim:81-201`
-- Reflex cooldowns: `reflex.nim`, `tuning.nim:20`
-- Tuning constants: `tuning.nim`, `action.nim:30-47`
+**Note:** `--force-role imposter` unreliable in local harness (race condition w/
+filler bots). Known imposter seeds: 50, 100.
+
+**Key code:** `perception/actors.nim:74-77,415-461`, `bot.nim`, `types.nim:38-50`,
+`perception/ocr.nim:262-268`
 
 ---
 
-## BUG: Ghost crewmates idle in cafeteria instead of completing tasks (2026-05-04, MEDIUM)
+### Trace manifest never finalized [LOW] — FIXED 2026-05-04
 
-Ghost crewmates sit motionless in the cafeteria after death. They
-should continue completing objectives (ghosts can go through walls).
+All `manifest.json` show `"closed": false`. `closeTrace` only called from
+`destroyBot`, which was never invoked (no FFI export, no `close()` method).
 
-### Root cause (hypothesis)
+**Fix (3-layer):**
+1. `ffi/lib.nim`: added `guidedbot_destroy_policy(handle)` export
+2. `cogames/amongthem_policy.py`: added `close()` + `__del__` finalizer
+3. Graceful degradation via `getattr(..., None)` for old libraries
 
-The code correctly assigns ghosts `ModeTaskCompleting` (both as
-default in `mode_registry.nim:102` and as a hard override in
-`bot.nim:231-232`). Ghost navigation uses straight-line paths
-(`action.nim:381-382`). The ghost task mode is legal
-(`task_completing.nim:33`).
-
-The probable cause: localization is lost on death/respawn. During the
-death interstitial, `localizer.reseedCameraAtHome` resets camera
-position. After respawn as a ghost, the localizer may fail to
-re-acquire because:
-- Ghost sprites are semi-transparent / visually different
-- The death-respawn teleports the camera to cafeteria, invalidating
-  the previous lock
-- The ghost's screen appearance may not match the reference map tiles
-
-Without `belief.percep.localized == true`, `task_completing.decide()`
-returns `noOpIntent()` on line 173 and the ghost never moves.
-
-### Possible fixes
-
-1. **Skip localization requirement for ghosts.** Since ghosts use
-   straight-line paths (no walk mask), they only need the task station
-   world coordinates (static data) and some notion of their current
-   position. If ghosts always respawn at a known location (cafeteria
-   centre), seed their position from that and update via velocity.
-2. **Force re-localize on ghost transition.** Detect the
-   `isGhost` transition and run an aggressive localization pass
-   (lower error threshold, wider search window).
-3. **Use DisciplineWander for ghosts until localized.** Instead of
-   noOpIntent, wander randomly until the localizer locks.
-
-### Key code paths
-
-- Ghost override: `bot.nim:231-232`
-- Ghost straight-line path: `action.nim:381-382`
-- Task decide early-return: `task_completing.nim:173`
-- Localizer reseed: `perception/localize.nim` (reseedCameraAtHome)
-- Ghost detection: `belief.nim` (isGhost, alive fields)
-
----
-
-## FEATURE: Meeting chat emission not implemented (2026-05-04, MEDIUM)
-
-Agents don't chat during meetings. The LLM can generate
-`MeetingActSpeak` with text, and the infrastructure queues it through
-to the meeting mode, but actual emission to the game server is
-explicitly stubbed.
-
-### Current state
-
-- `meeting.nim:185-193`: MeetingActSpeak sets `intent.chat` but notes
-  "Chat emission is a stub (deferred). Put text on intent anyway so
-  it's ready when the FFI pipeline is wired."
-- `action.nim:471-476`: `emitChat` is a hard no-op (`discard; false`).
-- FFI layer (`ffi/lib.nim`): only returns button-mask action indices.
-  No mechanism to emit text to the server.
-- The game server accepts chat via a separate WebSocket text message
-  (not button presses). The current architecture only sends button
-  masks through the FFI boundary.
-
-### What's needed
-
-1. **New FFI export** — e.g., `guidedbot_get_chat(handle, agentId)`
-   that returns pending chat text (or empty string).
-2. **Python wrapper** — after `step_batch`, poll each agent for
-   pending chat and send it via `ws.send(json.dumps({"type":"chat",
-   "text": ...}))`.
-3. **Rate limiting** — `MeetingChatLineGapTicks = 12` is already
-   defined in `tuning.nim` but unused.
-
-### Without ANTHROPIC_API_KEY
-
-When no API key is set, the guidance worker never starts. No meeting
-actions are generated. The bot falls back to auto-vote-skip after
-`MeetingAutoVoteDelayTicks = 360` (15 seconds). No chat occurs
-regardless of whether emission is wired.
-
-### Key code paths
-
-- Chat stub: `meeting.nim:185-193`
-- emitChat no-op: `action.nim:471-476`
-- FFI boundary: `ffi/lib.nim:114-154`
-- Python wrapper: `cogames/amongthem_policy.py:172-191`
-- Rate limit constant: `tuning.nim:24`
-
----
-
-## BUG: Trace manifest never finalized (2026-05-04, LOW) — FIXED
-
-All trace `manifest.json` files show `"closed": false`. The
-`end_tick`, `outcome`, and `role` fields are absent.
-
-### Root cause
-
-`closeTrace` (`trace.nim:255-285`) is called only from `destroyBot`
-(`bot.nim:618-627`). `destroyBot` is never called because:
-
-1. `ffi/lib.nim` has no `guidedbot_destroy_policy` export.
-2. `AmongThemPolicy` has no `close()` method (the base class no-op
-   runs instead).
-3. The Nim global `GuidedBotPolicies` (`ffi/lib.nim:85`) holds
-   references, and `destroyBot` is not registered as a GC finalizer.
-
-### Fix (2026-05-04)
-
-Three-layer fix mirroring `modulabot/policy.py:267-284`:
-
-1. **`ffi/lib.nim`**: Added `guidedbot_destroy_policy(handle)` export
-   that iterates all bots in the policy and calls `destroyBot` on
-   each, then nils the slot (idempotent on repeated calls).
-
-2. **`cogames/amongthem_policy.py`**: Added `close()` method that
-   calls the new FFI export, plus a `__del__` best-effort finalizer
-   for scripts that exit without calling `close()` explicitly.
-
-3. **Graceful degradation**: The Python side discovers the destroy
-   export via `getattr(..., None)` so old libraries without the
-   export don't crash — they just get the old behavior (unfinalised
-   manifests).
+**Key code:** `trace.nim:255-285`, `bot.nim:618-627`, `ffi/lib.nim`,
+`cogames/amongthem_policy.py`

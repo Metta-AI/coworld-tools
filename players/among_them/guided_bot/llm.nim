@@ -114,10 +114,15 @@ proc httpPost(systemPrompt, userContent: string,
         ("anthropic-version", AnthropicVersion),
         ("Content-Type", "application/json")
       ],
-      reqBody.toJson()
+      reqBody.toJson(),
+      float32(TimeoutMs) / 1000.0'f32
     )
   except CatchableError as e:
     let elapsed = int((cpuTime() - startTime) * 1000)
+    let lowerMsg = e.msg.toLowerAscii()
+    if lowerMsg.contains("timeout") or lowerMsg.contains("timed out"):
+      return LlmResult(kind: LlmTimeout, latencyMs: elapsed,
+                       detail: "HTTP timeout: " & e.msg)
     return LlmResult(kind: LlmHttpError, latencyMs: elapsed,
                      detail: "HTTP error: " & e.msg)
 

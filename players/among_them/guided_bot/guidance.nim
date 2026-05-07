@@ -1,7 +1,7 @@
 ## Guidance-loop worker thread — phase 3.
 ##
 ## Spawns an OS thread that:
-##   - blocks on `snapshotChan` (newest-snapshot-wins),
+##   - blocks on its per-bot `snapshotChan` (newest-snapshot-wins),
 ##   - renders a prompt, calls `llm.callLlm`, parses and validates the
 ##     response,
 ##   - pushes the validated `Directive` onto `directiveChan`, and during
@@ -37,6 +37,16 @@ type
   ## Sentinel value sent on snapshotChan to tell the worker to exit.
   ## When tick == -1, the worker breaks out of its loop.
 
+  GuidanceRuntime = object
+    ## Heap-stable per-bot guidance runtime. Bots live in resizable seqs,
+    ## so the worker receives this pointer instead of a Bot/GuidanceState
+    ## address that might move.
+    snapshotChan: Channel[Snapshot]
+    directiveChan: Channel[Directive]
+    meetingActionChan: Channel[MeetingAction]
+    traceEventChan: Channel[string]
+    workerThread: Thread[ptr GuidanceRuntime]
+
   GuidanceState* = object
     ## Main-thread handle to the guidance subsystem. Holds channel
     ## references, the worker thread handle, per-meeting conversation
@@ -47,34 +57,27 @@ type
     meetingConversationJson*: string
     ## Whether we're currently in a meeting (for conversation mgmt).
     inMeeting*: bool
-
-# ---------------------------------------------------------------------------
-# Module-level channels and thread (must be global for Nim threading)
-# ---------------------------------------------------------------------------
-
-var
-  snapshotChan: Channel[Snapshot]
-  directiveChan: Channel[Directive]
-  meetingActionChan: Channel[MeetingAction]
-  traceEventChan: Channel[string]   ## Worker → main: pre-serialized JSONL trace events.
-  workerThread: Thread[void]
+    runtime: ptr GuidanceRuntime
 
 # ---------------------------------------------------------------------------
 # Worker thread procedure
 # ---------------------------------------------------------------------------
 
-proc guidanceWorker() {.thread.} =
+proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
   ## Worker thread main loop. Blocks on snapshotChan, calls the LLM,
   ## pushes results onto directiveChan / meetingActionChan.
   ##
   ## Meeting conversation history is maintained as thread-local state
   ## within this proc to avoid GC-safety issues with global seqs.
+  if runtime.isNil:
+    return
+
   var meetingHistory: seq[tuple[role: string, content: string]]
   var wasInMeeting = false
 
   while true:
     # Block until a snapshot arrives.
-    let snap = snapshotChan.recv()
+    let snap = runtime[].snapshotChan.recv()
 
     # Sentinel: tick == -1 means exit.
     if snap.tick < 0:
@@ -134,7 +137,7 @@ proc guidanceWorker() {.thread.} =
         ev["reason"] = newJString(reason)
         if result.detail.len > 0:
           ev["detail"] = newJString(result.detail)
-      traceEventChan.send($ev)
+      runtime[].traceEventChan.send($ev)
 
     if result.kind == LlmOk:
       if snap.isMeeting:
@@ -149,7 +152,7 @@ proc guidanceWorker() {.thread.} =
           content: result.rawResponse
         )
         # Push the meeting action onto the channel.
-        meetingActionChan.send(result.meetingAction)
+        runtime[].meetingActionChan.send(result.meetingAction)
         # Phase 4: trace the meeting action received.
         block:
           var ev = newJObject()
@@ -162,12 +165,12 @@ proc guidanceWorker() {.thread.} =
           if result.meetingAction.kind == MeetingActVote:
             actObj["target"] = newJInt(result.meetingAction.target)
           ev["action"] = actObj
-          traceEventChan.send($ev)
+          runtime[].traceEventChan.send($ev)
       else:
         # Push the directive onto the channel. Fill in the tick.
         var directive = result.directive
         directive.issuedAtTick = snap.tick
-        directiveChan.send(directive)
+        runtime[].directiveChan.send(directive)
         # Phase 4: trace the directive published.
         block:
           var ev = newJObject()
@@ -175,7 +178,7 @@ proc guidanceWorker() {.thread.} =
           ev["kind"] = newJString("directive_published")
           ev["mode"] = newJString($directive.mode)
           ev["ttl_ticks"] = newJInt(directive.ttlTicks)
-          traceEventChan.send($ev)
+          runtime[].traceEventChan.send($ev)
 
     # On error, do nothing — the inner loop continues on the current
     # directive or the default. Per DESIGN.md §9.
@@ -190,7 +193,8 @@ proc initGuidanceState*(): GuidanceState =
     callsThisMatch: 0,
     lastCallTick: -1,
     meetingConversationJson: "",
-    inMeeting: false
+    inMeeting: false,
+    runtime: nil
   )
 
 proc startGuidance*(state: var GuidanceState) =
@@ -198,35 +202,44 @@ proc startGuidance*(state: var GuidanceState) =
   if state.running:
     return
 
-  snapshotChan.open()
-  directiveChan.open()
-  meetingActionChan.open()
-  traceEventChan.open()
+  let runtime = cast[ptr GuidanceRuntime](allocShared0(sizeof(GuidanceRuntime)))
+  runtime[].snapshotChan.open(1)
+  runtime[].directiveChan.open()
+  runtime[].meetingActionChan.open()
+  runtime[].traceEventChan.open()
 
-  createThread(workerThread, guidanceWorker)
+  createThread(runtime[].workerThread, guidanceWorker, runtime)
+  state.runtime = runtime
   state.running = true
 
 proc stopGuidance*(state: var GuidanceState) =
   ## Signal the worker to exit and join the thread.
-  if not state.running:
+  if not state.running or state.runtime.isNil:
+    state.running = false
+    state.runtime = nil
     return
 
-  # Send sentinel snapshot to unblock the worker.
-  snapshotChan.send(Snapshot(tick: -1, payloadJson: "", isMeeting: false))
-  joinThread(workerThread)
+  let runtime = state.runtime
 
-  snapshotChan.close()
-  directiveChan.close()
-  meetingActionChan.close()
-  traceEventChan.close()
+  # Send sentinel snapshot to unblock the worker.
+  runtime[].snapshotChan.send(Snapshot(tick: -1, payloadJson: "", isMeeting: false))
+  joinThread(runtime[].workerThread)
+
+  runtime[].snapshotChan.close()
+  runtime[].directiveChan.close()
+  runtime[].meetingActionChan.close()
+  runtime[].traceEventChan.close()
+  deallocShared(runtime)
+  state.runtime = nil
   state.running = false
 
 proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
   ## Push a snapshot onto the channel for the worker. If the worker
   ## hasn't consumed the previous snapshot, the old one is replaced
   ## (newest wins — DESIGN.md §10.3).
-  if not state.running:
+  if not state.running or state.runtime.isNil:
     return
+  let runtime = state.runtime
 
   # Rate limiting: enforce minimum interval and per-match cap.
   if snap.tick - state.lastCallTick < LlmMinIntervalTicks and
@@ -237,10 +250,10 @@ proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
 
   # Drain any pending old snapshot (newest wins).
   while true:
-    let (ok, _) = snapshotChan.tryRecv()
+    let (ok, _) = runtime[].snapshotChan.tryRecv()
     if not ok: break
 
-  snapshotChan.send(snap)
+  runtime[].snapshotChan.send(snap)
   state.lastCallTick = snap.tick
   inc state.callsThisMatch
 
@@ -253,16 +266,17 @@ proc drainGuidanceTraceEvents*(state: GuidanceState,
   ## log them via the TraceWriter. Called from the main thread in
   ## bot.nim:decideNextMask. GC-safe: the channel carries pre-serialized
   ## strings, not ref objects.
-  if not state.running:
+  if not state.running or state.runtime.isNil:
     return
+  let runtime = state.runtime
   if traceWriter == nil:
     # Still drain the channel to prevent unbounded growth.
     while true:
-      let (ok, _) = traceEventChan.tryRecv()
+      let (ok, _) = runtime[].traceEventChan.tryRecv()
       if not ok: break
     return
   while true:
-    let (ok, payload) = traceEventChan.tryRecv()
+    let (ok, payload) = runtime[].traceEventChan.tryRecv()
     if not ok: break
     logGuidanceEvent(traceWriter, payload)
 
@@ -271,12 +285,13 @@ proc tryReceiveDirective*(state: var GuidanceState,
   ## Non-blocking drain of `directiveChan`. Keeps the newest
   ## directive if multiple have arrived. Returns true iff a fresh
   ## directive landed.
-  if not state.running:
+  if not state.running or state.runtime.isNil:
     return false
+  let runtime = state.runtime
 
   var found = false
   while true:
-    let (ok, d) = directiveChan.tryRecv()
+    let (ok, d) = runtime[].directiveChan.tryRecv()
     if not ok: break
     directive = d
     found = true
@@ -286,10 +301,11 @@ proc tryReceiveMeetingAction*(state: var GuidanceState,
                               act: var MeetingAction): bool =
   ## Pop the next `MeetingAction` from the channel (FIFO, one per
   ## call). Returns true if an action was available.
-  if not state.running:
+  if not state.running or state.runtime.isNil:
     return false
+  let runtime = state.runtime
 
-  let (ok, a) = meetingActionChan.tryRecv()
+  let (ok, a) = runtime[].meetingActionChan.tryRecv()
   if ok:
     act = a
     true
