@@ -257,7 +257,7 @@ proc ensureTaskSlotsInitialized*(belief: var Belief) =
       iconVisibleTick: -1,
       iconMissCount: 0,
       resolvedNotMine: false,
-      radarExclusionCount: 0)
+      radarRayExcluded: false)
   belief.tasks.initialized = true
 
 proc resetTaskSlots*(belief: var Belief) =
@@ -270,7 +270,7 @@ proc resetTaskSlots*(belief: var Belief) =
       iconVisibleTick: -1,
       iconMissCount: 0,
       resolvedNotMine: false,
-      radarExclusionCount: 0)
+      radarRayExcluded: false)
   belief.tasks.inProgressIndex = -1
 
 proc findIconForStation(stationIdx: int, station: TaskStation,
@@ -315,6 +315,7 @@ proc updateTaskState*(belief: var Belief, tick: int,
   for i in 0 ..< tasks.len:
     if i >= belief.tasks.slots.len:
       break
+    belief.tasks.slots[i].radarRayExcluded = false
     # Skip terminal states.
     if belief.tasks.slots[i].state == TaskCompleted:
       continue
@@ -344,10 +345,33 @@ proc updateTaskState*(belief: var Belief, tick: int,
             belief.tasks.slots[i].state = TaskNotDoing
         # else: off-screen or near edge — don't count.
 
-    # --- Radar-dot checkout (needs camera for projection) ---
     if localized:
       let selfX = belief.percep.selfX
       let selfY = belief.percep.selfY
+
+      # --- Per-frame radar-ray exclusion ---
+      # Cast rays from player through each pip; flag off-screen tasks
+      # whose icon AABB is not intersected by any ray.
+      if not isAliveImposter:
+        let offScreen = not taskIconOnScreen(station, camX, camY, 0)
+        if offScreen and belief.percep.radarDots.len >= RadarRayMinPips:
+          var hitByAnyRay = false
+          let playerSx = selfX - camX
+          let playerSy = selfY - camY
+          for dot in belief.percep.radarDots:
+            let dirX = dot.x - playerSx
+            let dirY = dot.y - playerSy
+            if rayIntersectsIconAABB(selfX, selfY, dirX, dirY,
+                                     station, RadarRayIconPadding):
+              hitByAnyRay = true
+              break
+          belief.tasks.slots[i].radarRayExcluded = not hitByAnyRay
+        else:
+          belief.tasks.slots[i].radarRayExcluded = false
+      else:
+        belief.tasks.slots[i].radarRayExcluded = false
+
+      # --- Radar-dot checkout (needs camera for projection) ---
       let (projX, projY) = projectedRadarDot(station, camX, camY,
                                              selfX, selfY)
       var matched = false
@@ -356,32 +380,9 @@ proc updateTaskState*(belief: var Belief, tick: int,
            abs(dot.y - projY) <= RadarMatchTolerance:
           matched = true
           break
-      if matched:
+      if matched and not belief.tasks.slots[i].radarRayExcluded:
         belief.tasks.slots[i].checkout = true
-        belief.tasks.slots[i].radarExclusionCount = 0
         if belief.tasks.slots[i].state == TaskNotDoing:
           belief.tasks.slots[i].state = TaskCheckout
-
-      # --- Radar-ray exclusion (negative evidence from missing dots) ---
-      if not isAliveImposter:
-        # Only run exclusion when the task is off-screen (on-screen tasks
-        # show icons, not dots).
-        let offScreen = not taskIconOnScreen(station, camX, camY, 0)
-        if offScreen and belief.percep.radarDots.len >= RadarExclusionMinDots:
-          var nearEnough = false
-          for dot in belief.percep.radarDots:
-            if abs(dot.x - projX) <= RadarExclusionDistance and
-               abs(dot.y - projY) <= RadarExclusionDistance:
-              nearEnough = true
-              break
-          if not nearEnough:
-            if belief.tasks.slots[i].radarExclusionCount < RadarExclusionFrames:
-              belief.tasks.slots[i].radarExclusionCount += 1
-            # Saturate at threshold — selectTarget() tier-3 checks this.
-          else:
-            belief.tasks.slots[i].radarExclusionCount = 0
-        else:
-          # On-screen or no dots: reset counter (can't judge).
-          belief.tasks.slots[i].radarExclusionCount = 0
     else:
-      belief.tasks.slots[i].radarExclusionCount = 0
+      belief.tasks.slots[i].radarRayExcluded = false

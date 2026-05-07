@@ -193,7 +193,7 @@ TaskSlot = object
   iconVisibleTick: int    # Last tick an icon was seen at this station.
   iconMissCount: int      # Consecutive icon-absent frames while on-screen.
   resolvedNotMine: bool   # Negative evidence: station inspected, no icon.
-  radarExclusionCount: int # Consecutive off-screen frames with no matching dot.
+  radarRayExcluded: bool  # Per-frame off-screen soft exclusion from pip rays.
 ```
 
 Implementation in `types.nim:366-378`.
@@ -216,25 +216,27 @@ Run every gameplay frame in `belief.nim:266-386`. For each station `i`:
    Hold-phase targets are shielded only when already `TaskConfirmed`;
    checkout-only holds remain unshielded.
 
-3. **Radar-dot checkout.** If a radar dot matches the station's
-   projected screen-edge position (Chebyshev distance ≤
-   `RadarMatchTolerance = 2`): `checkout = true`. If state was
-   `TaskNotDoing`, promote to `TaskCheckout`. This also resets
-   `radarExclusionCount`.
+3. **Per-frame radar-ray exclusion.** If the station is off-screen and
+   at least `RadarRayMinPips` pips are detected, cast rays from the
+   player's world position through each pip. If no ray intersects the
+   padded task-icon AABB, set `radarRayExcluded = true` for this frame.
+   On-screen tasks, zero-pip frames, localization loss, and alive
+   imposters set it to `false`.
 
-4. **Radar-ray exclusion.** If the station is off-screen and its
-   projected screen-edge position is far from every detected radar dot
-   for `RadarExclusionFrames` consecutive frames, mark it
-   `resolvedNotMine = true`, clear checkout, and return it to
-   `TaskNotDoing`.
+4. **Radar-dot checkout.** If a radar dot matches the station's
+   projected screen-edge position (Chebyshev distance <=
+   `RadarMatchTolerance = 2`) and `radarRayExcluded == false`:
+   `checkout = true`. If state was `TaskNotDoing`, promote to
+   `TaskCheckout`. For on-screen tasks, `radarRayExcluded` is always
+   false because icon visibility is the hard signal.
 
 ### 5.3 Skips
 
 - Interstitial frames: skip all updates.
 - Alive imposters: skip icon checks (imposters don't have task icons).
   Radar-dot updates still run (imposter ghosts have tasks).
-- Stations at `TaskCompleted` or `resolvedNotMine`: skip (terminal
-  states within a round).
+- Stations at `TaskCompleted` or `resolvedNotMine`: clear the transient
+  `radarRayExcluded` flag, then skip (terminal states within a round).
 
 ### 5.4 Radar-ray exclusion (negative evidence from dot absence)
 

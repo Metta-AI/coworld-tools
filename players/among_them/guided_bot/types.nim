@@ -374,7 +374,7 @@ type
     iconVisibleTick*: int    ## Last tick an icon was seen at this station.
     iconMissCount*: int      ## Consecutive icon-absent frames while on-screen.
     resolvedNotMine*: bool   ## Negative evidence: inspected, no icon.
-    radarExclusionCount*: int ## Consecutive off-screen frames with no matching radar dot.
+    radarRayExcluded*: bool  ## Per-frame: no pip ray intersects this task's icon rect.
 
   TaskState* = object
     slots*: seq[TaskSlot]

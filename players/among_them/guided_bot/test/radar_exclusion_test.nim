@@ -1,13 +1,13 @@
-## Radar-ray exclusion tests.
+## Per-frame radar-ray exclusion tests.
 ##
 ## Coverage:
-##   - ``projectedRadarDot`` uses ray-clip projection for cardinal and
-##     diagonal off-screen task icons.
-##   - Missing radar dots exclude an off-screen task after the configured
-##     consecutive-frame threshold.
-##   - Matching dots reset the exclusion counter.
-##   - On-screen tasks and zero-dot frames do not accumulate exclusion.
-##   - Hold and Confirm targets are shielded from exclusion firing.
+##   - ``rayIntersectsIconAABB`` slab geometry for hits, misses, edges,
+##     vertical rays, behind-origin rays, and degenerate rays.
+##   - Missing pip rays mark off-screen tasks excluded for this frame.
+##   - A later hitting pip clears exclusion immediately on the next frame.
+##   - On-screen tasks and zero-pip frames are never ray-excluded.
+##   - Checkout latching is gated by the per-frame ray test off-screen.
+##   - On-screen checkout still latches when a matching dot is present.
 ##
 ## Run::
 ##
@@ -43,8 +43,7 @@ proc expectEq[T](got, want: T, label: string) =
 # ---------------------------------------------------------------------------
 
 proc syntheticStationForIcon(iconX, iconY: int): TaskStation =
-  ## Build a task station whose radar icon centre would be at
-  ## ``(iconX, iconY)`` for camera (0, 0).
+  ## Build a task station whose icon centre is at ``(iconX, iconY)``.
   TaskStation(
     index: -1,
     name: "synthetic",
@@ -76,9 +75,32 @@ proc findOffScreenTask(camX, camY: int): int =
       return i
   -1
 
-proc farDotFor(station: TaskStation,
-               camX, camY, selfX, selfY: int): RadarDotMatch =
-  let (projX, projY) = projectedRadarDot(station, camX, camY, selfX, selfY)
+proc iconTopLeft(station: TaskStation, camX, camY: int): IconMatch =
+  IconMatch(
+    x: station.x + station.w div 2 - SpriteSize div 2 - camX,
+    y: station.y - SpriteSize - 2 - camY)
+
+proc projectedDot(station: TaskStation, belief: Belief): RadarDotMatch =
+  let (projX, projY) = projectedRadarDot(station,
+                                         belief.percep.cameraX,
+                                         belief.percep.cameraY,
+                                         belief.percep.selfX,
+                                         belief.percep.selfY)
+  RadarDotMatch(x: projX, y: projY)
+
+proc rayHits(station: TaskStation, belief: Belief,
+             dot: RadarDotMatch): bool =
+  let playerSx = belief.percep.selfX - belief.percep.cameraX
+  let playerSy = belief.percep.selfY - belief.percep.cameraY
+  rayIntersectsIconAABB(belief.percep.selfX,
+                        belief.percep.selfY,
+                        dot.x - playerSx,
+                        dot.y - playerSy,
+                        station,
+                        RadarRayIconPadding)
+
+proc missDotForRay(station: TaskStation,
+                   belief: Belief): RadarDotMatch =
   const candidates = [
     (0, 0), (ScreenWidth - 1, ScreenHeight - 1),
     (0, ScreenHeight - 1), (ScreenWidth - 1, 0),
@@ -86,193 +108,160 @@ proc farDotFor(station: TaskStation,
     (0, ScreenHeight div 2), (ScreenWidth - 1, ScreenHeight div 2)
   ]
   for candidate in candidates:
-    if abs(candidate[0] - projX) > RadarExclusionDistance or
-       abs(candidate[1] - projY) > RadarExclusionDistance:
-      return RadarDotMatch(x: candidate[0], y: candidate[1])
+    let dot = RadarDotMatch(x: candidate[0], y: candidate[1])
+    if not rayHits(station, belief, dot):
+      return dot
   RadarDotMatch(x: 0, y: 0)
 
-proc iconTopLeft(station: TaskStation, camX, camY: int): IconMatch =
-  IconMatch(
-    x: station.x + station.w div 2 - SpriteSize div 2 - camX,
-    y: station.y - SpriteSize - 2 - camY)
-
-# ---------------------------------------------------------------------------
-# 1. Ray-clip projection
-# ---------------------------------------------------------------------------
-
-proc testRayClipProjection() =
+proc matchedButMissingRayCase(): (int, RadarDotMatch) =
+  ## Find a real off-screen station where a dot within checkout
+  ## tolerance still misses the padded icon AABB. This captures the
+  ## false-latch case the ray gate is meant to prevent.
   let camX = 0
   let camY = 0
-  let playerX = 64
-  let playerY = 64
+  var belief = setupBelief(camX, camY)
+  for i, station in referenceData.map.tasks:
+    if taskIconOnScreen(station, camX, camY, 0):
+      continue
+    let base = projectedDot(station, belief)
+    for dx in -RadarMatchTolerance .. RadarMatchTolerance:
+      for dy in -RadarMatchTolerance .. RadarMatchTolerance:
+        let dot = RadarDotMatch(x: base.x + dx, y: base.y + dy)
+        if dot.x < 0 or dot.x >= ScreenWidth or
+           dot.y < 0 or dot.y >= ScreenHeight:
+          continue
+        if abs(dot.x - base.x) <= RadarMatchTolerance and
+           abs(dot.y - base.y) <= RadarMatchTolerance and
+           not rayHits(station, belief, dot):
+          return (i, dot)
+  (-1, RadarDotMatch(x: 0, y: 0))
 
-  expectEq(projectedRadarDot(syntheticStationForIcon(190, 64),
-                             camX, camY, playerX, playerY),
-           (ScreenWidth - 1, 64),
-           "ray-clip: right edge")
-  expectEq(projectedRadarDot(syntheticStationForIcon(-20, 64),
-                             camX, camY, playerX, playerY),
-           (0, 64),
-           "ray-clip: left edge")
-  expectEq(projectedRadarDot(syntheticStationForIcon(64, -40),
-                             camX, camY, playerX, playerY),
-           (64, 0),
-           "ray-clip: top edge")
-  expectEq(projectedRadarDot(syntheticStationForIcon(64, 200),
-                             camX, camY, playerX, playerY),
-           (64, ScreenHeight - 1),
-           "ray-clip: bottom edge")
-  expectEq(projectedRadarDot(syntheticStationForIcon(190, 96),
-                             camX, camY, playerX, playerY),
-           (ScreenWidth - 1, 80),
-           "ray-clip: right diagonal uses edge intersection")
+proc onScreenCameraFor(station: TaskStation): (int, int) =
+  (station.x + station.w div 2 - SpriteSize div 2 - 50,
+   station.y - SpriteSize - 2 - 50)
 
 # ---------------------------------------------------------------------------
-# 2. Exclusion state machine
+# 1. Ray-AABB intersection
 # ---------------------------------------------------------------------------
 
-proc testExclusionFiresAfterThreshold() =
+proc testRayIntersectsIconAABB() =
+  let east = syntheticStationForIcon(100, 0)
+  expect(rayIntersectsIconAABB(0, 0, 1, 0, east, RadarRayIconPadding),
+         "ray AABB: horizontal hit")
+  expect(not rayIntersectsIconAABB(0, 0, 100, 20, east, RadarRayIconPadding),
+         "ray AABB: horizontal miss")
+  expect(not rayIntersectsIconAABB(120, 0, 1, 0, east, RadarRayIconPadding),
+         "ray AABB: box behind origin")
+  expect(not rayIntersectsIconAABB(0, 0, 0, 0, east, RadarRayIconPadding),
+         "ray AABB: degenerate ray")
+
+  let north = syntheticStationForIcon(50, 20)
+  expect(rayIntersectsIconAABB(50, 100, 0, -1, north, RadarRayIconPadding),
+         "ray AABB: vertical hit")
+  expect(not rayIntersectsIconAABB(0, 100, 0, -1, north, RadarRayIconPadding),
+         "ray AABB: vertical ray outside x slab")
+
+  let edge = syntheticStationForIcon(100, RadarRayIconPadding)
+  expect(rayIntersectsIconAABB(0, 0, 1, 0, edge, RadarRayIconPadding),
+         "ray AABB: tangent edge hit")
+
+# ---------------------------------------------------------------------------
+# 2. Per-frame exclusion
+# ---------------------------------------------------------------------------
+
+proc testPerFrameExclusionClearsImmediately() =
   let camX = 0
   let camY = 0
   let taskIdx = findOffScreenTask(camX, camY)
-  expect(taskIdx >= 0, "exclusion fires: found off-screen task")
+  expect(taskIdx >= 0, "per-frame: found off-screen task")
   if taskIdx < 0:
     return
 
   var belief = setupBelief(camX, camY)
   let station = referenceData.map.tasks[taskIdx]
-  let farDot = farDotFor(station, camX, camY,
-                         belief.percep.selfX, belief.percep.selfY)
-  for tick in 1 .. RadarExclusionFrames:
-    belief.percep.radarDots = @[farDot]
-    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
+  belief.percep.radarDots = @[missDotForRay(station, belief)]
+  updateTaskState(belief, 1, holdIndex = -1, confirmIndex = -1)
+  expect(belief.tasks.slots[taskIdx].radarRayExcluded,
+         "per-frame: miss ray excludes this frame")
 
-  # Soft exclusion: counter saturates at threshold, but does NOT set
-  # resolvedNotMine. Task is deprioritized in tier-3, not permanently dead.
-  expect(not belief.tasks.slots[taskIdx].resolvedNotMine,
-         "soft exclusion: task NOT permanently resolved")
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount,
-           RadarExclusionFrames,
-           "soft exclusion: counter saturated at threshold")
+  belief.percep.radarDots = @[projectedDot(station, belief)]
+  updateTaskState(belief, 2, holdIndex = -1, confirmIndex = -1)
+  expect(not belief.tasks.slots[taskIdx].radarRayExcluded,
+         "per-frame: hitting ray clears next frame")
 
-proc testExclusionResetsOnDotMatch() =
-  let camX = 0
-  let camY = 0
-  let taskIdx = findOffScreenTask(camX, camY)
-  expect(taskIdx >= 0, "reset on match: found off-screen task")
-  if taskIdx < 0:
-    return
-
-  var belief = setupBelief(camX, camY)
-  let station = referenceData.map.tasks[taskIdx]
-  let farDot = farDotFor(station, camX, camY,
-                         belief.percep.selfX, belief.percep.selfY)
-  for tick in 1 .. 8:
-    belief.percep.radarDots = @[farDot]
-    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
-
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount, 8,
-           "reset on match: accumulated pre-match count")
-
-  let (projX, projY) = projectedRadarDot(station, camX, camY,
-                                         belief.percep.selfX,
-                                         belief.percep.selfY)
-  belief.percep.radarDots = @[RadarDotMatch(x: projX, y: projY)]
-  updateTaskState(belief, 9, holdIndex = -1, confirmIndex = -1)
-
-  expect(not belief.tasks.slots[taskIdx].resolvedNotMine,
-         "reset on match: task not excluded")
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount, 0,
-           "reset on match: counter reset")
-  expect(belief.tasks.slots[taskIdx].checkout,
-         "reset on match: checkout latched")
-
-proc testOnScreenTaskDoesNotAccumulate() =
-  let station = referenceData.map.tasks[0]
-  let camX = station.x + station.w div 2 - SpriteSize div 2 - 50
-  let camY = station.y - SpriteSize - 2 - 50
-  var belief = setupBelief(camX, camY)
+proc testOnScreenTaskNotExcluded() =
   let taskIdx = 0
-  let farDot = farDotFor(station, camX, camY,
-                         belief.percep.selfX, belief.percep.selfY)
-  belief.percep.visibleTaskIcons = @[iconTopLeft(station, camX, camY)]
-
-  for tick in 1 .. RadarExclusionFrames + 3:
-    belief.percep.radarDots = @[farDot]
-    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
-
-  expect(not belief.tasks.slots[taskIdx].resolvedNotMine,
-         "on-screen: task not excluded")
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount, 0,
-           "on-screen: counter remains zero")
-
-proc testZeroDotsSkipExclusion() =
-  let camX = 0
-  let camY = 0
-  let taskIdx = findOffScreenTask(camX, camY)
-  expect(taskIdx >= 0, "zero dots: found off-screen task")
-  if taskIdx < 0:
-    return
-
-  var belief = setupBelief(camX, camY)
-  for tick in 1 .. RadarExclusionFrames + 3:
-    belief.percep.radarDots = @[]
-    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
-
-  expect(not belief.tasks.slots[taskIdx].resolvedNotMine,
-         "zero dots: task not excluded")
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount, 0,
-           "zero dots: counter remains zero")
-
-proc testSoftExclusionReversible() =
-  ## Soft exclusion saturates the counter but the task is never
-  ## permanently dead. A subsequent dot match resets the counter.
-  let camX = 0
-  let camY = 0
-  let taskIdx = findOffScreenTask(camX, camY)
-  expect(taskIdx >= 0, "reversible: found off-screen task")
-  if taskIdx < 0:
-    return
-
   let station = referenceData.map.tasks[taskIdx]
-
+  let (camX, camY) = onScreenCameraFor(station)
   var belief = setupBelief(camX, camY)
-  let farDot = farDotFor(station, camX, camY,
-                         belief.percep.selfX, belief.percep.selfY)
-  # Saturate the counter.
-  for tick in 1 .. RadarExclusionFrames + 5:
-    belief.percep.radarDots = @[farDot]
-    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount,
-           RadarExclusionFrames,
-           "reversible: counter saturated")
-  expect(not belief.tasks.slots[taskIdx].resolvedNotMine,
-         "reversible: not permanently resolved")
+  belief.percep.visibleTaskIcons = @[iconTopLeft(station, camX, camY)]
+  belief.percep.radarDots = @[missDotForRay(station, belief)]
 
-  # Now a dot matches — counter resets, task is back.
-  let (projX, projY) = projectedRadarDot(station, camX, camY,
-                                         belief.percep.selfX,
-                                         belief.percep.selfY)
-  belief.percep.radarDots = @[RadarDotMatch(x: projX, y: projY)]
-  updateTaskState(belief, RadarExclusionFrames + 6,
-                  holdIndex = -1, confirmIndex = -1)
-  expectEq(belief.tasks.slots[taskIdx].radarExclusionCount, 0,
-           "reversible: counter reset after dot match")
+  updateTaskState(belief, 1, holdIndex = -1, confirmIndex = -1)
+  expect(not belief.tasks.slots[taskIdx].radarRayExcluded,
+         "on-screen: task not ray-excluded")
+
+proc testZeroPipsSkipExclusion() =
+  var belief = setupBelief(camX = 0, camY = 0)
+  belief.percep.radarDots = @[]
+
+  updateTaskState(belief, 1, holdIndex = -1, confirmIndex = -1)
+  for i, slot in belief.tasks.slots:
+    expect(not slot.radarRayExcluded,
+           &"zero pips: task {i} not ray-excluded")
+
+# ---------------------------------------------------------------------------
+# 3. Checkout gating
+# ---------------------------------------------------------------------------
+
+proc testCheckoutGatedByRayExclusion() =
+  let (taskIdx, dot) = matchedButMissingRayCase()
+  expect(taskIdx >= 0, "checkout gate: found matched miss-ray case")
+  if taskIdx < 0:
+    return
+
+  var belief = setupBelief(camX = 0, camY = 0)
+  belief.percep.radarDots = @[dot]
+  updateTaskState(belief, 1, holdIndex = -1, confirmIndex = -1)
+
+  expect(belief.tasks.slots[taskIdx].radarRayExcluded,
+         "checkout gate: off-screen task ray-excluded")
+  expect(not belief.tasks.slots[taskIdx].checkout,
+         "checkout gate: checkout did not latch")
+  expectEq(belief.tasks.slots[taskIdx].state, TaskNotDoing,
+           "checkout gate: state remains not-doing")
+
+proc testOnScreenCheckoutStillLatches() =
+  let taskIdx = 0
+  let station = referenceData.map.tasks[taskIdx]
+  let (camX, camY) = onScreenCameraFor(station)
+  var belief = setupBelief(camX, camY)
+  belief.percep.visibleTaskIcons = @[iconTopLeft(station, camX, camY)]
+  belief.percep.radarDots = @[projectedDot(station, belief)]
+
+  updateTaskState(belief, 1, holdIndex = -1, confirmIndex = -1)
+
+  expect(not belief.tasks.slots[taskIdx].radarRayExcluded,
+         "on-screen checkout: not ray-excluded")
+  expect(belief.tasks.slots[taskIdx].checkout,
+         "on-screen checkout: checkout latched")
+  expectEq(belief.tasks.slots[taskIdx].state, TaskConfirmed,
+           "on-screen checkout: icon remains hard signal")
 
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
 proc main() =
-  testRayClipProjection()
-  testExclusionFiresAfterThreshold()
-  testExclusionResetsOnDotMatch()
-  testOnScreenTaskDoesNotAccumulate()
-  testZeroDotsSkipExclusion()
-  testSoftExclusionReversible()
+  testRayIntersectsIconAABB()
+  testPerFrameExclusionClearsImmediately()
+  testOnScreenTaskNotExcluded()
+  testZeroPipsSkipExclusion()
+  testCheckoutGatedByRayExclusion()
+  testOnScreenCheckoutStillLatches()
 
   if failures == 0:
-    echo "OK (all radar-ray exclusion checks passed)"
+    echo "OK (all per-frame radar-ray exclusion checks passed)"
   else:
     stderr.writeLine &"FAILED: {failures} check(s)"
     quit(1)

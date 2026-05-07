@@ -174,6 +174,54 @@ proc taskIconOnScreen*(station: TaskStation,
   sx + SpriteSize <= ScreenWidth - margin and
   sy + SpriteSize <= ScreenHeight - margin
 
+proc rayIntersectsIconAABB*(originX, originY: int,
+                            dirX, dirY: int,
+                            station: TaskStation,
+                            padding: int): bool =
+  ## True if the world-space ray from ``origin`` in ``dir`` intersects
+  ## the padded AABB around the task icon centre.
+  let iconCx = station.x + station.w div 2
+  let iconCy = station.y - SpriteSize div 2 - 2
+  let minX = iconCx - padding
+  let maxX = iconCx + padding
+  let minY = iconCy - padding
+  let maxY = iconCy + padding
+
+  let fdx = float(dirX)
+  let fdy = float(dirY)
+  let fox = float(originX)
+  let foy = float(originY)
+
+  if abs(fdx) < 0.001 and abs(fdy) < 0.001:
+    return false
+
+  var tMin = -1.0e18
+  var tMax = 1.0e18
+
+  if abs(fdx) > 0.001:
+    var t1 = (float(minX) - fox) / fdx
+    var t2 = (float(maxX) - fox) / fdx
+    if t1 > t2:
+      swap(t1, t2)
+    tMin = max(tMin, t1)
+    tMax = min(tMax, t2)
+  else:
+    if fox < float(minX) or fox > float(maxX):
+      return false
+
+  if abs(fdy) > 0.001:
+    var t1 = (float(minY) - foy) / fdy
+    var t2 = (float(maxY) - foy) / fdy
+    if t1 > t2:
+      swap(t1, t2)
+    tMin = max(tMin, t1)
+    tMax = min(tMax, t2)
+  else:
+    if foy < float(minY) or foy > float(maxY):
+      return false
+
+  tMax >= tMin and tMax > 0.0
+
 proc projectedRadarDot*(station: TaskStation,
                         camX, camY: int,
                         playerWx, playerWy: int): (int, int) =
