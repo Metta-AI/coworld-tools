@@ -55,6 +55,7 @@ from mettagrid.runner.bitworld_runner import (
     PlayerConnection,
     _build_bitworld_env_interface,
     _connect_websocket,
+    _start_server,
     _start_server_on_free_port,
     _stack_observation,
     _unpack_frame,
@@ -212,7 +213,12 @@ def start_server(
         seed=seed,
         server_config=server_config,
     )
-    server = _start_server_on_free_port(binary, runtime, env)
+    if port != 0:
+        # Use the specified port directly instead of auto-picking.
+        runtime.port = port
+        server = _start_server(binary, runtime, env)
+    else:
+        server = _start_server_on_free_port(binary, runtime, env)
     log.info(
         "Server running on %s:%d (pid %d)", runtime.host, runtime.port, server.pid
     )
@@ -693,10 +699,19 @@ def write_captured_frames(
 def setup_trace_env(
     trace_dir: str | None, trace_level: str = "decisions"
 ) -> None:
-    """Set ``MODULABOT_TRACE_DIR`` and ``MODULABOT_TRACE_LEVEL`` from CLI flags."""
+    """Set trace env vars for both modulabot and guided_bot from CLI flags.
+
+    Both ``MODULABOT_TRACE_DIR`` / ``MODULABOT_TRACE_LEVEL`` and
+    ``GUIDED_BOT_TRACE_DIR`` / ``GUIDED_BOT_TRACE_LEVEL`` are set so
+    that either policy type picks up the trace config. Each bot
+    implementation generates unique session subdirectories internally,
+    so sharing the same root directory is safe.
+    """
     if trace_dir:
         os.environ["MODULABOT_TRACE_DIR"] = trace_dir
         os.environ["MODULABOT_TRACE_LEVEL"] = trace_level
+        os.environ["GUIDED_BOT_TRACE_DIR"] = trace_dir
+        os.environ["GUIDED_BOT_TRACE_LEVEL"] = trace_level
         log.info("Trace enabled: %s (level=%s)", trace_dir, trace_level)
 
 
@@ -805,6 +820,12 @@ def add_server_args(parser: argparse.ArgumentParser) -> None:
         help="Path to the nottoodumb filler bot binary (auto-detect if omitted).",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=2000,
+        help="Server port (default: 2000).",
+    )
+    parser.add_argument(
         "--num-players",
         type=int,
         default=8,
@@ -904,8 +925,8 @@ def add_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--trace-level",
         default="decisions",
-        choices=("off", "events", "decisions"),
-        help="Trace verbosity.",
+        choices=("off", "events", "decisions", "full"),
+        help="Trace verbosity (full includes raw frame recording).",
     )
     parser.add_argument(
         "--metrics-out",

@@ -28,3 +28,6 @@ __pycache__/
 /test/ocr_voting_test
 /test/navigation_test
 voting_diag_test
+
+# Frame dumps and trace output (can be large — never commit).
+traces/

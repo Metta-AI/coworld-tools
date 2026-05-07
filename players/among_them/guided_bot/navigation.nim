@@ -473,6 +473,8 @@ proc initActionState*(): ActionState =
     ventAttemptTicks: 0,
     lastEmittedMask: 0,
     taskHoldTicks: 0,
+    lastLookahead: Point(x: 0, y: 0),
+    lastLookaheadValid: false,
   )
 
 proc goalChanged*(state: ActionState, goalX, goalY: int): bool =

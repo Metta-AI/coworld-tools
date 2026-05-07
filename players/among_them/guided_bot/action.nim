@@ -154,6 +154,8 @@ proc applyIntent*(
   ## waypoint navigation for DisciplineNormal. Other disciplines
   ## use simpler direct-steering logic.
 
+  state.lastLookaheadValid = false
+
   let graph = navGraph()[]
 
   # --- DisciplineNoOp ---
@@ -372,6 +374,8 @@ proc applyIntent*(
                                   state.currentEdgeTo)
         let look = selectLookahead(path, state.pathProgress,
                                    selfX, selfY, tick, forward)
+        state.lastLookahead = look.target
+        state.lastLookaheadValid = true
         if look.snapDist > PathSnapRadius:
           if state.currentEdgeFrom >= 0 and
              state.currentEdgeFrom < graph.waypointCount:

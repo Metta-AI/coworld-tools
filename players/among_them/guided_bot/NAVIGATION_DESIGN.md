@@ -534,22 +534,30 @@ The new system adds optional diagnostic fields to `decisions.jsonl`
   "mode": "task_completing",
   "directive_source": "default",
   "intent": { "steer_to": [678, 314], "discipline": "DisciplineNormal" },
+  "discipline": "normal",
   "mask": 10,
   "self_x": 660, "self_y": 230,
   "localized": true,
   "nav": {
     "strategic_path": [12, 8, 5, 3],
+    "goal_x": 678,
+    "goal_y": 314,
+    "current_wp_from": 14,
     "current_wp": 12,
     "edge_progress": 45,
     "edge_length": 112,
+    "lookahead_x": 662,
+    "lookahead_y": 238,
     "arrived": false
   }
 }
 ```
 
 The `"nav"` sub-object is emitted only at `TraceDecisions` level and
-only when DisciplineNormal is active. It adds ~100 bytes per line and
-provides full replay visibility into pathfinding decisions.
+only when DisciplineNormal is active. The top-level `"discipline"`
+field is always emitted, including non-navigation disciplines, so
+trace viewers can explain missing nav records. It adds ~100 bytes per
+line and provides full replay visibility into pathfinding decisions.
 
 ---
 

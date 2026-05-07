@@ -13,6 +13,7 @@
 ##       guidance.jsonl   (snapshot_sent / llm_response / directive_published)
 ##       reflexes.jsonl   (reflex_fired / reflex_suppressed)
 ##       snapshots.jsonl  (periodic full-belief snapshots)
+##       perception.jsonl (per-frame perception output for overlays)
 ##       frames.bin       (optional, gated by TraceFull)
 ##
 ## Multiple bots in the same process get unique session directories via a
@@ -32,6 +33,7 @@
 
 import std/[json, os, streams, times]
 import types
+import perception
 import navigation
 import snapshot as snapshotMod
 
@@ -64,6 +66,7 @@ type
     guidanceFile: FileStream
     reflexesFile: FileStream
     snapshotsFile: FileStream
+    perceptionFile: FileStream ## Per-frame perception output; nil unless TraceDecisions+.
     framesFile: FileStream      ## Binary append; nil unless TraceFull.
     ## Manifest state — written on open, updated on close.
     startTick: int
@@ -98,6 +101,30 @@ proc sourceStr(source: DirectiveSource): string =
   of SourceDefault: "default"
   of SourceLlm:     "llm"
   of SourceReflex:  "reflex"
+
+proc disciplineStr(d: ActionDiscipline): string =
+  case d
+  of DisciplineNoOp:       "noop"
+  of DisciplineNormal:     "normal"
+  of DisciplineTaskHold:   "task_hold"
+  of DisciplineKillStrike: "kill_strike"
+  of DisciplineReport:     "report"
+  of DisciplineWander:     "wander"
+
+proc phaseStr(phase: GamePhase): string =
+  case phase
+  of PhaseUnknown:      "unknown"
+  of PhaseLobby:        "lobby"
+  of PhaseGameplay:     "gameplay"
+  of PhaseInterstitial: "interstitial"
+  of PhaseVoting:       "voting"
+  of PhaseGameOver:     "game_over"
+
+proc roleStr(role: BotRole): string =
+  case role
+  of RoleUnknown:  "unknown"
+  of RoleCrewmate: "crewmate"
+  of RoleImposter: "imposter"
 
 proc paramsToJson(params: ModeParams): JsonNode =
   ## Serialize mode params to a JSON object. Only includes non-default
@@ -235,6 +262,17 @@ proc navToJson(state: ActionState): JsonNode =
   result["vent_policy"] = newJString(ventPolicyStr(state.ventPolicy))
   if state.navErrorReason.len > 0:
     result["last_error"] = newJString(state.navErrorReason)
+  result["goal_x"] = newJInt(state.currentGoal.x)
+  result["goal_y"] = newJInt(state.currentGoal.y)
+  result["current_wp_from"] = newJInt(
+    if state.currentEdgeFrom >= 0 and state.currentEdgeFrom < graph.waypoints.len:
+      graph.waypoints[state.currentEdgeFrom].id
+    else:
+      -1
+  )
+  if state.lastLookaheadValid:
+    result["lookahead_x"] = newJInt(state.lastLookahead.x)
+    result["lookahead_y"] = newJInt(state.lastLookahead.y)
 
 proc writeLine(fs: FileStream, line: string) =
   ## Write a line + newline to a file stream, flushing immediately so
@@ -315,6 +353,7 @@ proc openTrace*(rootDir: string, level: TraceLevel, botIndex: int = -1): TraceWr
     result.modesFile = newFileStream(sessionDir / "modes.jsonl", fmWrite)
     result.reflexesFile = newFileStream(sessionDir / "reflexes.jsonl", fmWrite)
     result.guidanceFile = newFileStream(sessionDir / "guidance.jsonl", fmWrite)
+    result.perceptionFile = newFileStream(sessionDir / "perception.jsonl", fmWrite)
 
   if level >= TraceFull:
     result.snapshotsFile = newFileStream(sessionDir / "snapshots.jsonl", fmWrite)
@@ -351,6 +390,9 @@ proc closeTrace*(trace: TraceWriter) =
   if trace.snapshotsFile != nil:
     trace.snapshotsFile.close()
     trace.snapshotsFile = nil
+  if trace.perceptionFile != nil:
+    trace.perceptionFile.close()
+    trace.perceptionFile = nil
   if trace.framesFile != nil:
     trace.framesFile.close()
     trace.framesFile = nil
@@ -379,6 +421,7 @@ proc logDecision*(trace: TraceWriter, belief: Belief,
   rec["params"] = paramsToJson(belief.directive.params)
   rec["branch_id"] = newJString(branchId)
   rec["intent"] = intentToJson(intent)
+  rec["discipline"] = newJString(disciplineStr(intent.discipline))
   rec["mask"] = newJInt(int(mask))
   # Self position for correlating with camera localization.
   rec["self_x"] = newJInt(belief.percep.selfX)
@@ -389,6 +432,123 @@ proc logDecision*(trace: TraceWriter, belief: Belief,
   if belief.directive.reasoning.len > 0:
     rec["reason"] = newJString(belief.directive.reasoning)
   trace.decisionsFile.writeLine($rec)
+
+proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Belief) =
+  ## Log full per-frame perception output to perception.jsonl for
+  ## offline visualization. Coordinates from percept are screen-space;
+  ## camera/self coordinates from belief are world-space.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+  if trace.perceptionFile == nil:
+    return
+
+  trace.endTick = tick
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["phase"] = newJString(phaseStr(belief.self.phase))
+  rec["interstitial"] = newJBool(percept.interstitial.isInterstitial)
+  rec["black_pixel_count"] = newJInt(percept.interstitial.blackPixelCount)
+  rec["localized"] = newJBool(belief.percep.localized)
+  rec["camera_x"] = newJInt(belief.percep.cameraX)
+  rec["camera_y"] = newJInt(belief.percep.cameraY)
+  rec["camera_score"] = newJInt(belief.percep.cameraScore)
+  rec["self_x"] = newJInt(belief.percep.selfX)
+  rec["self_y"] = newJInt(belief.percep.selfY)
+  rec["self_color"] = newJInt(belief.self.colorIndex)
+  rec["role"] = newJString(roleStr(belief.self.role))
+  rec["is_ghost"] = newJBool(belief.self.isGhost)
+  rec["kill_ready"] = newJBool(belief.percep.killReady)
+
+  var crewmates = newJArray()
+  for cm in percept.actors.crewmates:
+    var obj = newJObject()
+    obj["x"] = newJInt(cm.x)
+    obj["y"] = newJInt(cm.y)
+    obj["color"] = newJInt(cm.colorIndex)
+    obj["flip_h"] = newJBool(cm.flipH)
+    crewmates.add obj
+  rec["crewmates"] = crewmates
+
+  var bodies = newJArray()
+  for body in percept.actors.bodies:
+    var obj = newJObject()
+    obj["x"] = newJInt(body.x)
+    obj["y"] = newJInt(body.y)
+    obj["color"] = newJInt(body.colorIndex)
+    bodies.add obj
+  rec["bodies"] = bodies
+
+  var ghosts = newJArray()
+  for ghost in percept.actors.ghosts:
+    var obj = newJObject()
+    obj["x"] = newJInt(ghost.x)
+    obj["y"] = newJInt(ghost.y)
+    obj["flip_h"] = newJBool(ghost.flipH)
+    ghosts.add obj
+  rec["ghosts"] = ghosts
+
+  var taskIcons = newJArray()
+  for icon in percept.taskPercept.taskIcons:
+    var obj = newJObject()
+    obj["x"] = newJInt(icon.x)
+    obj["y"] = newJInt(icon.y)
+    taskIcons.add obj
+  rec["task_icons"] = taskIcons
+
+  var radarDots = newJArray()
+  for dot in percept.taskPercept.radarDots:
+    var obj = newJObject()
+    obj["x"] = newJInt(dot.x)
+    obj["y"] = newJInt(dot.y)
+    radarDots.add obj
+  rec["radar_dots"] = radarDots
+
+  var maskCount = 0
+  for b in percept.ignoreMask.data:
+    if b != 0'u8:
+      inc maskCount
+  rec["ignore_mask_count"] = newJInt(maskCount)
+
+  if percept.votingParse.valid:
+    var voting = newJObject()
+    voting["player_count"] = newJInt(percept.votingParse.playerCount)
+    voting["cursor"] = newJInt(percept.votingParse.cursor)
+    voting["self_slot"] = newJInt(percept.votingParse.selfSlot)
+
+    var playerCount = percept.votingParse.playerCount
+    if playerCount < 0:
+      playerCount = 0
+    if playerCount > percept.votingParse.slots.len:
+      playerCount = percept.votingParse.slots.len
+
+    var slots = newJArray()
+    for i in 0 ..< playerCount:
+      let slot = percept.votingParse.slots[i]
+      var obj = newJObject()
+      obj["color"] = newJInt(slot.colorIndex)
+      obj["alive"] = newJBool(slot.alive)
+      slots.add obj
+    voting["slots"] = slots
+
+    var choices = newJArray()
+    for i in 0 ..< playerCount:
+      choices.add newJInt(percept.votingParse.choices[i])
+    voting["choices"] = choices
+
+    var chatLines = newJArray()
+    for line in percept.votingParse.chatLines:
+      var obj = newJObject()
+      obj["speakerColor"] = newJInt(line.speakerColor)
+      obj["y"] = newJInt(line.y)
+      obj["text"] = newJString(line.text)
+      chatLines.add obj
+    voting["chat_lines"] = chatLines
+    rec["voting"] = voting
+  else:
+    rec["voting"] = newJNull()
+
+  trace.perceptionFile.writeLine($rec)
 
 proc logModeEntered*(trace: TraceWriter, tick: int, fromMode, toMode: ModeName,
                     params: ModeParams, reason: string) =

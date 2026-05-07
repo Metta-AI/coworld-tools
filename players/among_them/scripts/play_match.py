@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import threading
 import time
@@ -92,6 +93,7 @@ def main() -> int:
 
     server, config = start_server(
         server_bin,
+        port=args.port,
         num_players=n,
         max_ticks=max_ticks,
         seed=args.seed,
@@ -126,6 +128,13 @@ def main() -> int:
         for i in range(n):
             kw = dict(policy_kwargs)
             kw["seed"] = str(args.seed + i)
+            # Pass per-instance trace_dir so each bot gets a
+            # deterministic output path (overrides env-var-based
+            # tracing). The Nim-side session-dir generation still
+            # applies within each per-bot directory.
+            if args.trace_dir:
+                kw["trace_dir"] = os.path.join(args.trace_dir, f"bot_{i}")
+                kw["trace_level"] = args.trace_level
             policies.append(
                 resolve_policy(args.policy, env_info, policy_kwargs=kw)
             )

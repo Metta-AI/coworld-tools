@@ -89,6 +89,7 @@ def main() -> int:
     max_ticks = derive_max_ticks(args)
     server, config = start_server(
         server_bin,
+        port=args.port,
         num_players=args.num_players,
         max_ticks=max_ticks,
         seed=args.seed,

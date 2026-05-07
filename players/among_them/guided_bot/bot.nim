@@ -455,8 +455,12 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
         of InterstitialRoleRevealCrewmate:
           bot.belief.self.role = RoleCrewmate
         else: discard
-      # Scan for imposter colors on every interstitial frame.
-      if bot.belief.self.knownImposterColors.len == 0:
+      # Scan for imposter colors only on confirmed IMPS reveal frames.
+      # Previously this ran on ALL interstitial frames, which caused
+      # false positives: the lobby and CREWMATE screens also show
+      # player sprites whose tint colors triggered the detector.
+      if bot.cachedInterstitialKind == InterstitialRoleRevealImposter and
+         bot.belief.self.knownImposterColors.len == 0:
         var textPixels = 0
         for y in 15 .. 21:
           for x in 40 ..< 90:
@@ -495,6 +499,9 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
   else:
     # Leaving interstitial phase — reset the cache for the next run.
     bot.interstitialClassified = false
+
+  # Log full per-frame perception output for offline visualization.
+  logPerception(bot.trace, bot.frameTick, percept, bot.belief)
 
   # Phase 3: flush meeting conversation when leaving voting phase.
   if bot.prevPhaseForGuidance == PhaseVoting and

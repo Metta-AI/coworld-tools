@@ -492,6 +492,8 @@ type
     ventAttemptTicks*: int         ## Consecutive ButtonB ticks on a vent edge.
     lastEmittedMask*: uint8
     taskHoldTicks*: int            ## Counter for TaskHold discipline.
+    lastLookahead*: Point          ## World-space pixel target from selectLookahead.
+    lastLookaheadValid*: bool      ## True when lastLookahead was set this tick.
 
 # ---------------------------------------------------------------------------
 # Mode scratch state
