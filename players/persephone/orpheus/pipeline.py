@@ -6,13 +6,14 @@ from collections.abc import Callable
 
 import numpy as np
 
+from orpheus import belief_update
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
 from orpheus.mode import Mode, ModeRegistry
 from orpheus.perception import parse_frame
 from orpheus.perception.types import FramePerception
 from orpheus.task import ActCommand, Task
-from orpheus.types import RESET_MASK, View
+from orpheus.types import RESET_MASK
 
 
 def _tasks_equivalent(a: Task, b: Task) -> bool:
@@ -85,31 +86,9 @@ class Pipeline:
         return command
 
     def _belief_update(self, perception: FramePerception) -> None:
-        """Apply Stage 1 universal belief updates from perception."""
-        bs = self.belief_state
-        prev_in_whisper = bs.in_whisper
-
-        bs.tick += 1
-        bs.view = perception.view
-        bs.in_whisper = perception.view == View.WHISPER
-
-        if prev_in_whisper and not bs.in_whisper:
-            bs.whisper_occupants = []
-            bs.pending_offers = {"role": False, "color": False}
-            bs.pending_entry = None
-            bs.menu_state = None
-
-        expired: list[str] = []
-        for key, value in list(bs.cooldowns.items()):
-            if value > 0:
-                bs.cooldowns[key] = value - 1
-            if bs.cooldowns[key] <= 0:
-                expired.append(key)
-        for key in expired:
-            del bs.cooldowns[key]
-
-        # TODO Stage 2: per-view updates (lobby, role_reveal, overworld,
-        # whisper, etc.).
+        """Integrate perception output into the persistent belief state."""
+        previous_view = self.belief_state.view
+        belief_update.apply(self.belief_state, perception, previous_view)
 
     def _send_act_command(self, command: ActCommand) -> None:
         """Lower an ActCommand into the transport callables."""

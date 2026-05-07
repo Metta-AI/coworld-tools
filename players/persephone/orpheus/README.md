@@ -48,6 +48,6 @@ To build a concrete agent on Orpheus, you supply:
 
 ## Status
 
-Design phase — all major components specified in DESIGN.md. The
-`perception/` module is incorporated; remaining modules are not yet
-implemented.
+Stages 0-2 are implemented: public type contracts, the inner-loop skeleton,
+and the belief update pipeline. The `perception/` module is incorporated;
+later stages remain specified in DESIGN.md and IMPLEMENTATION_PLAN.md.

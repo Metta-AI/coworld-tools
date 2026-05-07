@@ -1,0 +1,604 @@
+"""Belief update integration for Orpheus perception frames."""
+
+from __future__ import annotations
+
+from orpheus.belief_state import (
+    BeliefState,
+    ChatMessageRecord,
+    MinimapSighting,
+    PlayerInfo,
+)
+from orpheus.perception._common import PLAYER_COLORS, TEAM_A_COLOR, TEAM_B_COLOR
+from orpheus.perception.types import (
+    ChatMessage,
+    ChatroomPerception,
+    ExchangePerception,
+    ExchangePlayer,
+    FramePerception,
+    GlobalChatPerception,
+    InfoScreenPerception,
+    KnownPlayer,
+    LobbyPerception,
+    OverworldPerception,
+    PlayerShape,
+    ResultPerception,
+    RoleRevealPerception,
+    Room,
+    RosterRevealPerception,
+    View,
+)
+from orpheus.types import KnowledgeSource
+
+OVERWORLD_VIEWS = {
+    View.PLAYING,
+    View.HOSTAGE_SELECT,
+    View.LEADER_SUMMIT,
+    View.WAITING_ENTRY,
+}
+
+
+def apply(
+    belief_state: BeliefState,
+    perception: FramePerception,
+    previous_view: View,
+) -> None:
+    """Mutate belief_state in place by integrating one frame's perception.
+
+    Args:
+        belief_state: Persistent framework belief state to update.
+        perception: Symbolic perception output for the current frame.
+        previous_view: View from the previous tick, used for Lobby reset and
+            whisper-exit transitions.
+    """
+    if _is_lobby_reset(perception.view, previous_view):
+        belief_state.reset()
+
+    _apply_universal_updates(belief_state, perception.view)
+
+    if perception.view == View.LOBBY:
+        _apply_lobby(belief_state, perception.lobby)
+    elif perception.view == View.ROSTER_REVEAL:
+        _apply_roster_reveal(belief_state, perception.roster_reveal)
+    elif perception.view == View.ROLE_REVEAL:
+        _apply_role_reveal(belief_state, perception.role_reveal)
+    elif perception.view in OVERWORLD_VIEWS:
+        _apply_overworld(belief_state, perception.overworld, perception.view)
+    elif perception.view == View.WHISPER:
+        _apply_whisper(belief_state, perception.chatroom)
+    elif perception.view == View.GLOBAL_CHAT:
+        _apply_global_chat(belief_state, perception.global_chat)
+    elif perception.view == View.INFO_SCREEN:
+        _apply_info_screen(belief_state, perception.info_screen)
+    elif perception.view == View.HOSTAGE_EXCHANGE:
+        _apply_exchange(belief_state, perception.exchange)
+    elif perception.view in {View.REVEAL, View.GAME_OVER}:
+        _apply_result(belief_state, perception.result)
+
+
+def decode_player_index(
+    color: int,
+    shape: PlayerShape | None,
+    player_count: int | None,
+) -> int | None:
+    """Return the unique player index matching ``(color, shape)``.
+
+    The player color repeats every 8 indices and shape repeats every 12
+    indices. Since lcm(8, 12) = 24, the pair is unique for up to 24 players.
+
+    Args:
+        color: PICO-8 palette index for the player color.
+        shape: Detected player shape, or None if shape detection failed.
+        player_count: Known player count. If unknown, search the full 0..23
+            possible index space.
+
+    Returns:
+        The matching player index, or None if no unique match is available.
+    """
+    if shape is None:
+        return None
+
+    for index in range(player_count or 24):
+        if (
+            PLAYER_COLORS[index % 8] == color
+            and PlayerShape(index % 12) == shape
+        ):
+            return index
+    return None
+
+
+def team_color_to_name(color: int | None) -> str | None:
+    """Map a team color palette index to a canonical team name."""
+    if color == TEAM_A_COLOR:
+        return "shades"
+    if color == TEAM_B_COLOR:
+        return "nymphs"
+    return None
+
+
+def room_string_to_enum(s: str | None) -> Room | None:
+    """Map a perception room string to a Room enum."""
+    if s is None:
+        return None
+
+    normalized = s.strip().lower().replace("_", " ")
+    if normalized == "underworld":
+        return Room.UNDERWORLD
+    if normalized == "mortal realm":
+        return Room.MORTAL_REALM
+    return None
+
+
+def _is_lobby_reset(current_view: View, previous_view: View) -> bool:
+    return (
+        current_view == View.LOBBY
+        and previous_view not in {View.LOBBY, View.UNKNOWN}
+    )
+
+
+def _apply_universal_updates(
+    belief_state: BeliefState,
+    current_view: View,
+) -> None:
+    previous_in_whisper = belief_state.in_whisper
+
+    belief_state.tick += 1
+    belief_state.view = current_view
+    belief_state.in_whisper = current_view == View.WHISPER
+
+    if previous_in_whisper and not belief_state.in_whisper:
+        belief_state.whisper_occupants = []
+        belief_state.pending_offers = {"role": False, "color": False}
+        belief_state.pending_entry = None
+        belief_state.menu_state = None
+
+    expired: list[str] = []
+    for key, value in list(belief_state.cooldowns.items()):
+        if value > 0:
+            belief_state.cooldowns[key] = value - 1
+        if belief_state.cooldowns[key] <= 0:
+            expired.append(key)
+
+    for key in expired:
+        del belief_state.cooldowns[key]
+
+
+def _apply_lobby(
+    belief_state: BeliefState,
+    lobby: LobbyPerception | None,
+) -> None:
+    if lobby is None:
+        return
+
+    if lobby.player_count is not None:
+        belief_state.player_count = lobby.player_count
+
+
+def _apply_roster_reveal(
+    belief_state: BeliefState,
+    roster_reveal: RosterRevealPerception | None,
+) -> None:
+    if roster_reveal is None:
+        return
+
+    for entry in roster_reveal.players:
+        player_index = decode_player_index(
+            entry.color,
+            entry.shape,
+            belief_state.player_count,
+        )
+        if player_index is None:
+            continue
+
+        player = belief_state.players.setdefault(player_index, PlayerInfo())
+        player.room = entry.room
+
+
+def _apply_role_reveal(
+    belief_state: BeliefState,
+    role_reveal: RoleRevealPerception | None,
+) -> None:
+    if role_reveal is None:
+        return
+
+    if belief_state.my_role is None and role_reveal.role is not None:
+        belief_state.my_role = role_reveal.role.lower()
+
+    if belief_state.my_team is None and role_reveal.team is not None:
+        belief_state.my_team = role_reveal.team.lower()
+
+    if belief_state.my_room is None:
+        belief_state.my_room = room_string_to_enum(role_reveal.room)
+
+    if belief_state.room_size is None and role_reveal.room_size is not None:
+        belief_state.room_size = (
+            role_reveal.room_size,
+            role_reveal.room_size,
+        )
+
+    # TODO Stage 2 perception gap: round_schedule not yet extracted by
+    # perception.RoleRevealPerception.
+    # TODO Stage 3: initialize OccupancyGrid here once room_size is known
+    # (border WALL, interior UNKNOWN).
+    # TODO Stage 2 perception gap: RoleRevealPerception does not yet surface
+    # own-sprite color/shape, so my_color/my_shape/my_index cannot be decoded.
+
+
+def _apply_overworld(
+    belief_state: BeliefState,
+    overworld: OverworldPerception | None,
+    view: View,
+) -> None:
+    if overworld is None:
+        return
+
+    if overworld.self_position is not None:
+        belief_state.position = (
+            overworld.self_position.x,
+            overworld.self_position.y,
+        )
+
+    if overworld.room is not None:
+        belief_state.room = overworld.room
+
+    if overworld.round is not None:
+        belief_state.round = overworld.round
+
+    if overworld.timer_secs is not None:
+        belief_state.timer_secs = overworld.timer_secs
+
+    _apply_overworld_speech_bubbles(belief_state, overworld)
+    _apply_overworld_minimap_sightings(belief_state, overworld)
+
+    belief_state.is_leader = overworld.is_leader
+    if overworld.is_leader and belief_state.my_room is not None:
+        leader_color = overworld.role_team_color
+        if leader_color is None:
+            leader_color = belief_state.my_color
+        if leader_color is not None:
+            # TODO Stage 2 perception gap: full leader detection for other
+            # rooms requires crown indicators for visible non-self players.
+            belief_state.leader_colors[belief_state.my_room] = leader_color
+
+    if overworld.last_shout is not None:
+        _append_shout_if_new(belief_state, overworld.last_shout)
+
+    # TODO Stage 2 perception gap: overworld visible-player sprites and role
+    # indicators are not yet exposed separately from speech bubbles.
+    # TODO Stage 3: update occupancy_grid from viewport pixels, minimap
+    # obstacle dots, and movement confirmation.
+
+    if (
+        view == View.HOSTAGE_SELECT
+        and overworld.hostage_grid is not None
+        and overworld.is_leader_selecting
+    ):
+        belief_state.hostage_selections = overworld.hostage_grid
+
+
+def _apply_overworld_speech_bubbles(
+    belief_state: BeliefState,
+    overworld: OverworldPerception,
+) -> None:
+    for bubble in overworld.speech_bubbles:
+        player_index = decode_player_index(
+            bubble.player_color,
+            bubble.player_shape,
+            belief_state.player_count,
+        )
+        if player_index is None:
+            continue
+
+        player = belief_state.players.setdefault(player_index, PlayerInfo())
+        world_position = _screen_to_world(
+            belief_state,
+            bubble.screen_x,
+            bubble.screen_y,
+        )
+        if world_position is not None:
+            player.position = (
+                world_position[0],
+                world_position[1],
+                belief_state.tick,
+            )
+        player.last_seen_in_whisper = belief_state.tick
+
+
+def _apply_overworld_minimap_sightings(
+    belief_state: BeliefState,
+    overworld: OverworldPerception,
+) -> None:
+    for dot in overworld.minimap_dots:
+        if dot.is_self:
+            continue
+
+        belief_state.minimap_sightings.append(
+            MinimapSighting(
+                color=dot.color,
+                position=(dot.world_x, dot.world_y),
+                tick=belief_state.tick,
+            )
+        )
+
+
+def _screen_to_world(
+    belief_state: BeliefState,
+    screen_x: int,
+    screen_y: int,
+) -> tuple[int, int] | None:
+    if belief_state.position is None or belief_state.room_size is None:
+        return None
+
+    self_center_x, self_center_y = belief_state.position
+    room_w, room_h = belief_state.room_size
+    camera_x = _clamp(self_center_x - 64, 0, room_w - 128)
+    camera_y = _clamp(self_center_y - 64, -9, room_h - 119)
+    return screen_x + camera_x, screen_y + camera_y
+
+
+def _clamp(value: int, lower: int, upper: int) -> int:
+    return min(max(value, lower), upper)
+
+
+def _append_shout_if_new(belief_state: BeliefState, text: str) -> None:
+    for record in reversed(belief_state.chat_history):
+        if record.channel == "shout":
+            if record.text == text:
+                return
+            break
+
+    belief_state.chat_history.append(
+        ChatMessageRecord(
+            sender_index=None,
+            tick=belief_state.tick,
+            channel="shout",
+            text=text,
+            occupants=None,
+        )
+    )
+
+
+def _apply_whisper(
+    belief_state: BeliefState,
+    chatroom: ChatroomPerception | None,
+) -> None:
+    if chatroom is None:
+        return
+
+    belief_state.whisper_occupants = []
+    for color, shape in zip(chatroom.occupant_colors, chatroom.occupant_shapes):
+        # Ambiguous color-only occupants are skipped until shape perception
+        # succeeds; color alone can map to multiple player indices.
+        player_index = decode_player_index(
+            color,
+            shape,
+            belief_state.player_count,
+        )
+        if player_index is not None:
+            belief_state.whisper_occupants.append(player_index)
+
+    for message in chatroom.messages:
+        _append_chat_message_if_new(
+            belief_state,
+            message,
+            channel="whisper",
+            occupants=list(belief_state.whisper_occupants),
+        )
+        if message.is_system and "shared roles" in message.text.lower():
+            # TODO Stage 2 perception gap: full shared-roles partner detection
+            # requires sprite-pair perception that ChatMessage does not expose.
+            pass
+
+    belief_state.pending_offers = {
+        "role": chatroom.pending_role_offer,
+        "color": chatroom.pending_color_offer,
+    }
+
+    if chatroom.has_pending_entry:
+        belief_state.pending_entry = decode_player_index(
+            chatroom.pending_entry_color,
+            chatroom.pending_entry_shape,
+            belief_state.player_count,
+        )
+    else:
+        belief_state.pending_entry = None
+
+    belief_state.menu_state = {
+        "bar": chatroom.bottom_bar,
+        "category": chatroom.menu_category,
+        "item": chatroom.menu_item,
+        "enabled": chatroom.menu_enabled,
+        "target_mode": chatroom.target_mode,
+        "target_colors": list(chatroom.target_colors),
+    }
+
+
+def _append_chat_message_if_new(
+    belief_state: BeliefState,
+    message: ChatMessage,
+    channel: str,
+    occupants: list[int] | None,
+) -> None:
+    sender_index = _decode_message_sender(belief_state, message)
+    for record in belief_state.chat_history[-20:]:
+        if (
+            record.channel == channel
+            and record.sender_index == sender_index
+            and record.text == message.text
+        ):
+            return
+
+    belief_state.chat_history.append(
+        ChatMessageRecord(
+            sender_index=sender_index,
+            tick=belief_state.tick,
+            channel=channel,
+            text=message.text,
+            occupants=occupants,
+        )
+    )
+
+
+def _decode_message_sender(
+    belief_state: BeliefState,
+    message: ChatMessage,
+) -> int | None:
+    if message.sender_color is None:
+        return None
+    return decode_player_index(
+        message.sender_color,
+        message.sender_shape,
+        belief_state.player_count,
+    )
+
+
+def _apply_global_chat(
+    belief_state: BeliefState,
+    global_chat: GlobalChatPerception | None,
+) -> None:
+    if global_chat is None:
+        return
+
+    for message in global_chat.messages:
+        _append_chat_message_if_new(
+            belief_state,
+            message,
+            channel="global",
+            occupants=None,
+        )
+
+    candidate = global_chat.usurp_candidate
+    if (
+        candidate is not None
+        and candidate.player_color is not None
+        and belief_state.room is not None
+    ):
+        # TODO Stage 2 perception gap: this approximates the visible usurp
+        # candidate as current leader when no usurp is active.
+        belief_state.leader_colors[belief_state.room] = candidate.player_color
+
+    if global_chat.hostage_grid is not None and belief_state.is_leader:
+        belief_state.hostage_selections = global_chat.hostage_grid
+
+
+def _apply_info_screen(
+    belief_state: BeliefState,
+    info_screen: InfoScreenPerception | None,
+) -> None:
+    if info_screen is None:
+        return
+
+    for known_player in info_screen.known_players:
+        _apply_known_player(belief_state, known_player)
+
+
+def _apply_known_player(
+    belief_state: BeliefState,
+    known_player: KnownPlayer,
+) -> None:
+    if known_player.is_self:
+        return
+
+    player_index = decode_player_index(
+        known_player.color,
+        known_player.shape,
+        belief_state.player_count,
+    )
+    if player_index is None:
+        return
+
+    player = belief_state.players.setdefault(player_index, PlayerInfo())
+    if known_player.role_name is not None and not known_player.color_only:
+        player.role = known_player.role_name
+        player.role_source = KnowledgeSource.GAME_DISPLAY
+
+    team_name = team_color_to_name(known_player.team_color)
+    if team_name is not None:
+        player.team = team_name
+        player.team_source = KnowledgeSource.GAME_DISPLAY
+
+
+def _apply_exchange(
+    belief_state: BeliefState,
+    exchange: ExchangePerception | None,
+) -> None:
+    if exchange is None:
+        return
+
+    for exchange_player in (
+        exchange.leaders + exchange.departing + exchange.arriving
+    ):
+        _apply_exchange_player(belief_state, exchange_player)
+
+    if belief_state.my_room is None:
+        return
+
+    other_room = _other_room(belief_state.my_room)
+    for exchange_player in exchange.departing:
+        player_index = _decode_exchange_player(belief_state, exchange_player)
+        if player_index is not None:
+            belief_state.players.setdefault(
+                player_index,
+                PlayerInfo(),
+            ).room = other_room
+
+    for exchange_player in exchange.arriving:
+        player_index = _decode_exchange_player(belief_state, exchange_player)
+        if player_index is not None:
+            belief_state.players.setdefault(
+                player_index,
+                PlayerInfo(),
+            ).room = belief_state.my_room
+
+
+def _apply_exchange_player(
+    belief_state: BeliefState,
+    exchange_player: ExchangePlayer,
+) -> None:
+    player_index = _decode_exchange_player(belief_state, exchange_player)
+    if player_index is None:
+        return
+
+    player = belief_state.players.setdefault(player_index, PlayerInfo())
+    role_indicator = exchange_player.role_indicator
+    if role_indicator is None:
+        return
+
+    player.role = role_indicator.role
+    player.role_source = KnowledgeSource.GAME_DISPLAY
+    player.team = role_indicator.team
+    player.team_source = KnowledgeSource.GAME_DISPLAY
+
+
+def _decode_exchange_player(
+    belief_state: BeliefState,
+    exchange_player: ExchangePlayer,
+) -> int | None:
+    return decode_player_index(
+        exchange_player.color,
+        exchange_player.shape,
+        belief_state.player_count,
+    )
+
+
+def _other_room(room: Room) -> Room:
+    if room == Room.UNDERWORLD:
+        return Room.MORTAL_REALM
+    return Room.UNDERWORLD
+
+
+def _apply_result(
+    belief_state: BeliefState,
+    result: ResultPerception | None,
+) -> None:
+    if result is None or result.winner is None:
+        return
+
+    belief_state.winner = result.winner.lower()
+
+
+__all__ = [
+    "apply",
+    "decode_player_index",
+    "team_color_to_name",
+    "room_string_to_enum",
+]
