@@ -21,6 +21,7 @@ from ._common import (
     TEAM_A_COLOR,
     TEAM_B_COLOR,
 )
+from ._hostage_grid import parse_hostage_grid
 from ._minimap import scan_minimap
 from ._ocr import normalize_digits, normalize_text, read_text_at, read_text_any_color
 from ._position import detect_room, estimate_position
@@ -29,18 +30,21 @@ from .types import (
     OverworldBottomBar,
     OverworldPerception,
     Room,
+    View,
 )
 
 
 def parse_overworld(
     frame: np.ndarray,
     room_size: int = DEFAULT_ROOM_SIZE,
+    view: View | None = None,
 ) -> OverworldPerception:
     """Extract all visible information from an overworld frame.
 
     Args:
         frame: (128, 128) uint8 pixel array.
         room_size: Room dimensions (for position estimation).
+        view: Detected view, when available.
 
     Returns:
         OverworldPerception with all detected fields.
@@ -70,6 +74,10 @@ def parse_overworld(
     # -- Speech bubbles -------------------------------------------------------
     result.speech_bubbles = scan_speech_bubbles(frame)
 
+    # -- Hostage grid ---------------------------------------------------------
+    if view == View.HOSTAGE_SELECT:
+        result.hostage_grid = parse_hostage_grid(frame)
+
     return result
 
 
@@ -91,49 +99,76 @@ def _parse_top_bar(frame: np.ndarray, result: OverworldPerception) -> None:
         for x in range(max(0, minimap_left - 44), minimap_left):
             text = read_text_at(frame, x, 2, color, 12)
             if text and len(text.strip()) >= 3:
-                result.role_name = text.strip()
+                role_name = text.strip()
+                if role_name.endswith("*"):
+                    result.is_leader = True
+                    role_name = role_name[:-1]
+                result.role_name = role_name
                 result.role_team_color = color
                 return
         if result.role_name:
             break
 
-    # HostageSelect: "SELECT {n}S" at (2, 2) in color 8
+    # HostageSelect phase label: current renderer draws it at (42, 2).
+    # Keep the legacy (2, 2) path for older captured fixtures.
+    alert_text = read_text_at(frame, 42, 2, COLOR_HUD_ALERT, 12)
+    alert_norm = normalize_text(alert_text)
+    if alert_norm.startswith("SELECT"):
+        result.is_leader_selecting = True
+        _parse_hostage_select_timer(alert_text, result)
+        return
+
+    dim_text = read_text_at(frame, 42, 2, COLOR_HUD_DIM, 12)
+    dim_norm = normalize_text(dim_text)
+    if dim_norm.startswith("SELECT"):
+        _parse_hostage_select_timer(dim_text, result)
+        return
+
     if not m:
         alert_text = read_text_at(frame, 2, 2, COLOR_HUD_ALERT, 12)
-        alert_norm = normalize_text(alert_text)
-        alert_d = normalize_digits(alert_text)
-        if alert_norm.startswith("SELECT"):
+        if normalize_text(alert_text).startswith("SELECT"):
             result.is_leader_selecting = True
-            digits = re.search(r"(\d+)", alert_d[6:])
-            if digits:
-                result.hostage_select_secs = int(digits.group(1))
-        # Non-leader: "{LEADER} PICKS {n}S" at (2, 2) in color 1
-        else:
-            dim_text = read_text_at(frame, 2, 2, COLOR_HUD_DIM, 25)
-            dim_d = normalize_digits(dim_text)
-            picks_match = re.search(r"(\d+)S?$", dim_d.strip())
-            if picks_match and "PICK" in normalize_text(dim_text):
-                result.hostage_select_secs = int(picks_match.group(1))
+            _parse_hostage_select_timer(alert_text, result)
+            return
+
+        # Older non-leader layout: "{LEADER} PICKS {n}S" at (2, 2) in color 1
+        dim_text = read_text_at(frame, 2, 2, COLOR_HUD_DIM, 25)
+        dim_d = normalize_digits(dim_text)
+        picks_match = re.search(r"(\d+)S?$", dim_d.strip())
+        if picks_match and "PICK" in normalize_text(dim_text):
+            result.hostage_select_secs = int(picks_match.group(1))
+
+
+def _parse_hostage_select_timer(
+    text: str,
+    result: OverworldPerception,
+) -> None:
+    """Extract seconds from a ``SELECT {n}S`` phase label."""
+    digits = re.search(r"(\d+)", normalize_digits(text))
+    if digits:
+        result.hostage_select_secs = int(digits.group(1))
 
 
 def _parse_bottom_bar(frame: np.ndarray, result: OverworldPerception) -> None:
-    """Parse the bottom bar state."""
-    # Check for WAITING (chatroom entry pending) in color 8
+    """Parse the bottom bar state.
+
+    Current states:
+    - WAITING: "WAITING..." in color 8 (pending whisper entry)
+    - NOTICE: transient notice text in color 8 (not "WAITING...")
+    - DEFAULT: "J:NEW K:JOIN L:SHOUT" in color 1
+    """
+    # Check for text in color 8 (WAITING or other notice)
     bar_text_8 = read_text_at(frame, 2, BAR_Y + 2, COLOR_HUD_ALERT, 10)
     if normalize_text(bar_text_8).startswith("WAITING"):
         result.bottom_bar = OverworldBottomBar(state=BottomBarState.WAITING)
+    elif bar_text_8.strip():
+        # Some other notice text in color 8 (e.g. system feedback)
+        result.bottom_bar = OverworldBottomBar(
+            state=BottomBarState.NOTICE,
+            notice_text=normalize_text(bar_text_8),
+        )
     else:
-        # Check for comm menu: "< ITEM >" in color 2
-        bar_text_2 = read_text_at(frame, 2, BAR_Y + 2, COLOR_HUD_NORMAL, 15)
-        if bar_text_2.startswith("<"):
-            # Extract item name between < and >
-            item = bar_text_2.strip("<> ").strip()
-            result.bottom_bar = OverworldBottomBar(
-                state=BottomBarState.COMM_MENU,
-                comm_menu_item=normalize_text(item) if item else None,
-            )
-        else:
-            result.bottom_bar = OverworldBottomBar(state=BottomBarState.DEFAULT)
+        result.bottom_bar = OverworldBottomBar(state=BottomBarState.DEFAULT)
 
     # Check for unread global chat dot at (124, 123) -- color 11 (green)
     if BAR_Y + 4 < SCREEN_HEIGHT and 124 < SCREEN_WIDTH:
@@ -142,7 +177,7 @@ def _parse_bottom_bar(frame: np.ndarray, result: OverworldPerception) -> None:
 
 
 def _parse_shout_strip(frame: np.ndarray, result: OverworldPerception) -> None:
-    """Parse the shout strip above the bottom bar (Playing phase only).
+    """Parse the shout strip above the bottom bar (Playing and LeaderSummit phases).
 
     The strip is at y=112 (BAR_Y - 7). Has a 3-pixel red marker at x=0,
     then text at x=2 in the sender's player color.

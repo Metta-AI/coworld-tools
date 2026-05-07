@@ -38,6 +38,7 @@ class FramePerception:
     global_chat: GlobalChatPerception | None
     info_screen: InfoScreenPerception | None
     role_reveal: RoleRevealPerception | None
+    roster_reveal: RosterRevealPerception | None
     exchange: ExchangePerception | None
     result: ResultPerception | None       # Reveal + GameOver
     lobby: LobbyPerception | None
@@ -53,6 +54,7 @@ class FramePerception:
 ```python
 class View(Enum):
     ROLE_REVEAL = "role_reveal"
+    ROSTER_REVEAL = "roster_reveal"
     LOBBY = "lobby"
     PLAYING = "playing"
     HOSTAGE_SELECT = "hostage_select"
@@ -75,11 +77,11 @@ elements). This ordering is informed by the upstream `parsePhase` in
 `bots/frame_parser.ts:74-111`.
 
 ```
-1. Check for double border (role reveal / info screen):
+1. Check for double border (role reveal / roster reveal / info screen):
    border0 = pixels[0, 0]
    border2 = pixels[2, 2]
    if border0 != 0 and border0 == border2:
-     if pixels[4, 4] == 0:  → ROLE_REVEAL  (black interior = intro screen)
+     if pixels[4, 4] == 0:  → ROLE_REVEAL or ROSTER_REVEAL (black interior)
      else:                  → INFO_SCREEN   (non-black interior = info view)
 
 2. Read text at (2, 2) in color 2:
@@ -160,7 +162,7 @@ Active during `PLAYING`, `HOSTAGE_SELECT`, `LEADER_SUMMIT`, and `WAITING_ENTRY` 
 ```
 y=0..8:     Top bar (HUD)          | y=2..21: Minimap (20x20)
 y=9..111:   Game world viewport    |          at x=106..125
-y=112..118: Shout strip (Playing)  |
+y=112..118: Shout strip (Playing/LeaderSummit)
 y=119..127: Bottom bar             |
 ```
 
@@ -188,7 +190,7 @@ class OverworldPerception:
     # Room detection (from floor colors near screen center)
     room: Room | None
 
-    # Shout strip (only during Playing)
+    # Shout strip (Playing and LeaderSummit)
     last_shout: str | None            # Text from the shout strip
     last_shout_color: int | None      # Sender's player color
 
@@ -224,14 +226,14 @@ class SpeechBubble:
     player_color: int   # Color read from sprite center pixel
 
 class BottomBarState(Enum):
-    DEFAULT = "default"           # "J:CHAT  K:INFO  L:MENU"
+    DEFAULT = "default"           # "J:NEW  K:JOIN  L:SHOUT"
     WAITING = "waiting"           # "WAITING..."
-    COMM_MENU = "comm_menu"       # "< SHOUT >" or "< INFO >"
+    NOTICE = "notice"             # Transient notice text (color 8)
 
 @dataclass
 class OverworldBottomBar:
     state: BottomBarState
-    comm_menu_item: str | None    # Current item text if comm menu is open
+    notice_text: str | None       # Notice text if state is NOTICE
     has_unread_global: bool       # True if green dot at (124, 123)
 ```
 
@@ -305,12 +307,12 @@ it needs reliable unread detection.
 
 ---
 
-## View 2: Chatroom
+## View 2: Whisper (Private Chat)
 
 ### Layout
 
 ```
-y=0..8:     Header ("CHAT" + occupant sprites)
+y=0..8:     Header ("WHISP" + occupant sprites)
 y=10..118:  Message area
 y=111..118: Pending entry indicator (overlays messages, when present)
 y=119..127: Bottom bar (actions / menu / target picker)
@@ -750,7 +752,7 @@ orpheus/
     _detect.py            # View detection
     _ocr.py               # Text reading engine + font data
     _overworld.py         # Overworld view parser
-    _chatroom.py          # Chatroom view parser
+    _chatroom.py          # Whisper view parser
     _global_chat.py       # Global chat view parser
     _info_screen.py       # Info screen parser
     _role_reveal.py       # Role reveal parser
@@ -797,7 +799,7 @@ At 24fps, each frame has ~42ms. Target: parse a frame in <5ms.
 | OCR (per call) | <0.5ms (scan ~30 chars = ~450 pixel comparisons) |
 | Speech bubble scan | <1ms (pattern match over game area) |
 | Full overworld parse | <3ms total |
-| Full chatroom parse | <2ms total (header + indicators + message OCR) |
+| Full whisper parse | <2ms total (header + indicators + message OCR) |
 
 These are conservative estimates. NumPy vectorization will likely make
 most operations sub-0.1ms.

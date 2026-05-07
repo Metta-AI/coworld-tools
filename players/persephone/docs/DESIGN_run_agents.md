@@ -122,7 +122,7 @@ import argparse, signal, subprocess, sys
 from pathlib import Path
 
 AGENT_ID = "baseline"
-DESCRIPTION = "Upstream winner_bot.ts -- approach, chatroom, role exchange"
+DESCRIPTION = "Upstream winner_bot.ts -- approach, whisper, role exchange"
 
 _BOT_SCRIPT = Path.home() / "coding/bitworld/persephones_escape/bots/winner_bot.ts"
 _BOT_DIR = _BOT_SCRIPT.parent.parent

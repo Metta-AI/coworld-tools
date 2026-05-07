@@ -18,7 +18,7 @@ Source: `~/coding/bitworld/persephones_escape/`
 6. [Frame Layout Reference](#frame-layout-reference)
 7. [Phase Detection from Pixels](#phase-detection-from-pixels)
 8. [Overworld View Details](#overworld-view-details)
-9. [Chatroom View Details](#chatroom-view-details)
+9. [Whisper View Details](#whisper-view-details)
 10. [Global Chat View Details](#global-chat-view-details)
 11. [Info Screen Details](#info-screen-details)
 12. [Other Phase Views](#other-phase-views)
@@ -76,7 +76,7 @@ python scripts/launch_server.py
 python scripts/launch_server.py --config simple --seed 42 --quiet
 
 # Inline config tweak (deep-merged with defaults -- no need to repeat roles/rounds)
-python scripts/launch_server.py --config-json '{"obstacleCount": 0, "autoGrantChatroomEntry": true}'
+python scripts/launch_server.py --config-json '{"obstacleCount": 0, "autoGrantWhisperEntry": true}'
 
 # Full custom config file, public binding, logs routed to a directory
 python scripts/launch_server.py --config-file my_config.json --public --log-dir ./run_logs
@@ -151,10 +151,11 @@ Notable config fields:
 | `roles` | `RoleEntry[]` | Role composition (role, team, count) |
 | `rounds` | `RoundConfig[]` | Per-round duration (secs) and hostage count |
 | `obstacleCount` | `number?` | Override obstacles per room (0 = none) |
-| `chatMaxCharsPerLine` | `number?` | Message line width (default 18) |
+| `chatMaxCharsPerLine` | `number?` | Message line width (default 29) |
 | `actionRateLimits` | `Record<string, number>?` | Per-action cooldowns in ticks |
 | `groupNamePrefixInRoomA` | `string?` | Force name-prefix players into RoomA |
-| `autoGrantChatroomEntry` | `boolean?` | Auto-grant chatroom entry requests |
+| `autoGrantWhisperEntry` | `boolean?` | Auto-grant whisper entry requests |
+| `fastTimers` | `boolean?` | Use shortened phase durations for testing |
 
 ---
 
@@ -357,11 +358,11 @@ value 2 = fill (player color). The shape index is `playerIndex % 12`.
 |----:|-----:|--------|---------------|
 | 0 | `0x01` | Up | Move up / scroll up / menu navigate |
 | 1 | `0x02` | Down | Move down / scroll down / menu navigate |
-| 2 | `0x04` | Left | Move left / menu navigate left |
-| 3 | `0x08` | Right | Move right / menu navigate right |
-| 4 | `0x10` | Select | Open comm menu / commit hostages |
-| 5 | `0x20` | A | Primary action (chatroom create/request, menu select, exit chatroom) |
-| 6 | `0x40` | B | Secondary action (info screen toggle, open action menu in chatroom) |
+| 2 | `0x04` | Left | Move left / menu navigate left / cycle surfaces |
+| 3 | `0x08` | Right | Move right / menu navigate right / cycle surfaces |
+| 4 | `0x10` | Select (L) | Open shout / exit whisper / close menus / commit in some contexts |
+| 5 | `0x20` | A (J) | Create whisper / confirm menu / toggle hostage selection |
+| 6 | `0x40` | B (K) | Request whisper entry / open action menu / commit hostages |
 
 **Special mask**: `0xFF` (255) = reset signal. Clears both current and
 previous input state.
@@ -386,22 +387,22 @@ press-release cycles.
 | 1+ | ASCII | Printable ASCII text (0x20--0x7e) |
 
 Chat is context-sensitive (`server.ts:87-97`):
-- If in a chatroom: message goes to chatroom occupants
-- If NOT in a chatroom: message goes to global room chat
+- If in a whisper: message goes to whisper occupants
+- If NOT in a whisper: message goes to global room chat
 
-**Important**: chat routing is based on the player's `inChatroom` state,
+**Important**: chat routing is based on the player's `inWhisper` state,
 not whether the global chat UI is "open." An agent in the overworld can
 send a global chat message by sending a chat packet even without opening
 the global chat view (i.e., without pressing Select). However, the agent
 cannot *read* global chat responses without opening the view.
 
-While in a chatroom, there is **no way to send a global message**. All
-chat packets are routed to the chatroom. The agent must exit the chatroom
+While in a whisper, there is **no way to send a global message**. All
+chat packets are routed to the whisper. The agent must exit the whisper
 first.
 
-Messages are truncated to `CHAT_MAX_TOTAL = 36` characters (18 per line,
-2 lines). Rate-limited by the `"chat"` action rate (default 48 ticks =
-2 seconds).
+Messages are truncated to `CHAT_MAX_TOTAL = 58` characters (29 per line,
+2 lines). Rate-limited: whisper chat at 48 ticks (2 seconds), shout at
+240 ticks (10 seconds).
 
 ### Discrete Action Mapping (for RL/policy agents)
 
@@ -451,13 +452,12 @@ Select include:
 
 | Feature | Impact without Select | Workaround |
 |---------|----------------------|------------|
-| Open comm menu (overworld) | Cannot access | None |
-| Open global chat view | Cannot read global messages | Shout strip shows last message |
-| Send global chat | Cannot open UI | **Chat packet workaround**: send a `PACKET_CHAT` while not in a chatroom; server routes it to global regardless of UI state |
-| Usurp voting | Cannot vote | None |
-| Exit chatroom (shortcut) | Slower exit only | Use action menu: B → EXIT category → A |
-| Cancel chatroom menu | Cannot cancel | Must select an action or navigate to EXIT |
-| Commit hostage selection | Leader cannot commit early | 15s timeout auto-fills randomly |
+| Open global chat (shout) | Cannot read global messages | Shout strip shows last message |
+| Send global chat | Cannot open UI | **Chat packet workaround**: send a `PACKET_CHAT` while not in a whisper; server routes it to global regardless of UI state |
+| Usurp voting | Cannot vote (requires shout view open) | None |
+| Exit whisper (shortcut) | Slower exit only | Use action menu: B → EXIT category → A |
+| Close whisper action menu | Cannot close | Must select an action or navigate to EXIT |
+| Commit hostage selection | Leader cannot commit early | Use B/K to commit (wait — B IS in the 27-action space, so this IS accessible) |
 
 **This constraint only applies if using the mettagrid runner.** The mettagrid
 runner was built for Among Them (Nim) and has no Persephone integration.
@@ -472,7 +472,7 @@ action space that includes Select is strongly recommended for Persephone.
 The 128x128 frame is divided into functional regions depending on the
 current view.
 
-### Overworld View (Playing / HostageSelect / Lobby phases)
+### Overworld View (Playing / HostageSelect / LeaderSummit / Lobby phases)
 
 ```
 +------------------------------------------+
@@ -502,12 +502,12 @@ current view.
 - `MINIMAP_X = 106` (`SCREEN_WIDTH - MINIMAP_SIZE - 2`)
 - `MINIMAP_Y = 2`
 
-### Chatroom View
+### Whisper View
 
 ```
 +------------------------------------------+
 | Top bar (y=0..8, h=9)                    |
-|  "CHAT" text (color 2, x=2,y=2)         |
+|  "WHISP" text (color 2, x=2,y=2)        |
 |  Occupant sprites (x=22+, y=1, stride 9) |
 +------------------------------------------+
 | Message area (y=10 to y=barY-1)          |
@@ -516,7 +516,7 @@ current view.
 |  [!] [sprite] WANTS IN (if pending)      |
 +------------------------------------------+
 | Bottom bar (y=119..127, h=9)             |
-|  Default: "L:EXIT  K:ACTIONS  ENTER:MSG" |
+|  Default: "H/I:TAB L:EXIT K:ACT"        |
 |  Menu open: "(CATEGORY) ACTION"          |
 |  Target picker: "ROLE: [sprites]"        |
 |  Offer indicators: "R!" or "C!" at right |
@@ -541,7 +541,7 @@ current view.
 +------------------------------------------+
 | Bottom bar (y=119..127, h=9)             |
 |  Leader: "J:TOG  K:COMMIT  L:CLOSE"     |
-|  Non-leader: "L:CLOSE  ENTER:TYPE"      |
+|  Non-leader: "H/I:TAB L:CLOSE K:NEXT"   |
 +------------------------------------------+
 ```
 
@@ -556,8 +556,8 @@ The current game phase can be determined from pixel patterns
 
 | Phase | Detection Method |
 |-------|-----------------|
-| **role_reveal** | Colored border at (0,0) and (2,2) are the same non-zero color; pixel at (4,4) is black |
-| **chatroom** | Text "CHAT" at (2,2) in color 2 |
+| **roster_reveal / role_reveal** | Colored border at (0,0) and (2,2) are the same non-zero color; pixel at (4,4) is black. (Panel 0 = roster reveal, panels 1-3 = role reveal; distinguishable by content.) |
+| **whisper** | Text "WHISP" at (2,2) in color 2 |
 | **waiting_entry** | Text "WAITING" at (2, barY+2) in color 8 |
 | **playing** | Text at (2,2) in color 2 starts with "R" and contains ":" |
 | **lobby** | Text at (2,2) in color 2 matches `\d+/\d+` pattern |
@@ -579,13 +579,13 @@ def detect_phase(pixels):
     # Role reveal: colored double border with black interior
     if border0 != 0 and border0 == border2:
         if pixels[4 * 128 + 4] == 0:
-            return "role_reveal"
+            return "role_reveal"  # covers both RosterReveal and RoleReveal phases
 
-    # Chatroom: "CHAT" header
-    if read_text(pixels, 2, 2, color=2).startswith("CHAT"):
-        return "chatroom"
+    # Whisper: "WHISP" header
+    if read_text(pixels, 2, 2, color=2).startswith("WHISP"):
+        return "whisper"
 
-    # Waiting for chatroom entry
+    # Waiting for whisper entry
     if read_text(pixels, 2, 121, color=8).startswith("WAITING"):
         return "waiting_entry"
 
@@ -649,9 +649,10 @@ viewport, providing a reference for dead-reckoning position estimation.
 
 ### Fog of War
 
-During Playing and HostageSelect phases, shadows are cast from the player's
-center position via raycasting (`game/sim.ts:201-232`). Shadowed pixels are
-darkened using a lookup table (`SHADOW_MAP` in `constants.ts:120`):
+During Playing, HostageSelect, and LeaderSummit phases, shadows are cast
+from the player's center position via raycasting (`game/sim.ts:201-232`).
+Shadowed pixels are darkened using a lookup table (`SHADOW_MAP` in
+`constants.ts:120`):
 
 ```
 SHADOW_MAP = [0, 12, 9, 5, 5, 0, 5, 5, 5, 12, 9, 9, 0, 12, 12, 9]
@@ -690,19 +691,18 @@ During Playing phase (`rendering/renderer.ts:366-383`):
 
 ### HUD - Bottom Bar
 
-Default (Playing/HostageSelect, no menu open):
-- `J:CHAT  K:INFO  L:MENU` at (2, barY+2) in color 1
-- If waiting for chatroom entry: `WAITING...` at (2, barY+2) in color 8
+Default (Playing/HostageSelect/LeaderSummit, no menu open):
+- `J:NEW  K:JOIN  L:SHOUT` at (2, barY+2) in color 1
+- If waiting for whisper entry: `WAITING...` at (2, barY+2) in color 8
 - Unread global indicator: blinking green (11) dot at (124, barY+4)
   - Blinks when `tickCount & 16` is true (toggles every 16 ticks)
 
-Comm menu open:
-- `< {ITEM} >` at (2, barY+2) in color 2
-- Items cycle: `SHOUT`, `INFO`
+**Button key**: J = A button, K = B button, L = Select button,
+H/I = Left/Right arrows.
 
 ### Shout Strip
 
-During Playing phase only (`rendering/renderer.ts:371-382`):
+During Playing and LeaderSummit phases (`rendering/renderer.ts:371-382`):
 - Position: `y = barY - 7 = 112` (7 pixels tall, above bottom bar)
 - Shows the most recent global chat message
 - Left edge: 3 red (8) pixels as a vertical marker at x=0
@@ -711,13 +711,13 @@ During Playing phase only (`rendering/renderer.ts:371-382`):
 
 ---
 
-## Chatroom View Details
+## Whisper View Details
 
-Full-screen view when inside a chatroom
+Full-screen view when inside a whisper
 (`rendering/renderer.ts:105-196`):
 
 ### Top Bar
-- `CHAT` at (2, 2) in color 2
+- `WHISP` at (2, 2) in color 2
 - Occupant sprites starting at x=22, stride = `PLAYER_W + 2 = 9`, y=1
 
 ### Message Area
@@ -736,23 +736,26 @@ Full-screen view when inside a chatroom
 
 ### Bottom Bar Actions
 
-**Default state**: `L:EXIT  K:ACTIONS  ENTER:MSG` in color 1
+**Default state**: `H/I:TAB L:EXIT K:ACT` in color 1
+
+During LeaderSummit (forced whisper between leaders):
+`SUMMIT {secs}S  ENTER:MSG` in color 8
 
 **Pending offer indicators** (steady, not blinking):
 - `R!` at (SCREEN_WIDTH - 10, barY + 2) in color 8 = someone offered role exchange
 - `C!` at same position in color 8 = someone offered color exchange
 
-**2D Action Menu** (B button opens, navigate with d-pad):
+**2D Action Menu** (B/K button opens, navigate with d-pad):
 - Categories cycle left/right: COLOR, ROLE, LEADER, EXIT
 - Items cycle up/down within category
 - Display: `(CATEGORY) ACTION` in color 2 (enabled) or 1 (disabled)
-- A confirms, Select closes
+- A/J confirms, Select/L closes
 
 **Target Picker** (after selecting C.ACCPT or R.ACCPT):
 - `COLOR:` or `ROLE:` label, then offerer sprites with selection box
 - Navigate left/right, A confirms, Select cancels
 
-### Chatroom Menu Structure
+### Whisper Menu Structure
 
 ```
 COLOR               ROLE               LEADER             EXIT
@@ -779,7 +782,7 @@ Full-screen view for room-wide communication
 **Non-leader**: Usurp candidate selector
 - `USURP:` label at (2, 11) in color 1
 - Current candidate (sprite or text like `NONE`, `ME`) at label-right
-- Navigate left/right, A to cast vote
+- Navigate left/right, A/J to cast vote
 
 **Leader during HostageSelect**: Hostage selection grid
 - Player sprites in a grid (12x14 cells, max 4 columns)
@@ -793,16 +796,17 @@ Full-screen view for room-wide communication
 
 ### Message Area
 - Global room chat messages below divider
-- Same format as chatroom messages (sender sprite + text)
+- Same format as whisper messages (sender sprite + text)
 
 ---
 
 ## Info Screen Details
 
-Toggle with B button (overworld), shows known player information
+Accessible by cycling surfaces (Left/Right arrows) while in the shout
+or whisper view. Shows known player information
 (`rendering/renderer.ts:487-576`):
 
-### "shared" Mode (default)
+### "shared" Mode
 
 - Header: `KNOWN PLAYERS` at (2, 2) in color 2
 - List starts at y=12, row height = 11 pixels
@@ -831,21 +835,42 @@ for key roles (`rendering/renderer.ts:60-76`):
 
 ## Other Phase Views
 
-### Role Reveal Screen
+### Intro Sequence (RosterReveal + RoleReveal)
 
-Bordered intro screen (`rendering/renderer.ts:442-485`):
+The intro is a 4-panel sequence sharing a single 15-second timer. All
+panels have a colored double border in the team color at (0,0) and (2,2)
+with a black interior (pixel at (4,4) is black). Players navigate with
+A/Right (forward) and B/Left (back).
+
+**Panel 0 -- Roster Reveal** (phase = `RosterReveal`):
+- Two columns listing players by room (Underworld left, Mortal Realm right)
+- Player sprites with character names
+- "NEXT IN {secs}" countdown
+
+**Panel 1 -- Role Card** (phase = `RoleReveal`):
+- Bordered screen (`rendering/renderer.ts:442-485`):
 - Double border in team color at (0,0) and (2,2)
 - Black interior
 - Centered text top-to-bottom:
+  - Player's own sprite
   - `YOU ARE` (color 2)
   - Role name (team color)
   - Team name + ` TEAM` (team color)
   - `ASSIGNED TO` (color 1)
   - Room name (color 2)
   - `{n}P  {w}x{h}` info line (color 1) -- player count and room size
-  - Role names in play (color 1)
-  - Control reference (color 1)
+  - Control hints (WASD, J/K/L)
   - `STARTING IN {secs}` (color 2)
+
+**Panel 2 -- Role Summary** (phase = `RoleReveal`):
+- Lists all unique role names in the match
+- Shows MISSING core roles and active ECHO substitutions
+- `STARTING IN {secs}` countdown
+
+**Panel 3 -- Round Schedule** (phase = `RoleReveal`):
+- Table: ROUND | TIME | HOSTAGE for each configured round
+- Players on this panel can press forward to mark "ready"
+- `STARTING IN {secs}` countdown
 
 ### Hostage Exchange Screen
 
@@ -855,7 +880,11 @@ Bordered intro screen (`rendering/renderer.ts:442-485`):
 - LEADER section: your room's leader sprite(s)
 - DEPARTING section: hostages leaving your room
 - ARRIVING section: hostages coming to your room
-- Bottom bar status: "YOU ARE BEING EXCHANGED" / "ESCORTING HOSTAGES" / "HOSTAGES EXCHANGING..."
+- Bottom bar status:
+  - `YOU ARE BEING EXCHANGED` (color 8) -- if you are a hostage
+  - `ESCORTING HOSTAGES` (color 2) -- if you are a leader
+  - `HOSTAGES EXCHANGING...` (color 1) -- otherwise
+- Duration: 8 seconds (1 second with `fastTimers`)
 
 ### Reveal / Game Over
 
@@ -875,8 +904,8 @@ their sprite position (`rendering/renderer.ts:748-783`):
 |-----------|--------|-------|---------|
 | Crown | 3 dots above sprite at y-2,y-3 + bar at y-1 | 8 (red) | Room leader |
 | Hostage mark | Single dot at (cx, y-1) | 3 (green) | Selected as hostage |
-| Speech bubble | 3x2 block at (x-3, y-3) + tail at (x, y-1) | 2 (magenta) | In a chatroom |
-| Pending `?` | Single dot at (cx, y-1), blinking | 8 (red) | Waiting for chatroom entry |
+| Speech bubble | 3x2 block at (x-3, y-3) + tail at (x, y-1) | 2 (magenta) | In a whisper |
+| Pending `?` | Single dot at (cx, y-1), blinking | 8 (red) | Waiting for whisper entry |
 | Role indicator | 5x2 bar below sprite | Team color | Visible for self, revealed players, and during Reveal/GameOver |
 | Color dot | Single dot below sprite center | Team color | Visible when color-only revealed |
 
@@ -952,34 +981,33 @@ transitions from not-pressed to pressed.
 
 | Action | Button Sequence |
 |--------|----------------|
-| Create chatroom / request entry | `A` (press then release) |
-| Toggle info screen | `B` (press then release) |
-| Cancel chatroom entry request | `B` (while waiting) |
-| Open comm menu | `Select` (press then release) |
-| Navigate comm menu | `Left`/`Right` to cycle, then `A` to select |
-| Close comm menu | `Select` |
+| Create whisper | `A/J` (press then release; must not be near another whisper) |
+| Request entry to whisper | `B/K` (press then release; must be near a whisper player) |
+| Cancel entry request | `B/K` (while waiting) |
+| Open global chat (shout) | `Select/L` (press then release) |
 
 ### Chatroom Actions
 
 | Action | Button Sequence |
 |--------|----------------|
-| Exit chatroom | `Select` |
-| Open action menu | `B` |
+| Exit whisper | `Select/L` |
+| Open action menu | `B/K` |
 | Navigate categories | `Left`/`Right` in menu |
 | Navigate items | `Up`/`Down` in menu |
-| Select item | `A` in menu |
-| Close action menu | `Select` in menu |
+| Select item | `A/J` in menu |
+| Close action menu | `Select/L` in menu |
 | Scroll messages | `Up`/`Down` (when menu closed) |
+| Cycle surfaces (whisper/shout/info) | `Left`/`Right` (when menu closed) |
 
 ### Menu Sequences (from `game/menu_defs.ts:200-233`)
 
-To execute a chatroom action programmatically:
+To execute a whisper action programmatically:
 
-1. Press `B` (open menu), release
+1. Press `B/K` (open menu), release
 2. Press `Left`/`Right` to reach target category, release between presses
 3. Press `Up`/`Down` to reach target item, release between presses
-4. Press `A` (confirm), release
-5. For `R.ACCPT` / `C.ACCPT`: press `A` again to confirm target picker
+4. Press `A/J` (confirm), release
+5. For `R.ACCPT` / `C.ACCPT`: press `A/J` again to confirm target picker
 
 **Example**: Execute R.OFFER (category 1 "ROLE", item 1):
 ```
@@ -987,6 +1015,7 @@ B, 0, Right, 0, Down, 0, A, 0
 ```
 
 Where `0` means "send mask 0x00" (all buttons released) for one frame.
+B = `0x40`, A = `0x20`, Right = `0x08`, Down = `0x02`.
 
 **Example**: Execute R.ACCPT with auto-target (category 1, item 2):
 ```
@@ -999,11 +1028,11 @@ The extra trailing `A, 0` confirms the first offerer in the target picker.
 
 | Action | Button Sequence |
 |--------|----------------|
-| Close global chat | `Select` |
+| Close global chat | `Select/L` |
 | Scroll messages | `Up`/`Down` |
-| Cast usurp vote | `Left`/`Right` to navigate candidates, `A` to vote |
-| Toggle hostage (leader) | `A` |
-| Commit hostages (leader) | `B` |
+| Cast usurp vote | `Left`/`Right` to navigate candidates, `A/J` to vote |
+| Toggle hostage (leader) | `A/J` |
+| Commit hostages (leader) | `B/K` |
 
 ### Critical Timing Notes
 
@@ -1015,12 +1044,13 @@ The extra trailing `A, 0` confirms the first offerer in the target picker.
    must be tracked by the agent. If a sequence is interrupted (e.g., by a
    phase change), the menu may be left in an unexpected state.
 
-3. **The B button in chatrooms is a toggle.** If the action menu is already
+3. **The B button in whispers is a toggle.** If the action menu is already
    open, pressing B closes it instead of opening it. Sequences must assume
    the menu starts closed. (`learnings.md:148-156`)
 
-4. **Rate limiting.** All chatroom actions have a 48-tick (2-second) cooldown
-   by default. Sending the same action faster will be silently dropped.
+4. **Rate limiting.** Whisper actions have a 48-tick (2-second) cooldown
+   by default. Shout messages have a 240-tick (10-second) cooldown.
+   Sending the same action faster will be silently dropped.
 
 ---
 
@@ -1058,14 +1088,14 @@ Button Mask Output (per-frame)
 ```
 
 **Task categories**:
-- **ONCE**: fire one action, self-remove (e.g., `shout`, `chat`, `exit_chatroom`)
+- **ONCE**: fire one action, self-remove (e.g., `shout`, `chat`, `exit_whisper`)
 - **SEQUENCE**: multi-frame, self-terminate on success/failure/timeout (e.g.,
   `walk_to`, `pursue_chat`, `pursue_exchange`)
 - **LOOP**: persistent reactive behavior, singleton per kind (e.g.,
   `loop_auto_grant`, `loop_auto_accept_role`, `loop_auto_accept_color`)
 
 **Phase routing**: The executor (not the LLM) handles phase-appropriate
-behavior. Movement tasks skip in chatroom; chatroom tasks skip in overworld.
+behavior. Movement tasks skip in whisper; whisper tasks skip in overworld.
 This prevents the LLM from needing to reason about phase transitions.
 
 **Event buffer**: Every task lifecycle event (started, fired, succeeded,
@@ -1077,9 +1107,9 @@ flushed. This gives the LLM visibility into what actually happened.
 **"Stupid meetup protocol"** (`learnings.md:116-125`):
 - Each agent shouts a fixed coordinate via global chat (e.g., "meet at 50 50")
 - All allies set `walk_to(50, 50)` + `pursue_exchange(partner_color, "role")`
-- First to arrive creates a chatroom; others request entry
+- First to arrive creates a whisper; others request entry
 - `loop_auto_grant` handles entry grants
-- Role exchange happens inside the chatroom
+- Role exchange happens inside the whisper
 
 This beats sophisticated pursuit because:
 - The minimap self-dot overwrites others at the same cell
@@ -1091,13 +1121,13 @@ This beats sophisticated pursuit because:
 ```json
 {
   "obstacleCount": 0,
-  "autoGrantChatroomEntry": true,
+  "autoGrantWhisperEntry": true,
   "groupNamePrefixInRoomA": "bot_"
 }
 ```
 
 - `obstacleCount: 0` removes pathfinding complexity
-- `autoGrantChatroomEntry: true` removes the GRANT dance
+- `autoGrantWhisperEntry: true` removes the GRANT dance
 - `groupNamePrefixInRoomA` ensures agents share a room
 
 ---
@@ -1111,14 +1141,15 @@ interface GameConfig {
   roles: RoleEntry[];           // Role composition
   rounds: RoundConfig[];        // Per-round settings
   obstacleCount?: number;       // 0 = no obstacles
-  chatMaxCharsPerLine?: number; // Default 18
+  chatMaxCharsPerLine?: number; // Default 29
   actionRateLimits?: Record<string, number>;  // Ticks per action
   groupNamePrefixInRoomA?: string;  // Force prefix players to RoomA
-  autoGrantChatroomEntry?: boolean; // Auto-grant entry requests
+  autoGrantWhisperEntry?: boolean;  // Auto-grant entry requests
+  fastTimers?: boolean;         // Short phase durations for testing
 }
 
 interface RoleEntry {
-  role: Role;   // Hades | Persephone | Cerberus | Demeter | Shades | Nymphs
+  role: Role;   // Hades | Persephone | Cerberus | Demeter | Shades | Nymphs | Spy | EchoOfHades | EchoOfPersephone | EchoOfCerberus | EchoOfDemeter
   team: Team;   // TeamA (Shades) | TeamB (Nymphs)
   count: number;
 }
@@ -1163,7 +1194,7 @@ preferentially receive Shades team key roles during testing.
 
 | File | Lines | Description |
 |------|------:|-------------|
-| `game/sim.ts` | 1566 | Complete game simulation: physics, input, chatrooms, exchange, win condition |
+| `game/sim.ts` | 1566 | Complete game simulation: physics, input, whispers, exchange, win condition |
 | `game/types.ts` | 134 | Type definitions: Phase, Team, Role, Room, Player, Chatroom, Config |
 | `game/constants.ts` | 178 | All constants: screen, physics, colors, shapes, default config |
 | `game/protocol.ts` | 41 | Input/chat packet encoding and decoding |
@@ -1189,12 +1220,12 @@ preferentially receive Shades team key roles during testing.
 
 | File | Lines | Description |
 |------|------:|-------------|
-| `bots/frame_parser.ts` | 547 | OCR/pixel parsing: phase detection, HUD, minimap, chatroom status |
+| `bots/frame_parser.ts` | 547 | OCR/pixel parsing: phase detection, HUD, minimap, whisper status |
 | `bots/tasks.ts` | ~500 | Task definitions, executor, event buffer |
 | `bots/belief_state.ts` | ~300 | Accumulated world knowledge from frame parsing |
 | `bots/bot_utils.ts` | ~200 | Movement, pathfinding, input helpers |
 | `bots/llm_bot.ts` | ~400 | LLM-driven bot (Claude Haiku via Bedrock) |
-| `bots/winner_bot.ts` | ~150 | Hardcoded policy: approach, chatroom, offer exchange, accept all |
+| `bots/winner_bot.ts` | ~150 | Hardcoded policy: approach, whisper, offer exchange, accept all |
 | `bots/smart_bots.ts` | ~100 | Random-walk filler bots with menu interaction |
 
 ### Documentation

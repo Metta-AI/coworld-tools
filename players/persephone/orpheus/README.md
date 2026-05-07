@@ -30,7 +30,7 @@ may call an LLM, a rule system, or a hybrid).
 |--------|----------------|
 | **Perception** | Pixel frames → structured symbolic state (`orpheus/perception/`) |
 | **Belief state** | Fixed-schema + flexible dict, updated each tick from perception |
-| **Tasks** | 22 pre-built task types (movement, chatroom lifecycle, info exchange, leadership, communication, hostage selection) |
+| **Tasks** | 22 pre-built task types (movement, whisper lifecycle, info exchange, leadership, communication, hostage selection) |
 | **Hook system** | Typed pre/post callbacks at every phase boundary |
 | **Outer loop** | Async mode selection via dual consume-on-read buffers |
 

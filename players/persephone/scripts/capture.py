@@ -24,7 +24,7 @@ Examples:
     # Force all bots into the same room (helps trigger chatroom views)
     python scripts/capture.py --duration 30 --output /tmp/capture \\
         --launch-server --seed 42 --fillers 4 \\
-        --server-config '{"autoGrantChatroomEntry": true}'
+        --server-config '{"autoGrantWhisperEntry": true}'
 """
 
 from __future__ import annotations

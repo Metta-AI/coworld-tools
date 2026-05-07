@@ -15,14 +15,15 @@ is no structured state API -- everything must be extracted from pixels.
 Complete rules for Persephone's Escape. Two teams (Shades and Nymphs,
 5 players each in the default 10-player config) are split across two
 disjoint rooms (Underworld and Mortal Realm). Over three 15-second
-rounds, players communicate in private chatrooms and global room chat to
+rounds, players communicate in private whispers and global room chat to
 discover identities. Between rounds, room leaders select hostages to swap
-between rooms. Victory requires the team's key role pair to complete a
-mutual role exchange (R.OFFER + R.ACCPT) inside a chatroom -- the only
-mechanic that counts toward the win condition. If Hades and Persephone
-end in the same room, Shades get tiebreaker priority; otherwise Nymphs
-do. If neither team's key pair exchanged, nobody wins. Players may lie
-in chat but mechanically revealed information is always truthful.
+between rooms (meeting briefly in a private summit first). Victory
+requires the team's key role pair to complete a mutual role exchange
+(R.OFFER + R.ACCPT) inside a whisper -- the only mechanic that counts
+toward the win condition. If Hades and Persephone end in the same room,
+Shades get tiebreaker priority; otherwise Nymphs do. If neither team's
+key pair exchanged, nobody wins. Players may lie in chat but mechanically
+revealed information is always truthful.
 
 ### [GAME_API.md](GAME_API.md) -- Technical API Reference
 
@@ -33,13 +34,13 @@ WebSocket app (`tsx server.ts --port=8080`). Agents connect to
 button packet (7-bit mask: up/down/left/right/select/A/B) plus optional
 ASCII chat packets. The doc covers frame layout for every view
 (overworld with minimap and fog of war, whisper rooms, global chat, info
-screen, role reveal, hostage exchange), phase detection from pixel
-patterns, the full chatroom menu structure with button sequences, OCR
-details (3x5 font, all characters distinct), and agent architecture
-patterns (task-list + event-buffer approach from the reference LLM bot).
-Key gotcha: the standard 27-action bitworld space omits Select, which
-gates global chat access, usurp voting, and hostage commit -- direct
-WebSocket agents should use the full 7-button mask.
+screen, roster reveal, role reveal, hostage exchange), phase detection
+from pixel patterns, the full whisper menu structure with button
+sequences, OCR details (3x5 font, all characters distinct), and agent
+architecture patterns (task-list + event-buffer approach from the
+reference LLM bot). Key gotcha: the standard 27-action bitworld space
+omits Select, which gates global chat access, usurp voting, and whisper
+exit -- direct WebSocket agents should use the full 7-button mask.
 
 ## Scripts
 
@@ -164,9 +165,9 @@ if result.view == View.PLAYING:
 ```
 
 Stateless, single-frame-in / symbolic-out. Handles all game views:
-lobby, role reveal, playing, hostage select, leader summit, hostage
-exchange, whisper (private chatroom), global chat (shout), info screen,
-waiting entry, reveal, and game over. See
+lobby, roster reveal, role reveal, playing, hostage select, leader
+summit, hostage exchange, whisper (private chat), global chat (shout),
+info screen, waiting entry, reveal, and game over. See
 [docs/DESIGN_perception.md](docs/DESIGN_perception.md) for the full
 design and `orpheus/perception/types.py` for output dataclass
 definitions.
@@ -218,10 +219,10 @@ function rather than a raw `policy.py`. See
 
 **Description**: Thin wrapper around the upstream `winner_bot.ts` from
 the bitworld repo. Hardcoded policy: approach nearest player, open
-chatroom, offer role exchange to everyone, accept all offers. No
+whisper, offer role exchange to everyone, accept all offers. No
 strategy, no deception, no team awareness. Uses the full upstream
 frame-parsing pipeline (minimap, phase detection, position estimation,
-chatroom status). Serves as the reference baseline for comparison.
+whisper status). Serves as the reference baseline for comparison.
 
 **Results**: *No test results yet.*
 

@@ -45,15 +45,15 @@ class Room(Enum):
 class BottomBarState(Enum):
     """State of the overworld bottom bar."""
 
-    DEFAULT = "default"  # "J:CHAT  K:INFO  L:MENU"
+    DEFAULT = "default"  # "J:NEW  K:JOIN  L:SHOUT"
     WAITING = "waiting"  # "WAITING..."
-    COMM_MENU = "comm_menu"  # "< SHOUT >" or "< INFO >"
+    NOTICE = "notice"  # Transient notice text (color 8)
 
 
 class ChatroomBarState(Enum):
-    """State of the chatroom bottom bar."""
+    """State of the whisper bottom bar."""
 
-    DEFAULT = "default"  # "L:EXIT  K:ACTIONS  ENTER:MSG"
+    DEFAULT = "default"  # "H/I:TAB L:EXIT K:ACT"
     MENU = "menu"  # "(CATEGORY) ACTION"
     TARGET_PICKER = "target"  # "COLOR: [sprites]" or "ROLE: [sprites]"
 
@@ -123,7 +123,7 @@ class OverworldBottomBar:
     """Parsed state of the overworld bottom bar."""
 
     state: BottomBarState
-    comm_menu_item: str | None = None  # Current item text if comm menu open
+    notice_text: str | None = None  # Notice text if state is NOTICE
     has_unread_global: bool = False  # Green dot at (124, 123)
 
 
@@ -182,7 +182,9 @@ class HostageGrid:
     """Hostage selection grid visible to leaders during HostageSelect."""
 
     eligible_colors: list[int] = field(default_factory=list)
+    eligible_shapes: list[PlayerShape | None] = field(default_factory=list)
     selected_colors: list[int] = field(default_factory=list)
+    selected_positions: list[int] = field(default_factory=list)
     cursor_index: int | None = None
     count_label: str | None = None  # e.g. "1/2 HOSTAGES"
     is_committed: bool = False
@@ -211,10 +213,12 @@ class OverworldPerception:
     timer_secs: int | None = None  # Seconds remaining
     role_name: str | None = None  # Own role name from top bar
     role_team_color: int | None = None  # Palette index of role text (3 or 14)
+    is_leader: bool = False  # True if role name has the leader "*" suffix
 
     # Phase-specific (HostageSelect)
     hostage_select_secs: int | None = None
     is_leader_selecting: bool = False
+    hostage_grid: HostageGrid | None = None
 
     # Minimap
     minimap_dots: list[MinimapDot] = field(default_factory=list)
@@ -225,7 +229,7 @@ class OverworldPerception:
     # Room
     room: Room | None = None
 
-    # Shout strip (Playing only)
+    # Shout strip (Playing and LeaderSummit phases)
     last_shout: str | None = None
     last_shout_color: int | None = None
 

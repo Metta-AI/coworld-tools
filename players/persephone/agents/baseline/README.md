@@ -15,8 +15,8 @@ dependencies (`bot_common.ts`, `bot_utils.ts`, `belief_state.ts`,
 Hardcoded, no LLM, no learning:
 
 1. **Playing phase**: approach the nearest visible player on the minimap.
-2. **Nearby player**: press A to create/request a chatroom.
-3. **Inside chatroom**: offer a mutual role exchange (R.OFFER) every
+2. **Nearby player**: press A/J to create a whisper, or B/K to request entry.
+3. **Inside whisper**: offer a mutual role exchange (R.OFFER) every
    policy tick. If someone else has offered, accept immediately
    (R.ACCPT). Also accept any color offers.
 4. **Fallback**: wander randomly when no players are visible.
@@ -34,7 +34,7 @@ Uses the full upstream frame-parsing pipeline:
 - **Role reveal parsing**: OCR of the bordered intro screen
 - **Minimap scanning**: reads colored dots from the 20x20 minimap region
 - **Position estimation**: combines minimap dot + floor grid dot alignment
-- **Chatroom status**: detects pending role/color offers via indicator pixels
+- **Whisper status**: detects pending role/color offers via indicator pixels
 - **Shout strip**: reads the last global chat message from the overworld
 
 ## Usage
