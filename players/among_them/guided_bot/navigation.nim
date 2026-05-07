@@ -8,9 +8,8 @@
 ## via navGraph(). The graph data comes from the baked nav_graph.json
 ## blob embedded in perception/data.nim.
 
-import std/[json, strformat]
+import std/[json, math, strformat]
 import types
-import perception/data
 import perception/geometry
 
 # ---------------------------------------------------------------------------
@@ -378,19 +377,100 @@ proc findNearestPathPoint*(path: NavPath, selfX, selfY: int): int =
       bestIdx = i
   bestIdx
 
-proc findNearestPathPointWithDistance*(path: NavPath, selfX, selfY: int):
-    tuple[idx: int, dist: int] =
-  ## Find the nearest point and its Manhattan distance.
+proc clampUnit(v: float): float {.inline.} =
+  if v < 0.0: 0.0 elif v > 1.0: 1.0 else: v
+
+proc rounded(v: float): int {.inline.} =
+  int(round(v))
+
+proc segmentProjectionT(px, py, ax, ay, bx, by: int): float {.inline.} =
+  ## Euclidean projection parameter on A->B, clamped to the segment.
+  let dx = bx - ax
+  let dy = by - ay
+  let lenSq = dx * dx + dy * dy
+  if lenSq <= 0:
+    return 0.0
+  clampUnit(((px - ax) * dx + (py - ay) * dy).float / lenSq.float)
+
+proc distToSegment*(px, py, ax, ay, bx, by: int): int =
+  ## Manhattan distance from P to the closest point on segment A->B.
+  ## Projection uses Euclidean geometry; thresholding stays Manhattan to match
+  ## `heuristic` and the rest of the navigation code.
+  if ax == bx and ay == by:
+    return heuristic(px, py, ax, ay)
+  let t = segmentProjectionT(px, py, ax, ay, bx, by)
+  let cx = ax.float + t * (bx - ax).float
+  let cy = ay.float + t * (by - ay).float
+  rounded(abs(px.float - cx) + abs(py.float - cy))
+
+proc segmentLength(a, b: Point): int {.inline.} =
+  heuristic(a.x, a.y, b.x, b.y)
+
+proc pathLength(path: NavPath): int =
+  if path.points.len <= 1:
+    return 0
+  for i in 0 ..< path.points.len - 1:
+    result += segmentLength(path.points[i], path.points[i + 1])
+
+proc pointAtPathProgress(path: NavPath, progress: int): Point =
+  ## Interpolate a world point at `progress` Manhattan pixels from path start.
   if path.points.len == 0:
-    return (0, high(int))
+    return Point(x: 0, y: 0)
+  if progress <= 0 or path.points.len == 1:
+    return path.points[0]
+
+  var remaining = progress
+  for i in 0 ..< path.points.len - 1:
+    let a = path.points[i]
+    let b = path.points[i + 1]
+    let segLen = segmentLength(a, b)
+    if segLen <= 0:
+      continue
+    if remaining <= segLen:
+      let t = remaining.float / segLen.float
+      return Point(
+        x: rounded(a.x.float + t * (b.x - a.x).float),
+        y: rounded(a.y.float + t * (b.y - a.y).float),
+      )
+    remaining -= segLen
+
+  path.points[^1]
+
+proc findNearestSegmentSnap*(path: NavPath, selfX, selfY: int):
+    tuple[idx: int, progress: int, dist: int] =
+  ## Snap to the nearest path segment and return path-start progress in pixels.
+  if path.points.len == 0:
+    return (0, 0, high(int))
+  if path.points.len == 1:
+    return (0, 0, heuristic(selfX, selfY, path.points[0].x, path.points[0].y))
+
   var bestDist = high(int)
   var bestIdx = 0
-  for i, p in path.points:
-    let d = heuristic(selfX, selfY, p.x, p.y)
+  var bestProgress = 0
+  var cumulative = 0
+  for i in 0 ..< path.points.len - 1:
+    let a = path.points[i]
+    let b = path.points[i + 1]
+    let segLen = segmentLength(a, b)
+    let t = segmentProjectionT(selfX, selfY, a.x, a.y, b.x, b.y)
+    let d = distToSegment(selfX, selfY, a.x, a.y, b.x, b.y)
+    let along = if segLen <= 0: 0 else: min(rounded(t * segLen.float), segLen)
+    let segProgress = cumulative + along
     if d < bestDist:
       bestDist = d
       bestIdx = i
-  (bestIdx, bestDist)
+      bestProgress = segProgress
+    cumulative += segLen
+
+  (bestIdx, bestProgress, bestDist)
+
+proc findNearestPathPointWithDistance*(path: NavPath, selfX, selfY: int):
+    tuple[idx: int, dist: int] =
+  ## Find the nearest path vertex/segment and its Manhattan snap distance.
+  ## For simplified paths, long straight segments may have sparse vertices;
+  ## segment-aware distance keeps on-course bots snapped to the path corridor.
+  let snap = findNearestSegmentSnap(path, selfX, selfY)
+  (snap.idx, snap.dist)
 
 proc selectLookahead*(path: NavPath, progress: int,
                       selfX, selfY: int, tick: int,
@@ -399,25 +479,26 @@ proc selectLookahead*(path: NavPath, progress: int,
                                             snapIdx: int,
                                             snapDist: int] =
   ## Select the lookahead target point on the current path segment.
-  ## Snaps to nearest path point, advances progress, picks lookahead
+  ## Snaps to nearest path segment, advances progress, picks lookahead
   ## ahead, and applies small perturbation for localization.
   if path.points.len == 0:
     return (Point(x: selfX, y: selfY), 0, 0, high(int))
 
-  # Snap to nearest point (handles drift)
-  let snap = findNearestPathPointWithDistance(path, selfX, selfY)
-  let lastIdx = path.points.len - 1
-  let traversalSnap = if forward: snap.idx else: lastIdx - snap.idx
+  # Snap to nearest point on the path polyline (handles drift without
+  # requiring every intermediate pixel to survive path simplification).
+  let snap = findNearestSegmentSnap(path, selfX, selfY)
+  let totalProgress = pathLength(path)
+  let traversalSnap = if forward: snap.progress else: totalProgress - snap.progress
   # Never go backward: use max of progress and snap.
   let effectiveProgress = max(progress, traversalSnap)
 
   # Lookahead
-  let traversalLookahead = min(effectiveProgress + PathLookahead, lastIdx)
-  let lookaheadIdx = if forward:
+  let traversalLookahead = min(effectiveProgress + PathLookahead, totalProgress)
+  let pathLookahead = if forward:
     traversalLookahead
   else:
-    max(lastIdx - traversalLookahead, 0)
-  var target = path.points[lookaheadIdx]
+    max(totalProgress - traversalLookahead, 0)
+  var target = pointAtPathProgress(path, pathLookahead)
 
   # Small deterministic pseudo-random perturbation to aid localization.
   # Uses tick hashing instead of a fixed cadence so it behaves like a
