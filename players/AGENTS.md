@@ -178,14 +178,13 @@ tournament conditions.
 
 ```sh
 PYTHONPATH=among_them \
-GUIDED_BOT_TRACE_DIR=/tmp/gb_standard_test \
-GUIDED_BOT_TRACE_LEVEL=decisions \
 .venv/bin/python among_them/scripts/play_match.py \
     -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --num-agents 8 \
     --duration 180 \
     --seed 42 \
-    --trace-dir /tmp/gb_standard_test
+    --trace-dir among_them/guided_bot/traces \
+    --trace-level decisions
 ```
 
 ### What to check in traces
@@ -228,8 +227,8 @@ After the match, each bot's trace lives in
 
 ```sh
 for i in $(seq 0 7); do
-  session=$(ls /tmp/gb_standard_test/bot_$i/ | head -1)
-  dir="/tmp/gb_standard_test/bot_$i/$session"
+  session=$(ls among_them/guided_bot/traces/bot_$i/ | head -1)
+  dir="among_them/guided_bot/traces/bot_$i/$session"
   python3 -c "
 import json
 m = json.load(open('$dir/manifest.json'))

@@ -293,9 +293,11 @@ proc updateTaskState*(belief: var Belief, tick: int,
   ## (after ``mergeTaskPercept``). Implements TASK_COMPLETING_DESIGN.md
   ## §4.2 and §5 (radar checkout).
   ##
-  ## ``holdIndex`` and ``confirmIndex`` are the task indices currently
-  ## being held or confirmed by ``task_completing`` mode (-1 if none).
-  ## These are excluded from negative-evidence pruning.
+  ## ``holdIndex`` and ``confirmIndex`` are optional task indices to
+  ## exclude from negative-evidence pruning (-1 if none). The live
+  ## ``task_completing`` pipeline intentionally passes -1 for Hold so
+  ## missing icons during the A-press can prune wrong targets; Confirm
+  ## stays shielded because icon absence is the completion signal.
   if not belief.tasks.initialized:
     return
   if belief.percep.interstitial:
@@ -332,7 +334,7 @@ proc updateTaskState*(belief: var Belief, tick: int,
         # Only count misses when the icon area is fully on-screen.
         if taskIconOnScreen(station, camX, camY, TaskClearScreenMargin):
           belief.tasks.slots[i].iconMissCount += 1
-          # Negative evidence: 24 frames of clear sight, no icon.
+          # Negative evidence: enough clear-sight frames with no icon.
           if belief.tasks.slots[i].iconMissCount >= TaskIconMissResolveFrames and
              i != holdIndex and i != confirmIndex:
             belief.tasks.slots[i].resolvedNotMine = true

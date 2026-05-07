@@ -304,31 +304,67 @@ kwargs. When enabled, each bot writes JSONL streams and a manifest to a
 the same `GUIDED_BOT_TRACE_DIR` are safe — a monotonic instance counter
 ensures no collisions.
 
+**Convention:** Store traces in `guided_bot/traces/` (gitignored, kept via
+`.gitkeep`). Use this as the default `--trace-dir` for local development
+and live tests rather than `/tmp`. This keeps trace output colocated with
+the agent source for easier post-match analysis.
+
 When disabled (the default), every trace call is a nil-check early return
 with near-zero cost.
 
 ### Configuration
 
+Two mechanisms control tracing, with a strict precedence rule:
+
+1. **Environment variables:** `GUIDED_BOT_TRACE_DIR`, `GUIDED_BOT_TRACE_LEVEL`
+2. **Policy kwargs:** `trace_dir`, `trace_level` (passed via `--policy-kwarg`
+   or injected by `play_match.py`'s `--trace-dir`/`--trace-level` flags)
+
+**Kwargs always override env vars.** When `play_match.py` receives
+`--trace-dir`, it passes `trace_dir=<dir>/bot_<i>` and
+`trace_level=<level>` as per-bot kwargs — so the CLI flags are
+authoritative regardless of what env vars are set. The env vars serve
+as a fallback for the standalone binary or when no kwargs are passed.
+
 ```sh
-# Enable tracing with decisions-level detail (env var path):
-GUIDED_BOT_TRACE_DIR=/tmp/guided_bot_trace \
-GUIDED_BOT_TRACE_LEVEL=decisions \
-  among_them/guided_bot/guided_bot --port:2000
+# Trace levels (from trace.nim):
+#   off        — no output
+#   events     — manifest.json + events.jsonl
+#   decisions  — all of events + decisions/modes/reflexes/guidance/perception.jsonl
+#   full       — all of decisions + snapshots.jsonl (every ~240 ticks) + frames.bin
 
-# Trace levels:
-#   events     — events.jsonl only
-#   decisions  — events + decisions + modes + reflexes + guidance
-#   full       — all of the above + snapshots.jsonl + frames.bin
+# --- Recommended: use play_match.py CLI flags (authoritative) ---
 
-# Via play_match.py --trace-dir (sets env var for all bots, plus passes
-# per-bot kwarg as trace_dir/bot_<i>):
-PYTHONPATH=among_them python among_them/scripts/play_match.py \
-    --trace-dir /tmp/match_trace
+# Full tracing with frames (4 agents, 3 minutes):
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 4 --imposter-count 1 --duration 180 --seed 42 \
+    --trace-dir among_them/guided_bot/traces \
+    --trace-level full
 
-# Via policy kwarg (per-instance override, wins over env var):
-#   --policy-kwarg trace_dir=/tmp/my_bot_trace
-#   --policy-kwarg trace_level=decisions
+# Decisions-level tracing (no frames.bin, much smaller output):
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 8 --duration 180 --seed 42 \
+    --trace-dir among_them/guided_bot/traces \
+    --trace-level decisions
+
+# --- Alternative: env vars (for standalone binary or connect.py) ---
+
+GUIDED_BOT_TRACE_DIR=among_them/guided_bot/traces \
+GUIDED_BOT_TRACE_LEVEL=full \
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/connect.py \
+    --host 127.0.0.1 --port 2000
+
+# --- Per-instance override via policy kwarg (wins over everything) ---
+#   --policy-kwarg trace_dir=among_them/guided_bot/traces/custom
+#   --policy-kwarg trace_level=full
 ```
+
+**Important:** Setting `GUIDED_BOT_TRACE_LEVEL=full` as an env var has
+no effect when using `play_match.py --trace-dir` because the script
+injects `trace_level` as a kwarg (defaulting to `decisions` unless
+`--trace-level` is explicitly passed). Always use the CLI flag.
 
 ### Output directory layout
 

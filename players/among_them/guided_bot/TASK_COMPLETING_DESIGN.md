@@ -123,6 +123,10 @@ The mode's three-phase state machine, tracked in scratch via
 - **Duration:** `TaskHoldTicks` (84 ticks, ~3.5s). The server accepts
   the task within ~72 ticks; the 12-tick pad ensures the hold is never
   released prematurely.
+- **Negative evidence:** Hold does not shield the locked station from
+  `resolvedNotMine` pruning. Task icons render above the station rect,
+  while the A-press animation stays inside the rect, so missing icons
+  during Hold are valid evidence that this station is not ours.
 - **Exit condition:** `tcHoldRemaining` decrements to 0.
 - **On entry:** sets `tcHoldRemaining = TaskHoldTicks`,
   `tcHoldStartTick = belief.tick`.
@@ -132,6 +136,9 @@ The mode's three-phase state machine, tracked in scratch via
 - **Discipline:** `DisciplineNoOp` — stand still, no buttons.
 - **Purpose:** watch for the task icon to disappear (the server removes
   it on successful task completion).
+- **Negative-evidence shielding:** the locked station is shielded from
+  `resolvedNotMine` pruning during Confirm because icon absence is the
+  success signal here, not evidence that the task is unassigned.
 - **Duration:** up to `TaskConfirmWindowTicks` (48 ticks, ~2s).
 - **Completion detection:** icon absent for `TaskIconMissCompleteTicks`
   (24) consecutive frames → task completed.
@@ -202,8 +209,10 @@ Run every gameplay frame in `belief.nim:266-331`. For each station `i`:
    - No, AND off-screen/near edge: don't count (can't see the icon).
 
 2. **Negative evidence.** If `iconMissCount >= TaskIconMissResolveFrames`
-   (24) and the station is not currently being held or confirmed:
+   (2) and the station is not currently being confirmed:
    `resolvedNotMine = true`, `checkout = false`, `state = TaskNotDoing`.
+   Hold-phase targets are intentionally not shielded, because the task
+   icon remains visible above the station rect during the A-press.
 
 3. **Radar-dot checkout.** If a radar dot matches the station's
    projected screen-edge position (Chebyshev distance ≤
@@ -396,7 +405,7 @@ All live in `tuning.nim:33-40`:
 | `TaskHoldTicks` | 84 | A-hold duration. Server accepts ~72; 84 adds a 12-tick pad. |
 | `TaskConfirmWindowTicks` | 48 | Post-hold observation window before timeout (~2s). |
 | `TaskIconMissCompleteTicks` | 24 | Consecutive icon-absent frames to confirm completion. |
-| `TaskIconMissResolveFrames` | 24 | Consecutive icon-absent frames for "not mine" pruning. |
+| `TaskIconMissResolveFrames` | 2 | Consecutive icon-absent frames for "not mine" pruning. |
 | `TaskClearScreenMargin` | 8 | Pixel margin for "icon area fully on-screen" check. |
 | `RadarMatchTolerance` | 2 | Chebyshev distance for radar-dot → station matching. |
 | `TaskCommitTicks` | 48 | Hysteresis: keep target for at least ~2s before reconsidering. |

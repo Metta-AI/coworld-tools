@@ -414,10 +414,12 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
   # 2e'. Task-state machine update (phase 6.1). Runs after
   #      mergeTaskPercept so visibleTaskIcons and radarDots are current.
   ensureTaskSlotsInitialized(bot.belief)
-  let holdIdx = if bot.modeScratch.mode == ModeTaskCompleting and
-                   bot.modeScratch.tcPhase == TpHold:
-                  bot.modeScratch.tcLockedTaskIndex
-                else: -1
+  # Hold does not shield: task icons render above the station rect, while
+  # the A-press animation stays inside it. Missing icons during Hold are
+  # valid negative evidence for resolvedNotMine pruning.
+  let holdIdx = -1
+  # Confirm remains shielded because icon absence is the success signal
+  # after a completed hold, not evidence that the station is unassigned.
   let confirmIdx = if bot.modeScratch.mode == ModeTaskCompleting and
                       bot.modeScratch.tcPhase == TpConfirm:
                      bot.modeScratch.tcLockedTaskIndex

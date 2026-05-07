@@ -39,8 +39,10 @@ const
   # --- Task-completing lifecycle (TASK_COMPLETING_DESIGN.md §8) ------
   TaskHoldTicks*              = 84   ## A-hold duration. Server accepts ~72; 84 pads 12 ticks.
   TaskConfirmWindowTicks*     = 48   ## Post-hold observation window before timeout (~2s).
-  TaskIconMissCompleteTicks*  = 24   ## Consecutive icon-absent frames to confirm completion.
-  TaskIconMissResolveFrames*  = 24   ## Consecutive icon-absent frames for "not mine" pruning.
+  TaskIconMissCompleteTicks*  = 24   ## Consecutive post-hold icon-absent frames to confirm completion.
+  TaskIconMissResolveFrames*  = 2    ## Consecutive icon-absent frames for "not mine" pruning.
+                                     ## Two frames are enough: task-icon position is deterministic,
+                                     ## matching is strict, and on-screen gating filters edge cases.
   TaskClearScreenMargin*      = 8    ## Pixel margin for "icon area fully on-screen" check.
   RadarMatchTolerance*        = 2    ## Chebyshev distance for radar-dot → station matching.
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
