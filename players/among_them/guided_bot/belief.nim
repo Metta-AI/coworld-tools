@@ -274,16 +274,16 @@ proc resetTaskSlots*(belief: var Belief) =
 proc findIconForStation(stationIdx: int, station: TaskStation,
                         icons: openArray[IconMatch],
                         camX, camY: int): bool =
-  ## True if any visible task icon matches the given station. Reuses
-  ## the same matching logic as ``task_completing.findTaskForIcon``:
-  ## the icon's world position must fall within the station rect
-  ## (16 px margin).
-  const margin = 16
+  ## True if any visible task icon matches the given station.
+  ## Task icons render at a fixed screen-space offset from the station
+  ## rect; match that exact expected top-left rather than an expanded
+  ## station rect, because nearby task-station rects can overlap.
+  const tolerance = 2
+  let expectedX = station.x + station.w div 2 - SpriteSize div 2 - camX
+  let expectedY = station.y - SpriteSize - 2 - camY
   for icon in icons:
-    let wx = camX + icon.x + SpriteDrawOffX
-    let wy = camY + icon.y + SpriteDrawOffY
-    if wx >= station.x - margin and wx < station.x + station.w + margin and
-       wy >= station.y - margin and wy < station.y + station.h + margin:
+    if abs(icon.x - expectedX) <= tolerance and
+       abs(icon.y - expectedY) <= tolerance:
       return true
   false
 

@@ -242,7 +242,51 @@ proc testTaskIconIgnoreMask() =
            &"ignore mask grew from {baseBits} to {afterBits} with {result.taskIcons.len} task icons")
 
 # ---------------------------------------------------------------------------
-# 5. End-to-end bot pipeline
+# 5. Task-icon-to-station attribution
+# ---------------------------------------------------------------------------
+
+proc testTaskIconStationAttributionRegression() =
+  ## Dense station rects used to overlap under the old 16 px margin
+  ## attribution. A Divert Power icon at station 10 must not also mark
+  ## nearby Fix Wires station 5 as confirmed.
+  let tasks = referenceData.map.tasks
+  expect(tasks.len > 10, "attribution regression: station 10 exists")
+  if tasks.len <= 10:
+    return
+
+  let station5 = tasks[5]
+  let station10 = tasks[10]
+  expectEq(station5.x, 392, "attribution regression: station 5 x")
+  expectEq(station5.y, 296, "attribution regression: station 5 y")
+  expectEq(station10.x, 372, "attribution regression: station 10 x")
+  expectEq(station10.y, 293, "attribution regression: station 10 y")
+
+  var belief = initBelief()
+  ensureTaskSlotsInitialized(belief)
+  belief.self.role = RoleCrewmate
+  belief.self.alive = true
+  belief.self.isGhost = false
+  belief.percep.localized = true
+  belief.percep.cameraX = 342
+  belief.percep.cameraY = 243
+  belief.percep.interstitial = false
+
+  let iconX = station10.x + station10.w div 2 - SpriteSize div 2 -
+              belief.percep.cameraX
+  let iconY = station10.y - SpriteSize - 2 - belief.percep.cameraY
+  expectEq(iconX, 32, "attribution regression: station 10 expected icon x")
+  expectEq(iconY, 36, "attribution regression: station 10 expected icon y")
+
+  belief.percep.visibleTaskIcons = @[IconMatch(x: iconX, y: iconY)]
+  updateTaskState(belief, tick = 1, holdIndex = -1, confirmIndex = -1)
+
+  expectEq(belief.tasks.slots[10].state, TaskConfirmed,
+           "attribution regression: station 10 confirmed")
+  expect(belief.tasks.slots[5].state != TaskConfirmed,
+         "attribution regression: station 5 not misconfirmed")
+
+# ---------------------------------------------------------------------------
+# 6. End-to-end bot pipeline
 # ---------------------------------------------------------------------------
 
 proc testBotPipelineTasks() =
@@ -270,7 +314,7 @@ proc testBotPipelineTasks() =
     discard bot.stepUnpackedFrame(loadFixture(name))
 
 # ---------------------------------------------------------------------------
-# 6. Fixture sweep
+# 7. Fixture sweep
 # ---------------------------------------------------------------------------
 
 proc testFixtureSweep() =
@@ -286,7 +330,7 @@ proc testFixtureSweep() =
            "fixture sweep: frameTick == frame count")
 
 # ---------------------------------------------------------------------------
-# 7. Smoke benchmark
+# 8. Smoke benchmark
 # ---------------------------------------------------------------------------
 
 proc testBenchmark() =
@@ -328,6 +372,7 @@ proc main() =
   testTaskIconScanImposterSkip()
   testTaskIconScanGhostImposter()
   testTaskIconIgnoreMask()
+  testTaskIconStationAttributionRegression()
   testBotPipelineTasks()
   testFixtureSweep()
   testBenchmark()

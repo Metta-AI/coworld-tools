@@ -317,9 +317,18 @@ position.
 whether any visible task icon matches the locked station each tick
 during the Confirm phase.
 
-Match criteria: the icon's world position (screen pos + camera offset
-+ `SpriteDrawOffX/Y`) falls within the station rect with a 16 px
-margin.
+Match criteria: the icon's screen-space top-left matches the fixed
+server render offset for that station:
+
+```nim
+expectedX = station.x + station.w div 2 - SpriteSize div 2 - camX
+expectedY = station.y - SpriteSize - 2 - camY
+```
+
+The icon matches when both axes are within 2 px of the expected
+screen position. The tolerance covers the server bob animation and
+scan-kernel jitter. Do not apply `SpriteDrawOffX/Y` here; the task-icon
+scan reports raw screen-space sprite coordinates.
 
 - Icon found: reset `tcConfirmMissCount = 0`.
 - Icon not found: increment `tcConfirmMissCount`.

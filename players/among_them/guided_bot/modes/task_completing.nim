@@ -148,12 +148,12 @@ proc iconVisibleAtStation(belief: Belief, stationIdx: int): bool =
   let station = tasks[stationIdx]
   let camX = belief.percep.cameraX
   let camY = belief.percep.cameraY
-  const margin = 16
+  const tolerance = 2
+  let expectedX = station.x + station.w div 2 - SpriteSize div 2 - camX
+  let expectedY = station.y - SpriteSize - 2 - camY
   for icon in belief.percep.visibleTaskIcons:
-    let wx = camX + icon.x + SpriteDrawOffX
-    let wy = camY + icon.y + SpriteDrawOffY
-    if wx >= station.x - margin and wx < station.x + station.w + margin and
-       wy >= station.y - margin and wy < station.y + station.h + margin:
+    if abs(icon.x - expectedX) <= tolerance and
+       abs(icon.y - expectedY) <= tolerance:
       return true
   false
 
