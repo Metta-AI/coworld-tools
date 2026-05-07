@@ -145,9 +145,10 @@ The `policy.py` contract:
 
 Agents built on the Orpheus framework define modes and a `meta_decide`
 function rather than a raw policy loop. See
-[orpheus/README.md](orpheus/README.md) for an overview and
-[orpheus/DESIGN.md](orpheus/DESIGN.md) for the full specification.
-(Implementation not yet available — design phase.)
+[orpheus/README.md](orpheus/README.md) for an overview,
+[orpheus/DESIGN.md](orpheus/DESIGN.md) for the full specification, and
+[agents/orpheus_test/](agents/orpheus_test/) for a minimal reference
+agent.
 
 ### Perception Module
 
@@ -209,11 +210,22 @@ To capture new frames and add fixtures:
 
 ### [Orpheus framework](orpheus/)
 
-Agent framework (design phase). Provides perception, belief state,
-task execution, a hook system, and an async outer loop for mode
-selection. Agents built on Orpheus define modes and a `meta_decide`
-function rather than a raw `policy.py`. See
-[orpheus/DESIGN.md](orpheus/DESIGN.md) for the full specification.
+Agent framework. Provides perception, belief state, task execution, a
+hook system, and an async outer loop for mode selection. Agents built
+on Orpheus define modes and a `meta_decide` function rather than a raw
+`policy.py`. See [orpheus/DESIGN.md](orpheus/DESIGN.md) for the full
+specification and [orpheus/IMPLEMENTATION_PLAN.md](orpheus/IMPLEMENTATION_PLAN.md)
+for the build roadmap.
+
+### [orpheus_test](agents/orpheus_test/)
+
+**Description**: Minimal Orpheus-based agent used to exercise the
+framework end to end. Three modes (idle, wander, approach-nearest-known-
+player) selected by a rule-based `meta_decide` (no LLM). Falls back to
+idle on outer-loop silence. Serves as the reference Orpheus agent and
+the integration-test driver.
+
+**Results**: *No test results yet.*
 
 ### [baseline](agents/baseline/)
 

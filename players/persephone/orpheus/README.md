@@ -30,7 +30,7 @@ may call an LLM, a rule system, or a hybrid).
 |--------|----------------|
 | **Perception** | Pixel frames → structured symbolic state (`orpheus/perception/`) |
 | **Belief state** | Fixed-schema + flexible dict, updated each tick from perception |
-| **Tasks** | 22 pre-built task types (movement, whisper lifecycle, info exchange, leadership, communication, hostage selection) |
+| **Tasks** | 24 pre-built task types (movement, view management, whisper lifecycle, info exchange, leadership, hostage selection, communication, idle) |
 | **Hook system** | Typed pre/post callbacks at every phase boundary |
 | **Outer loop** | Async mode selection via dual consume-on-read buffers |
 
@@ -48,6 +48,13 @@ To build a concrete agent on Orpheus, you supply:
 
 ## Status
 
-Stages 0-2 are implemented: public type contracts, the inner-loop skeleton,
-and the belief update pipeline. The `perception/` module is incorporated;
-later stages remain specified in DESIGN.md and IMPLEMENTATION_PLAN.md.
+Stages 0-9 are implemented (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
+for the staged build, and `git log -- orpheus/` for the per-stage commits).
+The `perception/` module is incorporated. The reference Orpheus-based agent
+lives at [`agents/orpheus_test/`](../agents/orpheus_test/).
+
+Known follow-ups (Stage 2 perception gaps, Stage 4 task `select_action`
+approximations, Stage 7 outer-loop staleness, Stage 8 verbose log
+categories) are tracked in [`TODO.md`](../TODO.md) and marked
+inline in source with `# TODO Stage N follow-up:` /
+`# TODO Stage N perception gap:` comments.

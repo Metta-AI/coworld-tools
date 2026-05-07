@@ -1258,7 +1258,7 @@ Each level includes everything from lower levels:
 | Level | Contents |
 |-------|----------|
 | `off` | No logging |
-| `events` | Mode transitions (old→new, directive, tick). Task changes (old→new, params). Outer loop cycles (consumed tick, staleness delta, directive produced). Hook failures (with rollback context). View transitions. Game phase changes (lobby reset, round changes). Watchdog activations. Outer loop restarts. |
+| `events` | Mode transitions (old→new, directive, tick). Task changes (old→new, params). Outer loop cycles (consumed tick, directive produced; staleness delta when the live tick is reachable from the outer loop). Hook failures (with rollback context). View transitions. Game phase changes (lobby reset, round changes). Watchdog activations. Outer loop restarts. |
 | `decisions` | `select_task` returns each tick (task type, params, or None). Outer loop `meta_decide` input summary (belief snapshot tick, key fields). `meta_decide` output (directive + inferences dict). `mode_enter` / `mode_switch_cleanup` calls. `valid_views` mismatch no-ops. |
 | `verbose` | Full perception output each tick (`FramePerception` serialized). All belief state mutations (field, old value, new value — diffed per tick). All action memory mutations. `ActCommand` output each tick (buttons, chat_text, reset_input). Cooldown state changes. `minimap_sightings` appended. Occupancy grid cells changed (viewport-confirmed transitions). |
 
@@ -1269,13 +1269,18 @@ timestamp, active mode, current task type, and current view.
 
 ### Custom log entries
 
-Hooks and modes may emit custom log entries via a framework-provided method:
+Hooks and modes may emit custom log entries via a framework-provided helper:
 
 ```
-log_event(category: str, data: dict, level: str = "events")
+log_event(logger, category: str, data: dict, level: LogLevel | str = "events")
 ```
 
-The entry is written only if the configured log level is ≥ the specified
+`logger` is a `Logger` instance (from `orpheus.logging`). Agents that wire
+a `Logger` into their `Pipeline` constructor pass that same instance to
+`log_event` from inside hooks/modes. The helper is a no-op when `logger`
+is a plain callable (or anything else not a `Logger`), so hooks that want
+structured custom entries opt in by passing the framework's `Logger`. The
+entry is written only if the configured log level is ≥ the specified
 level. This allows agent-defined tracing without coupling to the framework's
 internal categories.
 
