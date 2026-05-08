@@ -110,6 +110,71 @@ not yet extracted. Each is marked in `orpheus/belief_update.py`:
   Currently approximates "leader == current usurp candidate when no
   usurp is active." Real disambiguation needs more perception state.
 
+### Whisper system messages not structured in belief state
+
+- **Status**: Missing
+- **Impact**: The Orpheus belief state tracks `pending_offers` (from "R!" /
+  "C!" bottom-bar indicators) and `chat_history` (all messages including
+  system messages). But there is NO structured representation of whisper
+  interaction state changes derived from system messages. Agents need to
+  know:
+  - Whether an incoming color/role offer is active (and FROM WHOM when
+    multiple occupants are present -- the bottom-bar "R!"/"C!" indicator
+    does not identify the offerer)
+  - Whether a color/role exchange just completed (system msg "swapped
+    colors" / "shared roles")
+  - Whether an offer was withdrawn (system msg "withdrew")
+  - Whether a leadership offer is pending ("offered lead")
+
+  Currently agents must parse `chat_history` entries for system message
+  patterns themselves. This is error-prone and duplicates work across
+  agents. The belief update should maintain structured fields like:
+  - `active_color_offers: list[PlayerIndex]` -- who has a pending C.OFFER
+  - `active_role_offers: list[PlayerIndex]` -- who has a pending R.OFFER
+  - `last_exchange_event: ExchangeEvent | None` -- most recent
+    completion/withdrawal with tick and participants
+
+  These should be derivable from system messages (color 8 text in whisper
+  message area) combined with occupant tracking.
+- **Ref**: Eurydice DESIGN.md audit, finding 2.5.
+
+### Intro panel sequence: no panel index tracking
+
+- **Status**: Partial (roster vs role-reveal distinguished; panels 1-3
+  conflated)
+- **Impact**: The perception detector classifies the 4-panel intro
+  sequence into two buckets: `ROSTER_REVEAL` (Panel 0) and `ROLE_REVEAL`
+  (Panels 1-3). There is no panel index or sequencing state. This means:
+  - Panel 2 (role summary: which roles are in the match, missing roles,
+    echo substitutions) is never specifically parsed.
+  - Panel 3 (round schedule: durations and hostage counts per round)
+    is never specifically parsed (known gap: `round_schedule` stays
+    empty).
+  - An agent cannot tell whether it's on Panel 1 vs 2 vs 3 from a
+    single frame, complicating active navigation of the intro.
+- **Fix options**:
+  1. Add sub-detection within `_role_reveal.py` based on unique visual
+     signatures of each panel (Panel 1 has "YOU ARE", Panel 2 has role
+     list, Panel 3 has a table with "ROUND" headers).
+  2. Track panel transitions over time in belief state (counting
+     forward/back transitions against the known 4-panel sequence).
+  Option 1 is simpler and sufficient since each panel has distinct
+  visual content.
+- **Ref**: Eurydice DESIGN.md audit, finding 3.1.
+
+### ModeDirective params field: allow default for parameterless modes
+
+- **Status**: API inconsistency
+- **Impact**: The `ModeDirective` dataclass requires a `params: ModeParams`
+  field. Modes without parameters must use `ModeParams()` (bare base class).
+  But agents naturally want to write `ModeDirective(mode="idle")` without
+  explicit params. This will fail the framework's isinstance validation at
+  consumption time.
+- **Fix**: Make `params` optional with default `ModeParams()` in the
+  dataclass definition: `params: ModeParams = field(default_factory=ModeParams)`.
+  Requires updating `orpheus/mode.py` and the DESIGN.md spec.
+- **Ref**: Eurydice DESIGN.md audit, finding 3.6.
+
 ### Stage 4: task `select_action` approximations
 
 Four tasks ship with simplified `select_action` implementations that
