@@ -73,26 +73,111 @@ interaction follows this pattern:
 [select_target] -> [approach] -> [create/enter whisper] -> [in-whisper protocol] -> [exit] -> [knowledge update]
 ```
 
-**Time budget:** A full probe cycle costs 8-10 seconds:
+**Time budget:** Probe cycle timing depends heavily on target cooperation
+and entry method. Two paths exist:
 
-| Step | Duration | Notes |
-|------|----------|-------|
-| Walk to target | 2-4s | Depends on distance; A* pathfinding |
-| Create whisper OR request entry | 1-2s | Create: press A. Request: press B near occupant |
-| Wait for entry grant (if requesting) | 0-3s | May timeout; auto-grant if configured |
-| Color exchange | 3-4s | C.OFFER -> wait -> C.ACCPT (2s rate limit between actions) |
-| Assess + conditional role exchange | 3-4s | R.OFFER -> wait -> R.ACCPT (if warranted) |
-| Exit whisper | 1s | EXIT from menu |
+**Flow A — Agent creates whisper near target:**
+```
+Walk to target -> Press A (create whisper) -> Wait for target to request entry -> GRANT -> interact -> EXIT
+```
 
-**Implication:** With 15-second rounds, you get **1-2 probe cycles per
-round**. Over 3 rounds, that's 3-6 players probed. In a 5-person room
-(minus yourself), 4 candidates is manageable if efficient.
+**Flow B — Agent requests entry to target's existing whisper:**
+```
+Walk to target (has speech bubble) -> Press B (request entry) -> Wait for GRANT -> interact -> EXIT
+```
+
+Both flows share the same bottleneck: **getting both players into the
+same whisper requires the other party's cooperation.** Entry requests
+timeout after 10 seconds (240 ticks). Non-cooperative targets may never
+enter/grant.
+
+**Timing breakdown (cooperative target, per-interaction):**
+
+| Step | Best Case | Typical | Notes |
+|------|-----------|---------|-------|
+| Walk to target | 1-2s | 3-4s | Room is 100-200px; average ~40-60px distance |
+| Whisper entry dance | 1-2s | 2-4s | Create + target requests + GRANT menu nav |
+| Color exchange | 3-4s | 3-4s | C.OFFER (menu nav) + 48-tick cooldown + C.ACCPT |
+| Role exchange | 3-4s | 3-4s | R.OFFER (menu nav) + 48-tick cooldown + R.ACCPT |
+| Exit | 0.5s | 1s | EXIT menu nav + view transition |
+| **Full probe total** | **~9s** | **~13s** | Includes both exchanges |
+| **Fast probe (skip color)** | **~6s** | **~9s** | For same-team targets already identified |
+
+**Probe throughput varies dramatically by config:**
+
+The game supports multiple config presets with round durations from 15
+seconds to 300 seconds. The strategy must work across all of them.
+
+| Round Duration | Full Probes/Round | Fast Probes/Round | Notes |
+|---------------|-------------------|-------------------|-------|
+| 15s (default) | 0-1 | 1 | Every second precious; target selection critical |
+| 30s (short) | 1-2 | 2-3 | Tight but workable |
+| 45s (empty3) | 3-4 | 4-5 | Comfortable single-room coverage |
+| 60s (simple, debug2r) | 4-6 | 5-7 | Can probe entire 5-person room |
+| 120s (medium R2) | 10+ | 12+ | Exhaustive probing + re-probing + positioning |
+| 180s (medium R1) | 15+ | 18+ | Full exploration + strategic positioning |
+
+**Key observation:** The `medium` preset family uses **descending round
+durations** (e.g., 180s / 120s / 60s). Round 1 is deliberately long
+for exploration; the final round is short to create urgency. This
+matches the design's urgency escalation model naturally: Round 1 has
+ample time for systematic probing, while the final round forces quick
+decisive action. The agent's `probe_cycle_cost_ticks` should be read
+from `belief_state.round_schedule` (populated from the round config),
+not hardcoded.
+
+**Design implication:** The probe cycle FSM and time budgets must be
+**config-adaptive**:
+- `can_start_probe_cycle` checks `ticks_remaining > probe_cycle_cost`
+  against the CURRENT round's duration, not a fixed 15s assumption.
+- Target selection priority weights adjust based on time budget: with
+  180s rounds, the agent can afford exploratory probes of lower-priority
+  targets; with 15s rounds, only the highest-value target is worth
+  pursuing.
+- The urgency escalation thresholds (CALM / PRESSING / PANIC) must be
+  expressed as fractions of round duration, not absolute tick counts.
+
+**Non-cooperative targets (tournament reality):**
+- Opponents may not request entry to your whisper (they have their own
+  goals, may not notice your speech bubble, or may actively avoid you).
+- Opponents may not GRANT your entry request (busy, hostile, or
+  indifferent).
+- A failed entry attempt wastes 3-5 seconds (walk + wait + timeout or
+  abort). Budget at most ONE failed attempt per round before switching
+  targets.
+
+**Key design implication:** The scarcity of probe cycles (especially in
+short-round configs) makes target selection the most impactful decision
+per round. Probing the wrong player is a round-level mistake with no
+recovery. The `score_target` algorithm must strongly prefer: (a) nearby
+targets, (b) cooperative-seeming targets (approaching us, or currently
+in overworld and idle), (c) high-information-value targets (unknown team
+> known team).
 
 **Abort conditions:**
 - Time budget exceeded (>10s in cycle without completing)
 - Target walked away before whisper creation
+- Entry request not granted within 72 ticks (3s) — abort early, don't
+  wait the full 240-tick timeout
 - Hostile occupant identified (exit early for safety)
 - Higher-priority event detected (key role spotted, phase transition)
+
+**Interaction range:** `BUBBLE_RADIUS = 20` pixels (`constants.ts:91`).
+Both whisper creation and entry requests use `distSq <= 400` (20px
+squared) via `findNearbyWhisperPlayer` (`sim.ts:807-817`):
+
+- **Create whisper (A button):** Must be >20px from ALL players currently
+  in a whisper (otherwise blocked with "YOU'LL BE OVERHEARD"). The
+  TARGET does not need to be in a whisper -- you create alone, then they
+  request entry to you.
+- **Request entry (B button):** Must be ≤20px from a player who IS in a
+  whisper. That player's whisper receives the entry request.
+
+**Implication for approach:** To initiate a probe via Flow A (create
+whisper near target), you need the target in the overworld (not already
+in a whisper) AND no other whisper player within 20px of your position.
+To use Flow B (request entry), the target must already be in a whisper
+and you must get within 20px of them.
 
 ### Observability Constraints
 
@@ -106,7 +191,10 @@ behavior:
   center pixel falls on a shadowed pixel within the camera viewport is
   hidden from the minimap. However, players OUTSIDE the camera viewport
   (far away from the viewer) bypass the shadow check entirely and always
-  appear as dots.
+  appear as dots. (`renderer.ts:384-387`: the bounds check
+  `sx >= 0 && sx < SCREEN_WIDTH && sy >= 0 && sy < SCREEN_HEIGHT`
+  short-circuits the shadow lookup for out-of-viewport players; the
+  shadow buffer is only 128x128 and has no data for them.)
 - **Implication:** The minimap reliably shows far-away players but may
   hide nearby players behind walls. This is the inverse of viewport
   observation (which shows nearby but can't see far). Together, viewport
@@ -366,6 +454,15 @@ class StrategicState:
     players_unprobed_in_room: list[PlayerID]   # Not yet interacted with
     probe_cycles_remaining: int           # Estimated remaining cycles this round
 
+    # Scaling parameters (derived from config at game start)
+    room_player_count: int                # Players in my room (varies: 3-12)
+    total_player_count: int               # Total players in game (6-24)
+    usurp_votes_needed: int               # floor(room_player_count / 2) + 1
+    probe_coverage_fraction: float        # probes_remaining / room_player_count
+    # probe_coverage_fraction drives strategy: >0.8 = can probe everyone
+    # (exhaustive), 0.3-0.8 = must prioritize (selective), <0.3 = triage
+    # (only highest-value targets)
+
     # Intelligence (local only -- cross-room relay is impossible)
     local_intel_to_share: list[IntelItem] # Intel to share with local allies (via whisper/chat)
     intel_for_summit: list[IntelItem]     # Intel to use if we become leader for summit
@@ -393,13 +490,20 @@ These produce verified knowledge:
 
 ```
 IF mutual_role_exchange(P) THEN P.role = revealed_role, P.team = revealed_team, confidence = 1.0
-IF color_exchange(P) reveals Shades THEN P.team = Shades, confidence = 0.9 (Spy caveat)
-IF color_exchange(P) reveals Nymphs THEN P.team = Nymphs, confidence = 0.9 (Spy caveat)
+IF color_exchange(P) reveals Shades THEN P.team = Shades, confidence = 1.0 if no Spy in config, else 0.9
+IF color_exchange(P) reveals Nymphs THEN P.team = Nymphs, confidence = 1.0 if no Spy in config, else 0.9
 IF one_way_role_reveal(P) observed THEN P.role = revealed_role, confidence = 0.95
 IF P is in my room (visible) THEN P.room = my_room, room_confidence = 1.0
 IF roster_reveal shows P in RoomX THEN P.room = RoomX, room_confidence = 1.0
 IF P selected as hostage from RoomX THEN P.room = other_room (after exchange), room_confidence = 1.0
 ```
+
+**Spy-in-config detection:** Panel 2 of the intro sequence lists all
+roles present in the match (including Spy if configured). The boolean
+`spy_in_game_config` is set during the intro and persists for the game's
+lifetime. When false, color exchange is mechanically guaranteed truthful
+(no player can produce a false color reveal), so confidence = 1.0. The
+default 10-player composition does NOT include a Spy.
 
 #### Soft Inference Rules (Certainty < 1.0)
 
@@ -516,7 +620,8 @@ class PlayerAccumulator:
     whisper_entries_this_round: int = 0
     whisper_partners_this_round: set[PlayerID] = field(default_factory=set)
     total_time_in_whispers_ticks: int = 0
-    whisper_entry_ticks: list[int] = field(default_factory=list)  # tick of each entry
+    whisper_entry_ticks: list[int] = field(default_factory=list)  # tick of each entry (cross-round; never reset)
+    max_whisper_entries_any_round: int = 0  # Peak per-round whisper entries across all prior rounds (cross-round)
 
     # Exchange behavior
     color_offers_made: int = 0
@@ -595,6 +700,13 @@ def derive_behavioral_flags(acc: PlayerAccumulator, belief: BeliefState) -> set[
     if acc.global_messages_sent_this_round >= 2:
         flags.add("chatty_global")
 
+    # "relaxed_after_urgency": was highly active in prior rounds, now passive
+    # Requires cross-round summary field (updated during round reset)
+    if (acc.max_whisper_entries_any_round >= 3
+        and acc.whisper_entries_this_round == 0
+        and round_ticks > 120):  # Give 5s before calling "passive"
+        flags.add("relaxed_after_urgency")
+
     # "whispers_with_both_teams": probable whisper partnerships include both teams
     # NOTE: This uses proximity-inferred partnerships (confidence ~0.7) for
     # OTHER players' whispers. Only partnerships from OUR whispers have full
@@ -653,11 +765,42 @@ votes or leadership changes, update relevant accumulators.
 | Event | Action |
 |-------|--------|
 | Game start | Initialize all accumulators to zero |
-| New round starts | Reset per-round counters; preserve cross-round data |
+| New round starts | Snapshot cross-round summaries, then reset per-round counters (see below) |
 | Player hostaged away | Freeze their accumulator (no more observations possible) |
 | Player hostaged in | Initialize fresh accumulator for them |
 | We are hostaged | Reset position-dependent accumulators; preserve interaction knowledge |
 | Game ends | Accumulators are discarded |
+
+**Round-reset procedure:**
+
+```python
+def reset_for_new_round(acc: PlayerAccumulator):
+    # 1. Snapshot cross-round summaries BEFORE clearing
+    acc.max_whisper_entries_any_round = max(
+        acc.max_whisper_entries_any_round,
+        acc.whisper_entries_this_round
+    )
+
+    # 2. Reset per-round counters (fields with "_this_round" suffix)
+    acc.whisper_entries_this_round = 0
+    acc.whisper_partners_this_round = set()
+    acc.visible_ticks_this_round = 0
+    acc.total_distance_this_round = 0.0
+    acc.global_messages_sent_this_round = 0
+    acc.stationary_ticks = 0
+    acc.distinct_players_approached = set()
+
+    # 3. Preserved across rounds (no reset):
+    #    - whisper_entry_ticks (timestamped log; filterable by tick range)
+    #    - total_time_in_whispers_ticks (cumulative)
+    #    - max_whisper_entries_any_round (cross-round summary)
+    #    - position_history (ring buffer; old entries age out naturally)
+    #    - color_offers_made, role_offers_* (cumulative interaction counts)
+    #    - ticks_before_first_offer (first-interaction measurement)
+    #    - leadership_rounds (list of round numbers)
+    #    - message_content_log (timestamped; filterable)
+    #    - sought_leadership, passed_leadership (cumulative booleans)
+```
 
 ### Relationship to Inference Engine
 
@@ -940,9 +1083,8 @@ P6: default                                     -> infiltrate_passively()
 
 #### All Roles: Exchange-Impossible Endgame
 
-When the key exchange becomes impossible (Round 3, partner confirmed in
-other room, no hostage exchange remaining, not leader), a final priority
-overrides normal role logic:
+When the key exchange becomes impossible, a final priority overrides
+normal role logic:
 
 ```
 P_FINAL (any key role): key_exchange_not_done + round_3 + partner_unreachable
@@ -953,10 +1095,29 @@ P_FINAL (any key role): key_exchange_not_done + round_3 + partner_unreachable
 ```
 
 `partner_unreachable` is true when ALL of:
-- Partner is confirmed in other room (or never found)
-- No hostage exchange phase remains (after final HostageExchange)
-- We are not leader (cannot influence hostage picks)
-- Insufficient time for a probe cycle even if partner appeared
+- Partner is confirmed in other room (or never found after 2+ rounds
+  of probing)
+- We are in Round 3 (any phase from Playing3 onward)
+
+**Why Round 3 = unreachable:** The game flow is
+`[Playing -> HostageSelect -> LeaderSummit -> HostageExchange] x3 -> Reveal`.
+If partner is in the other room at the start of Playing3:
+- Playing3: different rooms, no shared whisper possible.
+- HostageSelect3: partner still in other room.
+- LeaderSummit3: chat only (no mechanical exchanges).
+- HostageExchange3: partner MIGHT arrive, but...
+- Reveal: no interaction phase follows. Zero time for R.OFFER + R.ACCPT.
+
+Even if the partner is hostaged to our room in HostageExchange3, the
+game proceeds directly to Reveal with no Playing time for the exchange.
+Being hostaged ourselves to their room has the same problem. Therefore,
+"partner in other room at Round 3 start" = definitively unreachable.
+
+**Edge cases NOT considered unreachable:**
+- Partner never found but only 1-2 rounds of probing done: partner might
+  be in our room unidentified. Continue probing (probe_systematic).
+- Partner in other room during Round 2: HostageExchange2 will move players
+  before Playing3 begins. Partner may arrive. Not yet unreachable.
 
 **`disrupt_enemy_exchange` behavior:**
 - Locate enemy key roles (if known from prior probing)
@@ -964,11 +1125,6 @@ P_FINAL (any key role): key_exchange_not_done + round_3 + partner_unreachable
 - If leader: send enemy key roles to opposite rooms (separate them)
 - If not leader + majority available: usurp, then send them
 - Global chat: misdirect ("HADES IS [wrong color]") to confuse coordination
-- Accept any role exchange from enemy key roles (wastes their time,
-  gives us intel, and they've already "used" their exchange slot on us
-  rather than their real partner -- but NOTE: mutual exchange with us
-  does NOT prevent them from also exchanging with their real partner;
-  the sharedWith set is additive, not exclusive)
 
 **Correction on disruption:** Mutual role exchange does NOT "use up" an
 exchange slot. The win condition checks whether the key pair exchanged
@@ -992,14 +1148,37 @@ Certain game phases override the role-specific priority system:
 
 **HostageExchange intelligence (passive):** Although no input is accepted
 during this 8-second phase, the exchange screen reveals:
-- Which players are departing/arriving (room assignment updates)
-- Leader sprites for both rooms (cross-room leader identification)
-- Role indicators on visible sprites (may reveal roles of exchanged players)
+
+- **Departing hostages** (leaving your room): full sprites with color and
+  shape (player identification). Updates room assignments.
+- **Arriving hostages** (coming to your room): same. Updates room
+  assignments.
+- **Your room's leader**: sprite (always visible).
+- **Other room's leader**: sprite. **Only visible if YOU are a leader**
+  (`renderer.ts:794-796`: `if (isLeader)` gates the other leader's
+  sprite). Non-leaders cannot identify the other room's leader.
+
+**Role indicators — server bug (may be patched):** The current renderer
+(`renderExchangeRow`, `renderer.ts:760`) unconditionally calls
+`drawRoleSlot(p.role, p.team)` on all exchange-screen sprites WITHOUT
+checking `revealedTo` or `colorRevealedTo`. This bypasses the visibility
+gates used in the overworld (where role indicators only render for
+mechanically-discovered players). If exploited, this leaks true team and
+key-role identity (Hades/Persephone/Cerberus/Demeter distinguishable by
+dot patterns) for ALL shown sprites.
+
+**Design stance:** This is inconsistent with the game's information
+model and likely unintentional. Do NOT make it load-bearing in strategic
+reasoning. Perception should extract role indicators from the exchange
+screen opportunistically (free intelligence if present), but the
+strategic layer must be correct even if this is patched to gate on
+`revealedTo` like the overworld does. In other words: treat exchange-
+screen role indicators as bonus confidence, not a reliable source.
 
 The Orpheus belief update extracts this automatically. After each
 HostageExchange completes, `meta_decide` should re-check the player
-registry for newly-revealed room assignments and role indicators -- this
-is free intelligence that requires no action.
+registry for newly-revealed room assignments -- this is guaranteed free
+intelligence that requires no action.
 
 ### Intro Sequence Behavior
 
@@ -1080,10 +1259,11 @@ def meta_decide(belief_state, action_memory):
     # Normal evaluation
     directive, inferences = evaluate_role(strategic_state, belief_state, action_memory)
 
-    # Track what we produced (stored in inferences for next iteration)
-    inferences = inferences or {}
-    inferences["_last_directive_mode"] = directive.mode_type
-    inferences["_last_directive_tick"] = belief_state.tick
+    # Track what we produced in belief_state.ext (persistent across ticks).
+    # Using ext instead of inferences avoids the fragility of needing every
+    # code path to re-include hysteresis keys in the returned dict.
+    belief_state.ext["last_directive_mode"] = directive.mode_type
+    belief_state.ext["last_directive_tick"] = belief_state.tick
 
     return (directive, inferences)
 
@@ -1250,6 +1430,22 @@ class ProbeTargetParams(ModeParams):
 
 **Timeout:** If `max_approach_ticks` exceeded without reaching target,
 signal mode completion with failure reason.
+
+**Probe failure escalation:** Against evasive or uncooperative targets,
+the probe cycle can fail at multiple points. Each failure type has a
+specific escalation:
+
+| Failure | Detection | Escalation |
+|---------|-----------|-----------|
+| Target runs away (2x) | Distance increasing over 48+ ticks despite pursuit | Mark `evasive`; skip to next target; infer `avoids_interaction` flag (possible key role) |
+| Entry never granted | 72 ticks (3s) without grant | Abort; try creating OWN whisper near target next time (reverse flow) |
+| Target exits immediately | Whisper duration <24 ticks before they leave | Note behavioral flag; infer reluctance; move on |
+| Target ignores all offers | No response to C.OFFER within 72 ticks | Exit; target may be AFK, scripted, or hostile |
+
+**Key insight:** Some opponents are simply unprobable. The agent must
+accept this and reason from behavioral signals alone (evasion itself is
+a strong signal of key-role identity). Never spend more than 2 failed
+probe attempts on the same target per round.
 
 ---
 
@@ -1472,6 +1668,26 @@ def handle_assess(ws, belief_state):
     """Check what we already know about occupants. Decide protocol path."""
     knowledge = get_knowledge(ws.target_occupant)
 
+    # --- Multi-occupant eavesdrop guard ---
+    # System messages from exchanges are visible to ALL occupants.
+    # If >2 occupants and any non-target is hostile/unknown, exchanges
+    # would leak our team/role to them. Key roles must not take this risk.
+    occupant_count = len(get_whisper_occupants(belief_state))
+    if occupant_count > 2:
+        my_role = belief_state.ext["my_role"]
+        non_targets = [o for o in get_whisper_occupants(belief_state)
+                       if o != ws.target_occupant]
+        hostile_or_unknown_witness = any(
+            is_confirmed_enemy(o, belief_state) or get_knowledge(o).team is None
+            for o in non_targets
+        )
+        if hostile_or_unknown_witness:
+            if my_role in (Role.HADES, Role.PERSEPHONE, Role.CERBERUS, Role.DEMETER):
+                # Key roles: abort -- information leakage too dangerous
+                ws.fsm_state = "EXIT"
+                return IdleTask()
+            # Grunts: proceed anyway (leaking "Shade" or "Nymph" is low-cost)
+
     # If this is a key exchange protocol, skip straight to role exchange
     if ws.protocol == "key_exchange":
         ws.fsm_state = "ROLE_EXCHANGE"
@@ -1641,11 +1857,37 @@ heuristics:
 3. When attribution is ambiguous, mark the event but leave the actor as
    `None` -- the FSM handles this conservatively.
 
-**Orpheus gap:** This per-tick system-message parsing is a significant
-piece of logic that ideally belongs in the Orpheus belief update pipeline
-as structured fields. See project TODO.md for the tracking issue. Until
-addressed upstream, Eurydice implements this in its agent-level
-`post_belief_update` hook.
+**OCR error resilience:** System message detection is critical for the
+win condition (detecting exchange completion). Three layers of defense
+against OCR misreads:
+
+1. **Substring matching, not exact:** Match on "SWAP" (not full "SWAPPED
+   COLORS"), "SHARED" (not full "SHARED ROLES"), "OFFER" (not full
+   "OFFERED COLOR/ROLE"). Shorter patterns are less likely to be
+   corrupted by a single-character OCR error.
+2. **Redundant inference:** If we sent R.OFFER and the next system
+   message from that whisper contains any of {"SHARED", "ROLE"}, infer
+   completion even if the full text is garbled. Track (offer_sent_tick,
+   offer_type) and match against any subsequent system message within
+   120 ticks.
+3. **Info-screen reconciliation:** After exiting a whisper where an
+   exchange may have completed, tab to info screen. If the target player
+   now appears with a role indicator (full role known), the exchange
+   succeeded regardless of whether we parsed the system message. This is
+   the ground-truth fallback.
+
+**Orpheus gap — WORKAROUND (remove when Orpheus provides structured
+whisper exchange events; tracked in TODO.md line 113-138):** This
+per-tick system-message parsing is a significant piece of logic that
+ideally belongs in the Orpheus belief update pipeline as structured
+fields. Until addressed upstream, Eurydice implements this in its
+agent-level `post_belief_update` hook. Additional Orpheus gaps that
+Eurydice works around at the agent level:
+- **Panel index tracking** (TODO.md line 141-163): Eurydice advances
+  panels on a fixed timer rather than detecting panel content.
+- **Shape detection** (TODO.md line 7-20): Eurydice uses color-only
+  player identification with ambiguity tolerance until shapes are
+  available.
 
 See the full **Whisper Interaction Protocol** section below for the
 protocol variants and detailed state transition rules.
@@ -1719,7 +1961,15 @@ def hold_position_select_task(belief_state, action_memory):
 
 
 def gentle_wander(state) -> Task:
-    """Move slightly to avoid behavioral detection, but stay in room center."""
+    """Move slightly to avoid behavioral detection, but stay in room center.
+
+    Note: the behavioral camouflage rationale (avoiding "defensive_posture"
+    flag) only matters against other Eurydice agents. Against non-Eurydice
+    opponents this is harmless idle behavior. The low cost (no probe time
+    consumed, no information revealed) makes it acceptable as a default.
+    In longer rounds (>60s), consider replacing with productive actions
+    (check info screen, read global chat) if no higher-priority mode fires.
+    """
     if state.idle_wander_waypoint is None or reached(state.idle_wander_waypoint):
         # Pick a point near room center (within 20px radius)
         state.idle_wander_waypoint = random_near(room_center, radius=20)
@@ -1864,10 +2114,37 @@ def select_hostage(state: StrategicState, players: list[PlayerKnowledge]) -> Pla
     # Eligible: all players in room except self (leader exempt)
     eligible = [p for p in players if p.player_id != state.my_player_id]
 
+    # Priority 0: Honor "SEND ME" requests from confirmed allies
+    # This enables shared-strategy convergence (e.g., Cerberus volunteering
+    # to cross rooms to reach Hades). Only honor requests from players whose
+    # team is verified (color_exchange or role_exchange source).
+    volunteer = find_ally_volunteer(state, eligible)
+    if volunteer is not None:
+        return volunteer
+
     if state.my_team == Team.SHADES:
         return select_hostage_shades(state, eligible)
     else:
         return select_hostage_nymphs(state, eligible)
+
+
+def find_ally_volunteer(state: StrategicState, eligible: list[PlayerKnowledge]) -> PlayerID | None:
+    """Check if a confirmed ally has requested to be sent via chat."""
+    for p in eligible:
+        # Must be confirmed same-team (not just claimed)
+        if p.team != state.my_team:
+            continue
+        if p.team_source not in ("color_exchange", "role_exchange"):
+            continue
+        # Check for pending "send_hostage" action request targeting "self"
+        if has_send_me_request(p.player_id, state):
+            # Safety: never send our own key roles even if they ask
+            # (unless they explicitly need to cross for exchange -- checked
+            # by whether key_exchange_done is False and partner is in other room)
+            if p.role in (Role.HADES, Role.PERSEPHONE) and state.key_exchange_done:
+                continue  # Key role asking to move AFTER exchange = suspicious
+            return p.player_id
+    return None
 
 
 def select_hostage_shades(state, eligible):
@@ -1924,38 +2201,68 @@ def select_hostage_nymphs(state, eligible):
 **Purpose:** Interact with opposing leader during the forced Leader Summit
 whisper.
 
-**Strategy varies by role and knowledge state:**
-
-| Situation | Action |
-|-----------|--------|
-| Unknown opposing leader's team | Color exchange (C.OFFER) |
-| Confirmed enemy leader | Extract intel; probe for key role locations |
-| Confirmed ally leader (rare) | Coordinate hostage strategy |
-| I have critical intel to trade | Negotiate (honestly or deceptively) |
-| I'm a Spy maintaining cover | Act as expected team member |
-
 **Available actions during summit:** The whisper action menu is blocked
-during LeaderSummit (the game disables the menu-open button in this phase).
-Only the following are available:
-- Color exchange (C.OFFER / C.ACCPT) — via pending-offer reactive path
-- Role exchange (R.OFFER / R.ACCPT) — via pending-offer reactive path
-- Chat messages (PACKET_CHAT) — always available
+during LeaderSummit (`sim.ts:544` gates B-button on `!isSummit`). The
+summit creates a fresh whisper with empty offer sets, and since no
+player can open the action menu, no offers can be initiated. This means:
 
-PASS, TAKE, GRANT, and EXIT are **not accessible** during summit. The
-summit ends when its timer expires; leaders are returned to their rooms
-automatically.
+- **NOT available:** C.OFFER, C.ACCPT, R.OFFER, R.ACCPT, PASS, TAKE,
+  GRANT, EXIT — all require the action menu which cannot be opened.
+- **Available:** Chat messages (PACKET_CHAT) — always routed to the
+  summit whisper occupants.
+- **Available:** Tab cycling (Left/Right) — switches between whisper,
+  shout (global chat), and info screen surfaces. The player remains
+  `inWhisper` but the rendered view changes.
+- **Available:** Message scrolling (Up/Down).
+- **NOT available:** Leave whisper (Select button also gated by
+  `!isSummit`). The summit ends only when its timer expires; leaders
+  are returned to their rooms automatically.
+
+**Implication:** The summit is a **chat-only** interaction window. No
+mechanical information exchange (color/role) is possible. Its value is
+entirely in:
+1. Social engineering via text messages (probing, misdirection, negotiation)
+2. Observing the other leader's responses (evasion = signal)
+3. Reading global chat from your room (tab to shout view)
+4. Checking info screen for knowledge validation (tab to info view)
+
+**Strategy varies by situation:**
+
+| Situation | Strategy |
+|-----------|----------|
+| Unknown opposing leader's team | Probe via chat ("WHAT TEAM"); read behavioral cues from response |
+| Confirmed enemy leader | Extract intel via questions; misdirect about own room composition |
+| Confirmed ally leader (rare) | Coordinate hostage strategy; share room intel; agree on picks |
+| I have critical intel to trade | Negotiate verbally ("I'LL SEND [color] IF YOU SEND [color]") |
+| I'm a Spy maintaining cover | Act as expected team member in chat |
 
 **select_task behavior:**
-1. Always start with color exchange (if not already done).
-2. Based on team reveal, execute role-appropriate probe:
-   - **Shades leader vs Nymphs leader:** Probe for Persephone location.
-     Offer misleading deals. "I'll send you someone useful if you tell
-     me where Persephone is."
-   - **Nymphs leader vs Shades leader:** Probe for Hades location.
-     Stall if possible. Misdirect about Persephone.
-3. Chat messages for social engineering.
-4. Consider role exchange only with confirmed ally leader (rare but
-   high-value: verifies identity + satisfies win condition if partner).
+1. Send a probing chat message (identity question or negotiation opener).
+2. Tab to info screen briefly (validate known-player state; 2-3 ticks).
+3. Tab back to whisper; read any response from the other leader.
+4. Based on response, execute role-appropriate follow-up:
+   - **Shades leader vs suspected Nymphs leader:** Probe for Persephone
+     location. Offer misleading hostage deals. "I'LL SEND YOU [color]
+     IF YOU TELL ME WHERE PERSEPHONE IS."
+   - **Nymphs leader vs suspected Shades leader:** Probe for Hades
+     location. Misdirect about Persephone's location. Propose trades
+     that benefit Nymphs positioning.
+   - **Same team:** Share room composition intel. Agree on hostage
+     strategy. "I HAVE [key role] HERE SEND ME [partner]."
+5. Tab to shout view before summit ends (read any global chat from own
+   room that accumulated during the summit).
+
+**Chat rate limit during summit:** Whisper chat has a 2-second (48-tick)
+cooldown. With 15 seconds of summit time, that's a maximum of ~7
+messages. Budget them carefully.
+
+**Strategic value reassessment:** Given that the summit is chat-only,
+its value is lower than if mechanical exchanges were possible. However,
+it remains the ONLY cross-room interaction point. Verbal agreements are
+non-binding (lies are free), but the other leader's responses (or
+refusal to respond) carry behavioral signal. A leader who immediately
+asks about a specific player color may be revealing their team's search
+target.
 
 ---
 
@@ -2055,18 +2362,44 @@ or "Shade." This is acceptable -- the time waste already happened.
 4. Monitor for success (system message: "[player] is now leader").
 5. If usurp fails (not enough votes): signal mode completion.
 
-**Communication:** Before voting, consider whispering with allies to
-coordinate votes. "Vote for me" is a valid whisper message.
+**Coordination:** Usurp relies on implicit coordination rather than
+explicit pre-vote whispers (which cost 3-5s and may not complete before
+HostageSelect). All Eurydice agents running `should_usurp()` with the
+same knowledge base will independently vote for the same candidate
+(deterministic evaluator). If team allies have compatible knowledge
+(from shared probing), votes converge without communication. Known
+limitation: against non-Eurydice allies, usurp may fail due to
+uncoordinated votes.
 
 ### Mode: `check_info_screen`
 
-**Purpose:** Proactively open the info screen to validate accumulated
-knowledge against the game's mechanically-revealed state.
+**Purpose:** Validate accumulated knowledge against the game's
+mechanically-revealed state. The info screen shows players whose roles
+or colors have been revealed TO the viewer via mechanical exchanges.
 
-**When to trigger:** Once per round (typically after first probe cycle
-completes, or when entering a whisper/global-chat view provides a
-convenient access point). The info screen is accessible via Left/Right
-arrows while in the whisper or global chat view.
+**What the info screen actually shows** (GAME_API §Info Screen):
+- Players you have done a mutual role exchange with: full role indicator
+  + role name in team color
+- Players you have done a color exchange with: team-color dot + "???"
+- Self: always shown first with full role indicator
+- Scroll support for long lists
+
+**Primary value:** OCR error recovery. If a system message was missed
+(exchange completed but "shared roles" text was garbled), the info
+screen provides ground-truth confirmation. Also catches one-way reveals
+(ROLE action) that might have been missed in whisper message parsing.
+
+**When to trigger:** Integrated into the post-whisper-exit routine
+rather than as a standalone mode. After exiting any whisper where an
+exchange MAY have occurred (we sent or received an offer), tab to info
+screen for 2-3 ticks to confirm state. This is cheaper than a dedicated
+mode and catches errors at the point of highest value.
+
+**Fallback as standalone mode:** If the post-whisper check isn't
+sufficient (e.g., missed an exchange that happened in a whisper we
+weren't in -- another player showed us their role), trigger once per
+round as a reconciliation pass during a convenient transition (entering
+global chat view to read messages → tab to info → tab back).
 
 **select_task behavior:**
 1. If currently in whisper or global chat view: cycle Left/Right to
@@ -2075,11 +2408,6 @@ arrows while in the whisper or global chat view.
 3. Compare parsed info against `PlayerKnowledge` records.
 4. Update any discrepancies (info screen reflects mechanical truth).
 5. Return to previous surface (Left/Right back to chat).
-
-**Value:** Catches cases where:
-- An exchange completed but the system message was missed by parsing
-- A player's role was revealed via game_display without explicit detection
-- Knowledge state has drifted from mechanical truth
 
 **Exit:** After 48 ticks (2s) or once perception has extracted the list.
 Signals mode_complete.
@@ -2226,6 +2554,18 @@ def evaluate_after_color(occupant_team, my_role, intent):
             return NextAction.EXTRACT        # Spy infiltrates
 ```
 
+**Note on EXIT after color exchange (key roles):** Exiting after
+discovering an enemy does NOT undo the information already leaked --
+the color exchange was mutual, so the enemy now knows our team color.
+However, EXIT still limits further exposure (prevents role reveal or
+behavioral analysis from extended interaction). The damage is
+acceptable: team color alone doesn't identify specific role (multiple
+players share the same team). To minimize even this exposure, key roles
+(Hades/Persephone) should prefer REACTIVE color exchanges (accept
+C.OFFER from others) over PROACTIVE ones (never C.OFFER first with
+unknowns). Reactively accepting still reveals your team, but lets you
+assess the whisper situation before committing.
+
 #### ROLE_EXCHANGE State
 
 Actions:
@@ -2292,9 +2632,12 @@ indicator"). This means:
 - **No unread awareness:** Doesn't even know messages were missed.
 
 **Mitigations:**
-1. Before entering a whisper, check the unread global indicator (blinking
-   green dot at bottom-right of overworld). If active, consider reading
-   global chat first (costs ~24 ticks / 1 second for open + read + close).
+1. Before entering a whisper, check the unread global indicator (green
+   dot at pixel (124, barY+4), color 11). The dot blinks on a 16-tick
+   cycle -- a single-frame check has ~50% detection rate (if color 11 is
+   present, unread is guaranteed; if absent, it might be in the off-blink
+   phase). This 50% rate is acceptable for a "nice to have" optimization
+   -- it costs zero ticks (just a pixel check on the current frame).
 2. Keep whisper interactions as short as possible. The stall protocol's
    12-second duration is especially costly in terms of missed information.
 3. In Round 3 / PANIC urgency, abbreviate all whisper protocols: skip
@@ -2576,18 +2919,20 @@ def update_knowledge_from_chat(parsed: ParsedMessage, credibility: float, knowle
 The leader summit is the ONLY cross-room interaction opportunity. It
 deserves special handling:
 
-**Information flow:**
-- You learn the other leader's team (via color exchange)
-- You can probe for information about the other room
-- You can negotiate hostage swaps ("I'll send X if you send Y")
+**Information flow (chat-only -- no mechanical exchanges possible):**
+- You can probe for information about the other room via chat
+- You can negotiate hostage swaps verbally ("I'll send X if you send Y")
 - Verbal agreements are non-binding (lies are free)
+- You can tab to shout view to read your own room's global chat
+- You can tab to info screen to validate accumulated knowledge
+- You CANNOT color/role exchange, transfer leadership, or leave early
 
 **Summit chat strategy:**
 
 | My Team | Their Team | Strategy |
 |---------|-----------|----------|
 | Shades | Nymphs | Probe for Persephone location; offer misleading trades |
-| Nymphs | Shades | Probe for Hades location; stall; misdirect about Persephone |
+| Nymphs | Shades | Probe for Hades location; misdirect about Persephone |
 | Same team | Same team | Coordinate! Share intel about room compositions, plan hostage swaps |
 
 **Summit as intelligence source:**
@@ -2595,6 +2940,8 @@ deserves special handling:
 - If they eagerly discuss hostage trades involving specific players,
   those players may be their key roles
 - Time pressure in the summit means they may be less guarded
+- Their team must be inferred from behavioral cues (no color exchange
+  available); prior knowledge from Playing phase is essential
 
 ---
 
@@ -2651,20 +2998,37 @@ from each role produces team-coherent behavior**:
 | Shade grunt in other room finds Persephone | Shade can't tell Hades (different room). But: Shade seeks leadership to control hostage picks. Shade sends Persephone toward Hades's room if possible. |
 | Nymph grunt discovers Hades's location | Nymph can only tell local allies. If Persephone is local, relay directly. If not, Nymph seeks leadership to PREVENT Persephone from being sent to Hades's room. |
 
+**Deployment constraint:** Implicit coordination requires all Eurydice
+agents to share the exact same strategy code and knowledge state
+evaluators. This is naturally satisfied in tournament bundles (single
+codebase). Against non-Eurydice teammates (mixed lobbies), implicit
+coordination is unavailable -- the agent falls back to explicit
+communication (whisper/global chat) and independent rational play. The
+strategy must be correct even when teammates DON'T make the "expected"
+complementary decision.
+
 ### What the Leader Summit Should Accomplish
 
-Given that the summit is the only cross-room channel, it's critical.
-A Eurydice leader should:
+Given that the summit is the only cross-room channel (chat-only, no
+mechanical exchanges), a Eurydice leader should:
 
-1. **Color exchange with other leader** (learn their team)
-2. **If same team:** Share room composition intel. Agree on hostage
-   strategy. "I have [key role] here, send me [their partner]."
+1. **Determine other leader's team via behavioral inference** (no color
+   exchange available). Prior knowledge from Playing phase is essential:
+   if you interacted with the other leader before they became leader
+   (e.g., probed them in a prior round), you may already know their
+   team. If not, their chat responses provide behavioral signal.
+2. **If same team (known from prior interaction):** Share room composition
+   intel via chat. Agree on hostage strategy. "I HAVE [key role] HERE
+   SEND ME [partner]."
 3. **If enemy team:** Extract intel through questioning. Negotiate
-   misleading trades. Stall (every second they spend talking is a
-   second they don't spend planning).
-4. **Prepare pre-summit:** Before the summit, local allies should
-   whisper with the leader to share intel that the leader can then
-   relay or use in summit negotiation.
+   misleading trades. Consume their message slots with questions (every
+   message they spend answering you is one less they spend planning).
+4. **Tab to shout view:** Read any global chat from your room that
+   accumulated during the summit. Your teammates may have shared intel
+   or usurp updates.
+5. **Prepare pre-summit:** Before the summit (during Playing phase),
+   local allies should whisper with the leader to share intel that the
+   leader can then use in summit chat negotiation.
 
 ---
 
@@ -2812,9 +3176,14 @@ revealing itself to enemies.
    - Avoid players confirmed via role exchange as enemies (their role
      reveals their team definitively).
 4. **Accept the risk:** The first role exchange is the Spy's highest-risk
-   moment. Approximately 50% chance of hitting a real ally vs enemy. If
-   we hit an enemy, cover is blown. This is acceptable -- without a
-   verified ally, the Spy is strategically useless.
+   moment. Naive odds: roughly even (40-55% ally depending on room
+   split). But informed targeting improves this significantly: players
+   whose color (from others' exchanges) matches the Spy's FAKE team are
+   likely REAL allies (Spy's inversion means fake team = real team's
+   color). Prioritizing these targets raises success probability to
+   ~65-75% when at least one color exchange has been observed. If we hit
+   an enemy, cover is blown -- but without a verified ally, the Spy is
+   strategically useless.
 
 ### Cover Management Rules
 
@@ -2931,44 +3300,100 @@ Volunteering makes sense when:
 
 ## Temporal Mechanics
 
+### Configuration Awareness
+
+Round durations vary dramatically across game configs (15s to 300s per
+round). The agent MUST adapt its time budgeting to the actual config,
+not assume fixed durations. The config is discoverable from:
+- `belief_state.round_schedule` (populated from intro Panel 3, if
+  perception extracts it)
+- Falling back to observation: measure actual round duration from first
+  Playing tick to HostageSelect transition
+
+**Known preset families:**
+
+| Family | Round Pattern | Strategic Character |
+|--------|-------------|-------------------|
+| `default`/`fast` | 3x 15s | Extreme scarcity; ~1 probe/round; target selection is everything |
+| `short`/`empty` | 1x 30s | Single round; no escalation; must complete exchange in one shot |
+| `empty3` | 3x 45s | Moderate; 3-4 probes/round; comfortable coverage |
+| `simple` | 1x 60s | Single round; ample probing time; no hostage dynamics |
+| `debug2r` | 2x 60s | Two rounds; solid exploration + execution split |
+| `medium` | 180s/120s/60s | Descending; generous R1 exploration, tight R3 execution |
+| `medium12` | 300s/240s/180s/120s/60s | 5 rounds, 12 players; long-form strategic game |
+
+**Descending-duration configs** (medium family) naturally match the
+urgency escalation model: Round 1 has generous time for systematic
+probing and information gathering, while the final round forces quick
+decisive action. The agent should NOT enter PANIC mode in Round 1 of a
+180s round just because it's "late in the round" -- 180s provides ample
+time.
+
 ### Round Budget Tracker
 
 ```python
 @dataclass
 class RoundBudget:
-    round_duration_ticks: int = 360       # 15 seconds at 24fps
+    round_duration_ticks: int             # From config; NOT hardcoded
     ticks_elapsed: int = 0
     probe_cycles_completed: int = 0
-    probe_cycle_cost_ticks: int = 216     # ~9 seconds average
+    probe_cycle_cost_ticks: int = 216     # ~9 seconds average (full probe)
+    fast_probe_cost_ticks: int = 144      # ~6 seconds (skip color exchange)
 
     @property
     def ticks_remaining(self) -> int:
         return max(0, self.round_duration_ticks - self.ticks_elapsed)
 
     @property
-    def can_start_probe_cycle(self) -> bool:
+    def can_start_full_probe(self) -> bool:
         return self.ticks_remaining > self.probe_cycle_cost_ticks
+
+    @property
+    def can_start_fast_probe(self) -> bool:
+        return self.ticks_remaining > self.fast_probe_cost_ticks
 
     @property
     def can_start_quick_action(self) -> bool:
         return self.ticks_remaining > 72  # 3 seconds for a quick chat/exchange
+
+    @property
+    def probes_remaining_estimate(self) -> int:
+        """Estimated remaining full probes possible this round."""
+        return self.ticks_remaining // self.probe_cycle_cost_ticks
 ```
 
 ### Urgency Computation
 
+Urgency is expressed relative to the game's round structure, not
+absolute round numbers. A 5-round game's Round 3 is mid-game, not
+endgame. The computation uses `rounds_remaining` and fractional time
+position.
+
 ```python
 def compute_urgency(state: StrategicState) -> Urgency:
-    if state.current_round == 3 and not state.key_exchange_done:
+    total_rounds = len(state.round_schedule)  # From config
+    rounds_remaining = total_rounds - state.current_round  # 0 = final round
+    fraction_elapsed = state.ticks_elapsed / state.round_duration_ticks
+
+    # PANIC: final round + exchange incomplete
+    if rounds_remaining == 0 and not state.key_exchange_done:
         return Urgency.PANIC
 
-    if state.current_round == 3 and state.ticks_remaining_in_phase < 144:
-        return Urgency.PANIC  # Last 6 seconds of final round
+    # PANIC: final round, last 20% of time
+    if rounds_remaining == 0 and fraction_elapsed > 0.8:
+        return Urgency.PANIC
 
-    if state.current_round >= 2 and not state.key_exchange_done:
+    # PRESSING: penultimate round (or later) + exchange incomplete
+    if rounds_remaining <= 1 and not state.key_exchange_done:
         return Urgency.PRESSING
 
-    if state.current_round == 3:
-        return Urgency.PRESSING  # Even if exchange done, positioning matters
+    # PRESSING: final round (even if exchange done, positioning matters)
+    if rounds_remaining == 0:
+        return Urgency.PRESSING
+
+    # PRESSING: more than half the game elapsed + exchange incomplete
+    if state.current_round > total_rounds // 2 and not state.key_exchange_done:
+        return Urgency.PRESSING
 
     return Urgency.CALM
 ```
@@ -3134,6 +3559,37 @@ If role reveal is not detected by perception:
 
 ---
 
+### Testing Strategy
+
+Each implementation phase has quantitative acceptance criteria. Testing
+uses a combination of automated trace analysis and live game validation.
+
+**Phase 1-2 (Core Loop + Information Gathering):**
+- **Method:** `scripts/capture.py` with Eurydice as the player agent and
+  baseline fillers. Capture 3+ games across `short` and `empty3` presets.
+- **Metrics:** Parse capture metadata for: role detection latency (ticks
+  from RoleReveal to `my_role` populated), whisper creation success rate,
+  color/role exchange completion rate.
+- **Pass criteria:** Role detected within 120 ticks. Whisper creation
+  succeeds >90% of attempts (when target is cooperative). Exchange
+  completion >80%.
+
+**Phase 3-5 (Strategic + Social + Advanced):**
+- **Method:** Full multi-agent match via `run_agents.py eurydice:10`
+  against the `medium` preset (180s/120s/60s rounds, 10 players).
+  Enable tracing (`--trace-dir`). Run 5+ matches with different seeds.
+- **Metrics from traces:** Key exchange completion rate (by role), rounds
+  to exchange completion, win rate (Eurydice vs Eurydice = should be
+  ~50/50; Eurydice vs baseline = should win majority), usurp success
+  rate, hostage pick correctness (never sends own key role).
+- **Pass criteria:** Key exchange completed in >70% of games where
+  partner is reachable. Win rate vs baseline >60%. Zero cases of
+  sending own key role as hostage.
+- **Regression:** Run after every significant change. Compare metrics
+  against prior baseline.
+
+---
+
 ## Key Design Decisions
 
 ### Why rule-based instead of LLM?
@@ -3166,8 +3622,8 @@ both teams complete their exchanges. Therefore:
 
 ### Why formalize the probe cycle?
 
-The 15-second round constraint means every interaction is expensive.
-Without explicit time budgeting, the agent would:
+Round durations can be as short as 15 seconds, making every interaction
+expensive. Without explicit time budgeting, the agent would:
 - Start interactions it can't finish
 - Linger in whispers beyond the point of useful information
 - Fail to abort losing interactions
@@ -3206,15 +3662,44 @@ footprint.
 | `mode_complete` | `bool` | Per-tick flag, cleared on read | Mode -> meta_decide completion signal |
 | `found_target` | `PlayerID` | Per-tick flag | Scout -> meta_decide target discovery |
 | `whisper_exit_reason` | `str` | Per-tick flag | Why whisper ended (normal/forced_ejection) |
-| `_last_directive_mode` | `str` | Persists in inferences | Hysteresis: last mode produced |
-| `_last_directive_tick` | `int` | Persists in inferences | Hysteresis: when last mode was set |
+| `last_directive_mode` | `str` | Persistent (ext) | Hysteresis: last mode produced |
+| `last_directive_tick` | `int` | Persistent (ext) | Hysteresis: when last mode was set |
 | `_last_phase` | `Phase` | Persists in inferences | Phase-change detection |
 | `_last_exchange_status` | `bool` | Persists in inferences | Exchange-completion detection |
 | `_last_partner_found` | `bool` | Persists in inferences | Partner-discovery detection |
 
-Keys prefixed with `_` are internal to meta_decide and stored in the
-`inferences` dict (replaced wholesale each iteration). All others are
+Hysteresis keys (`last_directive_mode`, `last_directive_tick`) are stored
+in `belief_state.ext` (persistent across ticks) rather than `inferences`
+to avoid fragility from missed propagation. Keys prefixed with `_` are
+stored in `inferences` (replaced wholesale each iteration) and must be
+re-included by every code path that returns inferences. All others are
 stored directly on belief_state via hooks or mode_enter.
+
+---
+
+## Open Questions (Audit)
+
+All items resolved. Original audit identified 24 issues (3 critical, 5
+major, 8 moderate, 5 minor, 3 structural) by cross-referencing this
+document against RULEBOOK.md, GAME_API.md, and the upstream server
+source. Resolutions have been applied inline throughout the document.
+Key corrections:
+
+- Summit is chat-only (no mechanical exchanges); design rewritten
+- P_FINAL partner-unreachability logic corrected
+- Exchange screen shows other leader only to leaders (not all players)
+- Probe cycle timing made config-adaptive (15s-300s rounds)
+- Urgency computation uses relative round position, not hardcoded rounds
+- Color exchange confidence conditional on Spy presence
+- Minimap viewport-boundary behavior verified and cited
+- Cross-round behavioral accumulators specified
+- Hostage-select honors ally "SEND ME" requests
+- Interaction range defined (BUBBLE_RADIUS = 20px)
+- Multi-occupant eavesdrop guard added for key roles
+- OCR resilience layers specified
+- Hysteresis moved to persistent storage
+- Probe failure escalation specified
+- Testing strategy added
 
 ---
 

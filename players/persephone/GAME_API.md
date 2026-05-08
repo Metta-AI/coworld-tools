@@ -157,6 +157,32 @@ Notable config fields:
 | `autoGrantWhisperEntry` | `boolean?` | Auto-grant whisper entry requests |
 | `fastTimers` | `boolean?` | Use shortened phase durations for testing |
 
+### Named Presets (`game/config_presets.ts`)
+
+| Preset | Players | Rounds (duration) | Hostages | Obstacles | Notes |
+|--------|---------|-------------------|----------|-----------|-------|
+| `default` | 10 | 3 (15s / 15s / 15s) | 1 / 1 / 1 | default | Same as DEFAULT_GAME_CONFIG |
+| `fast` | 10 | 3 (15s / 15s / 15s) | 1 / 1 / 1 | default | Identical to default |
+| `tiny` | 10 | 1 (1s) | 1 | default | Ultra-short smoke test |
+| `short` | 10 | 1 (30s) | 1 | default | Quick single-round |
+| `empty` | 10 | 1 (30s) | 1 | **0** | No obstacles |
+| `simple` | **6** | 1 (60s) | 1 | **0** | No obstacles; LLMs grouped via `groupNamePrefixInRoomA` |
+| `empty3` | 10 | 3 (45s / 45s / 45s) | 2 / 2 / 2 | **0** | No obstacles; 2 hostages/round |
+| `debug2r` | 10 | 2 (60s / 60s) | 1 / 1 | **0** | No obstacles; explicit 4+4+2 roles |
+| `medium` | 10 | 3 (180s / 120s / 60s) | 1 / 1 / 1 | default | Descending duration; realistic play |
+| `medium6` | **6** | 3 (180s / 120s / 60s) | 1 / 1 / 1 | default | 6-player medium |
+| `medium12` | **12** | 5 (300s / 240s / 180s / 120s / 60s) | 2/2/2/1/1 | default | Large 5-round game |
+| `medium12_half` | **12** | 5 (150s / 120s / 90s / 60s / 30s) | 2/2/2/1/1 | default | Half-duration variant |
+
+**Key patterns:**
+- The `medium` family uses **descending round durations** — early rounds
+  are long (exploration), later rounds are short (urgency).
+- Player counts: 6, 10, or 12 (room sizes scale per RULEBOOK).
+- Hostage counts: 1 or 2 per round (more hostages = more room churn).
+- The `default`/`fast` 15-second rounds are designed for rapid automated
+  testing, not representative of realistic play tempo. Agents should be
+  robust to both extremes.
+
 ---
 
 ## Connecting to the Server
@@ -659,7 +685,20 @@ SHADOW_MAP = [0, 12, 9, 5, 5, 0, 5, 5, 5, 12, 9, 9, 0, 12, 12, 9]
 ```
 
 Players in shadow (except self) are hidden from both the viewport and the
-minimap.
+minimap. **However**, the shadow buffer is viewport-sized (128x128) and
+computed only for camera-visible screen pixels (`sim.ts:231-262`). The
+minimap shadow check (`renderer.ts:384-387`) first bounds-checks whether
+a player's position falls within the camera viewport; if it does NOT
+(player is far away), the shadow lookup is skipped and the player's dot
+is **always drawn**. This means:
+
+- Players **inside** the viewport who are behind obstacles: hidden from
+  both viewport and minimap.
+- Players **outside** the viewport (far away): always visible on the
+  minimap regardless of obstacles between them and the viewer.
+
+The result is complementary coverage: the viewport reliably shows nearby
+unobstructed players, while the minimap reliably shows distant players.
 
 ### Minimap
 
@@ -740,6 +779,14 @@ Full-screen view when inside a whisper
 
 During LeaderSummit (forced whisper between leaders):
 `SUMMIT {secs}S  ENTER:MSG` in color 8
+
+**Summit input restrictions:** During the LeaderSummit phase, the B button
+(action menu open) and Select button (exit whisper) are disabled for
+players in the summit whisper (`sim.ts:539,544` gate on `!isSummit`). The
+summit whisper is created fresh with empty offer sets, so no reactive
+offer acceptance is possible either. Available inputs: chat (ENTER), tab
+cycling (Left/Right between whisper/shout/info surfaces), message scroll
+(Up/Down).
 
 **Pending offer indicators** (steady, not blinking):
 - `R!` at (SCREEN_WIDTH - 10, barY + 2) in color 8 = someone offered role exchange
@@ -874,12 +921,24 @@ A/Right (forward) and B/Left (back).
 
 ### Hostage Exchange Screen
 
-(`rendering/renderer.ts:585-650`):
+(`rendering/renderer.ts:763-828`):
 - Title: `HOSTAGE EXCHANGE` at top (color 8)
 - Room floor color background
-- LEADER section: your room's leader sprite(s)
-- DEPARTING section: hostages leaving your room
-- ARRIVING section: hostages coming to your room
+- **LEADER section**: your room's leader sprite.
+  If the viewer IS a leader, both rooms' leaders are shown side-by-side
+  under the label "LEADERS" (plural). Non-leaders see only their own
+  room's leader under "LEADER" (singular).
+- **DEPARTING section**: hostages leaving your room — full sprites
+  (color + shape for player identification)
+- **ARRIVING section**: hostages coming to your room — full sprites
+- **Role indicators (likely bug)**: `renderExchangeRow` (line 760) calls
+  `drawRoleSlot(p.role, p.team)` unconditionally on all shown sprites.
+  Unlike the overworld renderer (which gates on `revealedTo` /
+  `colorRevealedTo` at line 957), the exchange screen does NOT check
+  whether the viewer has mechanically discovered the player's role. This
+  means true role indicators (team color bar + key-role dots) are visible
+  for ALL exchange-screen sprites regardless of prior interaction. This
+  is inconsistent with the information model and likely unintentional.
 - Bottom bar status:
   - `YOU ARE BEING EXCHANGED` (color 8) -- if you are a hostage
   - `ESCORTING HOSTAGES` (color 2) -- if you are a leader

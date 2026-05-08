@@ -164,8 +164,14 @@ One leader per room is randomly assigned.
 
 - Both room leaders are teleported to a private "Summit" room
 - A forced whisper is created between them (they cannot exit it)
-- Leaders can chat and perform actions (color/role exchanges, leadership
-  transfer) with each other during this time
+- **Chat only:** Leaders can send text messages to each other. The
+  whisper action menu (B button) is disabled during summit -- no
+  color/role exchanges, leadership transfer, or other whisper actions
+  are possible. (`sim.ts:544` gates B-button on `!isSummit`; the summit
+  whisper is created fresh with empty offer sets.)
+- Leaders can tab between whisper, shout (global room chat), and info
+  screen surfaces using Left/Right. They remain in the summit whisper
+  but can read their room's global chat.
 - Hostage selections are announced to both rooms' shout channels
 - All other players remain in their rooms with fog of war active
 - After the timer expires, leaders return to their original rooms
@@ -440,12 +446,27 @@ Are Hades and Persephone in the SAME room?
 | Lobby | Until full (+ 1s countdown) | Configurable player count |
 | Roster Reveal | ~15 seconds (shared intro timer) | Panel 0 of intro sequence |
 | Role Reveal | ~15 seconds (shared intro timer) | Panels 1-3; auto-advances when all ready |
-| Playing | 15 seconds per round | 3 rounds default; configurable |
+| Playing | **Configurable per round** | See config presets below |
 | Hostage Select | 15 seconds | Auto-fills on timeout |
-| Leader Summit | 15 seconds | Leaders meet privately |
+| Leader Summit | 15 seconds | Chat only; leaders meet privately |
 | Hostage Exchange | 8 seconds | Cutscene, no input |
 | Reveal | 5 seconds | |
 | Game Over | 10 seconds | Then resets to Lobby |
+
+**Playing phase duration** varies widely across named presets:
+
+| Config | Playing Duration per Round |
+|--------|--------------------------|
+| `default` / `fast` | 15s / 15s / 15s (rapid testing) |
+| `short` / `empty` | 30s (single round) |
+| `empty3` | 45s / 45s / 45s |
+| `simple` | 60s (single round) |
+| `medium` | 180s / 120s / 60s (descending) |
+| `medium12` | 300s / 240s / 180s / 120s / 60s |
+
+The `medium` family uses descending durations: early rounds are long
+(exploration), later rounds are short (urgency). See GAME_API.md
+§Named Presets for the complete list.
 
 At 24 FPS, 15 seconds = 360 ticks. With `fastTimers` enabled, most phase
 durations are reduced to 0.5--1 second for testing.
