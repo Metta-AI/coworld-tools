@@ -222,7 +222,10 @@ edges). Vent edges are directional (A1 -> A2 -> A3 -> A1 wraps).
 
 For each non-vent edge in the graph, the full pixel-path (sequence of
 (x, y) world coordinates from src waypoint to dst waypoint) computed
-via offline A* on the walk mask with no node cap.
+via offline 8-connected A* on the walk mask with no node cap.
+Corner-cutting is prevented (diagonal moves blocked if either adjacent
+cardinal cell is a wall). Costs use 10/14 integer scaling; edge costs
+in nav_graph.json are the descaled approximate pixel distance.
 
 Storage format: a binary blob keyed by the non-vent walking edges in
 graph edge order.
@@ -654,7 +657,8 @@ baked files via `staticRead`.
 #### 0.2 Path Baker (`tools/bake_nav.py`)
 
 - Reads `nav_graph.json` + `walk_mask.bin`.
-- Runs offline A* for each non-vent edge with no runtime node cap.
+- Runs offline 8-connected A* for each non-vent edge (no node cap,
+  corner-cutting prevention, octile heuristic with 10/14 cost scaling).
 - Validates that every walking edge has a path.
 - Writes `nav_paths.bin` and edge costs.
 

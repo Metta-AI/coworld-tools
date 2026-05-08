@@ -4,6 +4,10 @@
 Reads nav_graph.json and walk_mask.bin, computes A* paths between all
 connected waypoint pairs (walking edges only), and writes nav_paths.bin.
 
+A* uses an 8-connected grid with corner-cutting prevention (diagonal moves
+blocked if either adjacent cardinal cell is a wall). Costs are scaled
+integers (10 cardinal, 14 diagonal) with an octile heuristic.
+
 Usage:
     PYTHONPATH=among_them .venv/bin/python \\
         among_them/guided_bot/tools/bake_nav.py
@@ -59,20 +63,39 @@ MAP_HEIGHT = 534
 # ---------------------------------------------------------------------------
 
 
-def astar(wm: np.ndarray, sx: int, sy: int, gx: int, gy: int
-           ) -> list[tuple[int, int]] | None:
-    """Full A* with no node cap. Returns path from step after start
-    through goal inclusive, or None if unreachable.
+# Movement costs scaled by 10 to avoid floats while preserving diagonal accuracy.
+# Cardinal = 10, Diagonal = 14 (approximates sqrt(2) * 10 = 14.14).
+COST_CARDINAL = 10
+COST_DIAGONAL = 14
 
-    4-connected, unit cost, Manhattan heuristic.
+# 8-connected neighbors: (dx, dy, cost)
+_NEIGHBORS = [
+    (-1,  0, COST_CARDINAL), (1,  0, COST_CARDINAL),
+    ( 0, -1, COST_CARDINAL), (0,  1, COST_CARDINAL),
+    (-1, -1, COST_DIAGONAL), (1, -1, COST_DIAGONAL),
+    (-1,  1, COST_DIAGONAL), (1,  1, COST_DIAGONAL),
+]
+
+
+def astar(wm: np.ndarray, sx: int, sy: int, gx: int, gy: int
+           ) -> tuple[list[tuple[int, int]], int] | None:
+    """Full A* with no node cap. Returns (path, cost) where path goes from
+    step after start through goal inclusive, or None if unreachable.
+
+    8-connected grid with corner-cutting prevention (diagonal blocked if
+    either adjacent cardinal is a wall). Uses scaled integer costs (10/14)
+    and octile heuristic.
     """
     if wm[sy, sx] == 0 or wm[gy, gx] == 0:
         return None
     if sx == gx and sy == gy:
-        return []
+        return ([], 0)
 
-    def h(x, y):
-        return abs(x - gx) + abs(y - gy)
+    def h(x: int, y: int) -> int:
+        # Octile heuristic, scaled to match 10/14 costs.
+        dx = abs(x - gx)
+        dy = abs(y - gy)
+        return COST_CARDINAL * max(dx, dy) + (COST_DIAGONAL - COST_CARDINAL) * min(dx, dy)
 
     start_idx = sy * MAP_WIDTH + sx
     goal_idx = gy * MAP_WIDTH + gx
@@ -99,23 +122,28 @@ def astar(wm: np.ndarray, sx: int, sy: int, gx: int, gy: int
                 path.append((step % MAP_WIDTH, step // MAP_WIDTH))
                 step = int(parents[step])
             path.reverse()
-            return path
+            return (path, int(costs[goal_idx]))
 
         closed[current] = True
         cx = current % MAP_WIDTH
         cy = current // MAP_WIDTH
         cur_cost = int(costs[current])
 
-        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        for dx, dy, step_cost in _NEIGHBORS:
             nx, ny = cx + dx, cy + dy
             if nx < 0 or ny < 0 or nx >= MAP_WIDTH or ny >= MAP_HEIGHT:
                 continue
             if wm[ny, nx] == 0:
                 continue
+            # Corner-cutting prevention: block diagonal if either adjacent
+            # cardinal neighbor is a wall.
+            if dx != 0 and dy != 0:
+                if wm[cy, cx + dx] == 0 or wm[cy + dy, cx] == 0:
+                    continue
             ni = ny * MAP_WIDTH + nx
             if closed[ni]:
                 continue
-            new_cost = cur_cost + 1
+            new_cost = cur_cost + step_cost
             if new_cost >= costs[ni]:
                 continue
             costs[ni] = new_cost
@@ -155,16 +183,21 @@ def _segment_walkable(wm: np.ndarray, x0: int, y0: int,
 
 def simplify_path(path: list[tuple[int, int]],
                   max_deviation: float = 1.5,
+                  max_segment: float = 30.0,
                   wm: np.ndarray | None = None) -> list[tuple[int, int]]:
-    """Wall-aware Douglas-Peucker simplification.
+    """Wall-aware Douglas-Peucker simplification with max segment length.
 
-    Keeps all points where either:
+    Keeps all points where any of the following hold:
     - The simplified line deviates more than max_deviation pixels, OR
-    - The straight-line segment between endpoints crosses a wall pixel.
+    - The straight-line segment between endpoints crosses a wall pixel, OR
+    - The Euclidean distance between endpoints exceeds max_segment pixels.
 
-    The second condition prevents the common failure mode where a path
+    The wall condition prevents the common failure mode where a path
     hugs a wall (1px deviation) and gets collapsed into a segment that
     cuts through the wall.
+
+    The max_segment condition ensures the runtime path-follower always
+    has a nearby target point, preventing drift on long straight stretches.
     """
     if len(path) <= 2:
         return path
@@ -174,6 +207,7 @@ def simplify_path(path: list[tuple[int, int]],
     ex, ey = path[-1]
     dx, dy = ex - sx, ey - sy
     line_len_sq = dx * dx + dy * dy
+    segment_len = line_len_sq ** 0.5
 
     max_dist = 0.0
     max_idx = 0
@@ -192,17 +226,19 @@ def simplify_path(path: list[tuple[int, int]],
             max_idx = i
 
     # Only collapse if geometry is within tolerance AND the segment is
-    # fully walkable (no wall pixels on the straight line).
+    # fully walkable AND the segment is short enough.
     if max_dist <= max_deviation:
-        if wm is None or _segment_walkable(wm, sx, sy, ex, ey):
+        if segment_len > max_segment:
+            # Segment too long — subdivide at midpoint to guarantee density.
+            max_idx = len(path) // 2
+        elif wm is not None and not _segment_walkable(wm, sx, sy, ex, ey):
+            # Wall crossing detected — subdivide at midpoint.
+            max_idx = len(path) // 2
+        else:
             return [path[0], path[-1]]
-        # Wall crossing detected — must subdivide even though geometry
-        # is within tolerance. Split at the midpoint of the path to
-        # force retention of intermediate waypoints.
-        max_idx = len(path) // 2
 
-    left = simplify_path(path[:max_idx + 1], max_deviation, wm)
-    right = simplify_path(path[max_idx:], max_deviation, wm)
+    left = simplify_path(path[:max_idx + 1], max_deviation, max_segment, wm)
+    right = simplify_path(path[max_idx:], max_deviation, max_segment, wm)
     return left[:-1] + right
 
 
@@ -237,19 +273,21 @@ def main() -> int:
         sx, sy = src_wp["x"], src_wp["y"]
         gx, gy = dst_wp["x"], dst_wp["y"]
 
-        path = astar(wm, sx, sy, gx, gy)
-        if path is None:
+        result = astar(wm, sx, sy, gx, gy)
+        if result is None:
             failed.append((edge["src"], edge["dst"], src_wp.get("label", ""),
                            dst_wp.get("label", "")))
             # Store empty path
             paths.append((edge["src"], edge["dst"], []))
         else:
-            # Simplify for storage (wall-aware to prevent segments crossing walls)
-            simplified = simplify_path(path, max_deviation=1.0, wm=wm)
+            path, path_cost = result
+            # Simplify for storage (wall-aware, max 30px between points)
+            simplified = simplify_path(path, max_deviation=1.0,
+                                       max_segment=30.0, wm=wm)
             paths.append((edge["src"], edge["dst"], simplified))
             total_points += len(simplified)
-            # Update edge cost in graph data
-            edge["cost"] = len(path)
+            # Store cost as approximate pixel distance (descale from 10x)
+            edge["cost"] = int(round(path_cost / COST_CARDINAL))
 
         if (i + 1) % 50 == 0 or i == len(walking_edges) - 1:
             elapsed = time.time() - t0
