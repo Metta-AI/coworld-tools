@@ -1,0 +1,573 @@
+"""Advanced Eurydice strategic modes.
+
+These modes cover leadership transitions, hostage selection, cross-room
+coordination, and lightweight disruption. They intentionally keep their
+state in ``belief_state.extra`` so each mode remains self-contained and easy
+to reason about.
+"""
+
+from __future__ import annotations
+
+import random
+import re
+from collections.abc import Sequence
+
+from orpheus.mode import Mode, ModeDirective, ModeParams
+from orpheus.task import Task
+from orpheus.idle import IdleTask
+from orpheus.tasks import (
+    MoveToTask,
+    CreateWhisperTask,
+    OpenGlobalChatTask,
+    OpenInfoScreenTask,
+    VoteUsurpTask,
+    SelectHostagesTask,
+    SendMessageTask,
+    GrantEntryTask,
+)
+from orpheus.perception.types import View
+from agents.eurydice.ext_keys import MODE_COMPLETE, PLAYER_KNOWLEDGE
+from agents.eurydice.knowledge import PlayerKnowledge
+from agents.eurydice.types import INTERACTION_RANGE_SQ, PlayerID
+
+
+HOLD_REPICK_TICKS = 72
+HOLD_CENTER_RADIUS = 25
+DECOY_REPICK_TICKS = 72
+CROSS_ROOM_COMPLETE_TICKS = 48
+LEADERSHIP_TIMEOUT_TICKS = 72
+HOSTAGE_SELECT_TIMEOUT_TICKS = 120
+SUMMIT_SECOND_MESSAGE_TICKS = 96
+INFO_SCREEN_WAIT_TICKS = 48
+
+_HOLD_TARGET_KEY = "_hold_position_target"
+_HOLD_TARGET_TICK_KEY = "_hold_position_target_tick"
+_DECOY_TARGET_KEY = "_decoy_target"
+_DECOY_TARGET_TICK_KEY = "_decoy_target_tick"
+_SUMMIT_MESSAGES_SENT_KEY = "_summit_messages_sent"
+_CROSS_ROOM_SENT_KEY = "_coordinate_cross_room_sent"
+_CROSS_ROOM_SENT_THIS_ENTRY_KEY = "_coordinate_cross_room_sent_this_entry"
+_RELAY_SENT_KEY = "_relay_intelligence_sent"
+_TIME_WASTE_TARGET_KEY = "_time_waste_target"
+
+
+class HoldPositionMode(Mode):
+    """Stay in the current room while making small noncommittal movements."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        del action_memory
+
+        if getattr(belief_state, "pending_entry", None) is not None:
+            return GrantEntryTask()
+
+        position = _position2d(getattr(belief_state, "position", None))
+        if position is None:
+            return IdleTask()
+
+        tick = _tick(belief_state)
+        target = belief_state.extra.get(_HOLD_TARGET_KEY)
+        target_tick = int(belief_state.extra.get(_HOLD_TARGET_TICK_KEY, -HOLD_REPICK_TICKS))
+        if target is None or tick - target_tick >= HOLD_REPICK_TICKS:
+            target = _random_center_target(belief_state)
+            belief_state.extra[_HOLD_TARGET_KEY] = target
+            belief_state.extra[_HOLD_TARGET_TICK_KEY] = tick
+
+        return _move_to(target)
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra.pop(_HOLD_TARGET_KEY, None)
+        belief_state.extra.pop(_HOLD_TARGET_TICK_KEY, None)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_HOLD_TARGET_KEY, None)
+        belief_state.extra.pop(_HOLD_TARGET_TICK_KEY, None)
+
+
+class SeekLeadershipMode(Mode):
+    """Open the usurp interface and vote for our own player slot."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        if getattr(action_memory, "ticks_active", 0) > LEADERSHIP_TIMEOUT_TICKS:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if getattr(belief_state, "view", None) is not View.GLOBAL_CHAT:
+            return OpenGlobalChatTask()
+
+        return VoteUsurpTask(candidate=_self_candidate_index(belief_state))
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del belief_state, action_memory, new_mode_directive
+
+
+class HostageSelectMode(Mode):
+    """As leader, choose available hostage slots and then let the UI finish."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        if getattr(action_memory, "ticks_active", 0) > HOSTAGE_SELECT_TIMEOUT_TICKS:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        selections = getattr(belief_state, "hostage_selections", None)
+        targets = _hostage_target_indices(selections)
+        if selections is not None and targets is not None:
+            return SelectHostagesTask(targets)
+
+        return IdleTask()
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del belief_state, action_memory, new_mode_directive
+
+
+class SummitInteractMode(Mode):
+    """Use the leader summit to probe identity and request transfer."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        messages_sent = int(belief_state.extra.get(_SUMMIT_MESSAGES_SENT_KEY, 0))
+
+        if messages_sent == 0:
+            belief_state.extra[_SUMMIT_MESSAGES_SENT_KEY] = 1
+            return SendMessageTask(text="WHO ARE YOU", channel="whisper")
+
+        if (
+            messages_sent == 1
+            and getattr(action_memory, "ticks_active", 0) > SUMMIT_SECOND_MESSAGE_TICKS
+        ):
+            belief_state.extra[_SUMMIT_MESSAGES_SENT_KEY] = 2
+            return SendMessageTask(text="SEND ME", channel="whisper")
+
+        return IdleTask()
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra[_SUMMIT_MESSAGES_SENT_KEY] = 0
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_SUMMIT_MESSAGES_SENT_KEY, None)
+
+
+class CoordinateCrossRoomMode(Mode):
+    """Ask the local leader to send us across during hostage exchange."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        sent = bool(belief_state.extra.get(_CROSS_ROOM_SENT_KEY, False))
+        sent_this_entry = bool(
+            belief_state.extra.get(_CROSS_ROOM_SENT_THIS_ENTRY_KEY, False)
+        )
+
+        if sent and not sent_this_entry:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if sent and getattr(action_memory, "ticks_active", 0) > CROSS_ROOM_COMPLETE_TICKS:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        belief_state.extra[_CROSS_ROOM_SENT_KEY] = True
+        belief_state.extra[_CROSS_ROOM_SENT_THIS_ENTRY_KEY] = True
+        return SendMessageTask(text="SEND ME", channel="global")
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra.pop(_CROSS_ROOM_SENT_THIS_ENTRY_KEY, None)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_CROSS_ROOM_SENT_THIS_ENTRY_KEY, None)
+
+
+class UsurpMode(SeekLeadershipMode):
+    """Compatibility alias for the leadership-seeking usurp behavior."""
+
+
+class TimeWasteMode(Mode):
+    """Approach a known player and try to occupy them in a whisper."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        del action_memory
+
+        position = _position2d(getattr(belief_state, "position", None))
+        if position is None:
+            return IdleTask()
+
+        target_id = _time_waste_target(belief_state)
+        if target_id is None:
+            return IdleTask()
+
+        target_position = _knowledge_position(belief_state, target_id)
+        if target_position is None:
+            belief_state.extra.pop(_TIME_WASTE_TARGET_KEY, None)
+            return IdleTask()
+
+        if _distance_sq(position, target_position) < INTERACTION_RANGE_SQ:
+            return CreateWhisperTask()
+
+        return _move_to(target_position)
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra.pop(_TIME_WASTE_TARGET_KEY, None)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_TIME_WASTE_TARGET_KEY, None)
+
+
+class DecoyMode(Mode):
+    """Wander through the room without looking for probe targets."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        del action_memory
+
+        position = _position2d(getattr(belief_state, "position", None))
+        if position is None:
+            return IdleTask()
+
+        tick = _tick(belief_state)
+        target = belief_state.extra.get(_DECOY_TARGET_KEY)
+        target_tick = int(belief_state.extra.get(_DECOY_TARGET_TICK_KEY, -DECOY_REPICK_TICKS))
+        if target is None or tick - target_tick >= DECOY_REPICK_TICKS:
+            target = _random_room_target(belief_state)
+            belief_state.extra[_DECOY_TARGET_KEY] = target
+            belief_state.extra[_DECOY_TARGET_TICK_KEY] = tick
+
+        return _move_to(target)
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra.pop(_DECOY_TARGET_KEY, None)
+        belief_state.extra.pop(_DECOY_TARGET_TICK_KEY, None)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_DECOY_TARGET_KEY, None)
+        belief_state.extra.pop(_DECOY_TARGET_TICK_KEY, None)
+
+
+class RelayIntelligenceMode(Mode):
+    """Open room chat, send one short status ping, then finish."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        del action_memory
+
+        if belief_state.extra.get(_RELAY_SENT_KEY):
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if getattr(belief_state, "view", None) is not View.GLOBAL_CHAT:
+            return OpenGlobalChatTask()
+
+        belief_state.extra[_RELAY_SENT_KEY] = True
+        _complete_mode(belief_state)
+        return SendMessageTask(text="STATUS", channel="global")
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+        belief_state.extra.pop(_RELAY_SENT_KEY, None)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del action_memory, new_mode_directive
+        belief_state.extra.pop(_RELAY_SENT_KEY, None)
+
+
+class CheckInfoScreenMode(Mode):
+    """Open the info screen briefly so belief update can ingest it."""
+
+    params_type = ModeParams
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        if getattr(belief_state, "view", None) is not View.INFO_SCREEN:
+            return OpenInfoScreenTask()
+
+        if getattr(action_memory, "ticks_active", 0) > INFO_SCREEN_WAIT_TICKS:
+            _complete_mode(belief_state)
+
+        return IdleTask()
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del belief_state, action_memory, new_mode_directive
+
+
+def _complete_mode(belief_state) -> None:
+    belief_state.extra[MODE_COMPLETE] = True
+
+
+def _clear_mode_completion(belief_state) -> None:
+    belief_state.extra.pop(MODE_COMPLETE, None)
+
+
+def _tick(belief_state) -> int:
+    return int(getattr(belief_state, "tick", 0) or 0)
+
+
+def _position2d(position) -> tuple[int, int] | None:
+    if position is None:
+        return None
+    return (int(position[0]), int(position[1]))
+
+
+def _room_size(belief_state) -> tuple[int, int]:
+    size = getattr(belief_state, "room_size", None) or (200, 200)
+    return (max(1, int(size[0])), max(1, int(size[1])))
+
+
+def _random_center_target(belief_state) -> tuple[int, int]:
+    width, height = _room_size(belief_state)
+    center_x = width // 2
+    center_y = height // 2
+    x = random.randint(center_x - HOLD_CENTER_RADIUS, center_x + HOLD_CENTER_RADIUS)
+    y = random.randint(center_y - HOLD_CENTER_RADIUS, center_y + HOLD_CENTER_RADIUS)
+    return (_clamp(x, 0, width), _clamp(y, 0, height))
+
+
+def _random_room_target(belief_state) -> tuple[int, int]:
+    width, height = _room_size(belief_state)
+    return (random.randint(0, width), random.randint(0, height))
+
+
+def _move_to(target: tuple[int, int]) -> MoveToTask:
+    return MoveToTask(int(target[0]), int(target[1]))
+
+
+def _distance_sq(a: tuple[int, int], b: tuple[int, int]) -> int:
+    dx = int(a[0]) - int(b[0])
+    dy = int(a[1]) - int(b[1])
+    return dx * dx + dy * dy
+
+
+def _self_candidate_index(belief_state) -> int:
+    my_index = getattr(belief_state, "my_index", None)
+    if my_index is None:
+        return 0
+    return max(0, int(my_index))
+
+
+def _hostage_target_indices(selections) -> tuple[int, ...] | None:
+    eligible_count = _eligible_count(selections)
+    if eligible_count <= 0:
+        return None
+
+    selected_positions = set(_int_sequence(_state_value(selections, "selected_positions")))
+    if _state_value(selections, "is_committed"):
+        return ()
+
+    target_total = _hostage_target_total(selections, eligible_count)
+    remaining = max(0, target_total - len(selected_positions))
+    if remaining == 0:
+        return ()
+
+    targets: list[int] = []
+    for index in range(eligible_count):
+        if index in selected_positions:
+            continue
+        targets.append(index)
+        if len(targets) >= remaining:
+            break
+    return tuple(targets)
+
+
+def _eligible_count(selections) -> int:
+    for name in ("eligible_colors", "candidates", "target_colors"):
+        values = _state_value(selections, name)
+        if values is None:
+            continue
+        try:
+            count = len(values)
+        except TypeError:
+            continue
+        if count > 0:
+            return int(count)
+    return 0
+
+
+def _hostage_target_total(selections, eligible_count: int) -> int:
+    count_label = _state_value(selections, "count_label")
+    if isinstance(count_label, str):
+        match = re.search(r"/\s*(\d+)", count_label)
+        if match:
+            return min(eligible_count, max(0, int(match.group(1))))
+
+    explicit_count = _state_value(
+        selections,
+        "required_count",
+        "hostage_count",
+        "target_count",
+        "count",
+    )
+    if explicit_count is not None:
+        try:
+            return min(eligible_count, max(0, int(explicit_count)))
+        except (TypeError, ValueError):
+            pass
+
+    return min(2, eligible_count)
+
+
+def _int_sequence(value) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        result: list[int] = []
+        for item in value:
+            try:
+                result.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return tuple(result)
+    return ()
+
+
+def _time_waste_target(belief_state) -> PlayerID | None:
+    target = belief_state.extra.get(_TIME_WASTE_TARGET_KEY)
+    if target is not None and _knowledge_position(belief_state, target) is not None:
+        return target
+
+    candidates = list(_known_player_positions_from_knowledge(belief_state))
+    if not candidates:
+        return None
+
+    target = random.choice(candidates)
+    belief_state.extra[_TIME_WASTE_TARGET_KEY] = target
+    return target
+
+
+def _known_player_positions_from_knowledge(belief_state) -> list[PlayerID]:
+    candidates: list[PlayerID] = []
+    for player_id, record in _player_knowledge(belief_state).items():
+        if _is_self_player_id(belief_state, player_id):
+            continue
+        if getattr(record, "last_seen_position", None) is not None:
+            candidates.append(player_id)
+    return candidates
+
+
+def _knowledge_position(belief_state, player_id: PlayerID) -> tuple[int, int] | None:
+    record = _player_knowledge(belief_state).get(player_id)
+    if record is None:
+        return None
+    return _position2d(getattr(record, "last_seen_position", None))
+
+
+def _player_knowledge(belief_state) -> dict[PlayerID, PlayerKnowledge]:
+    knowledge = belief_state.extra.get(PLAYER_KNOWLEDGE)
+    if isinstance(knowledge, dict):
+        return knowledge
+    return {}
+
+
+def _is_self_player_id(belief_state, player_id: PlayerID) -> bool:
+    my_color = getattr(belief_state, "my_color", None)
+    my_shape = getattr(belief_state, "my_shape", None)
+    if my_color is None or my_shape is None:
+        return False
+    shape = int(getattr(my_shape, "value", my_shape))
+    return player_id == (int(my_color), shape)
+
+
+def _state_value(source, *names: str):
+    for name in names:
+        if isinstance(source, dict) and name in source:
+            return source[name]
+        if hasattr(source, name):
+            return getattr(source, name)
+    return None
+
+
+def _clamp(value: int, lower: int, upper: int) -> int:
+    return min(max(value, lower), upper)
+
+
+__all__ = [
+    "HoldPositionMode",
+    "SeekLeadershipMode",
+    "HostageSelectMode",
+    "SummitInteractMode",
+    "CoordinateCrossRoomMode",
+    "UsurpMode",
+    "TimeWasteMode",
+    "DecoyMode",
+    "RelayIntelligenceMode",
+    "CheckInfoScreenMode",
+]
