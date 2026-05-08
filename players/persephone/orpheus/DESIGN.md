@@ -151,7 +151,8 @@ class ModeParams:
 @dataclass(frozen=True)
 class ModeDirective:
     mode: str             # Registry key identifying the target mode
-    params: ModeParams    # Instance of the mode's declared params type
+    params: ModeParams = field(default_factory=ModeParams)
+                          # Defaults to bare ModeParams for parameterless modes
 ```
 
 **Equality**: structural (`==` on both `mode` and `params`). Two frozen

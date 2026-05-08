@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+from collections import deque
 from collections.abc import Callable
+from enum import Enum
+import zlib
 
 import numpy as np
 
@@ -77,6 +80,7 @@ class Pipeline:
         """Run one inner-loop tick for `frame` and return the emitted command."""
         self._attach_logger_to_belief_state()
         self._refresh_logger_metadata()
+        verbose_logging = self._verbose_logging_enabled()
 
         frame = self.hook_registry.dispatch(
             HookPoint.PRE_PERCEPTION,
@@ -106,6 +110,18 @@ class Pipeline:
             logger=self.logger,
         )
 
+        belief_snapshot_before = None
+        cooldowns_before_belief_update = None
+        minimap_sighting_count_before = None
+        occupancy_grid_before = None
+        if verbose_logging:
+            belief_snapshot_before = _snapshot_belief_state(self.belief_state)
+            cooldowns_before_belief_update = dict(self.belief_state.cooldowns)
+            minimap_sighting_count_before = len(self.belief_state.minimap_sightings)
+            occupancy_grid_before = _snapshot_occupancy_grid(
+                self.belief_state.occupancy_grid
+            )
+
         self._belief_update(perception)
         self._refresh_logger_metadata()
         self._log_event(
@@ -113,6 +129,21 @@ class Pipeline:
             {"perception": repr(perception)},
             level=LogLevel.VERBOSE,
         )
+        if verbose_logging:
+            assert belief_snapshot_before is not None
+            assert cooldowns_before_belief_update is not None
+            assert minimap_sighting_count_before is not None
+            self._emit_belief_diff(belief_snapshot_before)
+            self._emit_cooldown_changes(
+                cooldowns_before_belief_update,
+                self.belief_state.cooldowns,
+                phase="belief_update",
+            )
+            self._emit_minimap_sightings(minimap_sighting_count_before)
+            self._emit_grid_change(
+                occupancy_grid_before,
+                self.belief_state.occupancy_grid,
+            )
         if self.belief_state.view != previous_view:
             self._log_event(
                 "view_transition",
@@ -215,6 +246,12 @@ class Pipeline:
             logger=self.logger,
         )
 
+        action_memory_before_act = None
+        cooldowns_before_act = None
+        if verbose_logging:
+            action_memory_before_act = _snapshot_action_memory(self.action_memory)
+            cooldowns_before_act = dict(self.belief_state.cooldowns)
+
         self.hook_registry.dispatch(
             HookPoint.PRE_ACT,
             self.current_mode_name,
@@ -248,9 +285,13 @@ class Pipeline:
             {"command": str(command)},
             level=LogLevel.VERBOSE,
         )
-        # TODO Stage 8 follow-up: add verbose belief_diff, cooldown_change,
-        # minimap_sighting, grid_change, and action_memory_mutation events
-        # once those mutation paths have stable diff hooks.
+        if verbose_logging:
+            assert cooldowns_before_act is not None
+            self._emit_cooldown_changes(
+                cooldowns_before_act,
+                self.belief_state.cooldowns,
+                phase="act",
+            )
 
         # Action memory is updated before POST_ACT so hooks see post-tick state.
         self.action_memory.ticks_active += 1
@@ -258,6 +299,10 @@ class Pipeline:
         self.action_memory.command_history.append(command)
         if _command_is_non_noop(command):
             self.action_memory.commands_sent += 1
+
+        if verbose_logging:
+            assert action_memory_before_act is not None
+            self._emit_action_memory_mutation(action_memory_before_act)
 
         self._send_act_command(command)
 
@@ -393,6 +438,75 @@ class Pipeline:
         if isinstance(self.logger, Logger):
             self.logger.event(category, data, level)
 
+    def _verbose_logging_enabled(self) -> bool:
+        return isinstance(self.logger, Logger) and self.logger.level >= LogLevel.VERBOSE
+
+    def _emit_belief_diff(self, before: dict[str, object]) -> None:
+        after = _snapshot_belief_state(self.belief_state)
+        diff = _diff_snapshots(before, after, large_fields={"players"})
+        for list_field in ("chat_history", "minimap_sightings"):
+            if list_field in diff:
+                diff[list_field] = _summarize_list_diff(
+                    before.get(list_field),
+                    after.get(list_field),
+                )
+        if diff:
+            self._log_event(
+                "belief_diff",
+                {"diff": diff},
+                level=LogLevel.VERBOSE,
+            )
+
+    def _emit_cooldown_changes(
+        self,
+        before: dict[str, int],
+        after: dict[str, int],
+        *,
+        phase: str,
+    ) -> None:
+        changes = _dict_value_changes(before, after)
+        if changes:
+            self._log_event(
+                "cooldown_change",
+                {"phase": phase, "changes": changes},
+                level=LogLevel.VERBOSE,
+            )
+
+    def _emit_minimap_sightings(self, previous_count: int) -> None:
+        new_sightings = self.belief_state.minimap_sightings[previous_count:]
+        if new_sightings:
+            self._log_event(
+                "minimap_sighting",
+                {
+                    "count": len(new_sightings),
+                    "sightings": [_snapshot_value(s) for s in new_sightings],
+                },
+                level=LogLevel.VERBOSE,
+            )
+
+    def _emit_grid_change(
+        self,
+        before: dict[str, object] | None,
+        after_grid: object | None,
+    ) -> None:
+        after = _snapshot_occupancy_grid(after_grid)
+        if before != after:
+            self._log_event(
+                "grid_change",
+                {"changed": True, "old": before, "new": after},
+                level=LogLevel.VERBOSE,
+            )
+
+    def _emit_action_memory_mutation(self, before: dict[str, object]) -> None:
+        after = _snapshot_action_memory(self.action_memory)
+        diff = _diff_snapshots(before, after)
+        if diff:
+            self._log_event(
+                "action_memory_mutation",
+                {"diff": diff, "changes": diff},
+                level=LogLevel.VERBOSE,
+            )
+
     def _refresh_logger_metadata(self) -> None:
         if not isinstance(self.logger, Logger):
             return
@@ -461,6 +575,204 @@ def _view_name(view: object) -> str | None:
     if isinstance(value, str):
         return value
     return str(view)
+
+
+def _snapshot_belief_state(belief_state: BeliefState) -> dict[str, object]:
+    """Return a JSON-safe, mutation-isolated snapshot of dataclass fields."""
+    return {
+        field.name: _snapshot_belief_field(
+            field.name,
+            getattr(belief_state, field.name),
+        )
+        for field in dataclasses.fields(belief_state)
+    }
+
+
+def _snapshot_belief_field(name: str, value: object) -> object:
+    if name == "occupancy_grid":
+        return _snapshot_occupancy_grid(value)
+    return _snapshot_value(value)
+
+
+def _snapshot_action_memory(action_memory: ActionMemory) -> dict[str, object]:
+    return {
+        name: _snapshot_value(value)
+        for name, value in vars(action_memory).items()
+        if not name.startswith("_")
+    }
+
+
+def _snapshot_value(value: object) -> object:
+    if dataclasses.is_dataclass(value):
+        return {
+            field.name: _snapshot_value(getattr(value, field.name))
+            for field in dataclasses.fields(value)
+        }
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {
+            _snapshot_key(key): _snapshot_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, deque):
+        return [_snapshot_value(item) for item in value]
+    if isinstance(value, list):
+        return [_snapshot_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_snapshot_value(item) for item in value]
+    if isinstance(value, set | frozenset):
+        return sorted(_snapshot_value(item) for item in value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return {
+            "shape": list(value.shape),
+            "dtype": str(value.dtype),
+            "checksum": _array_checksum(value),
+        }
+    if isinstance(value, str | int | float | bool | type(None)):
+        return value
+    return repr(value)
+
+
+def _snapshot_key(key: object) -> str | int | float | bool | None:
+    if isinstance(key, str | int | float | bool | type(None)):
+        return key
+    if isinstance(key, Enum):
+        return str(key.value)
+    return repr(key)
+
+
+def _snapshot_occupancy_grid(grid: object | None) -> dict[str, object] | None:
+    if grid is None:
+        return None
+
+    cells = getattr(grid, "cells", None)
+    viewport_confirmed = getattr(grid, "viewport_confirmed", None)
+    snapshot: dict[str, object] = {
+        "room_size": _snapshot_value(getattr(grid, "room_size", None)),
+        "resolution": getattr(grid, "resolution", None),
+        "grid_w": getattr(grid, "grid_w", None),
+        "grid_h": getattr(grid, "grid_h", None),
+    }
+    if isinstance(cells, np.ndarray):
+        counts = np.bincount(cells.ravel().astype(np.int64), minlength=3)
+        other_count = int(counts[3:].sum()) if len(counts) > 3 else 0
+        snapshot.update(
+            {
+                "shape": list(cells.shape),
+                "cell_counts": {
+                    "unknown": int(counts[0]),
+                    "free": int(counts[1]),
+                    "wall": int(counts[2]),
+                    "other": other_count,
+                },
+                "cells_checksum": _array_checksum(cells),
+            }
+        )
+    if isinstance(viewport_confirmed, np.ndarray):
+        snapshot.update(
+            {
+                "viewport_confirmed_count": int(np.count_nonzero(viewport_confirmed)),
+                "viewport_confirmed_checksum": _array_checksum(viewport_confirmed),
+            }
+        )
+    return snapshot
+
+
+def _array_checksum(array: np.ndarray) -> str:
+    data = np.ascontiguousarray(array).tobytes()
+    return f"{zlib.crc32(data) & 0xFFFFFFFF:08x}"
+
+
+def _diff_snapshots(
+    before: dict[str, object],
+    after: dict[str, object],
+    large_fields: set[str] | None = None,
+) -> dict[str, dict[str, object]]:
+    large_fields = large_fields or set()
+    diff: dict[str, dict[str, object]] = {}
+    for name in sorted(set(before) | set(after)):
+        old = before.get(name)
+        new = after.get(name)
+        if old == new:
+            continue
+        if name in large_fields and isinstance(old, dict) and isinstance(new, dict):
+            diff[name] = _summarize_dict_diff(old, new)
+        else:
+            diff[name] = {"old": old, "new": new}
+    return diff
+
+
+def _summarize_dict_diff(
+    before: dict[object, object],
+    after: dict[object, object],
+) -> dict[str, object]:
+    before_keys = set(before)
+    after_keys = set(after)
+    common_keys = before_keys & after_keys
+    return {
+        "old": {"count": len(before), "keys": _sorted_snapshot_keys(before_keys)},
+        "new": {"count": len(after), "keys": _sorted_snapshot_keys(after_keys)},
+        "added_keys": _sorted_snapshot_keys(after_keys - before_keys),
+        "removed_keys": _sorted_snapshot_keys(before_keys - after_keys),
+        "changed_keys": _sorted_snapshot_keys(
+            key for key in common_keys if before[key] != after[key]
+        ),
+    }
+
+
+def _summarize_list_diff(old: object, new: object) -> dict[str, object]:
+    old_list = old if isinstance(old, list) else []
+    new_list = new if isinstance(new, list) else []
+    summary: dict[str, object] = {
+        "old": {"len": len(old_list)},
+        "new": {"len": len(new_list)},
+    }
+    if len(new_list) >= len(old_list) and new_list[: len(old_list)] == old_list:
+        appended = new_list[len(old_list) :]
+        summary["appended_count"] = len(appended)
+        if appended:
+            summary["appended"] = appended
+    else:
+        summary["changed"] = True
+    return summary
+
+
+def _dict_value_changes(
+    before: dict[object, object],
+    after: dict[object, object],
+) -> dict[str, dict[str, object]]:
+    changes: dict[str, dict[str, object]] = {}
+    for key in sorted(set(before) | set(after), key=lambda item: str(item)):
+        old = before.get(key)
+        new = after.get(key)
+        if old == new:
+            continue
+        changes[str(key)] = {
+            "old": _snapshot_value(old),
+            "new": _snapshot_value(new),
+            "change": _change_type(old, new),
+        }
+    return changes
+
+
+def _change_type(old: object, new: object) -> str:
+    if old is None:
+        return "added"
+    if new is None:
+        return "expired"
+    if isinstance(old, int) and isinstance(new, int):
+        if new < old:
+            return "decremented"
+        if new > old:
+            return "increased"
+    return "changed"
+
+
+def _sorted_snapshot_keys(keys) -> list[object]:
+    return sorted((_snapshot_key(key) for key in keys), key=lambda item: str(item))
 
 
 __all__ = [

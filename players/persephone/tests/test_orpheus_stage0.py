@@ -130,6 +130,13 @@ def test_frozen_dataclasses_construct_and_are_immutable() -> None:
     assert directive.params == params
     assert directive == ModeDirective(mode="x", params=ModeParams())
 
+    default_params_directive = ModeDirective(mode="idle")
+    assert default_params_directive.params == ModeParams()
+    assert default_params_directive == ModeDirective(
+        mode="idle",
+        params=ModeParams(),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Abstract interfaces
@@ -269,6 +276,9 @@ def test_belief_state_defaults() -> None:
     assert belief_state.inferences == {}
     assert belief_state.extra == {}
     assert belief_state.pending_offers == {"role": False, "color": False}
+    assert belief_state.active_color_offers == []
+    assert belief_state.active_role_offers == []
+    assert belief_state.last_exchange_event is None
 
 
 def test_belief_state_reset_restores_defaults() -> None:
@@ -290,8 +300,16 @@ def test_belief_state_reset_restores_defaults() -> None:
         MinimapSighting(color=3, position=(10, 20), tick=99)
     )
     belief_state.pending_offers["role"] = True
+    belief_state.active_color_offers.append(1)
+    belief_state.active_role_offers.append(2)
+    belief_state.last_exchange_event = {
+        "type": "shared_roles",
+        "tick": 99,
+        "participants": [1, 2],
+    }
     belief_state.inferences["plan"] = "test"
     belief_state.extra["mode"] = {"counter": 1}
+    belief_state.ad_hoc_mode_counter = 5
 
     belief_state.reset()
 
@@ -301,5 +319,9 @@ def test_belief_state_reset_restores_defaults() -> None:
     assert belief_state.chat_history == []
     assert belief_state.minimap_sightings == []
     assert belief_state.pending_offers == {"role": False, "color": False}
+    assert belief_state.active_color_offers == []
+    assert belief_state.active_role_offers == []
+    assert belief_state.last_exchange_event is None
     assert belief_state.inferences == {}
     assert belief_state.extra == {}
+    assert not hasattr(belief_state, "ad_hoc_mode_counter")

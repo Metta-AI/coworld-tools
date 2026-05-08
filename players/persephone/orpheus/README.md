@@ -54,7 +54,7 @@ The `perception/` module is incorporated. The reference Orpheus-based agent
 lives at [`agents/orpheus_test/`](../agents/orpheus_test/).
 
 Known follow-ups (Stage 2 perception gaps, Stage 4 task `select_action`
-approximations, Stage 7 outer-loop staleness, Stage 8 verbose log
-categories) are tracked in [`TODO.md`](../TODO.md) and marked
+approximations, Stage 8 verbose log categories) are tracked in
+[`TODO.md`](../TODO.md) and marked
 inline in source with `# TODO Stage N follow-up:` /
 `# TODO Stage N perception gap:` comments.

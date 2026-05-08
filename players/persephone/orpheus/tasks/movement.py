@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import math
 import random
+from collections import deque
 from dataclasses import dataclass
 from typing import ClassVar
 
 from orpheus import pathfinding
+from orpheus.occupancy_grid import CellState
 from orpheus.task import ActCommand, Task
 from orpheus.types import (
     BUTTON_DOWN,
@@ -28,6 +30,8 @@ OVERWORLD_VIEWS: frozenset[View] = frozenset(
 
 GOAL_RADIUS_PX = 3.0
 STUCK_REPATH_TICKS = 10
+WANDER_RANDOM_ATTEMPTS = 20
+WANDER_RECENT_CELL_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,8 @@ class WanderTask(Task):
         room_size = getattr(belief_state, "room_size", None)
         if position is None or room_size is None:
             return ActCommand()
+
+        _record_wander_visit(belief_state, action_memory, position)
 
         waypoint = getattr(action_memory, "wander_waypoint", None)
         if waypoint is None or _distance(position, waypoint) <= GOAL_RADIUS_PX:
@@ -216,15 +222,97 @@ def _pick_wander_waypoint(belief_state, action_memory) -> tuple[int, int] | None
     if position is None:
         return None
 
-    for _ in range(20):
+    if grid is not None and _grid_has_exploration_data(grid):
+        waypoint = _pick_reachable_grid_waypoint(
+            grid,
+            position,
+            action_memory.wander_rng,
+            CellState.UNKNOWN,
+        )
+        if waypoint is not None:
+            return waypoint
+
+        recent_cells = set(getattr(action_memory, "wander_recent_cells", ()))
+        waypoint = _pick_reachable_grid_waypoint(
+            grid,
+            position,
+            action_memory.wander_rng,
+            CellState.FREE,
+            excluded_cells=recent_cells,
+        )
+        if waypoint is not None:
+            return waypoint
+
+        waypoint = _pick_reachable_grid_waypoint(
+            grid,
+            position,
+            action_memory.wander_rng,
+            CellState.FREE,
+        )
+        if waypoint is not None:
+            return waypoint
+
+    for _ in range(WANDER_RANDOM_ATTEMPTS):
         x = action_memory.wander_rng.randint(4, max(4, room_w - 5))
         y = action_memory.wander_rng.randint(4, max(4, room_h - 5))
         if grid is None or pathfinding.a_star(grid, position, (x, y)) is not None:
             return (x, y)
 
-    # TODO Stage 4 follow-up: use known-free cells instead of blind random
-    # samples once live maps expose enough traversability data.
     return None
+
+
+def _record_wander_visit(belief_state, action_memory, position: tuple[int, int]) -> None:
+    grid = getattr(belief_state, "occupancy_grid", None)
+    if grid is None:
+        return
+
+    cell = grid.world_to_grid(*position)
+    if not grid.is_inside(*cell):
+        return
+
+    recent_cells = getattr(action_memory, "wander_recent_cells", None)
+    if recent_cells is None:
+        recent_cells = deque(maxlen=WANDER_RECENT_CELL_LIMIT)
+        action_memory.wander_recent_cells = recent_cells
+
+    if not recent_cells or recent_cells[-1] != cell:
+        recent_cells.append(cell)
+
+
+def _grid_has_exploration_data(grid) -> bool:
+    return bool((grid.cells == int(CellState.FREE)).any())
+
+
+def _pick_reachable_grid_waypoint(
+    grid,
+    position: tuple[int, int],
+    rng: random.Random,
+    state: CellState,
+    excluded_cells: set[tuple[int, int]] | None = None,
+) -> tuple[int, int] | None:
+    candidates = _grid_cells_with_state(grid, state, excluded_cells)
+    rng.shuffle(candidates)
+
+    for gx, gy in candidates:
+        waypoint = grid.grid_to_world(gx, gy)
+        if pathfinding.a_star(grid, position, waypoint) is not None:
+            return waypoint
+
+    return None
+
+
+def _grid_cells_with_state(
+    grid,
+    state: CellState,
+    excluded_cells: set[tuple[int, int]] | None,
+) -> list[tuple[int, int]]:
+    excluded_cells = excluded_cells or set()
+    grid_ys, grid_xs = (grid.cells == int(state)).nonzero()
+    return [
+        (int(gx), int(gy))
+        for gy, gx in zip(grid_ys, grid_xs)
+        if (int(gx), int(gy)) not in excluded_cells
+    ]
 
 
 def _position2d(value) -> tuple[int, int] | None:

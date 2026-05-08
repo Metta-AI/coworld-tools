@@ -68,6 +68,11 @@ def _color(index: int) -> int:
     return PLAYER_COLORS[index % 8]
 
 
+def _system_ref(index: int) -> str:
+    """Return the raw rich-text player reference used in system messages."""
+    return "\x01" + chr(index)
+
+
 def test_universal_tick_increment() -> None:
     """Belief update increments the tick on every frame."""
     belief_state = BeliefState()
@@ -123,6 +128,9 @@ def test_whisper_exit_clears_state() -> None:
 
     assert belief_state.whisper_occupants == []
     assert belief_state.pending_offers == {"role": False, "color": False}
+    assert belief_state.active_color_offers == []
+    assert belief_state.active_role_offers == []
+    assert belief_state.last_exchange_event is None
     assert belief_state.pending_entry is None
     assert belief_state.menu_state is None
 

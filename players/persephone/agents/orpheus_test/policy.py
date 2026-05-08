@@ -81,6 +81,7 @@ def run(*, url: str, name: str, log_level: str = "events") -> int:
             pipeline.belief_buffer,
             pipeline.mode_buffer,
             logger=logger,
+            tick_provider=lambda: pipeline.belief_state.tick,
         )
         outer_loop.start()
 

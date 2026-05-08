@@ -380,5 +380,8 @@ def test_pipeline_alternating_playing_whisper_cleans_chatroom_state() -> None:
         assert pipeline.belief_state.in_whisper is False
         assert pipeline.belief_state.whisper_occupants == []
         assert pipeline.belief_state.pending_offers == {"role": False, "color": False}
+        assert pipeline.belief_state.active_color_offers == []
+        assert pipeline.belief_state.active_role_offers == []
+        assert pipeline.belief_state.last_exchange_event is None
         assert pipeline.belief_state.pending_entry is None
         assert pipeline.belief_state.menu_state is None

@@ -329,7 +329,9 @@ def test_outer_loop_emits_outer_loop_cycle_event() -> None:
     outer_loop.start()
     try:
         belief_buffer.push(BeliefState(tick=7), ActionMemory())
-        assert _wait_until(lambda: any('"type": "outer_loop_cycle"' in line for line in lines))
+        assert _wait_until(
+            lambda: any('"type": "outer_loop_cycle"' in line for line in lines)
+        )
     finally:
         outer_loop.stop()
 
@@ -337,6 +339,36 @@ def test_outer_loop_emits_outer_loop_cycle_event() -> None:
     assert entry["consumed_tick"] == 7
     assert entry["staleness"] is None
     assert "ModeDirective" in entry["directive"]
+
+
+def test_outer_loop_cycle_event_computes_staleness() -> None:
+    lines: list[str] = []
+    belief_buffer = BeliefBuffer()
+    mode_buffer = ModeBuffer()
+    directive = ModeDirective(mode="idle", params=ModeParams())
+
+    def meta_decide(belief_state, action_memory):
+        return directive, None
+
+    outer_loop = OuterLoop(
+        meta_decide,
+        belief_buffer,
+        mode_buffer,
+        logger=Logger(sink=lines.append),
+        tick_provider=lambda: 12,
+    )
+    outer_loop.start()
+    try:
+        belief_buffer.push(BeliefState(tick=7), ActionMemory())
+        assert _wait_until(
+            lambda: any('"type": "outer_loop_cycle"' in line for line in lines)
+        )
+    finally:
+        outer_loop.stop()
+
+    entry = _entry(lines, "outer_loop_cycle")
+    assert entry["consumed_tick"] == 7
+    assert entry["staleness"] == 5
 
 
 def test_outer_loop_meta_decide_failed_event() -> None:

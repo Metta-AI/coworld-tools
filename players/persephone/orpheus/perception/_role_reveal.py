@@ -53,63 +53,63 @@ def parse_role_reveal(frame: np.ndarray) -> RoleRevealPerception:
     # Find "YOU ARE" anchor to establish base y position.
     # The TS renderer places it at varying y depending on content.
     base_y = _find_anchor(frame)
-    if base_y is None:
-        return result
+    if base_y is not None:
+        # Role name: baseY + 10, in team color (border_color)
+        role_text = _scan_centered(frame, base_y + 10, border_color)
+        if role_text:
+            result.role = _match_role_name(role_text)
 
-    # Role name: baseY + 10, in team color (border_color)
-    role_text = _scan_centered(frame, base_y + 10, border_color)
-    if role_text:
-        result.role = _match_role_name(role_text)
+        # Room name: baseY + 32..42, in color 2
+        for offset in [38, 36, 34, 40, 42, 32]:
+            room_text = _scan_centered(frame, base_y + offset, COLOR_HUD_NORMAL)
+            if room_text:
+                matched = _match_room_name(room_text)
+                if matched:
+                    result.room = matched
+                    break
 
-    # Room name: baseY + 32..42, in color 2
-    for offset in [38, 36, 34, 40, 42, 32]:
-        room_text = _scan_centered(frame, base_y + offset, COLOR_HUD_NORMAL)
-        if room_text:
-            matched = _match_room_name(room_text)
-            if matched:
-                result.room = matched
-                break
-
-    # Info line: baseY + 44..52, in color 1: "{n}P  {w}x{h}"
-    # The player count and room size may be separated by a gap wider than
-    # the OCR's space detection. Scan for each part independently.
-    for offset in [48, 46, 44, 50, 52]:
-        y = base_y + offset
-        if y < 0 or y + 5 > 128:
-            continue
-        for x in range(0, SCREEN_WIDTH - 10):
-            text = read_text_at(frame, x, y, COLOR_HUD_DIM, 20)
-            if not text:
+        # Info line: baseY + 44..52, in color 1: "{n}P  {w}x{h}"
+        # The player count and room size may be separated by a gap wider than
+        # the OCR's space detection. Scan for each part independently.
+        for offset in [48, 46, 44, 50, 52]:
+            y = base_y + offset
+            if y < 0 or y + 5 > 128:
                 continue
-            # Try full pattern first (works if gap is narrow)
-            m = re.match(r"(\d+)P\s+(\d+)[Xx](\d+)", text)
-            if m:
-                result.player_count = int(m.group(1))
-                result.room_size = int(m.group(2))
+            for x in range(0, SCREEN_WIDTH - 10):
+                text = read_text_at(frame, x, y, COLOR_HUD_DIM, 20)
+                if not text:
+                    continue
+                # Try full pattern first (works if gap is narrow)
+                m = re.match(r"(\d+)P\s+(\d+)[Xx](\d+)", text)
+                if m:
+                    result.player_count = int(m.group(1))
+                    result.room_size = int(m.group(2))
+                    break
+                # Try just player count: "{n}P"
+                m = re.match(r"(\d+)P$", text.strip())
+                if m and result.player_count is None:
+                    result.player_count = int(m.group(1))
+                    continue
+                # Try just room size: "{w}X{h}" or "{w}x{h}"
+                m = re.match(r"(\d+)[Xx](\d+)", text.strip())
+                if m and result.room_size is None:
+                    result.room_size = int(m.group(1))
+                    break
+            if result.player_count is not None or result.room_size is not None:
                 break
-            # Try just player count: "{n}P"
-            m = re.match(r"(\d+)P$", text.strip())
-            if m and result.player_count is None:
-                result.player_count = int(m.group(1))
-                continue
-            # Try just room size: "{w}X{h}" or "{w}x{h}"
-            m = re.match(r"(\d+)[Xx](\d+)", text.strip())
-            if m and result.room_size is None:
-                result.room_size = int(m.group(1))
-                break
-        if result.player_count is not None or result.room_size is not None:
-            break
 
-    # Countdown: scan lower region for "STARTING IN {n}" in color 2
-    for y in range(base_y + 80, base_y + 100):
-        if y >= 128:
-            break
-        countdown_text = _scan_centered(frame, y, COLOR_HUD_NORMAL)
-        if countdown_text and "IN" in countdown_text:
-            m = re.search(r"(\d+)$", countdown_text.strip())
-            if m:
-                result.countdown_secs = int(m.group(1))
-            break
+        # Countdown: scan lower region for "STARTING IN {n}" in color 2
+        for y in range(base_y + 80, base_y + 100):
+            if y >= 128:
+                break
+            countdown_text = _scan_centered(frame, y, COLOR_HUD_NORMAL)
+            if countdown_text and "IN" in countdown_text:
+                m = re.search(r"(\d+)$", countdown_text.strip())
+                if m:
+                    result.countdown_secs = int(m.group(1))
+                break
+
+    result.panel_index = _classify_panel(frame, base_y)
 
     return result
 
@@ -141,6 +141,48 @@ def _scan_centered(frame: np.ndarray, y: int, color: int) -> str | None:
         if text and len(text.strip()) >= 3:
             return text.strip()
     return None
+
+
+def _classify_panel(frame: np.ndarray, role_card_anchor_y: int | None) -> int | None:
+    """Classify RoleReveal intro sub-panel from distinctive OCR markers."""
+    if role_card_anchor_y is not None:
+        return 1
+    if _has_round_schedule_header(frame):
+        return 3
+    if _has_role_summary_header(frame):
+        return 2
+    return None
+
+
+def _has_round_schedule_header(frame: np.ndarray) -> bool:
+    """Detect Panel 3 by its title or table header."""
+    for y in [8, 6, 10, 12]:
+        text = _scan_centered(frame, y, COLOR_HUD_NORMAL)
+        if _contains_all(text, ("ROUND", "SCHEDULE")):
+            return True
+
+    for y in [20, 18, 22, 24]:
+        for x in range(4, 18):
+            text = read_text_at(frame, x, y, COLOR_HUD_DIM, 24)
+            if _contains_all(text, ("ROUND", "TIME", "HOSTAGE")):
+                return True
+    return False
+
+
+def _has_role_summary_header(frame: np.ndarray) -> bool:
+    """Detect Panel 2 by its MATCH ROLES header."""
+    for y in [8, 6, 10, 12]:
+        text = _scan_centered(frame, y, COLOR_HUD_NORMAL)
+        if _contains_all(text, ("MATCH", "ROLES")):
+            return True
+    return False
+
+
+def _contains_all(text: str | None, needles: tuple[str, ...]) -> bool:
+    if not text:
+        return False
+    norm = text.upper()
+    return all(needle in norm for needle in needles)
 
 
 def _match_role_name(text: str) -> str | None:

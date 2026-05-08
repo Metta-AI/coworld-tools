@@ -162,19 +162,6 @@ not yet extracted. Each is marked in `orpheus/belief_update.py`:
   visual content.
 - **Ref**: Eurydice DESIGN.md audit, finding 3.1.
 
-### ModeDirective params field: allow default for parameterless modes
-
-- **Status**: API inconsistency
-- **Impact**: The `ModeDirective` dataclass requires a `params: ModeParams`
-  field. Modes without parameters must use `ModeParams()` (bare base class).
-  But agents naturally want to write `ModeDirective(mode="idle")` without
-  explicit params. This will fail the framework's isinstance validation at
-  consumption time.
-- **Fix**: Make `params` optional with default `ModeParams()` in the
-  dataclass definition: `params: ModeParams = field(default_factory=ModeParams)`.
-  Requires updating `orpheus/mode.py` and the DESIGN.md spec.
-- **Ref**: Eurydice DESIGN.md audit, finding 3.6.
-
 ### Stage 4: task `select_action` approximations
 
 Four tasks ship with simplified `select_action` implementations that

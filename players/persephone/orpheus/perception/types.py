@@ -300,6 +300,7 @@ class RoleRevealPerception:
     player_count: int | None = None
     room_size: int | None = None  # Room is square: NxN
     countdown_secs: int | None = None
+    panel_index: int | None = None  # 1, 2, or 3; None if ambiguous
 
 
 @dataclass

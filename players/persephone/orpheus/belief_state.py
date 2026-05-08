@@ -109,6 +109,10 @@ class BeliefState:
     )
     pending_entry: int | None = None
     menu_state: object | None = None
+    # Structured whisper exchange state (derived from system messages)
+    active_color_offers: list[int] = field(default_factory=list)
+    active_role_offers: list[int] = field(default_factory=list)
+    last_exchange_event: dict | None = None
 
     # Hostage state
     hostage_selections: object | None = None
@@ -135,10 +139,18 @@ class BeliefState:
     extra: dict = field(default_factory=dict)
 
     def reset(self) -> None:
-        """Reset all fields to defaults. Used by Lobby on game restart."""
+        """Reset all fields to defaults. Used by Lobby on game restart.
+
+        Ad-hoc attributes outside the dataclass schema are cleared. Agents
+        should store flexible per-game data in ``extra`` instead.
+        """
         fresh = BeliefState()
+        field_names = {f.name for f in fields(self)}
         for f in fields(self):
             setattr(self, f.name, getattr(fresh, f.name))
+        for name in list(self.__dict__):
+            if name not in field_names:
+                delattr(self, name)
 
 
 __all__ = [

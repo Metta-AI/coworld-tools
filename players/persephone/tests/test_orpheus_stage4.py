@@ -9,7 +9,7 @@ import pytest
 
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState, PlayerInfo
-from orpheus.occupancy_grid import OccupancyGrid
+from orpheus.occupancy_grid import CellState, OccupancyGrid
 from orpheus.perception.types import ChatroomBarState, View
 from orpheus.task import ActCommand
 from orpheus.tasks import (
@@ -45,8 +45,10 @@ from orpheus.types import (
     BUTTON_A,
     BUTTON_B,
     BUTTON_DOWN,
+    BUTTON_LEFT,
     BUTTON_RIGHT,
     BUTTON_SELECT,
+    BUTTON_UP,
 )
 
 
@@ -70,6 +72,7 @@ def _menu_state(
     category: str | None = "ROLE",
     item: str | None = "R.OFFER",
     target_index: int | None = None,
+    target_cursor_index: int | None = None,
 ):
     return SimpleNamespace(
         bar=bar,
@@ -77,6 +80,7 @@ def _menu_state(
         item=item,
         enabled=True,
         target_index=target_index,
+        target_cursor_index=target_cursor_index,
         target_colors=[3, 4, 5],
     )
 
@@ -133,6 +137,24 @@ def test_menu_navigator_advances_wrong_category() -> None:
     assert command == ActCommand(buttons=BUTTON_RIGHT)
 
 
+def test_menu_navigator_uses_left_for_shorter_category_path() -> None:
+    belief = BeliefState(menu_state=_menu_state(category="COLOR", item="C.OFFER"))
+    memory = ActionMemory()
+
+    command = MenuNavigator((("category", "EXIT"),)).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_LEFT)
+
+
+def test_menu_navigator_falls_back_right_for_unknown_category() -> None:
+    belief = BeliefState(menu_state=_menu_state(category="UNKNOWN", item="C.OFFER"))
+    memory = ActionMemory()
+
+    command = MenuNavigator((("category", "ROLE"),)).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_RIGHT)
+
+
 def test_menu_navigator_advances_wrong_item_after_category_match() -> None:
     belief = BeliefState(menu_state=_menu_state(category="ROLE", item="ROLE"))
     memory = ActionMemory()
@@ -143,6 +165,27 @@ def test_menu_navigator_advances_wrong_item_after_category_match() -> None:
 
     assert command == ActCommand(buttons=BUTTON_DOWN)
     assert memory.menu_step == 1
+
+
+def test_menu_navigator_uses_up_for_shorter_item_path() -> None:
+    belief = BeliefState(menu_state=_menu_state(category="ROLE", item="ROLE"))
+    memory = ActionMemory()
+
+    command = MenuNavigator(
+        (("category", "ROLE"), ("item", "R.ACCPT"))
+    ).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_UP)
+    assert memory.menu_step == 1
+
+
+def test_menu_navigator_falls_back_down_for_unknown_item_cycle() -> None:
+    belief = BeliefState(menu_state=_menu_state(category="UNKNOWN", item="ROLE"))
+    memory = ActionMemory()
+
+    command = MenuNavigator((("item", "R.ACCPT"),)).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_DOWN)
 
 
 def test_menu_navigator_confirms_when_category_and_item_match() -> None:
@@ -172,6 +215,22 @@ def test_menu_navigator_handles_target_picker_navigation() -> None:
     command = MenuNavigator((("target", 2),)).next_command(belief, memory)
 
     assert command == ActCommand(buttons=BUTTON_RIGHT)
+    assert memory.menu_target_index == 1
+
+
+def test_menu_navigator_prefers_perceived_target_cursor_index() -> None:
+    belief = BeliefState(
+        menu_state=_menu_state(
+            bar=ChatroomBarState.TARGET_PICKER,
+            target_cursor_index=2,
+        )
+    )
+    memory = ActionMemory()
+    memory.menu_target_index = 0
+
+    command = MenuNavigator((("target", 1),)).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_LEFT)
     assert memory.menu_target_index == 1
 
 
@@ -376,6 +435,35 @@ def test_wander_task_picks_waypoint_and_moves() -> None:
     assert command.buttons != 0
 
 
+def test_wander_task_prefers_unknown_cells_when_grid_has_free_data() -> None:
+    belief = _belief(position=(10, 10), room_size=(60, 60))
+    grid = belief.occupancy_grid
+    assert grid is not None
+    grid.mark_free_region(4, 4, 4, 4, viewport_confirmed=True)
+    memory = ActionMemory()
+
+    WanderTask().select_action(belief, memory)
+
+    gx, gy = grid.world_to_grid(*memory.wander_waypoint)
+    assert grid.get(gx, gy) == CellState.UNKNOWN
+
+
+def test_wander_task_falls_back_to_free_cells_when_unknown_is_unreachable() -> None:
+    belief = _belief(position=(12, 12), room_size=(40, 40))
+    grid = belief.occupancy_grid
+    assert grid is not None
+    grid.cells[:, :] = CellState.WALL
+    grid.cells[4:12, 4:12] = CellState.FREE
+    grid.cells[15, 15] = CellState.UNKNOWN
+    memory = ActionMemory()
+
+    WanderTask().select_action(belief, memory)
+
+    waypoint_cell = grid.world_to_grid(*memory.wander_waypoint)
+    assert waypoint_cell != grid.world_to_grid(*belief.position)
+    assert grid.get(*waypoint_cell) == CellState.FREE
+
+
 def test_wander_task_noops_without_room_size() -> None:
     belief = BeliefState(position=(10, 10), view=View.PLAYING)
 
@@ -398,7 +486,6 @@ def test_wander_task_noops_without_room_size() -> None:
         (CreateWhisperTask(), BUTTON_A),
         (CancelEntryTask(), BUTTON_B),
         (ExitWhisperTask(), BUTTON_SELECT),
-        (VoteUsurpTask(candidate=2), BUTTON_A),
     ],
 )
 def test_single_button_tasks_emit_rising_edge(task, button) -> None:
@@ -406,6 +493,46 @@ def test_single_button_tasks_emit_rising_edge(task, button) -> None:
 
     assert task.select_action(BeliefState(), memory) == ActCommand(buttons=button)
     assert task.select_action(BeliefState(), memory) == ActCommand()
+
+
+def _next_nonzero_button(task, belief, memory) -> int:
+    for _ in range(16):
+        command = task.select_action(belief, memory)
+        if command.buttons:
+            return command.buttons
+    raise AssertionError("task did not emit a nonzero button")
+
+
+def test_vote_usurp_navigates_to_candidate_before_confirming() -> None:
+    task = VoteUsurpTask(candidate=2)
+    belief = BeliefState(player_count=10)
+    memory = ActionMemory()
+
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_RIGHT
+    assert memory.usurp_cursor_index == 1
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_RIGHT
+    assert memory.usurp_cursor_index == 2
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_A
+
+
+def test_vote_usurp_uses_shortest_wrap_direction() -> None:
+    task = VoteUsurpTask(candidate=9)
+    belief = BeliefState(player_count=10)
+    memory = ActionMemory()
+
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_LEFT
+    assert memory.usurp_cursor_index == 9
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_A
+
+
+def test_vote_usurp_prefers_perceived_cursor_index() -> None:
+    task = VoteUsurpTask(candidate=3)
+    belief = BeliefState(player_count=10, extra={"usurp_cursor_index": 4})
+    memory = ActionMemory()
+    memory.usurp_cursor_index = 0
+
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_LEFT
+    assert memory.usurp_cursor_index == 3
 
 
 def test_request_entry_presses_a_when_close_to_recent_whisper() -> None:
@@ -513,12 +640,23 @@ def test_accept_role_exchange_confirms_target_after_item_confirm() -> None:
 def test_select_hostages_tracks_remaining_and_toggles() -> None:
     memory = ActionMemory()
     task = SelectHostagesTask((2, 4))
+    belief = BeliefState(player_count=10)
 
-    assert task.select_action(BeliefState(), memory) == ActCommand(buttons=BUTTON_A)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_RIGHT
+    assert memory.hostage_cursor == (0, 1)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_RIGHT
+    assert memory.hostage_cursor == (0, 2)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_A
     assert memory.hostage_remaining == [4]
-    assert task.select_action(BeliefState(), memory) == ActCommand()
-    assert task.select_action(BeliefState(), memory) == ActCommand(buttons=BUTTON_A)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_DOWN
+    assert memory.hostage_cursor == (1, 2)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_LEFT
+    assert memory.hostage_cursor == (1, 1)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_LEFT
+    assert memory.hostage_cursor == (1, 0)
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_A
     assert memory.hostage_remaining == []
+    assert _next_nonzero_button(task, belief, memory) == BUTTON_B
 
 
 def test_send_message_emits_chat_text_and_sets_global_cooldown() -> None:

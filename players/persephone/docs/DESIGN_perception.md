@@ -513,6 +513,7 @@ it's a full reveal. If color 1 and reads "???", it's color-only.
 ```python
 @dataclass
 class RoleRevealPerception:
+    panel_index: int | None  # 1=role card, 2=role summary, 3=round schedule
     role: str | None          # e.g., "Hades", "Persephone"
     team: str | None          # "Shades" or "Nymphs"
     team_color: int | None    # 3 or 14 (from border color)
@@ -526,6 +527,11 @@ class RoleRevealPerception:
 
 **Border color**: Read pixels[0, 0]. This is the team color (3 or 14).
 Confirm with pixels[2, 2] matching.
+
+**Panel index**: Panels 1-3 all use the `ROLE_REVEAL` view. Detect panel
+1 by centered `YOU ARE` text, panel 3 by `ROUND SCHEDULE` or
+`ROUND  TIME  HOSTAGE` headers, and panel 2 by the `MATCH ROLES` summary
+header.
 
 **Text scanning**: The text is centered, so we can't read from a fixed
 x position. Scan horizontally at each expected y offset for text in the

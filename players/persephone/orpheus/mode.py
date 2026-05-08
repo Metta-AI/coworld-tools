@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from orpheus.task import Task
 
@@ -33,7 +33,7 @@ class ModeDirective:
     """
 
     mode: str
-    params: ModeParams
+    params: ModeParams = field(default_factory=ModeParams)
 
 
 # ---------------------------------------------------------------------------

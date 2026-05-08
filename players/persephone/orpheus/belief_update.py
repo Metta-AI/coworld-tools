@@ -163,6 +163,9 @@ def _apply_universal_updates(
         belief_state.pending_offers = {"role": False, "color": False}
         belief_state.pending_entry = None
         belief_state.menu_state = None
+        belief_state.active_color_offers = []
+        belief_state.active_role_offers = []
+        belief_state.last_exchange_event = None
 
     expired: list[str] = []
     for key, value in list(belief_state.cooldowns.items()):
@@ -213,25 +216,29 @@ def _apply_role_reveal(
     if role_reveal is None:
         return
 
-    if belief_state.my_role is None and role_reveal.role is not None:
-        belief_state.my_role = role_reveal.role.lower()
+    is_role_card = role_reveal.panel_index in (None, 1)
+    if is_role_card:
+        if belief_state.my_role is None and role_reveal.role is not None:
+            belief_state.my_role = role_reveal.role.lower()
 
-    if belief_state.my_team is None and role_reveal.team is not None:
-        belief_state.my_team = role_reveal.team.lower()
+        if belief_state.my_team is None and role_reveal.team is not None:
+            belief_state.my_team = role_reveal.team.lower()
 
-    if belief_state.my_room is None:
-        belief_state.my_room = room_string_to_enum(role_reveal.room)
+        if belief_state.my_room is None:
+            belief_state.my_room = room_string_to_enum(role_reveal.room)
 
-    if (
-        belief_state.room_size is None
-        and role_reveal.room_size is not None
-        and role_reveal.room_size > 0
-    ):
-        belief_state.room_size = (
-            role_reveal.room_size,
-            role_reveal.room_size,
-        )
+        if (
+            belief_state.room_size is None
+            and role_reveal.room_size is not None
+            and role_reveal.room_size > 0
+        ):
+            belief_state.room_size = (
+                role_reveal.room_size,
+                role_reveal.room_size,
+            )
 
+    if role_reveal.panel_index == 3:
+        pass  # Schedule panel detected; round parsing remains a follow-up.
     # TODO Stage 2 perception gap: round_schedule not yet extracted by
     # perception.RoleRevealPerception.
     if (
@@ -427,16 +434,14 @@ def _apply_whisper(
             belief_state.whisper_occupants.append(player_index)
 
     for message in chatroom.messages:
-        _append_chat_message_if_new(
+        appended = _append_chat_message_if_new(
             belief_state,
             message,
             channel="whisper",
             occupants=list(belief_state.whisper_occupants),
         )
-        if message.is_system and "shared roles" in message.text.lower():
-            # TODO Stage 2 perception gap: full shared-roles partner detection
-            # requires sprite-pair perception that ChatMessage does not expose.
-            pass
+        if appended and message.is_system:
+            _apply_whisper_system_message(belief_state, chatroom, message)
 
     belief_state.pending_offers = {
         "role": chatroom.pending_role_offer,
@@ -467,7 +472,7 @@ def _append_chat_message_if_new(
     message: ChatMessage,
     channel: str,
     occupants: list[int] | None,
-) -> None:
+) -> bool:
     sender_index = _decode_message_sender(belief_state, message)
     for record in belief_state.chat_history[-20:]:
         if (
@@ -475,7 +480,7 @@ def _append_chat_message_if_new(
             and record.sender_index == sender_index
             and record.text == message.text
         ):
-            return
+            return False
 
     belief_state.chat_history.append(
         ChatMessageRecord(
@@ -486,6 +491,190 @@ def _append_chat_message_if_new(
             occupants=occupants,
         )
     )
+    return True
+
+
+def _apply_whisper_system_message(
+    belief_state: BeliefState,
+    chatroom: ChatroomPerception,
+    message: ChatMessage,
+) -> None:
+    text = message.text.casefold()
+
+    if "shared roles" in text:
+        participants = _completion_participants(belief_state, message)
+        _set_exchange_event(belief_state, "shared_roles", participants)
+        _clear_completed_offers(belief_state.active_role_offers, participants)
+        if belief_state.my_index in participants:
+            for participant in participants:
+                if participant != belief_state.my_index:
+                    belief_state.my_exchange_partner = participant
+                    break
+        return
+
+    if "swapped colors" in text:
+        participants = _completion_participants(belief_state, message)
+        _set_exchange_event(belief_state, "swapped_colors", participants)
+        _clear_completed_offers(belief_state.active_color_offers, participants)
+        return
+
+    if "withdrew" in text:
+        sender_index = _decode_system_message_sender(belief_state, message)
+        participants = [sender_index] if sender_index is not None else []
+        _set_exchange_event(belief_state, "withdrew", participants)
+        _clear_withdrawn_offers(belief_state, text, participants)
+        return
+
+    if "offered lead" in text or "offered leadership" in text:
+        sender_index = _decode_system_message_sender(belief_state, message)
+        participants = [sender_index] if sender_index is not None else []
+        _set_exchange_event(belief_state, "offered_lead", participants)
+        return
+
+    if "offered color" in text or "color offered" in text:
+        sender_index = _decode_system_message_sender(
+            belief_state,
+            message,
+            allow_single_other=chatroom.pending_color_offer,
+        )
+        _append_unique_offer(belief_state.active_color_offers, sender_index)
+        return
+
+    if "offered role" in text or "role offered" in text:
+        sender_index = _decode_system_message_sender(
+            belief_state,
+            message,
+            allow_single_other=chatroom.pending_role_offer,
+        )
+        _append_unique_offer(belief_state.active_role_offers, sender_index)
+
+
+def _append_unique_offer(offers: list[int], player_index: int | None) -> None:
+    if player_index is not None and player_index not in offers:
+        offers.append(player_index)
+
+
+def _set_exchange_event(
+    belief_state: BeliefState,
+    event_type: str,
+    participants: list[int],
+) -> None:
+    belief_state.last_exchange_event = {
+        "type": event_type,
+        "tick": belief_state.tick,
+        "participants": list(participants),
+    }
+
+
+def _clear_completed_offers(offers: list[int], participants: list[int]) -> None:
+    if participants:
+        offers[:] = [offerer for offerer in offers if offerer not in participants]
+    else:
+        offers.clear()
+
+
+def _clear_withdrawn_offers(
+    belief_state: BeliefState,
+    text: str,
+    participants: list[int],
+) -> None:
+    if "color" in text:
+        _clear_offer_by_participants(belief_state.active_color_offers, participants)
+    elif "role" in text:
+        _clear_offer_by_participants(belief_state.active_role_offers, participants)
+    else:
+        _clear_offer_by_participants(belief_state.active_color_offers, participants)
+        _clear_offer_by_participants(belief_state.active_role_offers, participants)
+
+
+def _clear_offer_by_participants(
+    offers: list[int],
+    participants: list[int],
+) -> None:
+    if participants:
+        offers[:] = [offerer for offerer in offers if offerer not in participants]
+    elif len(offers) == 1:
+        offers.clear()
+
+
+def _completion_participants(
+    belief_state: BeliefState,
+    message: ChatMessage,
+) -> list[int]:
+    refs = _decode_system_message_refs(belief_state, message.text)
+    if refs:
+        return refs
+
+    sender_index = _decode_message_sender(belief_state, message)
+    occupants = list(belief_state.whisper_occupants)
+    if sender_index is not None:
+        participants = [sender_index]
+        others = [occupant for occupant in occupants if occupant != sender_index]
+        if len(others) == 1:
+            participants.append(others[0])
+        elif (
+            belief_state.my_index is not None
+            and belief_state.my_index != sender_index
+            and belief_state.my_index in occupants
+        ):
+            participants.append(belief_state.my_index)
+        return participants
+
+    if len(occupants) == 2:
+        return occupants
+    return []
+
+
+def _decode_system_message_sender(
+    belief_state: BeliefState,
+    message: ChatMessage,
+    *,
+    allow_single_other: bool = False,
+) -> int | None:
+    sender_index = _decode_message_sender(belief_state, message)
+    if sender_index is not None:
+        return sender_index
+
+    refs = _decode_system_message_refs(belief_state, message.text)
+    if refs:
+        return refs[0]
+
+    if allow_single_other:
+        return _single_other_occupant(belief_state)
+    return None
+
+
+def _decode_system_message_refs(
+    belief_state: BeliefState,
+    text: str,
+) -> list[int]:
+    refs: list[int] = []
+    i = 0
+    while i + 1 < len(text):
+        if ord(text[i]) != 1:
+            i += 1
+            continue
+
+        player_index = ord(text[i + 1])
+        if (
+            player_index not in refs
+            and (belief_state.player_count is None or player_index < belief_state.player_count)
+        ):
+            refs.append(player_index)
+        i += 2
+
+    return refs
+
+
+def _single_other_occupant(belief_state: BeliefState) -> int | None:
+    occupants = list(belief_state.whisper_occupants)
+    if belief_state.my_index is None:
+        return occupants[0] if len(occupants) == 1 else None
+
+    others = [occupant for occupant in occupants if occupant != belief_state.my_index]
+    if len(others) == 1:
+        return others[0]
+    return None
 
 
 def _decode_message_sender(

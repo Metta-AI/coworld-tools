@@ -9,13 +9,6 @@ small step grammar:
 - ``("item", "R.OFFER")``
 - ``("confirm",)``
 - ``("target", player_index)``
-
-# TODO Stage 4 follow-up: validate category/item cycling direction against
-live captures and replace the simple always-right/always-down approximation
-with shortest-path navigation.
-# TODO Stage 4 follow-up: target picker perception currently exposes target
-colors but not cursor index, so target navigation falls back to ActionMemory's
-approximate cursor.
 """
 
 from __future__ import annotations
@@ -32,9 +25,30 @@ from orpheus.types import (
     BUTTON_DOWN,
     BUTTON_LEFT,
     BUTTON_RIGHT,
+    BUTTON_UP,
 )
 
 MenuStep = tuple[Any, ...]
+
+CATEGORY_ORDER = ["EXIT", "COLOR", "ROLE", "LEADER"]
+
+ITEM_ORDER_BY_CATEGORY: dict[str, tuple[tuple[str, ...], ...]] = {
+    "EXIT": (("EXIT",),),
+    "COLOR": (
+        ("C.OFFER", "C.UNOFFR", "OFFER", "UNOFFR"),
+        ("C.ACCPT", "ACCPT"),
+    ),
+    "ROLE": (
+        ("ROLE",),
+        ("R.OFFER", "R.UNOFFR", "OFFER", "UNOFFR"),
+        ("R.ACCPT", "ACCPT"),
+    ),
+    "LEADER": (
+        ("PASS",),
+        ("TAKE",),
+        ("GRANT",),
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -101,7 +115,14 @@ class MenuNavigator:
         if _matches(current, expected):
             return None
 
-        return _button_command(action_memory, BUTTON_RIGHT)
+        button = _shortest_cycle_button(
+            current,
+            expected,
+            CATEGORY_ORDER,
+            forward_button=BUTTON_RIGHT,
+            backward_button=BUTTON_LEFT,
+        )
+        return _button_command(action_memory, button or BUTTON_RIGHT)
 
     def _handle_item(
         self,
@@ -117,7 +138,20 @@ class MenuNavigator:
         if _matches(current, expected):
             return None
 
-        return _button_command(action_memory, BUTTON_DOWN)
+        category = _state_value(state, "category", "menu_category")
+        item_order = _item_order_for_category(category)
+        button = (
+            _shortest_cycle_button(
+                current,
+                expected,
+                item_order,
+                forward_button=BUTTON_DOWN,
+                backward_button=BUTTON_UP,
+            )
+            if item_order is not None
+            else None
+        )
+        return _button_command(action_memory, button or BUTTON_DOWN)
 
     def _handle_target(
         self,
@@ -225,7 +259,13 @@ def _normalize_label(value) -> str:
 
 
 def _current_target_index(state, action_memory) -> int:
-    for name in ("target_index", "selected_target_index", "cursor_index"):
+    for name in (
+        "target_cursor_index",
+        "target_index",
+        "selected_target_index",
+        "selected_index",
+        "cursor_index",
+    ):
         value = _state_value(state, name)
         if value is not None:
             action_memory.menu_target_index = int(value)
@@ -236,4 +276,42 @@ def _current_target_index(state, action_memory) -> int:
     return int(action_memory.menu_target_index)
 
 
-__all__ = ["MenuNavigator", "MenuStep"]
+def _item_order_for_category(category) -> tuple[tuple[str, ...], ...] | None:
+    normalized = _normalize_label(category)
+    return ITEM_ORDER_BY_CATEGORY.get(normalized)
+
+
+def _shortest_cycle_button(
+    current,
+    expected,
+    order: Sequence[str | Sequence[str]],
+    *,
+    forward_button: int,
+    backward_button: int,
+) -> int | None:
+    current_index = _cycle_index(current, order)
+    expected_index = _cycle_index(expected, order)
+    if current_index is None or expected_index is None or current_index == expected_index:
+        return None
+
+    count = len(order)
+    forward_distance = (expected_index - current_index) % count
+    backward_distance = (current_index - expected_index) % count
+    if forward_distance <= backward_distance:
+        return forward_button
+    return backward_button
+
+
+def _cycle_index(value, order: Sequence[str | Sequence[str]]) -> int | None:
+    for index, entry in enumerate(order):
+        labels = (entry,) if isinstance(entry, str) else entry
+        if any(_label_matches(value, label) for label in labels):
+            return index
+    return None
+
+
+def _label_matches(value, expected: str) -> bool:
+    return _matches(value, expected) or _matches(expected, value)
+
+
+__all__ = ["CATEGORY_ORDER", "MenuNavigator", "MenuStep"]

@@ -247,6 +247,13 @@ def test_whisper_exit_clears_whisper_only_fields(pipeline_factory) -> None:
     bs.in_whisper = True
     bs.whisper_occupants = [1, 2, 3]
     bs.pending_offers = {"role": True, "color": True}
+    bs.active_color_offers = [1]
+    bs.active_role_offers = [2]
+    bs.last_exchange_event = {
+        "type": "offered_lead",
+        "tick": 10,
+        "participants": [1],
+    }
     bs.pending_entry = 5
     bs.menu_state = "something"
     frame = np.zeros((128, 128), dtype=np.uint8)
@@ -260,6 +267,9 @@ def test_whisper_exit_clears_whisper_only_fields(pipeline_factory) -> None:
     assert bs.in_whisper is False
     assert bs.whisper_occupants == []
     assert bs.pending_offers == {"role": False, "color": False}
+    assert bs.active_color_offers == []
+    assert bs.active_role_offers == []
+    assert bs.last_exchange_event is None
     assert bs.pending_entry is None
     assert bs.menu_state is None
 

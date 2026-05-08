@@ -32,11 +32,13 @@ class OuterLoop:
         belief_buffer: BeliefBuffer,
         mode_buffer: ModeBuffer,
         logger: Callable[[str], None] | None = None,
+        tick_provider: Callable[[], int] | None = None,
     ) -> None:
         self.meta_decide = meta_decide
         self.belief_buffer = belief_buffer
         self.mode_buffer = mode_buffer
         self._logger = logger
+        self._tick_provider = tick_provider
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._state_lock = threading.Lock()
@@ -115,13 +117,17 @@ class OuterLoop:
                     level=LogLevel.DECISIONS,
                 )
                 self.mode_buffer.push(directive, inferences)
+                staleness = None
+                if self._tick_provider is not None:
+                    try:
+                        staleness = self._tick_provider() - belief_state.tick
+                    except Exception:
+                        pass
                 self._event(
                     "outer_loop_cycle",
                     {
                         "consumed_tick": belief_state.tick,
-                        # The outer loop has no direct access to the current
-                        # live pipeline tick, only the consumed snapshot tick.
-                        "staleness": None,
+                        "staleness": staleness,
                         "directive": repr(directive)
                         if directive is not None
                         else None,

@@ -230,6 +230,42 @@ def _render_roster_reveal_frame() -> np.ndarray:
     return frame
 
 
+def _render_role_card_frame() -> np.ndarray:
+    """Render a synthetic RoleReveal panel 1 frame."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_double_border(frame, 14)
+    _draw_centered_text(frame, "YOU ARE", 18, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "NYMPH", 28, 14)
+    _draw_centered_text(frame, "NYMPHS TEAM", 38, 14)
+    _draw_centered_text(frame, "ASSIGNED TO", 48, COLOR_HUD_DIM)
+    _draw_centered_text(frame, "UNDERWORLD", 56, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "10P  120x120", 66, COLOR_HUD_DIM)
+    _draw_centered_text(frame, "STARTING IN 7", 106, COLOR_HUD_NORMAL)
+    return frame
+
+
+def _render_role_summary_frame() -> np.ndarray:
+    """Render a synthetic RoleReveal panel 2 frame."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_double_border(frame, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "MATCH ROLES", 8, COLOR_HUD_NORMAL)
+    _draw_text(frame, "HADES PERSEPHONE", 6, 20, COLOR_HUD_DIM)
+    _draw_text(frame, "CERBERUS DEMETER", 6, 28, COLOR_HUD_DIM)
+    _draw_centered_text(frame, "STARTING IN 7", 118, COLOR_HUD_NORMAL)
+    return frame
+
+
+def _render_round_schedule_frame() -> np.ndarray:
+    """Render a synthetic RoleReveal panel 3 frame."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_double_border(frame, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "ROUND SCHEDULE", 8, COLOR_HUD_NORMAL)
+    _draw_text(frame, "ROUND  TIME  HOSTAGE", 10, 20, COLOR_HUD_DIM)
+    _draw_text(frame, "  1      3:00     1", 10, 28, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "STARTING IN 7", 60, COLOR_HUD_NORMAL)
+    return frame
+
+
 def _render_hostage_grid_frame() -> np.ndarray:
     """Render a synthetic leader hostage-select frame with a 3-column grid."""
     frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
@@ -451,3 +487,38 @@ class TestRosterReveal:
             (14, PlayerShape.SQUARE, Room.MORTAL_REALM, "B.SQR"),
             (10, PlayerShape.TRIANGLE, Room.MORTAL_REALM, "G.TRI"),
         ]
+
+
+class TestRoleReveal:
+    def test_parse_frame_classifies_role_card_panel(self):
+        """Panel 1 is detected from the YOU ARE role-card anchor."""
+        result = parse_frame(_render_role_card_frame())
+
+        assert result.view == View.ROLE_REVEAL
+        assert result.role_reveal is not None
+        assert result.role_reveal.panel_index == 1
+        assert result.role_reveal.role == "Nymph"
+        assert result.role_reveal.team == "Nymphs"
+        assert result.role_reveal.room == "Underworld"
+        assert result.role_reveal.player_count == 10
+        assert result.role_reveal.room_size == 120
+
+    def test_parse_frame_classifies_role_summary_panel(self):
+        """Panel 2 is detected from the MATCH ROLES summary header."""
+        result = parse_frame(_render_role_summary_frame())
+
+        assert result.view == View.ROLE_REVEAL
+        assert result.role_reveal is not None
+        assert result.role_reveal.panel_index == 2
+        assert result.role_reveal.role is None
+        assert result.role_reveal.room is None
+
+    def test_parse_frame_classifies_round_schedule_panel(self):
+        """Panel 3 is detected from the ROUND schedule headers."""
+        result = parse_frame(_render_round_schedule_frame())
+
+        assert result.view == View.ROLE_REVEAL
+        assert result.role_reveal is not None
+        assert result.role_reveal.panel_index == 3
+        assert result.role_reveal.role is None
+        assert result.role_reveal.room is None
