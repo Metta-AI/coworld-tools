@@ -8,6 +8,7 @@
 ##   - On-screen tasks and zero-pip frames are never ray-excluded.
 ##   - Checkout latching is gated by the per-frame ray test off-screen.
 ##   - On-screen checkout still latches when a matching dot is present.
+##   - Stale checkout latches decay after persistent radar-ray exclusion.
 ##
 ## Run::
 ##
@@ -249,6 +250,104 @@ proc testOnScreenCheckoutStillLatches() =
            "on-screen checkout: icon remains hard signal")
 
 # ---------------------------------------------------------------------------
+# 4. Checkout decay
+# ---------------------------------------------------------------------------
+
+proc testCheckoutDecaysAfterPersistentExclusion() =
+  let camX = 0
+  let camY = 0
+  let taskIdx = findOffScreenTask(camX, camY)
+  expect(taskIdx >= 0, "checkout decay: found off-screen task")
+  if taskIdx < 0:
+    return
+
+  var belief = setupBelief(camX, camY)
+  let station = referenceData.map.tasks[taskIdx]
+  belief.tasks.slots[taskIdx].checkout = true
+  belief.tasks.slots[taskIdx].state = TaskCheckout
+  belief.percep.radarDots = @[missDotForRay(station, belief)]
+
+  for tick in 1 .. CheckoutDecayFrames:
+    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
+
+  expect(belief.tasks.slots[taskIdx].radarRayExcluded,
+         "checkout decay: still ray-excluded on threshold frame")
+  expectEq(belief.tasks.slots[taskIdx].radarExcludedStreak,
+           CheckoutDecayFrames,
+           "checkout decay: streak reached threshold")
+  expect(not belief.tasks.slots[taskIdx].checkout,
+         "checkout decay: checkout cleared")
+  expectEq(belief.tasks.slots[taskIdx].state, TaskNotDoing,
+           "checkout decay: checkout state downgraded")
+
+proc testCheckoutDecayInterruptedByHit() =
+  let camX = 0
+  let camY = 0
+  let taskIdx = findOffScreenTask(camX, camY)
+  expect(taskIdx >= 0, "checkout decay reset: found off-screen task")
+  if taskIdx < 0:
+    return
+
+  var belief = setupBelief(camX, camY)
+  let station = referenceData.map.tasks[taskIdx]
+  let missDot = missDotForRay(station, belief)
+  let hitDot = projectedDot(station, belief)
+  belief.tasks.slots[taskIdx].checkout = true
+  belief.tasks.slots[taskIdx].state = TaskCheckout
+
+  belief.percep.radarDots = @[missDot]
+  for tick in 1 ..< CheckoutDecayFrames:
+    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
+
+  expectEq(belief.tasks.slots[taskIdx].radarExcludedStreak,
+           CheckoutDecayFrames - 1,
+           "checkout decay reset: streak before hit")
+
+  belief.percep.radarDots = @[hitDot]
+  updateTaskState(belief, CheckoutDecayFrames, holdIndex = -1, confirmIndex = -1)
+  expect(not belief.tasks.slots[taskIdx].radarRayExcluded,
+         "checkout decay reset: hit clears exclusion")
+  expectEq(belief.tasks.slots[taskIdx].radarExcludedStreak, 0,
+           "checkout decay reset: hit resets streak")
+
+  belief.percep.radarDots = @[missDot]
+  for tick in (CheckoutDecayFrames + 1) ..< (CheckoutDecayFrames * 2):
+    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
+
+  expectEq(belief.tasks.slots[taskIdx].radarExcludedStreak,
+           CheckoutDecayFrames - 1,
+           "checkout decay reset: streak restarted after hit")
+  expect(belief.tasks.slots[taskIdx].checkout,
+         "checkout decay reset: checkout preserved before new threshold")
+  expectEq(belief.tasks.slots[taskIdx].state, TaskCheckout,
+           "checkout decay reset: state preserved before new threshold")
+
+proc testCheckoutDoesNotDecayWithoutExclusion() =
+  let camX = 0
+  let camY = 0
+  let taskIdx = findOffScreenTask(camX, camY)
+  expect(taskIdx >= 0, "checkout no decay: found off-screen task")
+  if taskIdx < 0:
+    return
+
+  var belief = setupBelief(camX, camY)
+  belief.tasks.slots[taskIdx].checkout = true
+  belief.tasks.slots[taskIdx].state = TaskCheckout
+  belief.percep.radarDots = @[]
+
+  for tick in 1 .. (CheckoutDecayFrames + 2):
+    updateTaskState(belief, tick, holdIndex = -1, confirmIndex = -1)
+
+  expect(not belief.tasks.slots[taskIdx].radarRayExcluded,
+         "checkout no decay: radarRayExcluded stays false")
+  expectEq(belief.tasks.slots[taskIdx].radarExcludedStreak, 0,
+           "checkout no decay: streak remains reset")
+  expect(belief.tasks.slots[taskIdx].checkout,
+         "checkout no decay: checkout preserved")
+  expectEq(belief.tasks.slots[taskIdx].state, TaskCheckout,
+           "checkout no decay: state preserved")
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -259,6 +358,9 @@ proc main() =
   testZeroPipsSkipExclusion()
   testCheckoutGatedByRayExclusion()
   testOnScreenCheckoutStillLatches()
+  testCheckoutDecaysAfterPersistentExclusion()
+  testCheckoutDecayInterruptedByHit()
+  testCheckoutDoesNotDecayWithoutExclusion()
 
   if failures == 0:
     echo "OK (all per-frame radar-ray exclusion checks passed)"

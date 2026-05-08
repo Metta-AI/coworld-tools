@@ -149,14 +149,11 @@ proc heuristic*(ax, ay, bx, by: int): int {.inline.} =
 
 proc taskIconExpectedScreenPos*(station: TaskStation,
                                 camX, camY: int): (int, int) =
-  ## Expected screen position of the task icon for a station, given
-  ## the current camera. The icon renders above the station rect
-  ## centre. Mirrors ``modulabot/perception/pixel_pipeline.py``'s
-  ## ``_task_icon_expected_pos``.
-  let wx = station.x + station.w div 2
-  let wy = station.y + station.h div 2
-  let sx = wx - camX - SpriteDrawOffX
-  let sy = wy - camY - SpriteDrawOffY
+  ## Expected screen top-left of the task icon sprite. Matches the
+  ## kernel anchor: icon renders above the station rect at
+  ## (station.x + w/2 - SpriteSize/2, station.y - SpriteSize - 2).
+  let sx = station.x + station.w div 2 - SpriteSize div 2 - camX
+  let sy = station.y - SpriteSize - 2 - camY
   (sx, sy)
 
 proc taskIconOnScreen*(station: TaskStation,

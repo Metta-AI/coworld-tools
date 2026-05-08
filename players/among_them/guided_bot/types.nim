@@ -375,11 +375,14 @@ type
     iconMissCount*: int      ## Consecutive icon-absent frames while on-screen.
     resolvedNotMine*: bool   ## Negative evidence: inspected, no icon.
     radarRayExcluded*: bool  ## Per-frame: no pip ray intersects this task's icon rect.
+    radarExcludedStreak*: int ## Consecutive frames with radar-ray exclusion.
 
   TaskState* = object
     slots*: seq[TaskSlot]
     inProgressIndex*: int    ## -1 if none. Set by task_completing mode.
     initialized*: bool       ## True once slots have been allocated.
+    pipGraceTicks*: int      ## Frames remaining of pip-disappearance grace period.
+    prevRadarDotCount*: int  ## Previous frame's radar-dot count.
 
   ChatLine* = object
     tick*: int

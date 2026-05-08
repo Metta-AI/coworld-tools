@@ -254,15 +254,62 @@ proc decide*(belief: Belief, params: ModeParams,
   let ts = tasks[targetIdx]
   let (goalX, goalY) = taskStationWorldCenter(ts)
 
+  # --- Hold/Confirm displacement guard ---
+  # If we're in Hold but no longer inside the task rect (meeting relocated us),
+  # abandon the hold and return to Navigate.
+  if scratch.tcPhase == TpHold and not isInsideTaskRect(selfX, selfY, ts):
+    scratch.tcPhase = TpNavigate
+    scratch.tcLockedTaskIndex = -1
+    let newTarget = selectTarget(belief, scratch)
+    if newTarget >= 0:
+      scratch.tcLockedTaskIndex = newTarget
+      scratch.tcLockTick = belief.tick
+      scratch.tcLockedTier = scratch.tcSelectionTier
+      let newTs = tasks[newTarget]
+      let (nx, ny) = taskStationWorldCenter(newTs)
+      return ActionIntent(
+        steerTo: Point(x: nx, y: ny),
+        steerValid: true,
+        pressA: false, pressB: false,
+        cursor: CursorNone, chat: "",
+        discipline: DisciplineNormal)
+    return noOpIntent()
+
   # =======================================================================
   # Phase: CONFIRM
   # =======================================================================
   if scratch.tcPhase == TpConfirm:
-    # Check icon visibility for miss counting.
-    if iconVisibleAtStation(belief, targetIdx):
-      scratch.tcConfirmMissCount = 0
-    else:
-      scratch.tcConfirmMissCount += 1
+    let (cx, cy) = taskStationWorldCenter(ts)
+    let confirmDist = heuristic(selfX, selfY, cx, cy)
+
+    # If relocated far from station (e.g. meeting), abandon confirm.
+    if confirmDist > TaskConfirmMaxDistance:
+      scratch.tcLockedTaskIndex = -1
+      scratch.tcPhase = TpNavigate
+      let newTarget = selectTarget(belief, scratch)
+      if newTarget >= 0:
+        scratch.tcLockedTaskIndex = newTarget
+        scratch.tcLockTick = belief.tick
+        scratch.tcLockedTier = scratch.tcSelectionTier
+        let newTs = tasks[newTarget]
+        let (nx, ny) = taskStationWorldCenter(newTs)
+        return ActionIntent(
+          steerTo: Point(x: nx, y: ny),
+          steerValid: true,
+          pressA: false, pressB: false,
+          cursor: CursorNone, chat: "",
+          discipline: DisciplineNormal)
+      return noOpIntent()
+
+    # Only count icon misses when the station is actually on-screen.
+    let camX = belief.percep.cameraX
+    let camY = belief.percep.cameraY
+    if taskIconOnScreen(ts, camX, camY, TaskClearScreenMargin):
+      if iconVisibleAtStation(belief, targetIdx):
+        scratch.tcConfirmMissCount = 0
+      else:
+        scratch.tcConfirmMissCount += 1
+    # Else: station off-screen, don't count misses (absence is uninformative).
 
     # Completion: icon absent for enough consecutive frames.
     if scratch.tcConfirmMissCount >= TaskIconMissCompleteTicks:

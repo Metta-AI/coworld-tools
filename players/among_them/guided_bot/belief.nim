@@ -78,7 +78,11 @@ proc initMemoryState*(): MemoryState =
     result.perPlayer[i].role = RoleUnknown
 
 proc initTaskState*(): TaskState =
-  TaskState(slots: @[], inProgressIndex: -1, initialized: false)
+  TaskState(slots: @[],
+            inProgressIndex: -1,
+            initialized: false,
+            pipGraceTicks: 0,
+            prevRadarDotCount: 0)
 
 proc initSocialState*(): SocialState =
   result.recentChat = @[]
@@ -243,6 +247,18 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
 # Task-state machine (phase 6.1)
 # ---------------------------------------------------------------------------
 
+const CheckoutDecayFrames* = 8
+
+proc updateCheckoutDecay(slot: var TaskSlot) =
+  if slot.radarRayExcluded:
+    slot.radarExcludedStreak += 1
+    if slot.radarExcludedStreak >= CheckoutDecayFrames and slot.checkout:
+      slot.checkout = false
+      if slot.state == TaskCheckout:
+        slot.state = TaskNotDoing
+  else:
+    slot.radarExcludedStreak = 0
+
 proc ensureTaskSlotsInitialized*(belief: var Belief) =
   ## Lazily allocate ``belief.tasks.slots`` to match the map's task
   ## station count. Called once on the first gameplay frame.
@@ -257,7 +273,8 @@ proc ensureTaskSlotsInitialized*(belief: var Belief) =
       iconVisibleTick: -1,
       iconMissCount: 0,
       resolvedNotMine: false,
-      radarRayExcluded: false)
+      radarRayExcluded: false,
+      radarExcludedStreak: 0)
   belief.tasks.initialized = true
 
 proc resetTaskSlots*(belief: var Belief) =
@@ -270,8 +287,11 @@ proc resetTaskSlots*(belief: var Belief) =
       iconVisibleTick: -1,
       iconMissCount: 0,
       resolvedNotMine: false,
-      radarRayExcluded: false)
+      radarRayExcluded: false,
+      radarExcludedStreak: 0)
   belief.tasks.inProgressIndex = -1
+  belief.tasks.pipGraceTicks = 0
+  belief.tasks.prevRadarDotCount = 0
 
 proc findIconForStation(stationIdx: int, station: TaskStation,
                         icons: openArray[IconMatch],
@@ -305,6 +325,14 @@ proc updateTaskState*(belief: var Belief, tick: int,
   if belief.percep.interstitial:
     return
 
+  let currentRadarDotCount = belief.percep.radarDots.len
+  if belief.tasks.pipGraceTicks > 0:
+    belief.tasks.pipGraceTicks -= 1
+  if currentRadarDotCount < belief.tasks.prevRadarDotCount and
+     currentRadarDotCount == 0:
+    belief.tasks.pipGraceTicks = PipDisappearGraceTicks
+  belief.tasks.prevRadarDotCount = currentRadarDotCount
+
   let tasks = referenceData.map.tasks
   let camX = belief.percep.cameraX
   let camY = belief.percep.cameraY
@@ -318,8 +346,10 @@ proc updateTaskState*(belief: var Belief, tick: int,
     belief.tasks.slots[i].radarRayExcluded = false
     # Skip terminal states.
     if belief.tasks.slots[i].state == TaskCompleted:
+      belief.tasks.slots[i].radarExcludedStreak = 0
       continue
     if belief.tasks.slots[i].resolvedNotMine:
+      belief.tasks.slots[i].radarExcludedStreak = 0
       continue
 
     let station = tasks[i]
@@ -335,7 +365,8 @@ proc updateTaskState*(belief: var Belief, tick: int,
         belief.tasks.slots[i].iconMissCount = 0
       else:
         # Only count misses when the icon area is fully on-screen.
-        if taskIconOnScreen(station, camX, camY, TaskClearScreenMargin):
+        if taskIconOnScreen(station, camX, camY, TaskClearScreenMargin) and
+           belief.tasks.pipGraceTicks <= 0:
           belief.tasks.slots[i].iconMissCount += 1
           # Negative evidence: enough clear-sight frames with no icon.
           if belief.tasks.slots[i].iconMissCount >= TaskIconMissResolveFrames and
@@ -371,6 +402,8 @@ proc updateTaskState*(belief: var Belief, tick: int,
       else:
         belief.tasks.slots[i].radarRayExcluded = false
 
+      updateCheckoutDecay(belief.tasks.slots[i])
+
       # --- Radar-dot checkout (needs camera for projection) ---
       let (projX, projY) = projectedRadarDot(station, camX, camY,
                                              selfX, selfY)
@@ -382,7 +415,9 @@ proc updateTaskState*(belief: var Belief, tick: int,
           break
       if matched and not belief.tasks.slots[i].radarRayExcluded:
         belief.tasks.slots[i].checkout = true
+        belief.tasks.slots[i].radarExcludedStreak = 0
         if belief.tasks.slots[i].state == TaskNotDoing:
           belief.tasks.slots[i].state = TaskCheckout
     else:
       belief.tasks.slots[i].radarRayExcluded = false
+      updateCheckoutDecay(belief.tasks.slots[i])

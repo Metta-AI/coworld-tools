@@ -40,13 +40,15 @@ const
   TaskHoldTicks*              = 84   ## A-hold duration. Server accepts ~72; 84 pads 12 ticks.
   TaskConfirmWindowTicks*     = 48   ## Post-hold observation window before timeout (~2s).
   TaskIconMissCompleteTicks*  = 24   ## Consecutive post-hold icon-absent frames to confirm completion.
-  TaskIconMissResolveFrames*  = 2    ## Consecutive icon-absent frames for "not mine" pruning.
-                                     ## Two frames are enough: task-icon position is deterministic,
-                                     ## matching is strict, and on-screen gating filters edge cases.
+  TaskIconMissResolveFrames*  = 6    ## Consecutive icon-absent frames for "not mine" pruning.
+                                     ## Six frames (~0.25s) absorbs transient detection gaps from bob animation and
+                                     ## edge clipping while still pruning genuinely absent icons quickly.
   TaskClearScreenMargin*      = 8    ## Pixel margin for "icon area fully on-screen" check.
+  TaskConfirmMaxDistance*     = 80   ## Manhattan distance to abandon Confirm after relocation.
   RadarMatchTolerance*        = 2    ## Chebyshev distance for radar-dot → station matching.
   RadarRayIconPadding*        = 14   ## Half-extent of padded icon AABB for radar-ray tests.
   RadarRayMinPips*            = 1    ## Minimum detected pips required to run ray exclusion.
+  PipDisappearGraceTicks*     = 5    ## Suppress icon-miss counting after radar pip count drops.
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
   TaskReEvalPeriodTicks*      = 24   ## After hysteresis, reconsider locked Navigate targets at most this often (~1s).
   TaskSwitchDistanceRatio*    = 0.5  ## Same-tier switch only when candidate distance is below this fraction of current distance.
