@@ -48,9 +48,6 @@ type
     actorScanner*: ActorScanner ## Phase 1.3 — actor-scan reusable buffers.
     lastMask*: uint8
     unpacked*: seq[uint8]
-    ## Role-reveal scan stability tracking.
-    prevRevealColors*: seq[int]  ## Previous frame's scan result.
-    revealStableFrames*: int     ## Consecutive frames with same result.
     ## Phase 3 — LLM guidance tracking.
     guidanceStarted*: bool     ## Whether the worker thread is running.
     prevPhaseForGuidance*: GamePhase ## For detecting meeting end transitions.
@@ -65,6 +62,7 @@ type
     ## per interstitial run.
     interstitialClassified*: bool  ## True once we've run OCR on this run.
     cachedInterstitialKind*: InterstitialKind  ## Cached classification.
+    cachedImposterColors*: seq[int]  ## Colors detected during interstitial scan (applied on role confirm).
     ## Voting-screen detection fallback. The voting screen doesn't always
     ## pass the 30%-black interstitial gate, causing the localizer to fail
     ## without the voting parse ever running. This fallback probes
@@ -83,8 +81,6 @@ proc initBot*(botIndex: int = -1): Bot =
   result.actorScanner = initActorScanner()
   result.lastMask = 0'u8
   result.unpacked = newSeq[uint8](FrameLen)
-  result.prevRevealColors = @[]
-  result.revealStableFrames = 0
   result.guidanceStarted = false
   result.prevPhaseForGuidance = PhaseUnknown
   result.prevBodyCount = 0
@@ -155,6 +151,21 @@ proc switchMode(bot: var Bot, newDirective: Directive) =
           "reflex"
     logModeEntered(bot.trace, tick, oldMode, newDirective.mode,
                    newDirective.params, reason)
+
+proc huntingPhaseStr(phase: HuntingPhase): string =
+  case phase
+  of HpAlibi:    "alibi"
+  of HpSeeking:  "seeking"
+  of HpStalking: "stalking"
+  of HpStrike:   "strike"
+  of HpPostKill: "post_kill"
+
+proc postKillPlanStr(plan: PostKillPlanKind): string =
+  case plan
+  of PkNone:    "none"
+  of PkVent:    "vent"
+  of PkStation: "station"
+  of PkPlayer:  "player"
 
 proc ensureGuidanceStarted(bot: var Bot) =
   ## Start the guidance worker thread on the first frame, if an API
@@ -260,7 +271,7 @@ proc reconcileDirective(bot: var Bot) =
   # Reflex evaluation (§5.8). Runs before illegality so reflexes
   # can install a legal directive that the illegality check would
   # otherwise override to the default.
-  let rx = evaluateReflexes(bot.belief, bot.reflexState)
+  let rx = evaluateReflexes(bot.belief, bot.reflexState, bot.modeScratch)
   if rx.fired:
     # Trace: log reflex firing before the mode switch.
     if bot.trace != nil:
@@ -467,46 +478,16 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
         of InterstitialRoleRevealCrewmate:
           bot.belief.self.role = RoleCrewmate
         else: discard
-      # Scan for imposter colors only on confirmed IMPS reveal frames.
-      # Previously this ran on ALL interstitial frames, which caused
-      # false positives: the lobby and CREWMATE screens also show
-      # player sprites whose tint colors triggered the detector.
-      if bot.cachedInterstitialKind == InterstitialRoleRevealImposter and
-         bot.belief.self.knownImposterColors.len == 0:
-        var textPixels = 0
-        for y in 15 .. 21:
-          for x in 40 ..< 90:
-            if bot.unpacked[y * ScreenWidth + x] != 0:
-              inc textPixels
-        if textPixels >= 10:
-          let colors = scanRoleRevealImposters(
-            bot.actorScanner, referenceData.sprites, bot.unpacked)
-          if colors.len >= 1 and colors.len < PlayerColorCount:
-            if colors == bot.prevRevealColors:
-              inc bot.revealStableFrames
-            else:
-              bot.revealStableFrames = 1
-              bot.prevRevealColors = colors
-            if bot.revealStableFrames >= 24:
-              if bot.belief.self.role == RoleUnknown:
-                bot.belief.self.role = RoleImposter
-              for ci in colors:
-                if ci != bot.belief.self.colorIndex:
-                  if ci notin bot.belief.self.knownImposterColors:
-                    bot.belief.self.knownImposterColors.add ci
-                  if ci >= 0 and ci < PlayerColorCount:
-                    bot.belief.memory.perPlayer[ci].role = RoleImposter
-              if bot.belief.self.knownImposterColors.len > 0 or colors.len == 1:
-                var payload = newJObject()
-                payload["partner_colors"] = %bot.belief.self.knownImposterColors
-                payload["self_color"] = newJInt(bot.belief.self.colorIndex)
-                payload["all_detected"] = %colors
-                logGameEvent(bot.trace, "imposters_detected", bot.frameTick, $payload)
-          elif colors.len == PlayerColorCount:
-            bot.belief.self.knownImposterColors = @[-1]
-          else:
-            bot.revealStableFrames = 0
-            bot.prevRevealColors = @[]
+      # Scan for imposter teammate colors on any interstitial frame.
+      # The histogram is self-validating: returns empty if no imposter
+      # sprites are present (e.g. CREWMATE screen, lobby). We cache the
+      # result and apply it once role is confirmed as imposter, since
+      # role detection via HUD only fires AFTER the interstitial ends.
+      if bot.belief.self.knownImposterColors.len == 0:
+        let colors = scanRoleRevealImposters(
+          bot.actorScanner, referenceData.sprites, bot.unpacked)
+        if colors.len >= 1 and colors.len <= RoleRevealMaxDetectedColors:
+          bot.cachedImposterColors = colors
     mergeVotingPercept(bot.belief, percept.votingParse)
   else:
     # Leaving interstitial phase — reset the cache for the next run.
@@ -577,6 +558,25 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
       of RoleCrewmate: setRole(bot.trace, "crewmate")
       of RoleImposter: setRole(bot.trace, "imposter")
       of RoleUnknown:  discard
+      # Apply cached interstitial imposter colors retroactively.
+      # The scan ran during the interstitial (role still Unknown), but
+      # now role is confirmed as imposter so we can commit the colors.
+      if bot.belief.self.role == RoleImposter and
+         bot.cachedImposterColors.len > 0:
+        var added: seq[int] = @[]
+        for ci in bot.cachedImposterColors:
+          if rememberKnownImposterColor(bot.belief, ci):
+            added.add ci
+        if added.len > 0 and bot.trace != nil:
+          var payload = newJObject()
+          payload["source"] = newJString("role_reveal_cached")
+          payload["partner_colors"] = %bot.belief.self.knownImposterColors
+          payload["added_colors"] = %added
+          payload["self_color"] = newJInt(bot.belief.self.colorIndex)
+          payload["all_detected"] = %bot.cachedImposterColors
+          logGameEvent(bot.trace, "imposters_detected",
+                       bot.frameTick, $payload)
+        bot.cachedImposterColors = @[]
 
     # chat_observed: new chat lines appeared during voting.
     if bot.belief.social.currentMeetingChat.len > bot.prevChatLen and
@@ -686,8 +686,51 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
         logGameEvent(bot.trace, "report_gave_up", bot.belief.tick, $payload)
       switchMode(bot, defaultDirectiveFor(bot.belief))
 
-  # 4d. Hunting mode: kill trace events.
+  # 4d. Hunting mode: failed kill inference. The mode can only signal
+  # suspected teammate evidence through scratch; the bot envelope owns
+  # belief mutation and trace output.
+  if bot.modeScratch.mode == ModeHunting and
+     bot.modeScratch.huntFailedKillColor >= 0:
+    let ci = bot.modeScratch.huntFailedKillColor
+    let outcome = recordFailedKillSuspect(bot.belief, ci)
+    if bot.trace != nil and outcome.count > 0:
+      var payload = newJObject()
+      payload["source"] = newJString("failed_kill")
+      payload["target_color"] = newJInt(ci)
+      payload["failed_count"] = newJInt(outcome.count)
+      payload["threshold"] = newJInt(FailedKillImposterConfirmStrikes)
+      payload["kill_ready_after"] = newJBool(bot.belief.percep.killReady)
+      payload["known_imposters"] = %bot.belief.self.knownImposterColors
+      logGameEvent(bot.trace, "imposter_teammate_suspected",
+                   bot.belief.tick, $payload)
+      if outcome.promoted:
+        payload["known_imposters"] = %bot.belief.self.knownImposterColors
+        logGameEvent(bot.trace, "imposter_teammate_inferred",
+                     bot.belief.tick, $payload)
+    bot.modeScratch.huntFailedKillColor = -1
+
+  # 4e. Hunting mode: kill trace events.
   if bot.trace != nil and bot.modeScratch.mode == ModeHunting:
+    # hunting_phase_changed: internal phase transition within ModeHunting.
+    if bot.modeScratch.huntPhaseChanged:
+      var payload = newJObject()
+      payload["from_phase"] = newJString(
+        huntingPhaseStr(bot.modeScratch.huntPrevPhase))
+      payload["to_phase"] = newJString(
+        huntingPhaseStr(bot.modeScratch.huntPhase))
+      payload["reason"] = newJString(bot.modeScratch.huntPhaseReason)
+      payload["target_color"] = newJInt(bot.modeScratch.huntTargetColor)
+      payload["target_position"] = %*[bot.modeScratch.huntLastSeenX,
+                                      bot.modeScratch.huntLastSeenY]
+      payload["post_kill_plan"] = newJString(
+        postKillPlanStr(bot.modeScratch.huntPostKillPlan))
+      if bot.modeScratch.huntPostKillTargetValid:
+        payload["post_kill_target"] = %*[bot.modeScratch.huntPostKillTargetX,
+                                         bot.modeScratch.huntPostKillTargetY]
+      logGameEvent(bot.trace, "hunting_phase_changed",
+                   bot.belief.tick, $payload)
+      bot.modeScratch.huntPhaseChanged = false
+
     # kill_attempted: huntStrikeTick was just set this tick.
     if bot.modeScratch.huntStrikeTick == bot.belief.tick:
       var payload = newJObject()
@@ -701,7 +744,9 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
     # kill_confirmed: flag set by the mode.
     if bot.modeScratch.huntKillConfirmed:
       var payload = newJObject()
-      payload["target_color"] = newJInt(bot.modeScratch.huntTargetColor)
+      payload["target_color"] = newJInt(bot.modeScratch.huntLastKillTargetColor)
+      payload["strike_position"] = %*[bot.modeScratch.huntStrikeTargetX,
+                                      bot.modeScratch.huntStrikeTargetY]
       logGameEvent(bot.trace, "kill_confirmed", bot.belief.tick, $payload)
       bot.modeScratch.huntKillConfirmed = false
 

@@ -28,6 +28,7 @@ import ../constants
 import ../types
 import ../belief
 import ../bot
+import ../tuning
 import ../perception
 import ../perception/data
 import ../perception/frame
@@ -58,6 +59,23 @@ proc loadFixture(name: string): seq[uint8] =
   result = newSeq[uint8](FrameLen)
   for i in 0 ..< FrameLen:
     result[i] = uint8(data[i])
+
+proc drawTintedPlayer(frame: var seq[uint8], x, y, colorIndex: int) =
+  let sprite = referenceData.sprites.player
+  for sy in 0 ..< sprite.height:
+    for sx in 0 ..< sprite.width:
+      let src = sprite.pixels[sy * sprite.width + sx]
+      if src == TransparentIndex:
+        continue
+      var outPx = src
+      if src == TintColor:
+        outPx = PlayerColors[colorIndex]
+      elif src == ShadeTintColor:
+        outPx = ShadowMap[PlayerColors[colorIndex] and 0x0F'u8]
+      let fx = x + sx
+      let fy = y + sy
+      if fx >= 0 and fy >= 0 and fx < ScreenWidth and fy < ScreenHeight:
+        frame[fy * ScreenWidth + fx] = outPx
 
 # ---------------------------------------------------------------------------
 # 1. Interstitial short-circuit
@@ -137,21 +155,54 @@ proc testGameplayScanPlausibility() =
 
 proc testRoleDetection() =
   ## The gameplay fixtures are from an imposter's POV (kill button
-  ## visible at the HUD slot). updateRole should set role to Imposter.
+  ## visible at the HUD slot). updateRole should set role to Imposter
+  ## after the HUD debounce threshold.
   var scanner = initActorScanner()
-  let prevPercep = initPerceptionState()
-  let prevSelf = initSelfState()
   let sprites = referenceData.sprites
 
   for name in ["gameplay_131.bin", "gameplay_150.bin",
                "gameplay_200.bin", "gameplay_274.bin"]:
     let frame = loadFixture(name)
+    var prevPercep = initPerceptionState()
+    var prevSelf = initSelfState()
+    for _ in 0 ..< KillIconRoleFrames:
+      let result = scanAll(scanner, prevPercep, prevSelf, sprites, frame,
+                           isInterstitial = false)
+      prevPercep.ghostIconFrames = result.ghostIconFrames
+      prevPercep.killIconFrames = result.killIconFrames
+      if result.roleUpdated:
+        prevSelf.role = result.newRole
+      expect(not result.isGhost, &"{name}: not a ghost")
+    expectEq(prevSelf.role, RoleImposter,
+             &"{name}: role is imposter after kill HUD debounce")
+
+proc testKillButtonCrewmateHysteresis() =
+  ## A single kill-button-like HUD match must not override a CREWMATE
+  ## role reveal. Persistent HUD evidence still promotes to imposter.
+  var scanner = initActorScanner()
+  let sprites = referenceData.sprites
+  let frame = loadFixture("gameplay_150.bin")
+
+  var prevPercep = initPerceptionState()
+  var prevSelf = initSelfState()
+  prevSelf.role = RoleCrewmate
+
+  let one = scanAll(scanner, prevPercep, prevSelf, sprites, frame,
+                    isInterstitial = false)
+  expect(not one.roleUpdated,
+         "crewmate HUD hysteresis: one frame does not override role")
+  expect(not one.killReady,
+         "crewmate HUD hysteresis: one frame does not set killReady")
+
+  for _ in 0 ..< KillIconCrewOverrideFrames:
     let result = scanAll(scanner, prevPercep, prevSelf, sprites, frame,
                          isInterstitial = false)
+    prevPercep.ghostIconFrames = result.ghostIconFrames
+    prevPercep.killIconFrames = result.killIconFrames
     if result.roleUpdated:
-      expectEq(result.newRole, RoleImposter,
-               &"{name}: role is imposter (kill button present)")
-    expect(not result.isGhost, &"{name}: not a ghost")
+      prevSelf.role = result.newRole
+  expectEq(prevSelf.role, RoleImposter,
+           "persistent kill HUD evidence can override crewmate role")
 
 # ---------------------------------------------------------------------------
 # 4. Self-colour detection
@@ -254,6 +305,8 @@ proc testBotPipelineActors() =
   # Gameplay frame — actors should be populated.
   discard bot.stepUnpackedFrame(loadFixture("gameplay_150.bin"))
   # Role should be set (imposter — kill button visible in these fixtures).
+  for _ in 1 ..< KillIconRoleFrames:
+    discard bot.stepUnpackedFrame(loadFixture("gameplay_150.bin"))
   expectEq(bot.belief.self.role, RoleImposter,
            "pipeline: role is imposter after gameplay")
   expect(not bot.belief.self.isGhost,
@@ -288,6 +341,21 @@ proc testFixtureSweepWithActors() =
     discard bot.stepUnpackedFrame(frame)
   expectEq(bot.frameTick, fixtures.len,
            "fixture sweep: frameTick == frame count")
+
+proc testRoleRevealImposterScan() =
+  ## Role reveal teammate detection should read colours from player sprites
+  ## on a single OCR-confirmed IMPS frame.
+  var scanner = initActorScanner()
+  var frame = newSeq[uint8](FrameLen)
+  drawTintedPlayer(frame, 32, 48, 4)
+  drawTintedPlayer(frame, 76, 48, 6)
+
+  let colors = scanRoleRevealImposters(
+    scanner, referenceData.sprites, frame)
+  expect(4 in colors, "role reveal scan detects pink imposter")
+  expect(6 in colors, "role reveal scan detects blue imposter")
+  expect(colors.len == 2,
+         &"role reveal scan returns only the two drawn colors: {colors}")
 
 # ---------------------------------------------------------------------------
 # 8. Smoke benchmark
@@ -336,10 +404,12 @@ proc main() =
   testInterstitialPreservesGhostIconFrames()
   testGameplayScanPlausibility()
   testRoleDetection()
+  testKillButtonCrewmateHysteresis()
   testSelfColorDetection()
   testActorIgnoreMaskExclusions()
   testBotPipelineActors()
   testFixtureSweepWithActors()
+  testRoleRevealImposterScan()
   testBenchmark()
 
   if failures == 0:

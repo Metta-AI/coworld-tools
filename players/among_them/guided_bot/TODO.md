@@ -260,6 +260,34 @@ Without localization, `task_completing.decide()` returns `noOpIntent()` (line 17
 
 ---
 
+### Task count mismatch — bot reports more tasks than assigned [LOW]
+
+In small live tests (4-player, seed 42, 120s), crewmate bots sometimes report
+completing more tasks than the 8-per-player server config (`tasksPerPlayer:8`).
+Bot 3 logged 9 `task_started`/`task_completed` events; Bot 0 logged 8 started
+but only 7 completed (dropped one).
+
+**Evidence (seed 42, 120s, 4-player):**
+- Bot 3: 9 tasks started, 9 completed (server assigns 8)
+- Bot 0: 8 tasks started, 7 completed (1 started but never finished)
+- Bot 2: 8/8 (correct)
+
+**Hypotheses:**
+1. Task-completion detection fires spuriously (hold-duration threshold met at
+   wrong station, or icon/checkout tier misidentified as completed)
+2. `task_started` event double-fires on re-approach to same station
+3. Server assigns >8 tasks in some configurations (unlikely given config)
+4. Task index reuse — bot navigates to same station twice, second visit
+   counted as new task
+
+**Impact:** Low — doesn't affect gameplay behavior. May confuse trace analysis
+and task-bar progress estimation.
+
+**Key code:** `modes/task_completing.nim` (task start/complete detection),
+`perception/tasks.nim`, `trace.nim` (event emission)
+
+---
+
 ### No pretending/cover behavior in imposter games [LOW]
 
 Across 2 full imposter games (~2000 ticks, seed 100), zero ticks in pretending

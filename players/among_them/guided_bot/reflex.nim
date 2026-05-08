@@ -53,7 +53,8 @@ type
     newDirective*: Directive
     reflexName*: string
 
-proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState): ReflexResult =
+proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
+                       scratch: ModeScratch): ReflexResult =
   ## Check all reflex conditions against the current belief. Returns
   ## the highest-priority reflex that fires, or `fired = false`.
   ## Called from `bot.nim:reconcileDirective` after `updateBelief`
@@ -117,9 +118,15 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState): ReflexResu
     return
 
   # --- Reflex 2: hunting + body_newly_in_view (not ours) → fleeing ---
+  let huntingAlreadyHandlingBody =
+    scratch.mode == ModeHunting and
+    (scratch.huntPhase == HpStrike or scratch.huntPhase == HpPostKill or
+     scratch.huntStrikeTick >= 0)
+
   if mode == ModeHunting and
      belief.self.role == RoleImposter and
      belief.self.alive and
+     not huntingAlreadyHandlingBody and
      newBodySeen and
      tick - reflexState.lastBodyFleeTick > ReflexCooldownTicks:
     let body = belief.percep.visibleBodies[0]

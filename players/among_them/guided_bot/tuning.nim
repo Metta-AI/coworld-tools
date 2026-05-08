@@ -32,6 +32,12 @@ const
                                      ## Prevents expensive parse from running every tick during
                                      ## non-voting localization failures (kill animations, etc.).
 
+  # --- Role / teammate detection ---------------------------------------
+  KillIconRoleFrames*         = 3    ## Consecutive kill-HUD matches before Unknown→Imposter.
+  KillIconCrewOverrideFrames* = 12   ## Stronger evidence needed to override OCR CREWMATE.
+  RoleRevealMaxDetectedColors* = 3   ## Reject noisy IMPS scans that look like too many players.
+  FailedKillImposterConfirmStrikes* = 2 ## Failed strikes needed before teammate inference.
+
   # --- Call-rate caps (LLM) -------------------------------------------
   LlmMaxCallsPerMatch*        = 120  ## Hard cap across a full match.
   LlmMinIntervalTicks*        = 12   ## Floor on LLM call frequency (~0.5s).
@@ -67,7 +73,21 @@ const
 
   # --- Hunting mode (HUNTING_DESIGN.md §4) -----------------------------
   HuntCoverLoiterTicks*       = 72   ## Loiter at each cover station ~3s before moving.
-  HuntMemoryTicks*            = 48   ## Pursue last-known position for ~2s after losing visual.
-  HuntKillConfirmTicks*       = 12   ## Check for kill success within ~0.5s of striking.
+  HuntAlibiFakeHoldTicks*     = 48   ## Fake A-hold while building cooldown alibi (~2s).
+  HuntMemoryTicks*            = 72   ## Short visual pursuit memory after losing target (~3s).
+  HuntSeekingMemoryTicks*     = 480  ## Long player-memory horizon for seeking likely rooms (~20s).
+  HuntWitnessMemoryTicks*     = 180  ## Recent-memory horizon for predicted witnesses (~7.5s).
+  HuntWitnessBaseRadius*      = 32   ## Base px radius for "could walk in soon" prediction.
+  HuntWitnessPixelsPerTick*   = 1    ## Expansion rate for predicted witness reach.
+  HuntIsolationRadius*        = 72   ## Other-player distance that breaks isolation.
+  HuntKillConfirmTicks*       = 24   ## Check for cooldown/body confirmation after striking (~1s).
+  HuntStrikeCommitTicks*      = 6    ## Keep kill-strike intent briefly, then disengage.
   HuntKillConfirmRadius*      = 30   ## World-px radius for matching body to strike target.
   HuntKillStrikeRange*        = 20   ## World-px distance for pressing A (matches server KillRange).
+  HuntPostKillTicks*          = 192  ## Deliberate alibi phase after a strike (~8s).
+  HuntPostKillFakeHoldTicks*  = 60   ## Fake task hold inside post-kill alibi (~2.5s).
+  HuntPostKillAvoidRadius*    = 96   ## Prefer post-kill stations at least this far from strike.
+  HuntPostKillVentRadius*     = 72   ## Vent entry must be this close to be a post-kill plan.
+  HuntVentNearDistance*       = 64   ## Kill-site score bonus radius for nearby vents.
+  HuntLateGameKnownCrewMax*   = 2    ## If only this many known crew remain, tolerate risk.
+  HuntLateGameWitnessBonus*   = 1    ## Extra witness allowance in known late game.

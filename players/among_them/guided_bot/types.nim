@@ -130,6 +130,22 @@ type
     TierCheckout     ## Radar-dot checkout latch.
     TierGeometry     ## Nearest unresolved station (weakest).
 
+  HuntingPhase* = enum
+    ## Internal phase of ModeHunting. The mode name stays stable so
+    ## directives remain compatible; this scratch phase captures the
+    ## imposter's current tactical posture.
+    HpAlibi          ## Cooldown active: fake tasks / be seen.
+    HpSeeking        ## Kill ready, no visible strike target.
+    HpStalking       ## Target visible; closing while risk is acceptable.
+    HpStrike         ## Kill button should be pressed / just pressed.
+    HpPostKill       ## Disengage and build an alibi after a strike.
+
+  PostKillPlanKind* = enum
+    PkNone
+    PkVent
+    PkStation
+    PkPlayer
+
 # ---------------------------------------------------------------------------
 # Small point and action-intent types
 # ---------------------------------------------------------------------------
@@ -294,6 +310,7 @@ type
     alive*: bool
     killCooldownRemaining*: int
     knownImposterColors*: seq[int]
+    failedKillCounts*: array[PlayerColorCount, int]
     phase*: GamePhase
     ## Note: home position lives on PerceptionState (phase 1.2). See
     ## ``PerceptionState.homeX/homeY/homeSet``. Keeping it on the
@@ -340,6 +357,7 @@ type
     ## Role / self-colour detection (phase 1.3). Updated by
     ## ``actors.updateRole`` / ``actors.updateSelfColor``.
     ghostIconFrames*: int  ## Consecutive frames with the ghost icon.
+    killIconFrames*: int   ## Consecutive frames with kill HUD at the slot.
     killReady*: bool       ## Kill button is lit (imposter only).
     ## Phase 1.4 task-icon + radar-dot scan results. Populated by
     ## ``perception/tasks.scanTasksAndRadar``; cleared each frame.
@@ -553,6 +571,11 @@ type
       preFakeHoldUntilTick*: int   ## Fake-hold sub-phase deadline.
       preWitnessSwapped*: bool     ## Whether witness swap fired this loiter.
     of ModeHunting:
+      huntPhase*: HuntingPhase
+      huntPrevPhase*: HuntingPhase
+      huntPhaseStartedTick*: int
+      huntPhaseChanged*: bool
+      huntPhaseReason*: string
       huntTargetColor*: int              ## Color of pursuit target.
       huntLastSightingTick*: int         ## Tick target was last seen.
       huntEnterTick*: int                ## Tick mode was entered.
@@ -560,12 +583,20 @@ type
       huntLastSeenY*: int                ## World Y of last sighting.
       huntCoverTargetIndex*: int         ## Station index for cover patrol (-1 = none).
       huntCoverLoiterUntilTick*: int     ## Loiter deadline at cover station.
+      huntCoverFakeUntilTick*: int       ## Fake-task A-hold deadline during alibi/post-kill.
       huntStrikeTick*: int               ## Tick when kill-strike A was first pressed (-1 = none).
       huntStrikeTargetX*: int            ## World X of target at strike time.
       huntStrikeTargetY*: int            ## World Y of target at strike time.
       huntPreStrikeBodyCount*: int       ## Visible body count before strike.
       huntPreStrikeKillReady*: bool      ## killReady state before strike.
+      huntFailedKillColor*: int           ## Strike target inferred as teammate; -1 if none.
       huntKillConfirmed*: bool           ## Set true on kill confirmation (for trace).
+      huntLastKillTargetColor*: int       ## Target color retained after strike state clears.
+      huntPostKillUntilTick*: int         ## Minimum duration of post-kill alibi phase.
+      huntPostKillTargetX*: int
+      huntPostKillTargetY*: int
+      huntPostKillTargetValid*: bool
+      huntPostKillPlan*: PostKillPlanKind
     of ModeFleeing:
       fleeUntilTick*: int
       fleeCoverTargetX*: int       ## Post-flee cover station world X.

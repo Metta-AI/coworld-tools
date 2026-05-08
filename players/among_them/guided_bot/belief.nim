@@ -38,6 +38,7 @@ proc initSelfState*(): SelfState =
     alive: true,
     killCooldownRemaining: 0,
     knownImposterColors: @[],
+    failedKillCounts: [0, 0, 0, 0, 0, 0, 0, 0],
     phase: PhaseUnknown
   )
 
@@ -61,6 +62,7 @@ proc initPerceptionState*(): PerceptionState =
     visibleBodies: @[],
     visibleGhosts: @[],
     ghostIconFrames: 0,
+    killIconFrames: 0,
     killReady: false,
     visibleTaskIcons: @[],
     radarDots: @[],
@@ -165,6 +167,7 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
 
   # Role / ghost detection.
   belief.percep.ghostIconFrames = actors.ghostIconFrames
+  belief.percep.killIconFrames = actors.killIconFrames
   belief.percep.killReady = actors.killReady
   if actors.roleUpdated:
     belief.self.role = actors.newRole
@@ -199,6 +202,32 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
     let ci = body.colorIndex
     if ci >= 0 and ci < PlayerColorCount:
       belief.memory.perPlayer[ci].alive = false
+
+proc rememberKnownImposterColor*(belief: var Belief, color: int): bool =
+  ## Add one imposter colour to long-lived belief and per-player memory.
+  ## Returns true only when the public known-imposter list grew.
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  belief.memory.perPlayer[color].role = RoleImposter
+  if belief.self.colorIndex >= 0 and color == belief.self.colorIndex:
+    return false
+  if color in belief.self.knownImposterColors:
+    return false
+  belief.self.knownImposterColors.add color
+  true
+
+proc recordFailedKillSuspect*(belief: var Belief, color: int):
+    tuple[count: int, promoted: bool] =
+  ## A close-range strike that leaves killReady lit and produces no body is
+  ## evidence that the target is a teammate. Promote after repeated evidence.
+  if color < 0 or color >= PlayerColorCount:
+    return (0, false)
+  if belief.self.colorIndex >= 0 and color == belief.self.colorIndex:
+    return (0, false)
+  inc belief.self.failedKillCounts[color]
+  result.count = belief.self.failedKillCounts[color]
+  if result.count >= FailedKillImposterConfirmStrikes:
+    result.promoted = rememberKnownImposterColor(belief, color)
 
 proc mergeTaskPercept*(belief: var Belief, taskPercept: TaskPercept) =
   ## Merge phase-1.4 task/radar scan results into the long-lived belief.

@@ -31,6 +31,7 @@ import std/algorithm
 
 import ../constants
 import ../types
+import ../tuning
 import data
 import frame
 import ignore
@@ -101,6 +102,7 @@ type
     isGhost*: bool
     killReady*: bool
     ghostIconFrames*: int
+    killIconFrames*: int
     selfColorUpdated*: bool
     newSelfColor*: int   ## Player-colour index or -1.
 
@@ -114,6 +116,7 @@ proc initActorPercept*(): ActorPercept =
     isGhost: false,
     killReady: false,
     ghostIconFrames: 0,
+    killIconFrames: 0,
     selfColorUpdated: false,
     newSelfColor: -1,
   )
@@ -417,6 +420,7 @@ proc crewmateColorIndex(
 proc updateRole*(
     percept: var ActorPercept,
     prevGhostIconFrames: int,
+    prevKillIconFrames: int,
     prevRole: BotRole,
     sprites: Sprites,
     frame: openArray[uint8]) =
@@ -425,14 +429,17 @@ proc updateRole*(
   ##
   ## Ghost detection requires ``GhostIconFrameThreshold`` consecutive
   ## frames with the icon present (debounce against transient
-  ## occlusion). Role flips from Unknown→Imposter on kill-button
-  ## detection, Unknown→Crewmate on absence of kill button.
+  ## occlusion). Kill-button role detection is also debounced:
+  ## Unknown→Imposter needs a few consecutive HUD matches, and
+  ## Crew→Imposter needs stronger evidence so one bad HUD match cannot
+  ## override a CREWMATE role reveal.
   let ghostSprite = sprites.ghostIcon
   let (gMisses, gOpaque) = spriteMisses(frame, ghostSprite, KillIconX, KillIconY)
 
   if gOpaque > 0 and gMisses <= GhostIconMaxMisses:
     # Ghost icon present at the HUD slot.
     percept.ghostIconFrames = prevGhostIconFrames + 1
+    percept.killIconFrames = 0
     percept.killReady = false
     if percept.ghostIconFrames >= GhostIconFrameThreshold:
       percept.isGhost = true
@@ -450,12 +457,22 @@ proc updateRole*(
   let litMatch = matchesSprite(frame, killSprite, KillIconX, KillIconY)
   let shadMatch = matchesSpriteShadowed(frame, killSprite, KillIconX, KillIconY)
 
-  if litMatch:
-    percept.killReady = true
   if litMatch or shadMatch:
-    percept.roleUpdated = true
-    percept.newRole = RoleImposter
+    percept.killIconFrames = prevKillIconFrames + 1
+    let requiredFrames = KillIconRoleFrames
+    let stable = prevRole == RoleImposter or
+                 percept.killIconFrames >= requiredFrames
+    percept.killReady = litMatch and stable
+    # Never override an OCR-confirmed crewmate role. The only path that
+    # sets RoleCrewmate is OCR reading "CREWMATE" text — authoritative.
+    # HUD sprite matching at (1,115) produces false positives when the
+    # camera places map/task pixels at that position.
+    if stable and prevRole == RoleUnknown:
+      percept.roleUpdated = true
+      percept.newRole = RoleImposter
   else:
+    percept.killIconFrames = 0
+    percept.killReady = false
     # Neither kill button nor ghost icon — crewmate by default.
     if prevRole == RoleUnknown:
       percept.roleUpdated = true
@@ -574,19 +591,25 @@ proc scanRoleRevealImposters*(
     frame: openArray[uint8]): seq[int] =
   ## Detect imposter player colors from the role-reveal interstitial.
   ##
-  ## The "IMPS" screen has: black background (palette 0), text in
-  ## TextColor (palette 2), and colored crewmate sprites. The body
-  ## tint colors identify the imposters. We count occurrences of each
-  ## PlayerColor palette value and require the count to exceed what
-  ## stable sprite pixels alone would produce (handles the palette-14
-  ## collision where the visor shares a palette index with PlayerColors[3]).
+  ## Strategy: palette histogram. We know the IMPS screen is black
+  ## background + "IMPS" text (palette 2) + N imposter sprites. Each
+  ## sprite has exactly:
+  ##   40 TintColor pixels → replaced by the player's palette color
+  ##    5 ShadeTintColor pixels → replaced by ShadowMap[player_color]
+  ##   60 outline pixels (palette 0, same as background)
+  ##    8 eye/white pixels (palette 2)
+  ##   10 visor pixels (palette 14)
   ##
-  ## Returns the player color indices (0..7) whose body color appears
-  ## in the frame with enough pixels to indicate an actual body tint.
+  ## For each player color slot (0-7), check if its palette index has
+  ## significantly more pixels than the stable contribution alone. The
+  ## one collision is player slot 3 (palette 14 = visor color): we
+  ## handle that by checking if palette-14 count exceeds the expected
+  ## visor contribution (10 per sprite on screen).
   result = @[]
   let sprite = sprites.player
 
   # Count stable pixels per palette value in the sprite template.
+  # This gives us the known fixed contribution per sprite.
   var stableCount: array[16, int]
   for i in 0 ..< sprite.width * sprite.height:
     let px = sprite.pixels[i]
@@ -599,24 +622,30 @@ proc scanRoleRevealImposters*(
   for px in frame:
     inc frameCount[px and 0x0F]
 
-  # Determine how many sprites are on screen (estimate from non-black,
-  # non-text pixel total divided by visible pixels per sprite).
+  # Estimate how many sprites are on screen from non-black pixel total.
+  # Each sprite contributes ~63 non-black opaque pixels (123 opaque - 60
+  # black outline). Text adds ~50 pixels (white, palette 2).
   let nonBlack = FrameLen - frameCount[0]
-  # Each sprite has ~63 non-black visible pixels (123 non-transparent
-  # minus 60 black-outline pixels). Text adds ~50 pixels.
   let estSprites = max(1, (nonBlack - 50) div 63)
 
-  # Check which PlayerColors are present with sufficient pixel count.
+  # Body tint is 40 pixels per sprite. Require at least half a body
+  # (~20 pixels) above the stable contribution to count as present.
+  const TintBodyPixels = 40
+  const BodyThreshold = 20
+
   for i in 0 ..< PlayerColorCount:
-    let pc = data.PlayerColors[i]
+    let pc = PlayerColors[i]
     let count = frameCount[pc]
     if count == 0:
       continue
-    # Expected stable contribution: stableCount[pc] * number of sprites.
-    let stableContribution = stableCount[pc] * estSprites
-    # A real body tint adds ~40 TintColor pixels. Require count to
-    # exceed stable contribution by at least half a body (~20 pixels).
-    if count > stableContribution + 20:
+    # Expected stable pixels of this palette index from all sprites.
+    let stableContrib = stableCount[pc] * estSprites
+    # For the visor collision (palette 14 = player slot 3 "light blue"):
+    # stableCount[14] = 10, so stableContrib = 10 * estSprites.
+    # A light-blue imposter adds 40 MORE pixels of palette 14.
+    # Threshold of 20 catches this: 10*2 = 20 stable, actual = 60,
+    # excess = 40 > 20. Works for any number of sprites.
+    if count > stableContrib + BodyThreshold:
       result.add i
 
 # ---------------------------------------------------------------------------
@@ -644,12 +673,14 @@ proc scanAll*(
     # Preserve ghost-icon frame counter through interstitials so
     # the debounce isn't reset by a brief black gap.
     result.ghostIconFrames = prevPerception.ghostIconFrames
+    result.killIconFrames = 0
     return
 
   # 1. Role detection (HUD ghost icon / kill button).
   updateRole(
     result,
     prevPerception.ghostIconFrames,
+    prevPerception.killIconFrames,
     prevSelfState.role,
     sprites,
     frame)

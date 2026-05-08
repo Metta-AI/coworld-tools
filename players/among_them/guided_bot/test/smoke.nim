@@ -14,8 +14,10 @@
 import std/strutils
 import ../constants
 import ../types
+import ../belief
 import ../bot
 import ../mode_registry
+import ../tuning
 
 proc fail(msg: string) =
   stderr.writeLine "FAIL: ", msg
@@ -88,6 +90,26 @@ proc main() =
   if b.belief.directive.mode != ModeTaskCompleting:
     fail "ghost override should force ModeTaskCompleting, got " &
       $b.belief.directive.mode
+
+  # Failed-kill teammate inference promotes after repeated evidence.
+  var inf = initBelief()
+  inf.self.role = RoleImposter
+  inf.self.colorIndex = 4
+  var promoted = false
+  var count = 0
+  for _ in 0 ..< FailedKillImposterConfirmStrikes:
+    let r = recordFailedKillSuspect(inf, 6)
+    count = r.count
+    promoted = r.promoted
+  if count != FailedKillImposterConfirmStrikes:
+    fail "failed-kill inference count expected " &
+      $FailedKillImposterConfirmStrikes & ", got " & $count
+  if not promoted:
+    fail "failed-kill inference should promote target after threshold"
+  if 6 notin inf.self.knownImposterColors:
+    fail "failed-kill inference should add target to knownImposterColors"
+  if inf.memory.perPlayer[6].role != RoleImposter:
+    fail "failed-kill inference should mark memory role as imposter"
 
   echo "OK"
 

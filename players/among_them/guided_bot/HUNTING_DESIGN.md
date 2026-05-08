@@ -4,9 +4,9 @@
 > design details live here; `DESIGN.md` contains only a brief overview and
 > cross-reference.
 >
-> **Implementation:** `modes/hunting.nim` (300 LOC)
+> **Implementation:** `modes/hunting.nim`
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-08
 
 ---
 
@@ -101,13 +101,18 @@ exclude known fellow imposters (`belief.self.knownImposterColors`).
 This filtered list (`crewmatesOnly`) is used for both witness counting
 and target selection. Known imposter colors are detected from the
 role-reveal interstitial during the pre-game phase (see `bot.nim`
-role-reveal scan).
+role-reveal scan), and can also be inferred after repeated failed
+close-range strikes where the kill button remains ready and no body
+appears.
 
 Consequences:
 - Fellow imposters are never targeted.
 - Fellow imposters don't count as witnesses (seeing your partner
   near the target doesn't prevent a kill).
 - `witnessCount` reflects only actual crewmates visible.
+
+Known-imposter evidence is additive. The bot never removes colours from
+`knownImposterColors` during a match.
 
 ### 4.1 Preferred target path
 
@@ -178,22 +183,25 @@ the action layer handle the button.
 
 On subsequent ticks after a strike (while `huntStrikeTick >= 0`):
 
-- If `belief.tick - huntStrikeTick <= HuntKillConfirmTicks` (12 ticks,
-  ~0.5s):
+- If `belief.tick - huntStrikeTick <= HuntKillConfirmTicks`:
   - **Body check:** Is there a new body within `HuntKillConfirmRadius`
     (30 px) of the strike target's position? Uses
     `bodyNearTarget()` which checks if `visibleBodies.len >
     preStrikeCount` and any body's world position is within radius.
   - **Cooldown check:** Did `killReady` go from true to false?
     (`huntPreStrikeKillReady and not belief.percep.killReady`)
-  - **Confirmed** when BOTH signals fire: sets `huntKillConfirmed =
-    true` (for trace), clears strike and target state, falls through
-    to cover patrol.
+  - **Confirmed** when the cooldown resets: sets `huntKillConfirmed =
+    true` (for trace), clears strike and target state, and enters the
+    post-kill alibi phase. A body near the strike point also sends the
+    bot into post-kill behavior, even if the cooldown edge was missed.
   - **Waiting:** If not yet confirmed, returns `DisciplineKillStrike`
     aimed at the strike target position (stays close in case kill
     didn't land).
-- If the confirm window expires without both signals: **missed**. Clears
-  `huntStrikeTick`, resumes normal decision cascade.
+- If the strike commit window expires with `killReady` still lit and no
+  body near the target: **failed kill**. The mode records the target
+  colour in scratch; `bot.nim` increments that colour's failed-kill
+  evidence counter and, after the configured threshold, adds it to
+  `knownImposterColors`.
 
 ### 6.3 KillStrikeRange
 
@@ -211,9 +219,9 @@ constant is local/non-exported (action-layer concern) while the hunting
 mode needs to independently detect the range threshold for its
 confirmation logic.
 
-### 6.4 Why body + cooldown together
+### 6.4 Why body and cooldown are paired
 
-Using body-appearance AND cooldown-reset avoids false positives:
+Using body-appearance and cooldown-reset avoids false positives:
 
 - A crewmate walking off-screen would fool a naive "visible crewmate
   count decreased" check.
