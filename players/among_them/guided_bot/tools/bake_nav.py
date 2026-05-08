@@ -130,14 +130,41 @@ def astar(wm: np.ndarray, sx: int, sy: int, gx: int, gy: int
 # ---------------------------------------------------------------------------
 
 
-def simplify_path(path: list[tuple[int, int]],
-                  max_deviation: float = 1.5) -> list[tuple[int, int]]:
-    """Douglas-Peucker simplification to reduce storage.
+def _segment_walkable(wm: np.ndarray, x0: int, y0: int,
+                      x1: int, y1: int) -> bool:
+    """Check that every pixel on the line from (x0,y0) to (x1,y1) is walkable.
 
-    Keeps all points where the simplified line deviates more than
-    max_deviation pixels from the original. With max_deviation=1.5,
-    the simplified path stays within 1.5px of the exact A* path — well
-    within the bot's steering tolerance.
+    Uses Bresenham-style stepping so no pixel is skipped. This prevents
+    path simplification from creating segments that cut through walls.
+    """
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    steps = max(dx, dy)
+    if steps == 0:
+        return wm[y0, x0] != 0
+    for i in range(steps + 1):
+        t = i / steps
+        x = int(round(x0 + t * (x1 - x0)))
+        y = int(round(y0 + t * (y1 - y0)))
+        if x < 0 or y < 0 or x >= MAP_WIDTH or y >= MAP_HEIGHT:
+            return False
+        if wm[y, x] == 0:
+            return False
+    return True
+
+
+def simplify_path(path: list[tuple[int, int]],
+                  max_deviation: float = 1.5,
+                  wm: np.ndarray | None = None) -> list[tuple[int, int]]:
+    """Wall-aware Douglas-Peucker simplification.
+
+    Keeps all points where either:
+    - The simplified line deviates more than max_deviation pixels, OR
+    - The straight-line segment between endpoints crosses a wall pixel.
+
+    The second condition prevents the common failure mode where a path
+    hugs a wall (1px deviation) and gets collapsed into a segment that
+    cuts through the wall.
     """
     if len(path) <= 2:
         return path
@@ -164,11 +191,18 @@ def simplify_path(path: list[tuple[int, int]],
             max_dist = dist
             max_idx = i
 
+    # Only collapse if geometry is within tolerance AND the segment is
+    # fully walkable (no wall pixels on the straight line).
     if max_dist <= max_deviation:
-        return [path[0], path[-1]]
+        if wm is None or _segment_walkable(wm, sx, sy, ex, ey):
+            return [path[0], path[-1]]
+        # Wall crossing detected — must subdivide even though geometry
+        # is within tolerance. Split at the midpoint of the path to
+        # force retention of intermediate waypoints.
+        max_idx = len(path) // 2
 
-    left = simplify_path(path[:max_idx + 1], max_deviation)
-    right = simplify_path(path[max_idx:], max_deviation)
+    left = simplify_path(path[:max_idx + 1], max_deviation, wm)
+    right = simplify_path(path[max_idx:], max_deviation, wm)
     return left[:-1] + right
 
 
@@ -210,8 +244,8 @@ def main() -> int:
             # Store empty path
             paths.append((edge["src"], edge["dst"], []))
         else:
-            # Simplify for storage
-            simplified = simplify_path(path, max_deviation=1.0)
+            # Simplify for storage (wall-aware to prevent segments crossing walls)
+            simplified = simplify_path(path, max_deviation=1.0, wm=wm)
             paths.append((edge["src"], edge["dst"], simplified))
             total_points += len(simplified)
             # Update edge cost in graph data

@@ -239,6 +239,58 @@ done
 
 ---
 
+## Small live test
+
+A quick-turnaround match for iterating on a single feature or
+debugging. Fewer agents = faster startup, shorter logs, easier to
+visually observe via the spectator WebSocket.
+
+### Parameters
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Players | 4 | Small lobby; fast iteration |
+| Imposters | 1 | Minimum for kill/meeting dynamics |
+| Kill cooldown | 1200 ticks (~50s) | Same as tournament |
+| Vote timer | 600 ticks (~25s) | Same as tournament |
+| Duration | 180s (3 min) | Long enough for at least one kill cycle |
+| Port | 2000 | Convention for local dev |
+| Seed | 42 (default) | Reproducible |
+| Agents | All 4 slots filled by the policy under test | No filler bots |
+| Trace level | `decisions` | Per-frame mode/mask/position + events + reflexes |
+
+### Command
+
+```sh
+PYTHONPATH=among_them \
+.venv/bin/python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 4 \
+    --num-players 4 \
+    --imposter-count 1 \
+    --port 2000 \
+    --duration 180 \
+    --seed 42 \
+    --trace-dir among_them/guided_bot/traces \
+    --trace-level decisions
+```
+
+### Quick summary script
+
+```sh
+for i in $(seq 0 3); do
+  session=$(ls among_them/guided_bot/traces/bot_$i/ | head -1)
+  dir="among_them/guided_bot/traces/bot_$i/$session"
+  python3 -c "
+import json
+m = json.load(open('$dir/manifest.json'))
+print(f'Bot $i [{m.get(\"role\",\"?\")}] end_tick={m.get(\"end_tick\",0)}')
+"
+done
+```
+
+---
+
 ## Temporary verification notes
 
 > Remove each item once its condition is resolved.
