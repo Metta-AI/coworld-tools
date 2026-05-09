@@ -6,7 +6,7 @@
       "palette": "/Users/jamesboggs/coding/bitworld/clients/data/pallete.png",
       "map_json": "/Users/jamesboggs/coding/bitworld/among_them/map.json",
       "map_aseprite": "/Users/jamesboggs/coding/bitworld/among_them/skeld2.aseprite",
-      "spritesheet_png": "/Users/jamesboggs/coding/bitworld/among_them/spritesheet.png",
+      "spritesheet": "/Users/jamesboggs/coding/bitworld/among_them/spritesheet.aseprite",
       "font_aseprite": "/Users/jamesboggs/coding/bitworld/among_them/tiny5.aseprite"
     }
   },
@@ -39,7 +39,7 @@
     {
       "name": "sprites.bin",
       "size": 864,
-      "sha256": "3F4E20180D286DD1B8FD1FB3435C77CC899E1854"
+      "sha256": "634576D34BAA5E09B8715ECC43A34CEFFB13701D"
     },
     {
       "name": "map_pixels.bin",

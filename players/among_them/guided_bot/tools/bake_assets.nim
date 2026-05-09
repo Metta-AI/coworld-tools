@@ -7,7 +7,8 @@
 ##   - ``$BITWORLD_DIR/clients/data/pallete.png``  (16-entry palette)
 ##   - ``$BITWORLD_DIR/among_them/map.json``       (map metadata)
 ##   - ``$BITWORLD_DIR/among_them/skeld2.aseprite`` (3 layers: map/walk/walls)
-##   - ``$BITWORLD_DIR/among_them/spritesheet.png`` (the 12×12 sprite atlas)
+##   - ``$BITWORLD_DIR/among_them/spritesheet.aseprite`` (the 12×12 sprite atlas;
+##     preferred when present, with ``spritesheet.png`` as fallback)
 ##   - ``$BITWORLD_DIR/among_them/tiny5.aseprite``  (variable-width pixel font)
 ##
 ## Writes (under ``among_them/guided_bot/perception/baked/``):
@@ -234,7 +235,13 @@ proc bakeSprites(spritesheetPath: string): BakedFile =
   ## consumes, in :data:`SpriteColumns` order. Each sprite is encoded
   ## as palette-indexed bytes with ``TransparentColorIndex`` (=255)
   ## for transparency.
-  let img = readImage(spritesheetPath)
+  # Prefer Aseprite because the live server renders from it; PNG exports
+  # can lag behind upstream sprite edits.
+  let img =
+    if spritesheetPath.endsWith(".aseprite"):
+      readAsepriteImage(spritesheetPath)
+    else:
+      readImage(spritesheetPath)
   doAssert img.height >= SpriteSize,
     spritesheetPath & " height " & $img.height & " < " & $SpriteSize
   let stride = SpriteSize * SpriteSize
@@ -339,14 +346,20 @@ proc main() =
   let palettePath  = bitworldDir / "clients" / "data" / "pallete.png"
   let mapJsonPath  = bitworldDir / "among_them" / "map.json"
   let mapAseprite  = bitworldDir / "among_them" / "skeld2.aseprite"
-  let spritesPath  = bitworldDir / "among_them" / "spritesheet.png"
+  let spritesAsepritePath = bitworldDir / "among_them" / "spritesheet.aseprite"
+  let spritesPngPath = bitworldDir / "among_them" / "spritesheet.png"
+  let spritesPath =
+    if fileExists(spritesAsepritePath):
+      spritesAsepritePath
+    else:
+      spritesPngPath
   let fontPath     = bitworldDir / "among_them" / "tiny5.aseprite"
 
   for label, path in {
       "palette": palettePath,
       "map.json": mapJsonPath,
       "skeld2.aseprite": mapAseprite,
-      "spritesheet.png": spritesPath,
+      "spritesheet": spritesPath,
       "tiny5.aseprite": fontPath}.items:
     if not fileExists(path):
       stderr.writeLine &"FATAL: missing upstream {label} at {path}"
@@ -375,7 +388,7 @@ proc main() =
         "palette":         palettePath,
         "map_json":        mapJsonPath,
         "map_aseprite":    mapAseprite,
-        "spritesheet_png": spritesPath,
+        "spritesheet":     spritesPath,
         "font_aseprite":   fontPath
       }
     },
