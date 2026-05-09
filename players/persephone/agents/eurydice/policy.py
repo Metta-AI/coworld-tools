@@ -17,10 +17,13 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import argparse, signal, struct, threading, traceback  # noqa: E402
+from datetime import datetime  # noqa: E402
 from pathlib import Path  # noqa: E402
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit  # noqa: E402
 import websocket  # noqa: E402
 
+from agents.eurydice.frame_recorder import FrameRecorder
+from agents.eurydice.log import set_logger
 from agents.eurydice.meta_decide import meta_decide
 from agents.eurydice.advanced_modes import (
     CheckInfoScreenMode,
@@ -81,14 +84,24 @@ def build_registry() -> ModeRegistry:
     registry.register("check_info_screen", CheckInfoScreenMode)
     return registry
 
-def run(*, url: str, name: str, log_level: str = "events") -> int:
+def run(
+    *,
+    url: str,
+    name: str,
+    log_level: str = "events",
+    record_frames: str | None = None,
+) -> int:
     stop_event = threading.Event()
     ws = None
     outer_loop = None
+    recorder = None
     old_sigint = signal.signal(signal.SIGINT, lambda *_: stop_event.set())
     old_sigterm = signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
     try:
         logger = Logger(level=log_level, sink=sys.stdout.write)
+        set_logger(logger)
+        if record_frames is not None:
+            recorder = FrameRecorder(_frame_recording_path(record_frames, name))
         def send_input(mask):
             assert ws is not None
             ws.send(struct.pack("BB", 0x00, mask & 0xFF), opcode=0x2)
@@ -127,6 +140,8 @@ def run(*, url: str, name: str, log_level: str = "events") -> int:
                 break
             if not isinstance(data, bytes) or len(data) != PROTOCOL_BYTES:
                 continue
+            if recorder is not None:
+                recorder.record(pipeline.belief_state.tick + 1, data)
             pipeline.tick(unpack_frame(data))
         return 0
     except KeyboardInterrupt:
@@ -136,19 +151,33 @@ def run(*, url: str, name: str, log_level: str = "events") -> int:
         return 1
     finally:
         if outer_loop: outer_loop.stop()
+        if recorder:
+            recorder.close()
+        set_logger(None)
         if ws:
             try: ws.close()
             except Exception: pass
         signal.signal(signal.SIGINT, old_sigint)
         signal.signal(signal.SIGTERM, old_sigterm)
 
+def _frame_recording_path(directory: str, name: str) -> Path:
+    safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in name)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Path(directory) / f"{safe_name}_{timestamp}.frames"
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Eurydice agent")
     parser.add_argument("--url", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--log-level", default="events", choices=("off","events","decisions","verbose"))
+    parser.add_argument("--record-frames", metavar="DIR", default=None)
     args = parser.parse_args()
-    return run(url=args.url, name=args.name, log_level=args.log_level)
+    return run(
+        url=args.url,
+        name=args.name,
+        log_level=args.log_level,
+        record_frames=args.record_frames,
+    )
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from orpheus.logging import LogLevel
+
 from agents.eurydice.knowledge import PlayerKnowledge
 from agents.eurydice.types import PlayerID, Role, RoleSource, Team, Urgency
+
+from .log import logger
 
 
 @dataclass
@@ -27,6 +31,7 @@ class DeceptionState:
     target_audience: set[PlayerID] = field(default_factory=set)
     lies_told: list[LieRecord] = field(default_factory=list)
     cover_consistent: bool = True
+    cover_blown_logged: bool = False
 
 
 def should_deceive(
@@ -39,12 +44,23 @@ def should_deceive(
     del target_knowledge  # Reserved for later target-specific risk checks.
 
     if my_role in {Role.SHADE, Role.NYMPH, Role.SPY}:
-        return True
-    if my_role in {Role.HADES, Role.PERSEPHONE}:
-        return urgency is Urgency.PANIC
-    if my_role in {Role.CERBERUS, Role.DEMETER}:
-        return urgency in {Urgency.PRESSING, Urgency.PANIC}
-    return False
+        decision, reason = True, "grunt_or_spy_role"
+    elif my_role in {Role.HADES, Role.PERSEPHONE}:
+        decision = urgency is Urgency.PANIC
+        reason = "primary_key_role_panic" if decision else "primary_key_role_not_panic"
+    elif my_role in {Role.CERBERUS, Role.DEMETER}:
+        decision = urgency in {Urgency.PRESSING, Urgency.PANIC}
+        reason = "partner_key_role_urgent" if decision else "partner_key_role_calm"
+    else:
+        decision, reason = False, "unknown_or_non_deceptive_role"
+
+    if logger:
+        logger.event(
+            "deception_decision",
+            {"should_deceive": decision, "reason": reason},
+            LogLevel.DECISIONS,
+        )
+    return decision
 
 
 def record_lie(
@@ -56,7 +72,8 @@ def record_lie(
 ) -> None:
     """Record a lie and mark the target as part of our deceived audience."""
 
-    if not check_consistency(state, claim, target_id):
+    consistent = check_consistency(state, claim, target_id)
+    if not consistent:
         state.cover_consistent = False
 
     state.lies_told.append(
@@ -69,6 +86,18 @@ def record_lie(
     )
     if target_id is not None:
         state.target_audience.add(target_id)
+
+    if logger:
+        logger.event(
+            "lie_recorded",
+            {
+                "target": _player_id_value(target_id),
+                "lie_type": _lie_type(claim),
+                "content": claim,
+                "consistent": consistent,
+            },
+            LogLevel.DECISIONS,
+        )
 
 
 def check_consistency(
@@ -116,7 +145,16 @@ def is_cover_blown(
     """
 
     del knowledge_base
-    return not deception_state.cover_consistent
+    blown = not deception_state.cover_consistent
+    if blown and not deception_state.cover_blown_logged:
+        deception_state.cover_blown_logged = True
+        if logger:
+            logger.event(
+                "cover_blown",
+                {"reason": "inconsistent_lie_record"},
+                LogLevel.DECISIONS,
+            )
+    return blown
 
 
 def spy_should_accept_role_exchange(
@@ -159,3 +197,21 @@ def _claim_applies_to_target(lie: LieRecord, target_id: PlayerID | None) -> bool
     if target_id is None:
         return True
     return lie.target_id == target_id
+
+
+def _lie_type(claim: str) -> str:
+    text = _normalize_claim(claim)
+    role_names = {role.name for role in Role}
+    if any(role_name in text for role_name in role_names):
+        return "role"
+    if "SHADES" in text or "NYMPHS" in text:
+        return "team"
+    if "I AM" in text or "IM " in text or text.startswith("IM"):
+        return "identity"
+    return "statement"
+
+
+def _player_id_value(player_id: PlayerID | None) -> list[int] | None:
+    if player_id is None:
+        return None
+    return [int(player_id[0]), int(player_id[1])]

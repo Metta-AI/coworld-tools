@@ -6,8 +6,10 @@ from collections.abc import Callable
 
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.logging import LogLevel
 from orpheus.mode import ModeDirective, ModeParams
 
+from .log import logger
 from .strategic_state import StrategicState
 from .types import PlayerID, Role, Team, Urgency
 
@@ -27,22 +29,22 @@ def evaluate_hades(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _directive("time_waste")
+        return _branch("hades", "final_partner_unreachable->time_waste", "time_waste")
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _directive("probe_target")
+            return _branch("hades", "partner_in_room->probe_target", "probe_target")
         if _partner_in_other_room(state):
-            return _directive("seek_leadership")
+            return _branch("hades", "partner_in_other_room->seek_leadership", "seek_leadership")
         if not state.key_partner_found:
-            return _directive("probe_systematic")
+            return _branch("hades", "partner_unknown->probe_systematic", "probe_systematic")
     else:
         if _enemy_key_unknown(state):
-            return _directive("probe_systematic")
+            return _branch("hades", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
         if _enemy_key_in_room(state):
-            return _directive("hold_position")
+            return _branch("hades", "exchange_done+enemy_in_room->hold_position", "hold_position")
         if _enemy_key_in_other_room(state):
-            return _directive("coordinate_cross_room")
-    return _directive("scout")
+            return _branch("hades", "exchange_done+enemy_in_other_room->coordinate_cross_room", "coordinate_cross_room")
+    return _branch("hades", "fallback->scout", "scout")
 
 
 def evaluate_cerberus(
@@ -51,19 +53,19 @@ def evaluate_cerberus(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _directive("time_waste")
+        return _branch("cerberus", "final_partner_unreachable->time_waste", "time_waste")
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _directive("probe_target")
+            return _branch("cerberus", "partner_in_room->probe_target", "probe_target")
         if _partner_in_other_room(state):
-            return _directive("coordinate_cross_room")
+            return _branch("cerberus", "partner_in_other_room->coordinate_cross_room", "coordinate_cross_room")
         if not state.key_partner_found:
-            return _directive("probe_systematic")
+            return _branch("cerberus", "partner_unknown->probe_systematic", "probe_systematic")
     else:
         if _enemy_key_unknown(state):
-            return _directive("probe_systematic")
-        return _directive("hold_position")
-    return _directive("scout")
+            return _branch("cerberus", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
+        return _branch("cerberus", "exchange_done->hold_position", "hold_position")
+    return _branch("cerberus", "fallback->scout", "scout")
 
 
 def evaluate_persephone(
@@ -72,24 +74,24 @@ def evaluate_persephone(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _directive("time_waste")
+        return _branch("persephone", "final_partner_unreachable->time_waste", "time_waste")
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _directive("probe_target")
+            return _branch("persephone", "partner_in_room->probe_target", "probe_target")
         if _partner_in_other_room(state):
-            return _directive("hold_position")
+            return _branch("persephone", "partner_in_other_room->hold_position", "hold_position")
         if not state.key_partner_found:
-            return _directive("probe_systematic")
+            return _branch("persephone", "partner_unknown->probe_systematic", "probe_systematic")
     else:
         if _enemy_key_in_room(state) and state.enemy_key_exchange_likely:
-            return _directive("coordinate_cross_room")
+            return _branch("persephone", "exchange_done+enemy_in_room+enemy_exchange_likely->coordinate_cross_room", "coordinate_cross_room")
         if _enemy_key_in_room(state):
-            return _directive("hold_position")
+            return _branch("persephone", "exchange_done+enemy_in_room->hold_position", "hold_position")
         if _enemy_key_unknown(state):
-            return _directive("hold_position")
+            return _branch("persephone", "exchange_done+enemy_unknown->hold_position", "hold_position")
         if _enemy_key_in_other_room(state):
-            return _directive("hold_position")
-    return _directive("scout")
+            return _branch("persephone", "exchange_done+enemy_in_other_room->hold_position", "hold_position")
+    return _branch("persephone", "fallback->scout", "scout")
 
 
 def evaluate_demeter(
@@ -98,19 +100,19 @@ def evaluate_demeter(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _directive("time_waste")
+        return _branch("demeter", "final_partner_unreachable->time_waste", "time_waste")
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _directive("probe_target")
+            return _branch("demeter", "partner_in_room->probe_target", "probe_target")
         if _partner_in_other_room(state):
-            return _directive("coordinate_cross_room")
+            return _branch("demeter", "partner_in_other_room->coordinate_cross_room", "coordinate_cross_room")
         if not state.key_partner_found:
-            return _directive("probe_systematic")
+            return _branch("demeter", "partner_unknown->probe_systematic", "probe_systematic")
     else:
         if _enemy_key_unknown(state):
-            return _directive("probe_systematic")
-        return _directive("hold_position")
-    return _directive("scout")
+            return _branch("demeter", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
+        return _branch("demeter", "exchange_done->hold_position", "hold_position")
+    return _branch("demeter", "fallback->scout", "scout")
 
 
 def evaluate_shade(
@@ -119,12 +121,12 @@ def evaluate_shade(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _room_composition_unknown(state):
-        return _directive("probe_systematic")
+        return _branch("shade", "room_composition_unknown->probe_systematic", "probe_systematic")
     if state.am_leader and _key_roles_need_help(state):
-        return _directive("hold_position")
+        return _branch("shade", "leader+key_roles_need_help->hold_position", "hold_position")
     if _hostile_leader(state):
-        return _directive("seek_leadership")
-    return _directive("probe_systematic")
+        return _branch("shade", "hostile_leader->seek_leadership", "seek_leadership")
+    return _branch("shade", "default_support_probe->probe_systematic", "probe_systematic")
 
 
 def evaluate_nymph(
@@ -133,10 +135,10 @@ def evaluate_nymph(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _room_composition_unknown(state):
-        return _directive("probe_systematic")
+        return _branch("nymph", "room_composition_unknown->probe_systematic", "probe_systematic")
     if _hostile_leader_threatens_persephone(state):
-        return _directive("seek_leadership")
-    return _directive("probe_systematic")
+        return _branch("nymph", "hostile_leader_threatens_persephone->seek_leadership", "seek_leadership")
+    return _branch("nymph", "default_support_probe->probe_systematic", "probe_systematic")
 
 
 def evaluate_spy(
@@ -145,18 +147,36 @@ def evaluate_spy(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if state.verified_ally is None:
-        return _directive("probe_systematic")
+        return _branch("spy", "no_verified_ally->probe_systematic", "probe_systematic")
     if state.cover_intact:
-        return _directive("probe_systematic")
+        return _branch("spy", "cover_intact->probe_systematic", "probe_systematic")
     if state.my_team is Team.SHADES:
-        return evaluate_shade(state, belief_state, action_memory)
+        directive = evaluate_shade(state, belief_state, action_memory)
+        _log_branch("spy", "cover_blown+shades_delegate", directive.mode)
+        return directive
     if state.my_team is Team.NYMPHS:
-        return evaluate_nymph(state, belief_state, action_memory)
-    return _directive("scout")
+        directive = evaluate_nymph(state, belief_state, action_memory)
+        _log_branch("spy", "cover_blown+nymphs_delegate", directive.mode)
+        return directive
+    return _branch("spy", "unknown_team->scout", "scout")
 
 
 def _directive(mode: str) -> ModeDirective:
     return ModeDirective(mode, ModeParams())
+
+
+def _branch(role: str, branch: str, mode: str) -> ModeDirective:
+    _log_branch(role, branch, mode)
+    return _directive(mode)
+
+
+def _log_branch(role: str, branch: str, mode: str) -> None:
+    if logger:
+        logger.event(
+            "evaluator_branch",
+            {"role": role, "branch": branch, "mode": mode},
+            LogLevel.VERBOSE,
+        )
 
 
 def _partner_unreachable(state: StrategicState) -> bool:

@@ -1,13 +1,19 @@
 """Comprehensive pytest coverage for Eurydice stages 0-3."""
 from __future__ import annotations
 
+import json
+import struct
 from types import SimpleNamespace
 
 import pytest
 
 from agents.eurydice.accumulators import GlobalAccumulators, PlayerAccumulator
+from agents.eurydice.deception import DeceptionState, is_cover_blown, record_lie
 from agents.eurydice.ext_keys import *
+from agents.eurydice.evaluators import evaluate_hades
+from agents.eurydice.frame_recorder import FrameRecorder
 from agents.eurydice.knowledge import PlayerKnowledge
+from agents.eurydice.log import logger as eurydice_logger, set_logger
 from agents.eurydice.meta_decide import build_strategic_state, compute_urgency, meta_decide
 from agents.eurydice.modes import (
     ProbeSystematicMode,
@@ -29,6 +35,7 @@ from agents.eurydice.pipeline import (
     update_position_tracker,
     update_whisper_tracker,
 )
+from agents.eurydice.strategic_state import StrategicState
 from agents.eurydice.types import (
     INTERACTION_RANGE,
     Phase,
@@ -40,6 +47,7 @@ from agents.eurydice.types import (
     TrustLevel,
     Urgency,
 )
+from agents.eurydice.whisper_mode import InWhisperMode
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import (
     BeliefState,
@@ -48,6 +56,7 @@ from orpheus.belief_state import (
     PlayerInfo,
 )
 from orpheus.idle import IdleTask
+from orpheus.logging import Logger
 from orpheus.mode import ModeDirective, ModeParams
 from orpheus.perception._common import PLAYER_COLORS
 from orpheus.perception.types import Room, View
@@ -109,6 +118,177 @@ def _player_message(
     channel: str = "whisper",
 ) -> ChatMessageRecord:
     return ChatMessageRecord(sender_index, tick, channel, text)
+
+
+def _capture_eurydice_logs(level: str = "verbose") -> list[str]:
+    lines: list[str] = []
+    set_logger(Logger(level=level, sink=lines.append, clock=lambda: 0.0))
+    return lines
+
+
+def _json_events(lines: list[str]) -> list[dict]:
+    return [json.loads(line) for line in lines]
+
+
+def test_frame_recorder_binary_layout(tmp_path) -> None:
+    path = tmp_path / "eurydice.frames"
+    recorder = FrameRecorder(path)
+    recorder.record(17, b"abc")
+    recorder.close()
+
+    raw = path.read_bytes()
+    tick, length = struct.unpack("<II", raw[:8])
+    assert tick == 17
+    assert length == 3
+    assert raw[8:] == b"abc"
+
+
+def test_eurydice_logger_proxy_forwards_after_set() -> None:
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        assert eurydice_logger
+        eurydice_logger.event("proxy_test", {"value": 3}, "decisions")
+    finally:
+        set_logger(None)
+
+    assert not eurydice_logger
+    events = _json_events(lines)
+    assert events[0]["type"] == "proxy_test"
+    assert events[0]["value"] == 3
+
+
+def test_meta_decide_logs_reason_and_strategic_change() -> None:
+    belief_state = _belief_state(tick=24, my_role=None, my_team=None)
+    lines = _capture_eurydice_logs("verbose")
+    try:
+        directive, _ = meta_decide(belief_state, ActionMemory())
+        assert directive.mode == "idle"
+
+        belief_state.tick = 100
+        belief_state.my_role = "hades"
+        belief_state.my_team = "shades"
+        directive, _ = meta_decide(belief_state, ActionMemory())
+        assert directive.mode in {"probe_systematic", "scout"}
+    finally:
+        set_logger(None)
+
+    events = _json_events(lines)
+    reason_events = [event for event in events if event["type"] == "meta_decide_reason"]
+    assert reason_events[0]["reason"] == "no_role"
+    assert reason_events[-1]["reason"] == "evaluator"
+
+    changes = [event for event in events if event["type"] == "strategic_state_change"]
+    assert changes
+    assert changes[-1]["my_role"] == "hades"
+
+
+def test_strategic_change_ignores_game_elapsed_only() -> None:
+    belief_state = _belief_state(
+        tick=24,
+        view=View.LOBBY,
+        round=0,
+        my_role=None,
+        my_team=None,
+    )
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        meta_decide(belief_state, ActionMemory())
+        belief_state.tick = 25
+        meta_decide(belief_state, ActionMemory())
+    finally:
+        set_logger(None)
+
+    changes = [
+        event
+        for event in _json_events(lines)
+        if event["type"] == "strategic_state_change"
+    ]
+    assert changes == []
+
+
+def test_inference_logging_only_when_value_changes() -> None:
+    belief_state, _accumulators, knowledge = _initialized_state()
+    belief_state.players[1] = PlayerInfo(team="shades", role="hades")
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        run_hard_inferences(knowledge, belief_state)
+        first_count = sum(
+            1 for event in _json_events(lines) if event["type"] == "inference_fired"
+        )
+        run_hard_inferences(knowledge, belief_state)
+        second_count = sum(
+            1 for event in _json_events(lines) if event["type"] == "inference_fired"
+        )
+    finally:
+        set_logger(None)
+
+    assert first_count >= 2
+    assert second_count == first_count
+
+
+def test_deception_logs_lies_and_cover_blown_once() -> None:
+    state = DeceptionState()
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        record_lie(state, (1, 2), "I AM HADES", "whisper", 1)
+        record_lie(state, (1, 2), "I AM NYMPH", "whisper", 2)
+        assert is_cover_blown(state, None)
+        assert is_cover_blown(state, None)
+    finally:
+        set_logger(None)
+
+    events = _json_events(lines)
+    assert sum(1 for event in events if event["type"] == "lie_recorded") == 2
+    assert sum(1 for event in events if event["type"] == "cover_blown") == 1
+    assert events[-1]["reason"] == "inconsistent_lie_record"
+
+
+def test_evaluator_branch_logged_at_verbose_level() -> None:
+    state = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        my_room=Room.UNDERWORLD,
+        key_partner_found=True,
+        key_partner_room=Room.UNDERWORLD,
+        round_schedule=[(15, 1), (15, 1), (15, 1)],
+    )
+    lines = _capture_eurydice_logs("verbose")
+    try:
+        directive = evaluate_hades(state, BeliefState(), ActionMemory())
+    finally:
+        set_logger(None)
+
+    assert directive.mode == "probe_target"
+    events = _json_events(lines)
+    branch = next(event for event in events if event["type"] == "evaluator_branch")
+    assert branch["role"] == "hades"
+    assert branch["branch"] == "partner_in_room->probe_target"
+
+
+def test_whisper_fsm_and_protocol_logging() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+    )
+    mode = InWhisperMode()
+    mode.mode_enter(belief_state, ActionMemory())
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        mode.select_task(belief_state, ActionMemory())
+        mode.select_task(belief_state, ActionMemory())
+    finally:
+        set_logger(None)
+
+    events = _json_events(lines)
+    assert any(event["type"] == "whisper_fsm_transition" for event in events)
+    protocol = next(
+        event for event in events if event["type"] == "whisper_protocol_selected"
+    )
+    assert protocol["protocol"] == "standard"
+    assert protocol["reason"] == "unknown_target_color_exchange"
 
 
 

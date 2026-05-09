@@ -7,6 +7,7 @@ from typing import Any
 
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import BeliefState
+from orpheus.logging import LogLevel
 from orpheus.mode import ModeDirective, ModeParams
 from orpheus.perception.types import View
 
@@ -23,6 +24,7 @@ from .ext_keys import (
 )
 from .evaluators import ROLE_EVALUATORS
 from .knowledge import PlayerKnowledge
+from .log import logger
 from .pipeline import _parse_role_string, _parse_team_string, player_index_to_id
 from .strategic_state import StrategicState
 from .types import Phase, PlayerID, Role, Team, Urgency
@@ -31,6 +33,7 @@ TICKS_PER_SECOND = 24
 MIN_MODE_DURATION_TICKS = 48
 DEFAULT_ROUND_TICKS = 15 * TICKS_PER_SECOND
 DEFAULT_ROUND_COUNT = 3
+_PREV_STRATEGIC_KEY = "_eurydice_prev_strategic"
 
 def meta_decide(
     belief_state: BeliefState,
@@ -39,21 +42,35 @@ def meta_decide(
     """Select the next mode directive from the current belief snapshot."""
     state = build_strategic_state(belief_state)
     mode_complete = bool(belief_state.extra.pop(MODE_COMPLETE, False))
+    current_mode = _last_mode(belief_state)
+    ticks_in_mode = belief_state.tick - _last_tick(belief_state)
 
     override = _phase_override(belief_state)
     if override is not None:
-        return _finish(override, state, belief_state)
-
-    current_mode = _last_mode(belief_state)
+        return _finish(
+            override,
+            state,
+            belief_state,
+            reason="phase_override",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
 
     if (
         not mode_complete
         and current_mode == "in_whisper"
         and belief_state.view is View.WHISPER
     ):
-        return _finish(_directive(current_mode), state, belief_state)
-
-    ticks_in_mode = belief_state.tick - _last_tick(belief_state)
+        return _finish(
+            _directive(current_mode),
+            state,
+            belief_state,
+            reason="whisper_hold",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
 
     if (
         not mode_complete
@@ -61,10 +78,26 @@ def meta_decide(
         and ticks_in_mode < MIN_MODE_DURATION_TICKS
         and not _critical_override(state, belief_state.inferences)
     ):
-        return _finish(_directive(current_mode), state, belief_state)
+        return _finish(
+            _directive(current_mode),
+            state,
+            belief_state,
+            reason="min_duration_hold",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
 
     if state.my_role is None:
-        return _finish(_directive("idle"), state, belief_state)
+        return _finish(
+            _directive("idle"),
+            state,
+            belief_state,
+            reason="no_role",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
 
     evaluator = ROLE_EVALUATORS.get(state.my_role.name.lower())
     directive = (
@@ -72,7 +105,15 @@ def meta_decide(
         if evaluator
         else _directive("idle")
     )
-    return _finish(directive, state, belief_state)
+    return _finish(
+        directive,
+        state,
+        belief_state,
+        reason="evaluator",
+        evaluator=state.my_role.name.lower() if evaluator else None,
+        mode_complete=mode_complete,
+        ticks_in_mode=ticks_in_mode,
+    )
 
 
 def build_strategic_state(belief_state: BeliefState) -> StrategicState:
@@ -104,6 +145,7 @@ def build_strategic_state(belief_state: BeliefState) -> StrategicState:
         or _enemy_exchange_likely_from_flags(state, knowledge)
     )
 
+    _log_strategic_state(belief_state, state)
     return state
 
 
@@ -157,7 +199,19 @@ def _finish(
     directive: ModeDirective,
     state: StrategicState,
     belief_state: BeliefState,
+    *,
+    reason: str,
+    evaluator: str | None,
+    mode_complete: bool,
+    ticks_in_mode: int,
 ) -> tuple[ModeDirective, dict | None]:
+    _log_meta_decide_reason(
+        directive,
+        reason=reason,
+        evaluator=evaluator,
+        mode_complete=mode_complete,
+        ticks_in_mode=ticks_in_mode,
+    )
     inferences = dict(belief_state.inferences)
     inferences.update(
         {
@@ -167,6 +221,8 @@ def _finish(
             LAST_PARTNER_FOUND: state.key_partner_found,
         }
     )
+    if _PREV_STRATEGIC_KEY in belief_state.extra:
+        inferences[_PREV_STRATEGIC_KEY] = belief_state.extra[_PREV_STRATEGIC_KEY]
 
     last_mode, last_tick = _last_mode(belief_state), _last_tick(belief_state)
     if last_mode != directive.mode:
@@ -413,6 +469,107 @@ def _to_ticks(value: int) -> int:
 
 def _directive(mode: str) -> ModeDirective:
     return ModeDirective(mode, ModeParams())
+
+
+def _log_meta_decide_reason(
+    directive: ModeDirective,
+    *,
+    reason: str,
+    evaluator: str | None,
+    mode_complete: bool,
+    ticks_in_mode: int,
+) -> None:
+    if logger:
+        logger.event(
+            "meta_decide_reason",
+            {
+                "reason": reason,
+                "mode": directive.mode,
+                "evaluator": evaluator,
+                "mode_complete": bool(mode_complete),
+                "ticks_in_mode": int(ticks_in_mode),
+            },
+            LogLevel.VERBOSE if reason == "min_duration_hold" else LogLevel.DECISIONS,
+        )
+
+
+def _log_strategic_state(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> None:
+    snapshot = _strategic_log_snapshot(belief_state, state)
+    tick = getattr(belief_state, "tick", 0)
+
+    if logger and isinstance(tick, int) and tick % TICKS_PER_SECOND == 0:
+        logger.event(
+            "strategic_state_snapshot",
+            snapshot,
+            LogLevel.VERBOSE,
+        )
+
+    previous = belief_state.extra.get(
+        _PREV_STRATEGIC_KEY,
+        belief_state.inferences.get(_PREV_STRATEGIC_KEY),
+    )
+    if isinstance(previous, dict):
+        changed = {
+            key: value
+            for key, value in snapshot.items()
+            if key != "game_elapsed_ticks" and previous.get(key) != value
+        }
+        if changed and logger:
+            logger.event(
+                "strategic_state_change",
+                changed,
+                LogLevel.DECISIONS,
+            )
+
+    belief_state.extra[_PREV_STRATEGIC_KEY] = snapshot
+
+
+def _strategic_log_snapshot(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> dict[str, object]:
+    return {
+        "my_role": _name(state.my_role),
+        "my_team": _name(state.my_team),
+        "my_room": _name(state.my_room),
+        "key_partner_found": state.key_partner_found,
+        "key_exchange_done": state.key_exchange_done,
+        "partner_location": _name(state.key_partner_room),
+        "enemy_key_location": _name(state.enemy_key_role_room),
+        "urgency": _name(state.urgency),
+        "game_elapsed_ticks": _game_elapsed_ticks(belief_state, state),
+        "round_number": state.current_round,
+    }
+
+
+def _game_elapsed_ticks(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> int:
+    durations = _round_durations(state.round_schedule)
+    tick = getattr(belief_state, "tick", 0)
+    if state.current_round <= 0 or not durations:
+        return tick if isinstance(tick, int) else 0
+
+    round_index = min(max(state.current_round - 1, 0), len(durations) - 1)
+    round_duration = max(durations[round_index], 1)
+    remaining = max(0, min(state.ticks_remaining_in_phase, round_duration))
+    return sum(durations[:round_index]) + round_duration - remaining
+
+
+def _name(value: object) -> str | None:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str):
+        return raw
+    return str(value)
 
 
 def _knowledge(belief_state: BeliefState) -> dict[PlayerID, PlayerKnowledge]:

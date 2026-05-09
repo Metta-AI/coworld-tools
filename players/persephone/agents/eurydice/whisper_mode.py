@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from orpheus.idle import IdleTask
+from orpheus.logging import LogLevel
 from orpheus.mode import Mode, ModeDirective, ModeParams
 from orpheus.perception.types import View
 from orpheus.task import Task
@@ -28,12 +29,15 @@ from agents.eurydice.pipeline import player_index_to_id
 from agents.eurydice.types import PROTOCOL_TIMEOUTS, PlayerID, Role, Team
 from agents.eurydice.whisper_state import WhisperModeState
 
+from .log import logger
+
 
 ACTION_COOLDOWN_TICKS = 48
 OFFER_RESPONSE_TIMEOUT_TICKS = 72
 EXTRACT_TIMEOUT_TICKS = 96
 STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
+_WHISPER_EXIT_LOGGED = "_eurydice_whisper_exit_logged"
 
 SENSITIVE_ENTRY_STATES = frozenset({"COLOR_EXCHANGE", "ROLE_EXCHANGE", "EXTRACT", "EXIT"})
 VALID_FSM_STATES = frozenset(
@@ -58,15 +62,33 @@ class InWhisperMode(Mode):
     def select_task(self, belief_state, action_memory) -> Task | None:
         del action_memory
 
+        raw_state = belief_state.extra.get(WHISPER_MODE_STATE)
+        old_fsm_state = (
+            raw_state.fsm_state
+            if isinstance(raw_state, WhisperModeState)
+            else None
+        )
         state = _whisper_state(belief_state)
         tick = _tick(belief_state)
+        if old_fsm_state is None:
+            old_fsm_state = state.fsm_state
 
+        task = self._select_task_impl(belief_state, state, tick)
+        _log_fsm_transition(belief_state, state, old_fsm_state)
+        return task
+
+    def _select_task_impl(
+        self,
+        belief_state,
+        state: WhisperModeState,
+        tick: int,
+    ) -> Task | None:
         if _forced_ejected(belief_state, state):
-            _complete_mode(belief_state, "forced_ejection")
+            _complete_mode(belief_state, "forced_ejection", state)
             return IdleTask()
 
         if _protocol_timed_out(state, tick):
-            state.fsm_state = "EXIT"
+            _transition_to_exit(belief_state, state, "protocol_timeout")
 
         entry_task = _entry_request_task(belief_state, state)
         if entry_task is not None:
@@ -89,7 +111,7 @@ class InWhisperMode(Mode):
         if state.fsm_state == "EXIT":
             return self._exit_task(belief_state, state)
 
-        state.fsm_state = "EXIT"
+        _transition_to_exit(belief_state, state, "invalid_fsm_state")
         return IdleTask()
 
     def mode_enter(self, belief_state, action_memory) -> None:
@@ -99,6 +121,7 @@ class InWhisperMode(Mode):
         protocol = previous.protocol if isinstance(previous, WhisperModeState) else "standard"
         belief_state.extra.pop(MODE_COMPLETE, None)
         belief_state.extra.pop(WHISPER_EXIT_REASON, None)
+        belief_state.extra.pop(_WHISPER_EXIT_LOGGED, None)
         belief_state.extra[WHISPER_MODE_STATE] = WhisperModeState(
             protocol=protocol,
             fsm_state="ENTER",
@@ -150,14 +173,22 @@ class InWhisperMode(Mode):
             and state.hostile_present
             and _is_key_role(my_role)
         ):
-            state.fsm_state = "EXIT"
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                "hostile_multi_occupant_key_role_exit",
+            )
+            _transition_to_exit(belief_state, state, "hostile_present")
             return IdleTask()
 
         if state.protocol == "stall":
+            _log_protocol_selected(belief_state, state, occupants, "stall_protocol")
             state.fsm_state = "STALL"
             return IdleTask()
 
         if state.protocol == "key_exchange":
+            _log_protocol_selected(belief_state, state, occupants, "key_exchange_protocol")
             state.fsm_state = "ROLE_EXCHANGE"
             return IdleTask()
 
@@ -166,18 +197,27 @@ class InWhisperMode(Mode):
             _player_knowledge(belief_state),
             _my_team(belief_state),
         ):
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                "infiltration_enemy_extract",
+            )
             state.fsm_state = "EXTRACT"
             return IdleTask()
 
         target_record = _target_knowledge(state.target_occupant, belief_state)
         if target_record is not None and target_record.team is not None:
+            _log_protocol_selected(belief_state, state, occupants, "known_team_evaluate")
             state.fsm_state = "EVALUATE"
             return IdleTask()
 
         if state.target_occupant is None:
-            state.fsm_state = "EXIT"
+            _log_protocol_selected(belief_state, state, occupants, "no_target_exit")
+            _transition_to_exit(belief_state, state, "no_target")
             return IdleTask()
 
+        _log_protocol_selected(belief_state, state, occupants, "unknown_target_color_exchange")
         state.fsm_state = "COLOR_EXCHANGE"
         return IdleTask()
 
@@ -194,7 +234,15 @@ class InWhisperMode(Mode):
             return IdleTask()
 
         if state.color_exchange_initiated and _response_timed_out(state, tick):
-            state.fsm_state = "EXIT"
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "color",
+                "timeout",
+                state.target_occupant,
+                None,
+            )
+            _transition_to_exit(belief_state, state, "color_exchange_timeout")
             return IdleTask()
 
         if _pending_offer(belief_state, "color"):
@@ -205,6 +253,14 @@ class InWhisperMode(Mode):
                 return IdleTask()
             state.color_exchange_initiated = True
             state.waiting_for_response_since = tick
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "color",
+                "accept",
+                player_index_to_id(target_index, belief_state),
+                None,
+            )
             return AcceptColorExchangeTask(player_index=target_index)
 
         if not state.color_exchange_initiated:
@@ -212,6 +268,14 @@ class InWhisperMode(Mode):
                 return IdleTask()
             state.color_exchange_initiated = True
             state.waiting_for_response_since = tick
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "color",
+                "offer",
+                state.target_occupant,
+                _offered_value("color", belief_state),
+            )
             return OfferColorExchangeTask()
 
         return IdleTask()
@@ -230,13 +294,13 @@ class InWhisperMode(Mode):
                 state.fsm_state = "ROLE_EXCHANGE"
                 return IdleTask()
             if target_team is not my_team and _is_key_role(my_role):
-                state.fsm_state = "EXIT"
+                _transition_to_exit(belief_state, state, "hostile_target_key_role")
                 return IdleTask()
             if target_team is not my_team and _is_grunt_role(my_role):
                 state.fsm_state = "EXTRACT"
                 return IdleTask()
 
-        state.fsm_state = "EXIT"
+        _transition_to_exit(belief_state, state, "evaluation_complete")
         return IdleTask()
 
     def _role_exchange_task(self, belief_state, state: WhisperModeState) -> Task:
@@ -248,11 +312,19 @@ class InWhisperMode(Mode):
             state.waiting_for_response_since,
         ):
             state.role_exchange_completed = True
-            state.fsm_state = "EXIT"
+            _transition_to_exit(belief_state, state, "role_exchange_complete")
             return IdleTask()
 
         if state.role_exchange_initiated and _response_timed_out(state, tick):
-            state.fsm_state = "EXIT"
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "role",
+                "timeout",
+                state.target_occupant,
+                None,
+            )
+            _transition_to_exit(belief_state, state, "role_exchange_timeout")
             return IdleTask()
 
         if _pending_offer(belief_state, "role"):
@@ -261,7 +333,15 @@ class InWhisperMode(Mode):
                 _player_knowledge(belief_state),
                 _my_team(belief_state),
             ):
-                state.fsm_state = "EXIT"
+                _log_exchange_outcome(
+                    belief_state,
+                    state,
+                    "role",
+                    "reject",
+                    state.target_occupant,
+                    None,
+                )
+                _transition_to_exit(belief_state, state, "role_offer_rejected")
                 return IdleTask()
 
             target_index = _offer_index("role", state.target_occupant, belief_state)
@@ -271,6 +351,14 @@ class InWhisperMode(Mode):
                 return IdleTask()
             state.role_exchange_initiated = True
             state.waiting_for_response_since = tick
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "role",
+                "accept",
+                player_index_to_id(target_index, belief_state),
+                None,
+            )
             return AcceptRoleExchangeTask(player_index=target_index)
 
         if not state.role_exchange_initiated:
@@ -278,6 +366,14 @@ class InWhisperMode(Mode):
                 return IdleTask()
             state.role_exchange_initiated = True
             state.waiting_for_response_since = tick
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "role",
+                "offer",
+                state.target_occupant,
+                _offered_value("role", belief_state),
+            )
             return OfferRoleExchangeTask()
 
         return IdleTask()
@@ -291,7 +387,7 @@ class InWhisperMode(Mode):
             return SendMessageTask(text="WHO ARE YOU", channel="whisper")
 
         if tick - state.waiting_for_response_since > EXTRACT_TIMEOUT_TICKS:
-            state.fsm_state = "EXIT"
+            _transition_to_exit(belief_state, state, "extract_timeout")
 
         return IdleTask()
 
@@ -300,7 +396,7 @@ class InWhisperMode(Mode):
         elapsed = tick - state.entered_tick
 
         if elapsed > PROTOCOL_TIMEOUTS["stall"]:
-            state.fsm_state = "EXIT"
+            _transition_to_exit(belief_state, state, "stall_timeout")
             return IdleTask()
 
         if elapsed >= STALL_FIRST_MESSAGE_TICK and state.messages_sent == 0:
@@ -317,7 +413,7 @@ class InWhisperMode(Mode):
 
     def _exit_task(self, belief_state, state: WhisperModeState) -> Task:
         if getattr(belief_state, "view", None) is not View.WHISPER:
-            _complete_mode(belief_state, "normal")
+            _complete_mode(belief_state, "normal", state)
             return IdleTask()
 
         if not state.exit_initiated:
@@ -607,9 +703,136 @@ def _team_for_role(role: Role | None) -> Team | None:
     return None
 
 
-def _complete_mode(belief_state, reason: str) -> None:
-    belief_state.extra[MODE_COMPLETE] = True
+def _transition_to_exit(
+    belief_state,
+    state: WhisperModeState,
+    reason: str,
+) -> None:
+    state.fsm_state = "EXIT"
     belief_state.extra[WHISPER_EXIT_REASON] = reason
+    _log_whisper_exit(belief_state, state, reason)
+
+
+def _log_fsm_transition(
+    belief_state,
+    state: WhisperModeState,
+    old_state: str | None,
+) -> None:
+    if old_state == state.fsm_state:
+        return
+    if logger:
+        logger.event(
+            "whisper_fsm_transition",
+            {
+                "old_state": old_state,
+                "new_state": state.fsm_state,
+                "protocol": state.protocol,
+                "target": _player_id_value(state.target_occupant),
+                "tick_in_whisper": _tick(belief_state) - state.entered_tick,
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _log_protocol_selected(
+    belief_state,
+    state: WhisperModeState,
+    occupants: list[PlayerID],
+    reason: str,
+) -> None:
+    if logger:
+        logger.event(
+            "whisper_protocol_selected",
+            {
+                "protocol": state.protocol,
+                "reason": reason,
+                "occupants": [_player_id_value(player_id) for player_id in occupants],
+                "hostile_present": state.hostile_present,
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _log_exchange_outcome(
+    belief_state,
+    state: WhisperModeState,
+    exchange_type: str,
+    action: str,
+    target: PlayerID | None,
+    our_offer: object,
+) -> None:
+    del belief_state
+    if logger:
+        logger.event(
+            "whisper_exchange_outcome",
+            {
+                "exchange_type": exchange_type,
+                "action": action,
+                "target": _player_id_value(
+                    target if target is not None else state.target_occupant
+                ),
+                "our_offer": _event_value(our_offer),
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _log_whisper_exit(
+    belief_state,
+    state: WhisperModeState,
+    reason: str,
+) -> None:
+    if belief_state.extra.get(_WHISPER_EXIT_LOGGED):
+        return
+    belief_state.extra[_WHISPER_EXIT_LOGGED] = True
+    if logger:
+        logger.event(
+            "whisper_exit",
+            {
+                "reason": reason,
+                "protocol": state.protocol,
+                "total_ticks": _tick(belief_state) - state.entered_tick,
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _offered_value(kind: str, belief_state) -> object:
+    if kind == "role":
+        return _my_role(belief_state)
+    if kind == "color":
+        return _my_team(belief_state)
+    return None
+
+
+def _event_value(value: object) -> object:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str):
+        return raw
+    return value
+
+
+def _player_id_value(player_id: PlayerID | None) -> list[int] | None:
+    if player_id is None:
+        return None
+    return [int(player_id[0]), int(player_id[1])]
+
+
+def _complete_mode(
+    belief_state,
+    reason: str,
+    state: WhisperModeState | None = None,
+) -> None:
+    final_reason = belief_state.extra.get(WHISPER_EXIT_REASON, reason)
+    if state is not None:
+        _log_whisper_exit(belief_state, state, final_reason)
+    belief_state.extra[MODE_COMPLETE] = True
+    belief_state.extra[WHISPER_EXIT_REASON] = final_reason
 
 
 def _tick(belief_state) -> int:

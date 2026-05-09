@@ -3667,6 +3667,8 @@ footprint.
 | `_last_phase` | `Phase` | Persists in inferences | Phase-change detection |
 | `_last_exchange_status` | `bool` | Persists in inferences | Exchange-completion detection |
 | `_last_partner_found` | `bool` | Persists in inferences | Partner-discovery detection |
+| `_eurydice_prev_strategic` | `dict` | Persists in inferences + extra | Strategic state change detection |
+| `_eurydice_whisper_exit_logged` | `bool` | Mode lifetime (in_whisper) | Prevents duplicate whisper_exit log |
 
 Hysteresis keys (`last_directive_mode`, `last_directive_tick`) are stored
 in `belief_state.ext` (persistent across ticks) rather than `inferences`
@@ -3700,6 +3702,71 @@ Key corrections:
 - Hysteresis moved to persistent storage
 - Probe failure escalation specified
 - Testing strategy added
+
+---
+
+## Observability and Instrumentation
+
+Eurydice emits structured JSONL events at every decision point via the
+Orpheus `Logger`. Events are guarded behind a module-level proxy singleton
+(`agents/eurydice/log.py`) that is falsey until `policy.py` wires the
+concrete logger at startup.
+
+### Log Levels
+
+| Level | What fires |
+|-------|-----------|
+| `events` | Orpheus infrastructure only (tick metadata, view/task/mode transitions) |
+| `decisions` | All meaningful agent decisions: meta_decide reasons, strategic state changes, whisper FSM transitions, inference firings, deception decisions |
+| `verbose` | Everything above plus: evaluator branch traces, min-duration holds, periodic strategic state snapshots (every 24 ticks) |
+
+### Event Catalog
+
+| Event Type | Level | Source | Key Fields |
+|-----------|-------|--------|------------|
+| `meta_decide_reason` | decisions | `meta_decide.py` | reason, mode, evaluator, mode_complete, ticks_in_mode |
+| `strategic_state_change` | decisions | `meta_decide.py` | (only changed fields from: my_role, my_team, my_room, key_partner_found, key_exchange_done, partner_location, enemy_key_location, urgency, round_number) |
+| `strategic_state_snapshot` | verbose | `meta_decide.py` | Full state including game_elapsed_ticks (fires every 24 ticks) |
+| `evaluator_branch` | verbose | `evaluators.py` | role, branch, mode |
+| `whisper_fsm_transition` | decisions | `whisper_mode.py` | old_state, new_state, protocol, target, tick_in_whisper |
+| `whisper_protocol_selected` | decisions | `whisper_mode.py` | protocol, reason, occupants, hostile_present |
+| `whisper_exchange_outcome` | decisions | `whisper_mode.py` | exchange_type, action, target, our_offer |
+| `whisper_exit` | decisions | `whisper_mode.py` | reason, protocol, total_ticks |
+| `inference_fired` | decisions | `pipeline.py` | rule, player_id, inference_type, old_value, new_value, confidence, source |
+| `deception_decision` | decisions | `deception.py` | should_deceive, reason |
+| `lie_recorded` | decisions | `deception.py` | target, lie_type, content, consistent |
+| `cover_blown` | decisions | `deception.py` | reason |
+
+### Frame Recording
+
+Raw WebSocket frames can be recorded for post-mortem replay and overlay
+rendering. Enabled via `--record-frames DIR`. Output format is a binary
+file (`{name}_{timestamp}.frames`) with records of:
+
+```
+[4 bytes: tick (uint32 LE)] [4 bytes: frame length (uint32 LE)] [N bytes: raw frame]
+```
+
+Frames are correlated to log events via the shared `tick` field.
+
+### Usage
+
+```bash
+# Normal operation with decision-level logging
+python run_agents.py eurydice:10 --log-level decisions
+
+# Full verbosity with frame recording
+.venv/bin/python agents/eurydice/policy.py \
+    --url ws://localhost:2500/player --name eurydice_1 \
+    --log-level verbose --record-frames /tmp/frames
+```
+
+### Extension Keys (Instrumentation)
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `_eurydice_prev_strategic` | `dict` | Previous strategic snapshot for change detection |
+| `_eurydice_whisper_exit_logged` | `bool` | Prevents duplicate whisper_exit events |
 
 ---
 

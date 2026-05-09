@@ -61,6 +61,13 @@ Each agent instance runs as a separate subprocess with a unique name.
 Output is prefixed with `[name]`. Use `--log-dir` to write per-agent
 logs and `--quiet` to suppress console output.
 
+Eurydice agents accept `--log-level` (off/events/decisions/verbose) and
+`--record-frames DIR` for binary frame capture. At `decisions` level,
+all strategic choices, inference firings, whisper protocol FSM
+transitions, and deception decisions are emitted as structured JSONL.
+See `agents/eurydice/DESIGN.md` § Observability for the full event
+catalog.
+
 ### `scripts/launch_server.py` -- Server Launcher
 
 Wraps the upstream Persephone server with ergonomic defaults (port 2500,

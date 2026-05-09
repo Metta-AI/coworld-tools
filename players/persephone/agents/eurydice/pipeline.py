@@ -12,6 +12,7 @@ import math
 from collections.abc import Set
 
 from orpheus.belief_state import BeliefState
+from orpheus.logging import LogLevel
 from orpheus.perception._common import PLAYER_COLORS
 
 from .accumulators import GlobalAccumulators, PlayerAccumulator
@@ -20,6 +21,7 @@ from .ext_keys import (
     PLAYER_KNOWLEDGE,
 )
 from .knowledge import PlayerKnowledge
+from .log import logger
 from .types import (
     PlayerID,
     Role,
@@ -719,7 +721,13 @@ def run_hard_inferences(
         ):
             team = _parse_team_string(player_info.team)
             if team is not None:
-                pk.team = team
+                _set_team_inference(
+                    pk,
+                    team,
+                    rule="mechanical_team_registry",
+                    confidence=1.0,
+                    source=f"player_info.team={player_info.team}",
+                )
                 pk.team_source = TeamSource.COLOR_EXCHANGE
                 pk.team_confidence = 1.0  # Default config has no Spy
 
@@ -731,26 +739,56 @@ def run_hard_inferences(
         ):
             role = _parse_role_string(player_info.role)
             if role is not None:
-                pk.role = role
+                _set_role_inference(
+                    pk,
+                    role,
+                    rule="mechanical_role_registry",
+                    confidence=1.0,
+                    source=f"player_info.role={player_info.role}",
+                )
                 pk.role_source = RoleSource.ROLE_EXCHANGE
                 # Also set team from role
-                pk.team = _team_from_role(role)
+                _set_team_inference(
+                    pk,
+                    _team_from_role(role),
+                    rule="team_from_role_exchange",
+                    confidence=1.0,
+                    source=f"role={role.name.lower()}",
+                )
                 pk.team_source = TeamSource.ROLE_EXCHANGE
                 pk.team_confidence = 1.0
 
     # Update trust levels based on knowledge confidence
     for pk in knowledge.values():
         if pk.role_source == RoleSource.ROLE_EXCHANGE:
-            pk.trust_level = TrustLevel.VERIFIED
+            _set_trust_inference(
+                pk,
+                TrustLevel.VERIFIED,
+                rule="trust_from_verified_role",
+                confidence=1.0,
+                source="role_exchange",
+            )
         elif pk.team_source in (TeamSource.COLOR_EXCHANGE, TeamSource.ROLE_EXCHANGE):
             my_team_str = belief_state.my_team
             if my_team_str is not None:
                 my_team = _parse_team_string(my_team_str)
                 if my_team is not None and pk.team is not None:
                     if pk.team == my_team:
-                        pk.trust_level = TrustLevel.PROBABLE
+                        _set_trust_inference(
+                            pk,
+                            TrustLevel.PROBABLE,
+                            rule="trust_from_same_team",
+                            confidence=pk.team_confidence,
+                            source="team_match",
+                        )
                     else:
-                        pk.trust_level = TrustLevel.HOSTILE
+                        _set_trust_inference(
+                            pk,
+                            TrustLevel.HOSTILE,
+                            rule="trust_from_enemy_team",
+                            confidence=pk.team_confidence,
+                            source="team_mismatch",
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +822,18 @@ def run_soft_inferences(
             and pk.team == my_team
             and pk.role is None
         ):
+            old_eagerness = pk.exchange_eagerness
             pk.exchange_eagerness = min(pk.exchange_eagerness + 0.35, 0.7)
+            if pk.exchange_eagerness != old_eagerness:
+                _log_inference_fired(
+                    rule="exchange_eager_same_team",
+                    player_id=pk.player_id,
+                    inference_type="trust",
+                    old_value=old_eagerness,
+                    new_value=pk.exchange_eagerness,
+                    confidence=pk.exchange_eagerness,
+                    source="behavioral_flag:exchange_eager",
+                )
 
         # "avoids_interaction" -> possible key role (Hades/Persephone)
         # Low confidence since avoidance has many explanations
@@ -799,11 +848,138 @@ def run_soft_inferences(
             ):
                 if "inconsistent_claims" not in pk.behavioral_flags:
                     pk.behavioral_flags.add("inconsistent_claims")
+                    _log_inference_fired(
+                        rule="claim_contradicts_team",
+                        player_id=pk.player_id,
+                        inference_type="trust",
+                        old_value=False,
+                        new_value=True,
+                        confidence=None,
+                        source="claim_vs_mechanical_team",
+                    )
             elif pk.team == Team.NYMPHS and (
                 "SHADE" in claim_upper or "HADES" in claim_upper or "CERBERUS" in claim_upper
             ):
                 if "inconsistent_claims" not in pk.behavioral_flags:
                     pk.behavioral_flags.add("inconsistent_claims")
+                    _log_inference_fired(
+                        rule="claim_contradicts_team",
+                        player_id=pk.player_id,
+                        inference_type="trust",
+                        old_value=False,
+                        new_value=True,
+                        confidence=None,
+                        source="claim_vs_mechanical_team",
+                    )
+
+
+# ---------------------------------------------------------------------------
+# Inference logging helpers
+# ---------------------------------------------------------------------------
+
+
+def _set_role_inference(
+    pk: PlayerKnowledge,
+    new_value: Role,
+    *,
+    rule: str,
+    confidence: float | None,
+    source: str,
+) -> None:
+    old_value = pk.role
+    pk.role = new_value
+    if old_value != new_value:
+        _log_inference_fired(
+            rule=rule,
+            player_id=pk.player_id,
+            inference_type="role",
+            old_value=old_value,
+            new_value=new_value,
+            confidence=confidence,
+            source=source,
+        )
+
+
+def _set_team_inference(
+    pk: PlayerKnowledge,
+    new_value: Team,
+    *,
+    rule: str,
+    confidence: float | None,
+    source: str,
+) -> None:
+    old_value = pk.team
+    pk.team = new_value
+    if old_value != new_value:
+        _log_inference_fired(
+            rule=rule,
+            player_id=pk.player_id,
+            inference_type="team",
+            old_value=old_value,
+            new_value=new_value,
+            confidence=confidence,
+            source=source,
+        )
+
+
+def _set_trust_inference(
+    pk: PlayerKnowledge,
+    new_value: TrustLevel,
+    *,
+    rule: str,
+    confidence: float | None,
+    source: str,
+) -> None:
+    old_value = pk.trust_level
+    pk.trust_level = new_value
+    if old_value != new_value:
+        _log_inference_fired(
+            rule=rule,
+            player_id=pk.player_id,
+            inference_type="trust",
+            old_value=old_value,
+            new_value=new_value,
+            confidence=confidence,
+            source=source,
+        )
+
+
+def _log_inference_fired(
+    *,
+    rule: str,
+    player_id: PlayerID,
+    inference_type: str,
+    old_value: object,
+    new_value: object,
+    confidence: float | None,
+    source: str,
+) -> None:
+    if logger:
+        logger.event(
+            "inference_fired",
+            {
+                "rule": rule,
+                "player_id": [int(player_id[0]), int(player_id[1])],
+                "inference_type": inference_type,
+                "old_value": _event_value(old_value),
+                "new_value": _event_value(new_value),
+                "confidence": confidence,
+                "source": source,
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _event_value(value: object) -> object:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str):
+        return raw
+    return value
 
 
 # ---------------------------------------------------------------------------
