@@ -60,7 +60,7 @@ from orpheus.logging import Logger
 from orpheus.mode import ModeDirective, ModeParams
 from orpheus.perception._common import PLAYER_COLORS
 from orpheus.perception.types import Room, View
-from orpheus.tasks import CreateWhisperTask, MoveToTask, RequestEntryTask
+from orpheus.tasks import CreateWhisperTask, InitiateWhisperTask, MoveToTask
 
 
 def _belief_state(**overrides) -> BeliefState:
@@ -162,7 +162,7 @@ def test_meta_decide_logs_reason_and_strategic_change() -> None:
     lines = _capture_eurydice_logs("verbose")
     try:
         directive, _ = meta_decide(belief_state, ActionMemory())
-        assert directive.mode == "idle"
+        assert directive.mode == "probe_systematic"
 
         belief_state.tick = 100
         belief_state.my_role = "hades"
@@ -174,7 +174,7 @@ def test_meta_decide_logs_reason_and_strategic_change() -> None:
 
     events = _json_events(lines)
     reason_events = [event for event in events if event["type"] == "meta_decide_reason"]
-    assert reason_events[0]["reason"] == "no_role"
+    assert reason_events[0]["reason"] == "no_role_fallback"
     assert reason_events[-1]["reason"] == "evaluator"
 
     changes = [event for event in events if event["type"] == "strategic_state_change"]
@@ -787,9 +787,8 @@ def test_probe_target_in_range_whisper_creates_whisper() -> None:
 
     task = mode.select_task(belief_state, ActionMemory())
 
-    assert isinstance(task, CreateWhisperTask)
-    assert belief_state.extra[MODE_COMPLETE] is True
-    assert belief_state.extra[FOUND_TARGET] == _pid(1, belief_state)
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.target_index == 1
 
 
 def test_probe_target_in_range_whisper_requests_entry() -> None:
@@ -806,9 +805,9 @@ def test_probe_target_in_range_whisper_requests_entry() -> None:
 
     task = mode.select_task(belief_state, ActionMemory())
 
-    assert isinstance(task, RequestEntryTask)
-    assert task.player_index == 1
-    assert belief_state.extra[MODE_COMPLETE] is True
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is True
+    assert task.target_index == 1
 
 
 def test_probe_target_moves_to_last_known_position_without_visible_player() -> None:
@@ -847,9 +846,8 @@ def test_probe_target_creates_whisper_at_last_known_position() -> None:
 
     task = mode.select_task(belief_state, ActionMemory())
 
-    assert isinstance(task, CreateWhisperTask)
-    assert belief_state.extra[MODE_COMPLETE] is True
-    assert belief_state.extra[FOUND_TARGET] == target
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.target_index is None
 
 
 def test_probe_systematic_score_filters_wrong_team() -> None:

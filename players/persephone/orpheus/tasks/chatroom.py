@@ -13,6 +13,10 @@ from orpheus.types import BUTTON_A, BUTTON_B, BUTTON_SELECT, View
 
 ENTRY_DISTANCE_PX = 7.0
 RECENT_WHISPER_TICKS = 60
+_INITIATE_WHISPER_STATE_KEY = "_initiate_whisper_state"
+_HOLD_TICKS = 2
+_WAIT_TICKS = 5
+_MAX_TICKS = _HOLD_TICKS + 1 + _WAIT_TICKS
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,41 @@ class CreateWhisperTask(Task):
 
     def select_action(self, belief_state, action_memory) -> ActCommand:
         return ActCommand(buttons=action_memory.step_button_press(BUTTON_A))
+
+
+@dataclass(frozen=True)
+class InitiateWhisperTask(Task):
+    target_index: int | None = None
+    use_button_b: bool = False
+
+    valid_views: ClassVar[frozenset[View]] = OPEN_VIEW_VIEWS
+
+    def select_action(self, belief_state, action_memory) -> ActCommand:
+        state = belief_state.extra.get(_INITIATE_WHISPER_STATE_KEY)
+        if not isinstance(state, dict):
+            state = {"ticks": 0}
+            belief_state.extra[_INITIATE_WHISPER_STATE_KEY] = state
+
+        state["ticks"] += 1
+        ticks = state["ticks"]
+
+        if ticks > _MAX_TICKS:
+            state["failed"] = True
+            return ActCommand()
+
+        button = BUTTON_B if self.use_button_b else BUTTON_A
+        if ticks <= _HOLD_TICKS:
+            return ActCommand(buttons=button)
+        return ActCommand(buttons=0)
+
+    @staticmethod
+    def has_failed(belief_state) -> bool:
+        state = belief_state.extra.get(_INITIATE_WHISPER_STATE_KEY)
+        return isinstance(state, dict) and state.get("failed", False)
+
+    @staticmethod
+    def clear_state(belief_state) -> None:
+        belief_state.extra.pop(_INITIATE_WHISPER_STATE_KEY, None)
 
 
 @dataclass(frozen=True)
@@ -95,6 +134,7 @@ class GrantEntryTask(Task):
 
 __all__ = [
     "CreateWhisperTask",
+    "InitiateWhisperTask",
     "RequestEntryTask",
     "CancelEntryTask",
     "ExitWhisperTask",

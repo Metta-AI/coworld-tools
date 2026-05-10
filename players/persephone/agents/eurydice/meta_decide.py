@@ -57,16 +57,12 @@ def meta_decide(
             ticks_in_mode=ticks_in_mode,
         )
 
-    if (
-        not mode_complete
-        and current_mode == "in_whisper"
-        and belief_state.view is View.WHISPER
-    ):
+    if belief_state.view is View.WHISPER:
         return _finish(
-            _directive(current_mode),
+            _directive("in_whisper"),
             state,
             belief_state,
-            reason="whisper_hold",
+            reason="whisper_override",
             evaluator=None,
             mode_complete=mode_complete,
             ticks_in_mode=ticks_in_mode,
@@ -90,10 +86,10 @@ def meta_decide(
 
     if state.my_role is None:
         return _finish(
-            _directive("idle"),
+            _directive("probe_systematic"),
             state,
             belief_state,
-            reason="no_role",
+            reason="no_role_fallback",
             evaluator=None,
             mode_complete=mode_complete,
             ticks_in_mode=ticks_in_mode,

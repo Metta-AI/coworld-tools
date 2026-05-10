@@ -54,9 +54,12 @@ def detect_view(frame: np.ndarray) -> View:
     hud_text_2 = read_text_at(frame, 2, 2, COLOR_HUD_NORMAL, 20)
     hud_norm_2 = normalize_text(hud_text_2)
 
-    # Whisper: "WHISP" at (2, 2) in color 2
-    # Whispers are private chatrooms between two players.
+    # Whisper: "WHISP" at (42, 2) in current renderer, or at (2, 2) in legacy
     if hud_norm_2.startswith("WHISP"):
+        return View.WHISPER
+    whisp_text = read_text_at(frame, 42, 2, COLOR_HUD_NORMAL, 8)
+    whisp_norm = normalize_text(whisp_text)
+    if whisp_norm.startswith("WHISP"):
         return View.WHISPER
 
     # Info screen shared mode: "KNOWN PLAYERS" header

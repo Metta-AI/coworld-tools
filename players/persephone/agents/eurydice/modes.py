@@ -9,7 +9,7 @@ from orpheus.idle import IdleMode, IdleTask
 from orpheus.mode import Mode, ModeDirective, ModeParams
 from orpheus.perception.types import View
 from orpheus.task import ActCommand, Task
-from orpheus.tasks import CreateWhisperTask, MoveToTask, RequestEntryTask
+from orpheus.tasks import CreateWhisperTask, InitiateWhisperTask, MoveToTask
 
 from agents.eurydice.ext_keys import (
     FOUND_TARGET,
@@ -34,6 +34,9 @@ OVERWORLD_VIEWS: frozenset[View] = frozenset(
 )
 WAYPOINT_REACHED_RANGE_SQ = 10 * 10
 WAYPOINT_STALE_TICKS = 72
+WHISPER_RECENCY_TICKS = 72
+PROBE_STAGGER_MAX_TICKS = 72
+_PROBE_STAGGER_KEY = "_eurydice_probe_stagger"
 
 
 @dataclass
@@ -140,6 +143,7 @@ class ProbeTargetMode(Mode):
             getattr(action_memory, "ticks_active", 0)
             > params.max_approach_ticks
         ):
+            InitiateWhisperTask.clear_state(belief_state)
             _complete_mode(belief_state, found_target=None)
             return IdleTask()
 
@@ -151,6 +155,7 @@ class ProbeTargetMode(Mode):
 
     def mode_enter(self, belief_state, action_memory) -> None:
         _clear_mode_completion(belief_state)
+        InitiateWhisperTask.clear_state(belief_state)
 
     def mode_switch_cleanup(
         self,
@@ -158,7 +163,7 @@ class ProbeTargetMode(Mode):
         action_memory,
         new_mode_directive: ModeDirective,
     ) -> None:
-        pass
+        InitiateWhisperTask.clear_state(belief_state)
 
 
 class ProbeSystematicMode(Mode):
@@ -171,21 +176,32 @@ class ProbeSystematicMode(Mode):
         if getattr(belief_state, "view", None) not in OVERWORLD_VIEWS:
             return IdleTask()
 
+        stagger_until = belief_state.extra.get(_PROBE_STAGGER_KEY, 0)
+        if getattr(belief_state, "tick", 0) < stagger_until:
+            return IdleTask()
+
+        if InitiateWhisperTask.has_failed(belief_state):
+            InitiateWhisperTask.clear_state(belief_state)
+
+        position = _position2d(getattr(belief_state, "position", None))
+        if position is not None:
+            whisper_player = _find_nearby_whisper_player(belief_state, position)
+            if whisper_player is not None:
+                wp_index, _wp_info, wp_position = whisper_player
+                if _distance_sq(position, wp_position) < INTERACTION_RANGE_SQ:
+                    return InitiateWhisperTask(target_index=wp_index, use_button_b=True)
+                return _move_to(wp_position)
+
         target = self._select_target(belief_state)
         if target is None:
-            # No visible targets -- wander to explore (don't give up).
-            # ScoutMode checks for nearby unprobed players while moving,
-            # so we reuse its waypoint logic to keep the agent active.
             position = _position2d(getattr(belief_state, "position", None))
             if position is None:
                 return IdleTask()
-            # Check for nearby unprobed players (same as scout)
             state = _scout_state(belief_state)
             found = _nearby_unprobed_player(belief_state, position, state)
             if found is not None:
                 _complete_mode(belief_state, found_target=found)
                 return IdleTask()
-            # Wander toward a random waypoint
             waypoint = state.current_waypoint
             if (
                 waypoint is None
@@ -202,6 +218,11 @@ class ProbeSystematicMode(Mode):
 
     def mode_enter(self, belief_state, action_memory) -> None:
         _clear_mode_completion(belief_state)
+        InitiateWhisperTask.clear_state(belief_state)
+        if _PROBE_STAGGER_KEY not in belief_state.extra:
+            belief_state.extra[_PROBE_STAGGER_KEY] = (
+                getattr(belief_state, "tick", 0) + random.randint(0, PROBE_STAGGER_MAX_TICKS)
+            )
 
     def mode_switch_cleanup(
         self,
@@ -209,7 +230,7 @@ class ProbeSystematicMode(Mode):
         action_memory,
         new_mode_directive: ModeDirective,
     ) -> None:
-        pass
+        InitiateWhisperTask.clear_state(belief_state)
 
     def _select_target(self, belief_state) -> PlayerID | None:
         best_target: PlayerID | None = None
@@ -277,6 +298,16 @@ class ProbeSystematicMode(Mode):
         ):
             score -= 40.0
 
+        current_tick = getattr(belief_state, "tick", 0)
+        for _idx, pinfo in getattr(belief_state, "players", {}).items():
+            pid = player_index_to_id(_idx, belief_state)
+            if pid != player_id:
+                continue
+            last_whisper = getattr(pinfo, "last_seen_in_whisper", None)
+            if last_whisper is not None and current_tick - last_whisper < WHISPER_RECENCY_TICKS:
+                score += 60.0
+            break
+
         return score
 
 
@@ -330,6 +361,11 @@ def _probe_target_task(
 ) -> Task:
     del max_approach_ticks
 
+    if InitiateWhisperTask.has_failed(belief_state):
+        InitiateWhisperTask.clear_state(belief_state)
+        _complete_mode(belief_state, found_target=None)
+        return IdleTask()
+
     position = _position2d(getattr(belief_state, "position", None))
     if position is None:
         return IdleTask()
@@ -342,19 +378,35 @@ def _probe_target_task(
             return IdleTask()
 
         if _distance_sq(position, target_position) < INTERACTION_RANGE_SQ:
-            _complete_mode(belief_state, found_target=target)
-            return CreateWhisperTask()
+            whisper_player = _find_nearby_whisper_player(belief_state, position)
+            if whisper_player is not None:
+                wp_index, _wp_info, wp_position = whisper_player
+                if _distance_sq(position, wp_position) < INTERACTION_RANGE_SQ:
+                    return InitiateWhisperTask(target_index=wp_index, use_button_b=True)
+                return _move_to(wp_position)
+            return InitiateWhisperTask(target_index=None)
 
         return _move_to(target_position)
 
     target_index, player, target_position = found
     if _distance_sq(position, target_position) < INTERACTION_RANGE_SQ:
-        _complete_mode(belief_state, found_target=target)
-        if getattr(player, "last_seen_in_whisper", None) == getattr(
-            belief_state, "tick", 0
-        ):
-            return RequestEntryTask(target_index)
-        return CreateWhisperTask()
+        last_whisper_tick = getattr(player, "last_seen_in_whisper", None)
+        current_tick = getattr(belief_state, "tick", 0)
+        target_in_whisper = (
+            last_whisper_tick is not None
+            and current_tick - last_whisper_tick < WHISPER_RECENCY_TICKS
+        )
+        if not target_in_whisper:
+            whisper_player = _find_nearby_whisper_player(belief_state, position)
+            if whisper_player is not None:
+                wp_index, _wp_info, wp_position = whisper_player
+                if _distance_sq(position, wp_position) < INTERACTION_RANGE_SQ:
+                    return InitiateWhisperTask(target_index=wp_index, use_button_b=True)
+                return _move_to(wp_position)
+        return InitiateWhisperTask(
+            target_index=target_index,
+            use_button_b=target_in_whisper,
+        )
 
     return _move_to(target_position)
 
@@ -383,6 +435,29 @@ def _nearby_unprobed_player(
             return player_id
 
     return None
+
+
+def _find_nearby_whisper_player(
+    belief_state,
+    position: tuple[int, int],
+) -> tuple[int, object, tuple[int, int]] | None:
+    current_tick = getattr(belief_state, "tick", 0)
+    best: tuple[int, object, tuple[int, int]] | None = None
+    best_dist = float("inf")
+    for index, pinfo in getattr(belief_state, "players", {}).items():
+        if index == getattr(belief_state, "my_index", None):
+            continue
+        last_whisper = getattr(pinfo, "last_seen_in_whisper", None)
+        if last_whisper is None or current_tick - last_whisper >= WHISPER_RECENCY_TICKS:
+            continue
+        player_position = _position2d(getattr(pinfo, "position", None))
+        if player_position is None:
+            player_position = position
+        dist = _distance_sq(position, player_position)
+        if dist < best_dist:
+            best = (index, pinfo, player_position)
+            best_dist = dist
+    return best
 
 
 def _find_player_for_target(

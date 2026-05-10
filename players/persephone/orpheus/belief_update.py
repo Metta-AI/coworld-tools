@@ -339,6 +339,8 @@ def _apply_overworld_speech_bubbles(
             belief_state.player_count,
         )
         if player_index is None:
+            player_index = _find_player_by_color(belief_state, bubble.player_color)
+        if player_index is None:
             continue
 
         player = belief_state.players.setdefault(player_index, PlayerInfo())
@@ -354,6 +356,17 @@ def _apply_overworld_speech_bubbles(
                 belief_state.tick,
             )
         player.last_seen_in_whisper = belief_state.tick
+
+
+def _find_player_by_color(belief_state: BeliefState, color: int) -> int | None:
+    from orpheus.perception._common import PLAYER_COLORS
+    matches = [
+        i for i in range(belief_state.player_count or 10)
+        if PLAYER_COLORS[i % len(PLAYER_COLORS)] == color
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _apply_overworld_minimap_sightings(

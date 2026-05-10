@@ -37,6 +37,7 @@ OFFER_RESPONSE_TIMEOUT_TICKS = 72
 EXTRACT_TIMEOUT_TICKS = 96
 STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
+WAIT_FOR_OCCUPANT_TIMEOUT_TICKS = 360
 _WHISPER_EXIT_LOGGED = "_eurydice_whisper_exit_logged"
 
 SENSITIVE_ENTRY_STATES = frozenset({"COLOR_EXCHANGE", "ROLE_EXCHANGE", "EXTRACT", "EXIT"})
@@ -44,6 +45,7 @@ VALID_FSM_STATES = frozenset(
     {
         "ENTER",
         "ASSESS",
+        "WAIT_FOR_OCCUPANT",
         "COLOR_EXCHANGE",
         "EVALUATE",
         "ROLE_EXCHANGE",
@@ -96,6 +98,8 @@ class InWhisperMode(Mode):
 
         if state.fsm_state == "ENTER":
             return self._enter_task(belief_state, state)
+        if state.fsm_state == "WAIT_FOR_OCCUPANT":
+            return self._wait_for_occupant_task(belief_state, state)
         if state.fsm_state == "ASSESS":
             return self._assess_task(belief_state, state)
         if state.fsm_state == "COLOR_EXCHANGE":
@@ -164,6 +168,29 @@ class InWhisperMode(Mode):
         state.fsm_state = "ASSESS"
         return IdleTask()
 
+    def _wait_for_occupant_task(self, belief_state, state: WhisperModeState) -> Task:
+        tick = _tick(belief_state)
+        if tick - state.entered_tick > WAIT_FOR_OCCUPANT_TIMEOUT_TICKS:
+            _transition_to_exit(belief_state, state, "wait_timeout")
+            return IdleTask()
+
+        my_id = _my_player_id(belief_state)
+        occupants = _current_occupants(belief_state)
+        candidates = [pid for pid in occupants if pid is not None and pid != my_id]
+        if candidates:
+            knowledge = _player_knowledge(belief_state)
+            my_team = _my_team(belief_state)
+            key_partner_id = _key_partner_id(belief_state)
+            state.target_occupant = _select_whisper_target(
+                candidates, knowledge, my_team, key_partner_id,
+            )
+            state.hostile_present = _hostile_or_unknown_present(
+                candidates, state.target_occupant, knowledge, my_team,
+            )
+            state.fsm_state = "ASSESS"
+
+        return IdleTask()
+
     def _assess_task(self, belief_state, state: WhisperModeState) -> Task:
         my_role = _my_role(belief_state)
         occupants = _current_occupants(belief_state)
@@ -213,8 +240,7 @@ class InWhisperMode(Mode):
             return IdleTask()
 
         if state.target_occupant is None:
-            _log_protocol_selected(belief_state, state, occupants, "no_target_exit")
-            _transition_to_exit(belief_state, state, "no_target")
+            state.fsm_state = "WAIT_FOR_OCCUPANT"
             return IdleTask()
 
         _log_protocol_selected(belief_state, state, occupants, "unknown_target_color_exchange")
@@ -458,7 +484,11 @@ def _entry_request_task(belief_state, state: WhisperModeState) -> Task | None:
     if pending_entry is None:
         return None
     player_id = player_index_to_id(pending_entry, belief_state)
-    if _is_probable_ally(player_id, _player_knowledge(belief_state), _my_team(belief_state)):
+    knowledge = _player_knowledge(belief_state)
+    if _is_probable_ally(player_id, knowledge, _my_team(belief_state)):
+        return GrantEntryTask()
+    record = knowledge.get(player_id) if player_id is not None else None
+    if record is None or record.team is None:
         return GrantEntryTask()
     return None
 
