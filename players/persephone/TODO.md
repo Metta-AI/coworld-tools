@@ -4,20 +4,14 @@ Known issues and planned work for the persephone project.
 
 ## Perception Module
 
-### URGENT: Shape detection not implemented
+### DONE: Shape detection implemented + outline_is_black fix
 
-- **Status**: Missing
-- **Impact**: The `PlayerShape` enum exists in `types.py` and 7x7 sprite
-  geometry is defined, but `_sprites.py` only reads the center pixel color.
-  There is no shape classifier. Without shape detection, we cannot resolve
-  (color, shape) → player index from overworld observations. This blocks
-  index-based player identification in the Orpheus belief state.
-- **Fix**: Implement a shape classifier that matches 7x7 sprite pixel
-  patterns against the 12 known templates. The templates are defined in
-  `~/coding/bitworld/persephones_escape/common/sprites.ts` (or can be
-  derived from the `PLAYER_SHAPES` constant). Minimap dots are single-pixel
-  and inherently color-only — shape detection applies to overworld and any
-  other context where full 7x7 sprites are rendered.
+- **Status**: Complete (commit `93cf58f`)
+- Shape classifier matches 7x7 pixel patterns against 12 templates.
+  Works for overworld (shadow-aware) and HUD contexts (outline_is_black=True).
+  Game renders outlines as color 0 (black), not color 1 — the
+  `outline_is_black` parameter handles this for speech bubbles, pending
+  entry sprites, and whisper header occupants.
 
 ### URGENT: Test imports broken after perception move
 
@@ -42,21 +36,12 @@ Known issues and planned work for the persephone project.
 - **Fix**: Use less-aggressive filler bots or a two-bot choreography
   where one bot creates a whisper and the other requests entry.
 
-### Shape classification in chatroom header sprites
+### DONE: Shape classification in chatroom header sprites
 
-- **Status**: Not implemented
-- **Impact**: The chatroom header renders occupant sprites at known
-  positions (x=22, stride 9, y=1-7). Currently `_chatroom.py` only
-  extracts the dominant color per slot. Without shape classification,
-  `chatroom_occupants` in the Orpheus belief state cannot be resolved
-  to unambiguous player indices (up to 3 candidates share a color).
-- **Fix**: Run `detect_sprite_shape()` on chatroom header sprites in
-  addition to color extraction. The sprites are standard 7x7 templates
-  at known positions — the same classifier used in overworld detection
-  applies. Return `(color, shape)` pairs from `ChatroomPerception`,
-  allowing the belief update to resolve exact player indices. When shape
-  detection fails (full shadow collision), report color-only candidates.
-- **Ref**: Orpheus DESIGN.md open question #8 resolution.
+- **Status**: Complete (commit `93cf58f`)
+- `scan_sprite_row_with_shapes` now used with `outline_is_black=True`.
+  Header position updated to x=66 (current renderer), falls back to
+  x=22 for legacy fixtures. Returns `(color, shape)` pairs.
 
 ### Global chat parser: messages and hostage grid not validated
 
@@ -247,3 +232,56 @@ it's a declared field).
   registration method.
 - **Decision**: FIFO is sufficient for now. Revisit if hook count grows
   large or ordering bugs emerge.
+
+## Eurydice Agent — Whisper Interaction
+
+### Agents can't join each other's whispers (fog-of-war visibility)
+
+- **Status**: Partially fixed — all mechanical pieces work, spatial
+  coordination doesn't
+- **Impact**: Agents create solo whispers and wait (up to 15s). Other
+  agents try to join but can only see speech bubbles within fog-of-war
+  range (~30-40px). By the time an agent walks close enough to see a
+  bubble, the whisper creator may have already timed out.
+- **What works**: Whisper creation (A-press), view detection (WHISP at
+  42,2), speech bubble detection (100% shape accuracy), entry request
+  (B-press → waiting_entry), pending entry detection (WANTS IN at y=111),
+  entry grant (GrantEntryTask fixed button sequence). Full chain proven
+  with recorded frames.
+- **What doesn't**: Spatial coordination. Agents approach via minimap
+  (which doesn't show whisper status), so they don't prioritize whisper
+  players until within visual range.
+- **Fix options**:
+  1. Have agents approach to ~30px before deciding create vs join (get
+     within bubble-visible range first, then check for bubbles)
+  2. Use global chat to announce "I have a whisper" with a position
+  3. Designate a meeting point (e.g. room center) where agents cluster
+     before initiating whispers
+  4. Increase whisper wait timeout further (30+ seconds)
+  5. Track "last known whisper position" from minimap + timing heuristic
+     (player stopped moving → likely in whisper)
+
+### Remove `_find_player_by_color` fallback
+
+- **Status**: Can be cleaned up
+- **Impact**: The color-only fallback in `belief_update.py` is no longer
+  needed now that `outline_is_black=True` gives 100% shape detection on
+  HUD sprites. The fallback still handles edge cases (players 8-9 with
+  shared colors), but with proper shape detection those should resolve
+  correctly.
+- **Fix**: Remove `_find_player_by_color` and the fallback paths in
+  `_apply_overworld_speech_bubbles` and the pending_entry section.
+  Verify no regression in shape detection coverage first.
+
+### Visible-player overworld sprites (non-bubble) not tracked
+
+- **Status**: Perception gap
+- **Impact**: Only players WITH speech bubbles get their positions
+  updated via overworld sprite detection. Plain visible sprites (no
+  bubble) are only tracked via minimap dots (color-only, low-resolution
+  position). This means we can't detect nearby players' shapes from
+  their overworld sprites, only from minimap color.
+- **Fix**: Add overworld sprite scanning that finds all visible player
+  sprites (not just those with bubbles). This would give precise
+  positions and full (color, shape) identification for all visible
+  players, enabling much better whisper-join targeting.
