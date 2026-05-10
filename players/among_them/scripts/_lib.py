@@ -843,6 +843,18 @@ def add_server_args(parser: argparse.ArgumentParser) -> None:
         help="Number of imposters (server config).",
     )
     parser.add_argument(
+        "--imposter-cooldown-ticks",
+        type=int,
+        default=1200,
+        help="Imposter kill cooldown in server ticks (default: 1200).",
+    )
+    parser.add_argument(
+        "--tasks-per-player",
+        type=int,
+        default=8,
+        help="Number of tasks assigned to each crewmate (default: 8).",
+    )
+    parser.add_argument(
         "--force-role",
         choices=("crewmate", "imposter"),
         default=None,

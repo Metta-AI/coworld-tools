@@ -120,6 +120,17 @@ proc phaseStr(phase: GamePhase): string =
   of PhaseVoting:       "voting"
   of PhaseGameOver:     "game_over"
 
+proc interstitialKindStr(kind: InterstitialKind): string =
+  case kind
+  of NotInterstitial: "not_interstitial"
+  of InterstitialUnknown: "unknown"
+  of InterstitialRoleReveal: "role_reveal"
+  of InterstitialRoleRevealCrewmate: "role_reveal_crewmate"
+  of InterstitialRoleRevealImposter: "role_reveal_imposter"
+  of InterstitialVoting: "voting"
+  of InterstitialVoteResult: "vote_result"
+  of InterstitialGameOver: "game_over"
+
 proc roleStr(role: BotRole): string =
   case role
   of RoleUnknown:  "unknown"
@@ -448,6 +459,8 @@ proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Bel
   rec["t"] = newJInt(tick)
   rec["phase"] = newJString(phaseStr(belief.self.phase))
   rec["interstitial"] = newJBool(percept.interstitial.isInterstitial)
+  rec["interstitial_kind"] =
+    newJString(interstitialKindStr(belief.percep.interstitialKind))
   rec["black_pixel_count"] = newJInt(percept.interstitial.blackPixelCount)
   rec["localized"] = newJBool(belief.percep.localized)
   rec["camera_x"] = newJInt(belief.percep.cameraX)

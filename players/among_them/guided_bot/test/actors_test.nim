@@ -178,7 +178,8 @@ proc testRoleDetection() =
 
 proc testKillButtonCrewmateHysteresis() =
   ## A single kill-button-like HUD match must not override a CREWMATE
-  ## role reveal. Persistent HUD evidence still promotes to imposter.
+  ## role reveal. OCR-confirmed crewmate role is authoritative, even
+  ## if HUD evidence persists at the kill-button slot.
   var scanner = initActorScanner()
   let sprites = referenceData.sprites
   let frame = loadFixture("gameplay_150.bin")
@@ -201,8 +202,8 @@ proc testKillButtonCrewmateHysteresis() =
     prevPercep.killIconFrames = result.killIconFrames
     if result.roleUpdated:
       prevSelf.role = result.newRole
-  expectEq(prevSelf.role, RoleImposter,
-           "persistent kill HUD evidence can override crewmate role")
+  expectEq(prevSelf.role, RoleCrewmate,
+           "persistent kill HUD evidence does not override crewmate role")
 
 # ---------------------------------------------------------------------------
 # 4. Self-colour detection
@@ -241,6 +242,40 @@ proc testSelfColorDetection() =
     for i in 1 ..< colors.len:
       expectEq(colors[i], colors[0],
                "self-color consistent across gameplay fixtures")
+
+proc testSelfColorAtCameraCenter() =
+  ## The live server centers the camera on the drawn player sprite, so a clean
+  ## sprite at the frame center must be enough to identify our colour.
+  var frame = newSeq[uint8](FrameLen)
+  let sprite = referenceData.sprites.player
+  let ax = (ScreenWidth div 2) - (sprite.width div 2)
+  let ay = (ScreenHeight div 2) - (sprite.height div 2)
+  drawTintedPlayer(frame, ax, ay, 4)
+
+  var percept = initActorPercept()
+  updateSelfColor(percept, referenceData.sprites, frame)
+
+  expect(percept.selfColorUpdated,
+         "centered player sprite updates self-color")
+  expectEq(percept.newSelfColor, 4,
+           "centered player sprite color index")
+
+proc testSelfColorBeliefLocksFirstColor() =
+  ## Once the bot has learned its own colour for the round, later noisy
+  ## center probes must not overwrite it with another player's colour.
+  var belief = initBelief()
+  var actors = initActorPercept()
+
+  actors.selfColorUpdated = true
+  actors.newSelfColor = 0
+  mergeActorPercept(belief, actors)
+  expectEq(belief.self.colorIndex, 0,
+           "belief learns first self-color")
+
+  actors.newSelfColor = 2
+  mergeActorPercept(belief, actors)
+  expectEq(belief.self.colorIndex, 0,
+           "belief ignores conflicting later self-color")
 
 # ---------------------------------------------------------------------------
 # 5. Ignore-mask actor exclusions
@@ -406,6 +441,8 @@ proc main() =
   testRoleDetection()
   testKillButtonCrewmateHysteresis()
   testSelfColorDetection()
+  testSelfColorAtCameraCenter()
+  testSelfColorBeliefLocksFirstColor()
   testActorIgnoreMaskExclusions()
   testBotPipelineActors()
   testFixtureSweepWithActors()

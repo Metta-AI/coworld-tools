@@ -27,11 +27,18 @@ guidance.
 
 ## Status
 
-**Phase 6 (mode completeness) in progress.** The bot completes
-multiple tasks per match (2-5 in 30s), navigates reliably, and has
-a full hold lifecycle with completion detection. All eight test
-suites pass; library builds succeed. Live-verified: crewmate task
-completing works end-to-end across multiple seeds.
+**Phase 6 core mode behavior is implemented and live-verified.** The
+bot completes tasks, navigates by hierarchical waypoints, identifies its
+own colour from the centered player sprite, parses voting screens, and
+executes cursor-aware votes in meetings. Focused Nim/Python checks pass
+and the cogames shared library builds.
+
+Latest end-to-end voting check: an 8-agent, 2-imposter live match with
+600-tick kill cooldown, 600-tick vote timer, 16 tasks per crewmate, and
+`--trace-level full` produced two meetings with frame traces. Every
+living bot cast the intended temporary mechanical vote; ghosts correctly
+did not vote. Trace root:
+`guided_bot/traces/voting_mechanics_20260510_8p2i_cd600_vote600_tasks16_livetarget_full`.
 
 Phases 1–5 (perception, action, LLM guidance, tracing, fallback
 playability) remain intact underneath.
@@ -39,17 +46,19 @@ playability) remain intact underneath.
 - **1.0** Frame unpacking, interstitial detection, ignore-mask scaffolding.
 - **1.1** Baked reference data (palette, sprites, map, font) via `staticRead`.
 - **1.2** Camera localization (~1 ms cold, <1 ms warm).
-- **1.3** Actor scanning — crewmates, bodies, ghosts, role, self-colour (~2 ms).
+- **1.3** Actor scanning — crewmates, bodies, ghosts, role, center-sprite
+  self-colour with round-latched recall (~2 ms).
 - **1.4** Task-icon + radar-dot scanning (~0.1 ms).
 - **1.5** ASCII OCR — `textMatches`, `bestGlyph`, `findText`, interstitial
-  banner classification (~12 ms for full-frame `findText` sweep).
+  banner classification, plus a layout detector for the live 7px-font
+  game-over summary.
 - **1.6** Voting-screen parse — grid layout, slot parsing (alive/dead +
   colour), cursor/self-marker/vote-dot detection, SKIP text check,
   chat OCR with speaker attribution.
 
 Total per-frame perception cost (gameplay): ~5 ms. Interstitial
-classification: ~12 ms (banner OCR sweep). Voting parse: variable,
-dominated by chat OCR line count.
+classification: ~17 ms (banner OCR sweep plus game-over layout check).
+Voting parse: variable, dominated by chat OCR line count.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -64,7 +73,7 @@ dominated by chat OCR line count.
 | 2.0 | Initial action layer — button-mask generation, discipline dispatch, ghost steering | done |
 | — | Hierarchical waypoint navigation — replaces per-pixel A\* with precomputed graph + paths | done |
 | 2.1 | `task_completing` mode — task-icon-based target selection, navigation, hold-A completion | done |
-| 2.2 | `meeting` mode — vote-skip fallback (cursor-right to SKIP, press A) | done |
+| 2.2 | `meeting` mode — cursor-aware voting, self-vote guard, no-LLM temporary target | done |
 | 2.3 | Reflex system — 4 starter reflexes: body→reporting, body→fleeing, lone-crew→hunting, voting→meeting | done |
 | 2.4 | `hunting` mode — preferred/opportunistic kill-strike + cover-behavior wander | done |
 | 2.5 | `pretending` mode — walk-to-task loiter cycle for imposter cover | done |
@@ -81,7 +90,7 @@ dominated by chat OCR line count.
 | — | Trace enhancement: decision records include mask + self position | done |
 | 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
-| 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay (chat deferred) | done |
+| 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay + live target verification (chat deferred) | done |
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
 | 6.5 | `pretending` fake A-press during loiter + witness swap | done |
 | 6.6 | `fleeing` post-flee cover navigation + flee target snap-to-passable | done |
@@ -155,7 +164,13 @@ guided_bot/
     actors_test.nim         # phase-1.3 actor scan, role, self-colour, pipeline
     tasks_test.nim          # phase-1.4 task-icon scan, radar dots, pipeline
     ocr_voting_test.nim     # phase-1.5/1.6 OCR, voting parse, pipeline
+    voting_pipeline_test.nim # voting parse -> belief -> meeting action pipeline
+    meeting_test.nim        # meeting mode cursor pulses, target choice, self-vote guard
+    voting_diag_test.nim    # fixture diagnostics for voting/game-over frames
     fallback_test.nim       # phase-5 fallback-only playability
+    navigation_test.nim     # waypoint graph/path loading and action wiring
+    guidance_lifecycle_test.nim # guidance wake/reset lifecycle
+    radar_exclusion_test.nim # radar/task exclusion interactions
     test_action_table.py    # Python: BITWORLD_ACTION_MASKS ordering guard
     fixtures/               # raw frame dumps for the fixture tests
 ```
@@ -223,6 +238,16 @@ nim c -r -d:release --threads:on --mm:orc \
 # pipeline fixture sweep, smoke benchmarks.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/ocr_voting_test.nim
+
+# Voting pipeline — parse voting frames, merge slot/alive/self/cursor
+# state into belief, and drive meeting-mode actions from that belief.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/voting_pipeline_test.nim
+
+# Meeting mode — cursor pulse/release navigation, temporary no-LLM live
+# target selection, confirm behavior, and self-vote prevention.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/meeting_test.nim
 
 # Phase 5 — fallback-only playability: validation gate (non-NOOP
 # within 10 frames), mode transitions, no-crash full sequence,
@@ -403,6 +428,7 @@ with a known index (e.g. via the FFI `guidedbot_new_policy` call).
 | `manifest.json` | events | Round metadata, schema version, bot_index, role, start/end ticks, outcome |
 | `events.jsonl` | events | Game events: body_seen, meeting_started, role_revealed, chat_observed, game_over |
 | `decisions.jsonl` | decisions | Per-frame mode, directive source, params, intent, final button mask, self position, localized flag |
+| `perception.jsonl` | decisions | Per-frame perception: phase, interstitial flag/kind, black pixels, localization, visible actors, tasks, radar dots, voting parse |
 | `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |
 | `reflexes.jsonl` | decisions | Reflex firings with trigger details |
 | `guidance.jsonl` | decisions | LLM calls: snapshot_sent, llm_response, directive_published, llm_call_failed |
@@ -500,8 +526,9 @@ For forward-looking work, see [`IMPL_PLAN.md`](IMPL_PLAN.md).
 - ~~Reporting give-up~~ → body-visibility check, approach/in-range
   timeouts. Structurally verified (no body encounters in test seeds).
 - ~~Meeting cursor~~ → position-aware shortest-path navigation, timer
-  fix (600 not 1200), auto-vote delay. Structurally verified (no
-  meetings occur in test matches).
+  fix (600 not 1200), auto-vote delay, edge-triggered cursor pulses,
+  self-vote guard, and temporary no-LLM live target selection.
+  Live-verified in 8-agent/2-imposter matches with full frame traces.
 - ~~Hunting cover~~ → station patrol, target memory, kill confirmation,
   **imposter-aware target filtering**. Live-verified in 3-min 8-player
   matches; imposters correctly avoid targeting partners.
@@ -523,15 +550,19 @@ The following blockers have been fixed:
 - ~~**Body-report button mismatch.**~~ guided_bot uses A for body
   reports, matching the server's `tryReport` trigger.
 
-**Still pending:** Run a live match with tracing to verify
-body→report→meeting pipeline and meeting voting end-to-end.
-Imposter hunting + partner avoidance is now verified.
+**Live voting status:** Meeting detection, voting parse, cursor
+navigation, alive-slot merging, and vote confirmation are verified
+end-to-end from live traces. Chat emission and evidence-based vote
+strategy remain pending; the current no-LLM vote target is deliberately
+mechanical for testability.
 
 ### Remaining implementation (IMPL_PLAN.md)
 
 - **6.7 Reflex scope** — body reflexes only fire from one mode each.
   Trivial.
 - **Chat emission** — requires Nim→C FFI→Python plumbing. Medium.
+- **Vote strategy** — replace the temporary "next selectable live slot to
+  the right" target with evidence-based LLM/game-state strategy.
 - **Phase 7 stub modes** — `fear`, `investigating`, `alibi_building`.
   LLM-only, not on critical path.
 
@@ -546,9 +577,6 @@ Imposter hunting + partner avoidance is now verified.
 - **Localization reliability.** Spiral fallback fires on lobby frames
   (interstitial detector misses colored non-map content). Pre-game
   frame rejection would eliminate wasted spiral calls.
-- **Self-colour recall.** `updateSelfColor` drops the colour on
-  frames where the player sprite doesn't match cleanly. Carry the
-  last known colour forward.
 - **Prompt iteration.** System prompts in `prompts.nim` are starting
   points.
 - **CurlPool reuse.** Fresh pool per LLM call; thread-local pool

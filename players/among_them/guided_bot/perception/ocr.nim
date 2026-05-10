@@ -259,12 +259,32 @@ const
   ## Searched in this order; first match wins. Longer strings are
   ## checked first to avoid partial matches (e.g. "IMPS" inside
   ## "IMPS WIN").
-  InterstitialBanners*: array[4, tuple[text: string, kind: InterstitialKind]] = [
+  InterstitialBanners*: array[5, tuple[text: string, kind: InterstitialKind]] = [
+    ("CREW WINS", InterstitialGameOver),
     ("CREW WIN", InterstitialGameOver),
     ("IMPS WIN", InterstitialGameOver),
     ("CREWMATE", InterstitialRoleRevealCrewmate),
     ("IMPS", InterstitialRoleRevealImposter),
   ]
+
+proc countColorInRect(
+    frame: openArray[uint8],
+    x0, y0, w, h: int,
+    color: uint8): int =
+  for y in max(0, y0) ..< min(ScreenHeight, y0 + h):
+    for x in max(0, x0) ..< min(ScreenWidth, x0 + w):
+      if frame[y * ScreenWidth + x] == color:
+        inc result
+
+proc looksLikeGameOverSummary(frame: openArray[uint8]): bool =
+  ## The live game-over screen uses the server's 7px ASCII font, while the
+  ## current OCR font is 6px tall. Detect the stable summary layout directly:
+  ## a top white title plus role labels in the vertical player list.
+  let titleWhite = countColorInRect(frame, 20, 2, 89, 9, 2'u8)
+  var roleWhite = 0
+  for y in [20, 34, 48, 62, 76, 90, 104, 118]:
+    roleWhite += countColorInRect(frame, 19, y, 36, 8, 2'u8)
+  titleWhite >= 50 and roleWhite >= 80
 
 proc classifyInterstitial*(
     frame: openArray[uint8],
@@ -279,4 +299,6 @@ proc classifyInterstitial*(
     let (found, _, _) = findText(frame, banner.text, maxErrors)
     if found:
       return banner.kind
+  if looksLikeGameOverSummary(frame):
+    return InterstitialGameOver
   InterstitialUnknown

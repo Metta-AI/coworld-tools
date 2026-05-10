@@ -20,7 +20,7 @@ the current prompt.
 | Agent | Status | Strategy |
 |---|---|---|
 | [`modulabot/`](modulabot/README.md) | **deprecated / historical only** | Former Python port of the Nim modulabot architecture. Keep the code for future reference, but do not read, modify, test, run, or submit it unless explicitly asked. |
-| [`guided_bot/`](guided_bot/README.md) | phase 6 in progress — full perception pipeline, A\* pathfinding, 6 mode handlers (task\_completing, hunting, pretending, reporting, fleeing, meeting) with complete lifecycles, 4-reflex system, LLM guidance loop, structured trace writer, all 8 Nim test suites passing | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slow asynchronous LLM guidance loop that sets active `mode` + structured params. LLM takes direct control during meetings (phase 3). See [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md). |
+| [`guided_bot/`](guided_bot/README.md) | phase 6 core behavior live-verified — full perception pipeline, hierarchical waypoint navigation, 6 complete gameplay/meeting mode handlers, 4-reflex system, LLM guidance loop, structured trace writer with optional frame capture, focused Nim/Python checks passing | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slower asynchronous LLM guidance loop that sets active `mode` + structured params. Meeting mechanics are cursor-aware and live-verified; chat emission and strategy-level vote choice are still pending. See [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md). |
 
 ## Shared code
 
@@ -167,9 +167,11 @@ PYTHONPATH=among_them python among_them/scripts/play_local.py \
 | `--max-ticks` | derived | From `--duration` if omitted. |
 | `--seed` | 42 | Policy RNG seed (also seeds server role shuffle). |
 | `--imposter-count` | 2 | Number of imposters. |
+| `--imposter-cooldown-ticks` | 1200 | Imposter kill cooldown in server ticks. Useful for fast imposter iteration. |
+| `--tasks-per-player` | 8 | Tasks assigned to each crewmate. Useful for keeping voting-focused tests from ending by tasks too early. |
 | `--force-role` | off | `crewmate` or `imposter` — pins the first player slot via the server's `"slots"` config. **Not 100% reliable** due to a connection-order race with fillers; use known-good seeds instead (see below). |
 | `--trace-dir` | off | Enables per-run trace output. |
-| `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
+| `--trace-level` | `decisions` | `off`, `events`, `decisions`, or `full`. Use `full` to record `frames.bin`. |
 | `--metrics-out` | off | Per-tick JSONL. |
 | `--capture-frames` | off | Frame `.npy` dump. |
 
@@ -223,7 +225,7 @@ PYTHONPATH=among_them python among_them/scripts/connect.py \
 | `--seed` | 42 | Seed for agent 0. Agent *i* uses `seed + i`. |
 | `--connect-timeout` | 10 | WebSocket connect timeout (seconds). |
 | `--trace-dir` | off | Enables per-run trace output. |
-| `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
+| `--trace-level` | `decisions` | `off`, `events`, `decisions`, or `full`. Use `full` to record `frames.bin`. |
 | `--metrics-out` | off | Per-tick JSONL (all agents interleaved, sorted by tick). |
 | `--capture-frames` | off | Raw `.npy` frame dump. Per-agent suffix added when `--num-agents > 1`. |
 
@@ -247,6 +249,18 @@ PYTHONPATH=among_them python among_them/scripts/play_match.py \
 PYTHONPATH=among_them python among_them/scripts/play_match.py \
     -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --num-agents 6 --duration 120 --seed 42
+# Small imposter iteration with shorter kill cooldown:
+PYTHONPATH=among_them python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 4 --num-players 4 --imposter-count 1 \
+    --imposter-cooldown-ticks 600 --duration 180 --seed 42
+# Voting-mechanics check with frame traces:
+PYTHONPATH=among_them python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --num-agents 8 --num-players 8 --imposter-count 2 \
+    --imposter-cooldown-ticks 600 --tasks-per-player 16 \
+    --duration 90 --seed 42 \
+    --trace-dir among_them/guided_bot/traces --trace-level full
 ```
 
 Each agent gets its own trace directory and metrics file. A viewer
@@ -380,7 +394,7 @@ the schema, trace levels, and output layout.
 | `AMONG_THEM_BINARY` | Override path to the Nim `among_them` server binary. |
 | `FILLER_BOT_BINARY` | Override path to the Nim `nottoodumb` filler bot binary. |
 | `GUIDED_BOT_TRACE_DIR` | Enable guided_bot JSONL tracing to this directory. |
-| `GUIDED_BOT_TRACE_LEVEL` | `decisions` or `full`; prefer the play-script `--trace-level` flag. |
+| `GUIDED_BOT_TRACE_LEVEL` | `off`, `events`, `decisions`, or `full`; prefer the play-script `--trace-level` flag. |
 | `ANTHROPIC_API_KEY` | Enables guided_bot's LLM guidance loop in submissions/local runs. |
 
 ---

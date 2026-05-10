@@ -15,11 +15,13 @@
 > Phase 4 added the structured trace writer (7 JSONL streams +
 > manifest). Phase 5 added fallback-only playability: a stale-default
 > re-evaluation in `reconcileDirective` that transitions idle→gameplay
-> modes on role detection, fixture-replay fallback tests (8th test
-> suite), and a Docker-compatible `mettagrid.bitworld` import
-> fallback. Phase 6 completed the core mode lifecycles and replaced
-> per-pixel runtime pathfinding with the hierarchical waypoint system
-> described in §6.3 and `NAVIGATION_DESIGN.md`.
+> modes on role detection, fixture-replay fallback tests, and a
+> Docker-compatible `mettagrid.bitworld` import fallback. Phase 6
+> completed the core mode lifecycles, replaced per-pixel runtime
+> pathfinding with the hierarchical waypoint system described in §6.3
+> and `NAVIGATION_DESIGN.md`, and live-verified cursor-aware meeting
+> voting with frame traces. Meeting chat emission and evidence-based
+> vote strategy remain pending.
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
 > eventually consume this file. This doc describes the *shape* of the
@@ -444,8 +446,7 @@ sabotage_watching {
 
 Field names above are conceptual; the Nim implementation uses
 prefixed discriminated-union fields (e.g., `huntPreferredTarget` for
-hunting's `preferred_target`). See `types.nim:230-271` for exact field
-names.
+hunting's `preferred_target`). See `types.nim` for exact field names.
 
 All `color_index`, `room_id`, `task_index`, `point` types are ints /
 tuples of ints; the exact enumerations come from the game constants
@@ -830,11 +831,14 @@ left) and **no vote has been confirmed**, the inner loop forces a
 safe default:
 
 - If the LLM has issued a `vote` but not `confirm_vote`, confirm it.
-- Otherwise, move cursor to `skip` and confirm.
+- Otherwise, move the cursor to the temporary no-LLM target and confirm.
+  The current validation target is the next selectable live player slot
+  to the right, skipping self and dead slots, with SKIP as the fallback
+  when no live target is known.
 
 This fallback is not configurable by the LLM — it is a structural
-backstop that ensures we always cast *some* vote. Trace event
-`meeting_fallback_fired` records when this happens.
+backstop that ensures we always cast *some* vote. The bot logs
+`vote_attempted` when meeting mode emits A to confirm.
 
 ### 7.8 Chat constraints
 
@@ -1023,8 +1027,8 @@ after an LLM failure), the inner loop picks a per-role default:
   dead non-ghost players have no meaningful actions)
 - **Voting phase, any role** →
   `meeting { want_to_speak_first: false }` (the LLM is still the
-  driver; if it's unavailable the meeting fallback in §7.3 takes
-  over and votes skip)
+  driver; if it's unavailable the meeting fallback in §7.7 takes
+  over and votes for the temporary no-LLM live target)
 
 ### 9.2 Test plan
 
@@ -1467,7 +1471,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D4 | Mode scratch lifecycle | Reset on mode switch, persist within mode. | §5.6 |
 | D5 | Action-layer owns navigation | Modes emit `steer_to`, action layer owns waypoint routing + tactical steering + discipline. | §4.4, §6 |
 | D6 | Ghost behavior | Forced to `task_completing`; action layer uses straight-line steering for ghosts. | §5.7 |
-| D7 | Meeting mode | LLM direct control via action queue; safety-net fallback vote skip. | §7 |
+| D7 | Meeting mode | LLM direct control via action queue; cursor-aware voting; self-vote guard; safety-net fallback to a temporary no-LLM live target. | §7 |
 | D8 | LLM snapshot format | JSON dump of curated belief subset. | §8.3 |
 | D9 | Validation | Guidance validates once; inner loop re-validates every tick. | §8.4 |
 | D10 | Reflex pattern | **Reflex = forced mode switch**, edge-triggered, evaluated in update-belief, anti-thrash cooldown, starter list of 4. | §5.8 |
@@ -1482,10 +1486,10 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D19 | Phase 1 sub-plan | Port perception in 6 sub-phases (1.0 foundation → 1.6 voting). Each sub-phase is its own commit with tests. | §15 |
 | D20 | Phase 1.1 asset baking | Door #1 of the §15 choice: deterministic Nim bake tool (`tools/bake_assets.nim`) emits raw `.bin` blobs into `perception/baked/`; runtime consumes them via `staticRead`. Bake tool reads the upstream `~/coding/bitworld` checkout *directly* (using the same `bitworld/aseprite` parser the live server uses) so modulabot's data dir is no longer in the trust chain. No PNG decoder dependency in the runtime, no runtime file I/O, no nimby in the runtime build. `BakeSchemaVersion` constant pins compile-time vs. baked-dir agreement. | §15, README "Regenerating baked assets" |
 | D21 | Phase 1.2 kernel sharing | Followed §15's guidance: `perception/localize.nim` imports `among_them/common/perception_kernels/{sprite_match,localize}.nim` via `from "../../..." as kX import nil` (relative-path import, no leaked identifiers, qualified-only access). Avoids both code duplication and FFI/shared-library indirection. The kernels are pure Nim and covered by guided_bot fixture tests; drift fails our compile or fixture-pinned camera tests. Patch index is built in Nim; scalar one-shot, cached at module level. | §15, `perception/localize.nim` header |
-| D22 | Phase 1.3 actor scan pattern | `perception/actors.nim` imports `kSpriteMatch.mb_match_actor_sprite_all` and `kSpriteMatch.mb_actor_color_index_all` via the same `from "../../..." as kSpriteMatch import nil` pattern. Guided_bot owns orchestration ordering (role → self-colour → bodies → ghosts → crewmates). Dedup is greedy raster-order within Chebyshev radius. Actor scan runs in the bot pipeline *after* localize (needs camera for future world-coord conversion) and *before* decision/action. Detected sprites are stamped into the ignore mask for phase 1.4's task-icon scanner. New `ActorScanner` struct holds reusable match/colour buffers to avoid per-frame allocation. | §15, `perception/actors.nim` header |
+| D22 | Phase 1.3 actor scan pattern | `perception/actors.nim` imports `kSpriteMatch.mb_match_actor_sprite_all` and `kSpriteMatch.mb_actor_color_index_all` via the same `from "../../..." as kSpriteMatch import nil` pattern. Guided_bot owns orchestration ordering (role → self-colour → bodies → ghosts → crewmates). Self-colour probes the server-centered player sprite at the camera center and latches the first learned colour for the round. Dedup is greedy raster-order within Chebyshev radius. Actor scan runs in the bot pipeline *after* localize (needs camera for future world-coord conversion) and *before* decision/action. Detected sprites are stamped into the ignore mask for phase 1.4's task-icon scanner. New `ActorScanner` struct holds reusable match/colour buffers to avoid per-frame allocation. | §15, `perception/actors.nim` header |
 | D23 | Phase 1.4 task/radar scan | `perception/tasks.nim` wraps `mb_scan_task_icons` from `among_them/common/perception_kernels/actors.nim` via `from "../../..." as kActors import nil`. Task-icon scan only runs when `localized` is true and not alive imposter. Radar-dot scan is pure Nim (no kernel) — collects palette-8 (yellow) pixels in the 2-pixel periphery ring with Chebyshev-1 greedy dedup. Both produce raw perception output (`IconMatch`, `RadarDotMatch`); the higher-level task-state machine (icon→task assignment, checkout latching, icon-miss pruning) is deferred to phase 2. Task-coord cache built lazily from `referenceData.map.tasks`. | §15, `perception/tasks.nim` header |
-| D24 | Phase 1.5 OCR pattern | `perception/ocr.nim` wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Font data repacked into flat arrays at module init (`PackedFont`). `findText` is pure Nim (full-frame sweep, ~12 ms). `classifyInterstitial` tries banner strings in longest-first order to avoid partial matches. | §15, `perception/ocr.nim` header |
-| D25 | Phase 1.6 voting parse | `perception/voting.nim` owns guided_bot's voting parse. Strict validator: SKIP text must match, and each slot's colour must equal its index. Reuses scalar `matchesCrewmate` / `crewmateColorAt` for slot and speaker-pip parsing (not the vectorised kernel — slots are at known positions). Chat OCR uses `readRun` from `ocr.nim`. Voting parse gates `PhaseVoting` on the belief; if parse fails, falls back to banner OCR for other interstitial kinds. `VotingParse.chatLines` merged into `Belief.social.currentMeetingChat`. | §15, `perception/voting.nim` header |
+| D24 | Phase 1.5 OCR pattern | `perception/ocr.nim` wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Font data repacked into flat arrays at module init (`PackedFont`). `findText` is pure Nim (full-frame sweep, ~17 ms for the current banner set). `classifyInterstitial` tries banner strings in longest-first order and then applies a layout detector for the live 7px-font game-over summary. | §15, `perception/ocr.nim` header |
+| D25 | Phase 1.6 voting parse | `perception/voting.nim` owns guided_bot's voting parse. Strict validator: SKIP text must match, and each slot's colour must equal its index. Reuses scalar `matchesCrewmate` / `crewmateColorAt` for slot and speaker-pip parsing (not the vectorised kernel — slots are at known positions). Chat OCR uses `readRun` from `ocr.nim`. Voting parse gates `PhaseVoting` on the belief; if parse fails, falls back to banner OCR and the game-over summary layout detector for other interstitial kinds. The bot reruns voting parse on every interstitial frame while voting so cursor state stays fresh. `VotingParse.chatLines` merge into `Belief.social.currentMeetingChat`; `VotingParse.selfSlot` teaches `SelfState.colorIndex` when actor scanning has not learned it yet; slot alive/dead state updates `memory.perPlayer[ci].alive` for meeting target selection. | §15, `perception/voting.nim` header |
 
 Further decisions get appended here as they're made.
 
@@ -1516,8 +1520,8 @@ through the pipeline, and adds fixture-based tests.
 | **1.2** | Camera localization — guided_bot orchestration in `perception/{geometry,localize}.nim`. Reuses `mb_score_camera`, `mb_hash_frame_patches`, `mb_vote_camera_candidates` from `among_them/common/perception_kernels/` via `from "../../common/perception_kernels/X" as kX import nil` — keeps the kernel as the single source of truth, no FFI / shared-library indirection. Patch-index built lazily in Nim on first non-interstitial frame. Pipeline calls `updateLocation` on gameplay frames and `reseedCameraAtHome` on interstitials. Smoke benchmark guards against catastrophic regressions. | 1.1 | ✅ shipped |
 | **1.3** | Actor / body / ghost scanning — wraps `mb_match_actor_sprite_all` and `mb_actor_color_index_all` from `among_them/common/perception_kernels/sprite_match.nim`. Guided_bot owns the scan orchestration (role detection → self-colour → bodies → ghosts → crewmates). Stamps actor sprite exclusions into the ignore mask. Merges results into `SelfState.role/colorIndex` and `PerceptionState.visibleCrewmates/Bodies/Ghosts`. ~2 ms per gameplay frame. | 1.2 | ✅ shipped |
 | **1.4** | Task-icon scanning — wraps `mb_scan_task_icons` from `among_them/common/perception_kernels/actors.nim`. For each task station, probes a 3-bob × 7×7 neighbourhood around the expected icon screen position. Radar-dot scanning — pure Nim scan for palette-8 (yellow) pixels in the 2-pixel screen-edge periphery ring, deduped with Chebyshev-1 grouping. Stamps task-icon exclusions into the ignore mask. Merges results into `PerceptionState.visibleTaskIcons/radarDots`. ~0.1 ms per gameplay frame. | 1.2 | ✅ shipped |
-| **1.5** | ASCII OCR — wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Adds `findText` (pure-Nim full-frame sweep, ~12 ms) for interstitial banner detection. `classifyInterstitial` searches for `"CREW WIN"`, `"IMPS WIN"`, `"CREWMATE"`, `"IMPS"` banners to refine `InterstitialKind`. Provides `readRun` and `readLineStrict` for chat-line OCR. Font data repacked into flat kernel format at module init. | 1.1 | ✅ shipped |
-| **1.6** | Voting-screen parse — `parseVotingScreen` iterates player counts 16→1, validating each via strict slot checks (per-slot colour must match slot index). Parses cursor position, self-marker, vote dots (8-wide grid per target), SKIP text + SKIP vote dots. Chat OCR: `readRun` at each non-empty text row, speaker pips attributed via nearest crewmate sprite match above the text line. Results in `VotingParse` with slots, cursor, choices, chatLines. Voting parse gates `PhaseVoting` on the belief; failed parse falls back to banner OCR classification. | 1.5 | ✅ shipped |
+| **1.5** | ASCII OCR — wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Adds `findText` (pure-Nim full-frame sweep, ~17 ms for the current banner set) for interstitial banner detection. `classifyInterstitial` searches for `"CREW WINS"`, `"CREW WIN"`, `"IMPS WIN"`, `"CREWMATE"`, `"IMPS"` banners and then checks the game-over summary layout to refine `InterstitialKind`. Provides `readRun` and `readLineStrict` for chat-line OCR. Font data repacked into flat kernel format at module init. | 1.1 | ✅ shipped |
+| **1.6** | Voting-screen parse — `parseVotingScreen` iterates player counts 16→1, validating each via strict slot checks (per-slot colour must match slot index). Parses cursor position, self-marker, vote dots (8-wide grid per target), SKIP text + SKIP vote dots. Chat OCR: `readRun` at each non-empty text row, speaker pips attributed via nearest crewmate sprite match above the text line. Results in `VotingParse` with slots, cursor, choices, chatLines. Voting parse gates `PhaseVoting` on the belief, runs every interstitial voting frame to keep cursor state fresh, and merges slot alive/dead state into player memory. Failed parse falls back to banner OCR classification. | 1.5 | ✅ shipped |
 
 ### Sharing perception kernels via `among_them/common/`
 

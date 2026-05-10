@@ -77,6 +77,12 @@ const
   KillIconX* = 1
   KillIconY* = ScreenHeight - SpriteSize - 1  ## = 115
 
+  ## The server's playerView centers the camera on the drawn player sprite:
+  ## sprite top-left is ``ScreenWidth/2 - SpriteSize/2`` and same for Y.
+  ## Probe a tiny window around that anchor to tolerate odd dimensions or
+  ## renderer drift without accidentally matching other actors.
+  SelfColorSearchRadius* = 2
+
 # Static asserts: kernel-side constants must agree with ours.
 static:
   doAssert kSpriteMatch.ScreenWidth == ScreenWidth
@@ -482,19 +488,26 @@ proc updateSelfColor*(
     percept: var ActorPercept,
     sprites: Sprites,
     frame: openArray[uint8]) =
-  ## Single-anchor check at the known player screen position to
-  ## determine our colour. Tries unflipped, then flipped. Mirrors
-  ## ``modulabot/actors.py::update_self_color``.
+  ## Center-camera check at the known player screen position to determine
+  ## our colour. Tries unflipped, then flipped, probing a tiny window around
+  ## the canonical anchor. Mirrors the server's ``playerView`` camera math.
   let sprite = sprites.player
-  let ax = PlayerSpriteAnchorX - sprite.width div 2
-  let ay = PlayerSpriteAnchorY - sprite.height div 2
-  for flip in [false, true]:
-    if matchesCrewmate(frame, sprite, ax, ay, flip):
-      let ci = crewmateColorIndex(frame, sprite, ax, ay, flip)
-      if ci >= 0:
-        percept.selfColorUpdated = true
-        percept.newSelfColor = ci
-        return
+  let baseX = (ScreenWidth div 2) - (sprite.width div 2)
+  let baseY = (ScreenHeight div 2) - (sprite.height div 2)
+  for radius in 0 .. SelfColorSearchRadius:
+    for dy in -radius .. radius:
+      for dx in -radius .. radius:
+        if abs(dx) != radius and abs(dy) != radius:
+          continue
+        let ax = baseX + dx
+        let ay = baseY + dy
+        for flip in [false, true]:
+          if matchesCrewmate(frame, sprite, ax, ay, flip):
+            let ci = crewmateColorIndex(frame, sprite, ax, ay, flip)
+            if ci >= 0:
+              percept.selfColorUpdated = true
+              percept.newSelfColor = ci
+              return
 
 proc scanCrewmates*(
     percept: var ActorPercept,

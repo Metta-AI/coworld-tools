@@ -6,7 +6,7 @@
 >
 > **Implementation:** `modes/task_completing.nim` (324 LOC)
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-10
 
 ---
 
@@ -14,12 +14,12 @@
 
 The `task_completing` mode is the crewmate's core gameplay loop. It is:
 
-- **The crewmate default directive** (`mode_registry.nim:106`). When no
+- **The crewmate default directive** (`mode_registry.nim`). When no
   LLM directive is active, an alive crewmate runs `task_completing`
   with `tcTarget: TgtNearestMandatory, tcAbandonOnNearbyBody: true`.
-- **The ghost default directive** (`mode_registry.nim:102`). Ghosts
+- **The ghost default directive** (`mode_registry.nim`). Ghosts
   always run `task_completing` with `tcAbandonOnNearbyBody: false`.
-  The ghost override in `bot.nim:231-232` forces this mode regardless
+  The ghost override in `bot.nim` forces this mode regardless
   of LLM directives.
 - **The target of the `reconcileDirective` idle→task transition.**
   When the bot starts in `ModeIdle` (unknown role) and the role is
@@ -27,8 +27,7 @@ The `task_completing` mode is the crewmate's core gameplay loop. It is:
   the crewmate default (this mode).
 
 The mode is **legal for** any alive crewmate or any ghost (`isLegalFor`
-in `modes/task_completing.nim:32-33` checks `role == RoleCrewmate or
-isGhost`). It is **not legal** for alive imposters (they use
+checks `role == RoleCrewmate or isGhost`). It is **not legal** for alive imposters (they use
 `pretending` or `hunting` instead).
 
 ---
@@ -60,11 +59,11 @@ TaskTarget = object
   roomId: int            # TgtSpecificRoom: which room.
 ```
 
-Implementation in `types.nim:208-217`.
+Implementation in `types.nim`.
 
 ### 2.2 Default params
 
-From `modes/task_completing.nim:36-40`:
+From `modes/task_completing.nim`:
 - `tcTarget: TaskTarget(kind: TgtNearestMandatory, taskIndex: -1, roomId: -1)`
 - `tcAbandonOnNearbyBody: not belief.self.isGhost`
 
@@ -113,16 +112,15 @@ The mode's three-phase state machine, tracked in scratch via
 - **Discipline:** `DisciplineNormal` (waypoint-backed pathfinding).
 - **Goal:** the locked station's passable centre (`passableCX/CY`).
 - **Exit condition:** bot enters the station's bounding rect
-  (`isInsideTaskRect` — exact match to server's check at
-  `sim.nim:2184-2185`, no margin).
+  (`isInsideTaskRect` — exact match to the server's no-margin check).
 - **Duration:** variable (depends on distance and path complexity).
 
 ### 4.2 Hold phase
 
 - **Discipline:** `DisciplineTaskHold` — press A, no movement.
-- **Duration:** `TaskHoldTicks` (84 ticks, ~3.5s). The server accepts
-  the task within ~72 ticks; the 12-tick pad ensures the hold is never
-  released prematurely.
+- **Duration:** `TaskHoldTicks` (74 ticks, ~3.1s). The server accepts
+  the task within ~72 ticks; the 2-tick pad keeps the hold close to
+  server acceptance without releasing prematurely.
 - **Negative evidence:** Hold shields only icon-confirmed targets from
   `resolvedNotMine` pruning. If the locked station is already
   `TaskConfirmed`, icon disappearance during Hold is treated as likely
@@ -142,7 +140,7 @@ The mode's three-phase state machine, tracked in scratch via
   success signal here, not evidence that the task is unassigned.
 - **Duration:** up to `TaskConfirmWindowTicks` (48 ticks, ~2s).
 - **Completion detection:** icon absent for `TaskIconMissCompleteTicks`
-  (24) consecutive frames → task completed.
+  (4) consecutive frames → task completed.
 - **Timeout:** `tcConfirmDeadlineTick` reached without enough misses →
   task was likely not assigned to us.
 
@@ -176,7 +174,7 @@ without the miss count reaching threshold. Actions:
 
 The mode operates on `belief.tasks` — a per-station state machine
 populated by `updateTaskState` in the belief-merge stage (called every
-frame from `bot.nim:362-370`, after `mergeTaskPercept`).
+frame by the bot pipeline after `mergeTaskPercept`).
 
 ### 5.1 Per-station fields
 
@@ -196,11 +194,11 @@ TaskSlot = object
   radarRayExcluded: bool  # Per-frame off-screen soft exclusion from pip rays.
 ```
 
-Implementation in `types.nim:366-378`.
+Implementation in `types.nim`.
 
 ### 5.2 State transitions (updateTaskState)
 
-Run every gameplay frame in `belief.nim:266-386`. For each station `i`:
+Run every gameplay frame in `belief.nim`. For each station `i`:
 
 1. **Icon visible?** Check whether any `visibleTaskIcons` entry matches
    the station (icon world position within 16 px margin of station rect).
@@ -297,7 +295,7 @@ and `radarExclusionCount`.
 The mode doesn't write to `belief.tasks` directly (DESIGN.md §3
 invariant: belief updated only by the perceive/update stage). The mode
 signals completion via `scratch.tcCompletedTaskIndex`. After `decide()`
-returns, `bot.nim:530-545` reads this field and applies the state
+returns, `bot.nim` reads this field and applies the state
 change:
 
 ```nim
@@ -312,7 +310,7 @@ if bot.modeScratch.tcCompletedTaskIndex >= 0:
 
 Runs at the start of the Navigate phase when no target is locked
 (`tcLockedTaskIndex < 0`). Implemented in `selectTarget`
-(`modes/task_completing.nim:80-137`).
+(`modes/task_completing.nim`).
 
 ### 6.1 Three-tier priority system
 
@@ -394,7 +392,7 @@ position.
 
 ## 8. Icon-match check (Confirm phase)
 
-`iconVisibleAtStation` (`modes/task_completing.nim:143-158`) checks
+`iconVisibleAtStation` (`modes/task_completing.nim`) checks
 whether any visible task icon matches the locked station each tick
 during the Confirm phase.
 
@@ -414,10 +412,8 @@ scan reports raw screen-space sprite coordinates.
 - Icon found: reset `tcConfirmMissCount = 0`.
 - Icon not found: increment `tcConfirmMissCount`.
 
-This debounce handles icon animation flicker. The 24-frame threshold is
-the guided_bot completion threshold; older notes compared it with the
-deprecated local modulabot, but that tree is historical-only and is not
-current guidance.
+This short debounce handles icon animation flicker while keeping local
+completion traces close to the server's 72-tick task acceptance point.
 
 ---
 
@@ -432,8 +428,8 @@ Per DESIGN.md §5.7, ghosts use `task_completing` with
   Navigate phase — handled by `applyIntent`'s ghost check in
   `action.nim`.
 - No body-reporting reflex fires (gated by `not isGhost` in
-  `reflex.nim:94-95`).
-- The ghost override in `reconcileDirective` (`bot.nim:231-232`) forces
+  `reflex.nim`).
+- The ghost override in `reconcileDirective` (`bot.nim`) forces
   this mode regardless of any LLM directive.
 
 ---
@@ -480,10 +476,10 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `TaskHoldTicks` | 84 | A-hold duration. Server accepts ~72; 84 adds a 12-tick pad. |
+| `TaskHoldTicks` | 74 | A-hold duration. Server accepts ~72; 74 adds a 2-tick pad. |
 | `TaskConfirmWindowTicks` | 48 | Post-hold observation window before timeout (~2s). |
-| `TaskIconMissCompleteTicks` | 24 | Consecutive icon-absent frames to confirm completion. |
-| `TaskIconMissResolveFrames` | 2 | Consecutive icon-absent frames for "not mine" pruning. |
+| `TaskIconMissCompleteTicks` | 4 | Consecutive icon-absent frames to confirm completion. |
+| `TaskIconMissResolveFrames` | 6 | Consecutive icon-absent frames for "not mine" pruning. |
 | `TaskClearScreenMargin` | 8 | Pixel margin for "icon area fully on-screen" check. |
 | `RadarMatchTolerance` | 2 | Chebyshev distance for radar-dot → station matching. |
 | `RadarExclusionDistance` | 8 | Chebyshev distance above which a projected dot counts absent. |
@@ -504,7 +500,7 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 | `body_newly_in_view` (body count increased) AND crewmate, alive, not ghost | `reporting` | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
 
 This reflex fires when a new body appears in the field of view
-(`reflex.nim:91-117`). It computes the body's world position from
+(`reflex.nim`). It computes the body's world position from
 screen coords + camera offset and creates a reporting directive. The
 mode's `tcAbandonOnNearbyBody` param doesn't gate the reflex directly
 — the reflex checks `belief.self.role == RoleCrewmate and alive and
@@ -529,7 +525,7 @@ does not re-fire.
 
 ## 13. Trace events
 
-Emitted by `bot.nim:530-563` after `decide()` returns.
+Emitted by `bot.nim` after `decide()` returns.
 
 ### 13.1 `task_started`
 
@@ -557,7 +553,7 @@ Emitted when `tcCompletedTaskIndex >= 0` (Confirm phase succeeded).
 ### 13.3 `task_abandoned`
 
 Emitted when a mode switch interrupts an active Hold or Confirm phase.
-Detected in `bot.nim:switchMode` (`bot.nim:107-124`).
+Detected in `bot.nim:switchMode`.
 
 ```json
 { "t": <tick>, "kind": "task_abandoned",
@@ -602,8 +598,8 @@ The mode communicates with the action layer via three disciplines:
   layer uses the waypoint graph and baked edge paths to reach
   `steerTo`. For ghosts, straight-line steering is used instead.
 - **`DisciplineTaskHold`** — used during the Hold phase. The action
-  layer emits `ButtonA` with no directional buttons
-  (`action.nim:316-321`). No movement occurs.
+  layer emits `ButtonA` with no directional buttons (`action.nim`).
+  No movement occurs.
 - **`DisciplineNoOp`** — used during the Confirm phase. The action
   layer emits no buttons (the bot stands still and observes).
 
@@ -615,7 +611,7 @@ by the action layer based on `DisciplineTaskHold`.
 
 ## 16. LLM snapshot context
 
-The task state is included in LLM snapshots via `snapshot.nim:184-200`:
+The task state is included in LLM snapshots via `snapshot.nim`:
 
 ```json
 "task_state": {

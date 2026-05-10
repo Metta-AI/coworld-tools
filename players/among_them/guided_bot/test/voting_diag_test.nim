@@ -71,7 +71,7 @@ proc diagnoseVotingParse(frame: openArray[uint8], label: string) =
 
   # 3. Run the actual parse
   let result = parseVotingScreen(frame, referenceData.sprites, -1)
-  echo &"\n  parseVotingScreen result: valid={result.valid} playerCount={result.playerCount} cursor={result.cursor}"
+  echo &"\n  parseVotingScreen result: valid={result.valid} playerCount={result.playerCount} cursor={result.cursor} selfSlot={result.selfSlot}"
 
 proc checkVotingFixture(name, label: string) =
   let frame = loadFrame(FixtureDir / name)
@@ -79,6 +79,7 @@ proc checkVotingFixture(name, label: string) =
   let result = parseVotingScreen(frame, referenceData.sprites, -1)
   expect(result.valid, &"{name}: parseVotingScreen valid")
   expectEq(result.playerCount, 8, &"{name}: playerCount")
+  expect(result.selfSlot >= 0, &"{name}: selfSlot detected without prior self color")
   let layout = voteGridLayout(8)
   expect(voteSkipTextMatches(frame, layout.skipX, layout.skipY),
          &"{name}: SKIP pixel signature found")

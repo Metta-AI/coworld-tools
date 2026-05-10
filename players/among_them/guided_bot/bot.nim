@@ -448,10 +448,10 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
   updateTaskState(bot.belief, bot.frameTick, holdIdx, confirmIdx)
 
   # 2f. Interstitial classification (phase 1.5) + voting-screen parse
-  #     (phase 1.6). Skip if the voting-fallback probe (2b') already
-  #     detected a valid voting screen this tick.
-  if percept.interstitial.isInterstitial and
-     bot.belief.self.phase != PhaseVoting:
+  #     (phase 1.6). Voting parse must keep running while PhaseVoting is
+  #     active; otherwise cursor navigation acts on a stale first-frame
+  #     cursor and never reaches its target.
+  if percept.interstitial.isInterstitial:
     percept.votingParse = parseVotingScreen(
       bot.unpacked,
       referenceData.sprites,
@@ -459,6 +459,7 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
     if percept.votingParse.valid:
       bot.belief.self.phase = PhaseVoting
       bot.belief.percep.interstitialKind = InterstitialVoting
+      percept.interstitial.kind = InterstitialVoting
       # Voting is a new sub-phase — reset the OCR cache so a
       # subsequent non-voting interstitial gets re-classified.
       bot.interstitialClassified = false
@@ -471,6 +472,15 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
           bot.interstitialClassified = true
       if bot.cachedInterstitialKind != InterstitialUnknown:
         bot.belief.percep.interstitialKind = bot.cachedInterstitialKind
+        percept.interstitial.kind = bot.cachedInterstitialKind
+        case bot.cachedInterstitialKind
+        of InterstitialGameOver:
+          bot.belief.self.phase = PhaseGameOver
+        of InterstitialRoleReveal, InterstitialRoleRevealCrewmate,
+           InterstitialRoleRevealImposter, InterstitialVoteResult:
+          bot.belief.self.phase = PhaseInterstitial
+        else:
+          discard
       if bot.belief.self.role == RoleUnknown:
         case bot.cachedInterstitialKind
         of InterstitialRoleRevealImposter:
@@ -492,6 +502,7 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
   else:
     # Leaving interstitial phase — reset the cache for the next run.
     bot.interstitialClassified = false
+    mergeVotingPercept(bot.belief, initVotingParse())
 
   # Log full per-frame perception output for offline visualization.
   logPerception(bot.trace, bot.frameTick, percept, bot.belief)
@@ -644,6 +655,17 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
         bot.belief.tick - bot.modeScratch.tcHoldStartTick)
       logGameEvent(bot.trace, "task_completed", bot.belief.tick, $payload)
     bot.modeScratch.tcCompletedTaskIndex = -1
+
+  # 4a'. Trace meeting vote attempts. The meeting mode sets
+  # meetVoteConfirmed on the same tick it emits A, so this is one-shot.
+  if bot.trace != nil and
+     bot.modeScratch.mode == ModeMeeting and
+     intent.pressA:
+    var payload = newJObject()
+    payload["cursor"] = newJInt(bot.belief.percep.votingCursor)
+    payload["target"] = newJInt(bot.modeScratch.meetVoteTarget)
+    payload["self_slot"] = newJInt(bot.belief.percep.votingSelfSlot)
+    logGameEvent(bot.trace, "vote_attempted", bot.belief.tick, $payload)
 
   # 4b. Trace: task_started event (Navigate→Hold transition detected
   #     by checking if we just entered Hold this tick).

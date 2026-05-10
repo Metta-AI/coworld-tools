@@ -21,11 +21,9 @@
 import std/[monotimes, os, strformat, times]
 import ../constants
 import ../types
-import ../belief
 import ../bot
 import ../perception
 import ../perception/data
-import ../perception/frame
 import ../perception/ocr
 import ../perception/voting
 
@@ -190,6 +188,27 @@ proc testClassifyInterstitial() =
   expectEq(winKind, InterstitialGameOver,
            "IMPS WIN banner: classifyInterstitial = GameOver")
 
+  # Real game-over frames use the server title "CREW WINS".
+  let realCrewWins = loadFixture("gameover_crew_wins_real.bin")
+  let realCrewWinsKind = classifyInterstitial(realCrewWins)
+  expectEq(realCrewWinsKind, InterstitialGameOver,
+           "real CREW WINS frame: classifyInterstitial = GameOver")
+
+# ---------------------------------------------------------------------------
+# 6b. Full bot phase update from classified interstitials
+# ---------------------------------------------------------------------------
+
+proc testGameOverPhaseUpdate() =
+  var bot = initBot()
+  let win = loadFixture("gameover_crew_wins_real.bin")
+
+  discard bot.stepUnpackedFrame(win)
+
+  expectEq(bot.belief.self.phase, PhaseGameOver,
+           "pipeline: real CREW WINS frame sets PhaseGameOver")
+  expectEq(bot.belief.percep.interstitialKind, InterstitialGameOver,
+           "pipeline: real CREW WINS frame records GameOver kind")
+
 # ---------------------------------------------------------------------------
 # 7. Voting grid layout
 # ---------------------------------------------------------------------------
@@ -267,6 +286,7 @@ proc main() =
   testReadRun()
   testFindText()
   testClassifyInterstitial()
+  testGameOverPhaseUpdate()
   testVoteGridLayout()
   testFixtureSweep()
   testBenchmark()

@@ -177,7 +177,8 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
 
   # Self-colour detection.
   if actors.selfColorUpdated and actors.newSelfColor >= 0:
-    belief.self.colorIndex = actors.newSelfColor
+    if belief.self.colorIndex < 0 or belief.self.colorIndex == actors.newSelfColor:
+      belief.self.colorIndex = actors.newSelfColor
 
   # Wake-up flag for new bodies.
   if actors.bodies.len > 0:
@@ -262,6 +263,16 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
   belief.percep.votingCursor = voting.cursor
   belief.percep.votingSelfSlot = voting.selfSlot
   belief.percep.votingPlayerCount = voting.playerCount
+  for i in 0 ..< voting.playerCount:
+    let ci = voting.slots[i].colorIndex
+    if ci >= 0 and ci < PlayerColorCount:
+      belief.memory.perPlayer[ci].alive = voting.slots[i].alive
+  if voting.selfSlot >= 0 and voting.selfSlot < voting.playerCount:
+    let selfColor = voting.slots[voting.selfSlot].colorIndex
+    if selfColor >= 0 and selfColor < PlayerColorCount and
+       (belief.self.colorIndex < 0 or belief.self.colorIndex == selfColor):
+      belief.self.colorIndex = selfColor
+      belief.self.alive = voting.slots[voting.selfSlot].alive
   belief.social.currentMeetingChat = @[]
   for cl in voting.chatLines:
     belief.social.currentMeetingChat.add ChatLine(

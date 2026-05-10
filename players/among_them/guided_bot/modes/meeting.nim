@@ -8,8 +8,8 @@
 ##
 ## Safety-net fallback (DESIGN.md §7.7): if `MeetingFallbackTicksLeft`
 ## ticks remain and no vote has been confirmed, the mode navigates to
-## SKIP and confirms. This is a structural backstop; the LLM cannot
-## override it.
+## the temporary no-LLM target and confirms. This is a structural
+## backstop; the LLM cannot override it.
 
 import ../types
 import ../action
@@ -47,6 +47,31 @@ proc ringSize(playerCount: int): int {.inline.} =
   ## Total positions in the voting ring: player slots + SKIP.
   playerCount + 1
 
+proc skipSlotFor(playerCount: int): int {.inline.} =
+  ## Slot index used by the server for SKIP. If the grid has not parsed yet,
+  ## keep the old fallback target so navigation still moves rather than idles.
+  if playerCount > 0: playerCount else: 8
+
+proc selfVoteSlot(belief: Belief): int =
+  ## Best known voting slot for this bot. The voting parser's explicit marker
+  ## wins; color index is only a fallback because the vote grid is color-ordered.
+  if belief.percep.votingSelfSlot >= 0:
+    return belief.percep.votingSelfSlot
+  if belief.self.colorIndex >= 0 and
+     (belief.percep.votingPlayerCount <= 0 or
+      belief.self.colorIndex < belief.percep.votingPlayerCount):
+    return belief.self.colorIndex
+  -1
+
+proc isSelfVoteSlot(belief: Belief, slot: int): bool =
+  let selfSlot = selfVoteSlot(belief)
+  selfSlot >= 0 and slot == selfSlot
+
+proc isSelectableVoteSlot(belief: Belief, slot, playerCount: int): bool =
+  slot >= 0 and slot < playerCount and
+    not isSelfVoteSlot(belief, slot) and
+    belief.memory.perPlayer[slot].alive
+
 proc shortestCursorDir(current, target, ring: int): CursorDir =
   ## Compute the shortest direction to move from `current` to `target`
   ## in a wrapped ring of `ring` positions. Returns CursorNone if
@@ -64,15 +89,34 @@ proc shortestCursorDir(current, target, ring: int): CursorDir =
   else:
     CursorLeft
 
-proc targetSlotForAction(action: MeetingAction,
+proc targetSlotForAction(belief: Belief, action: MeetingAction,
                          playerCount: int): int =
   ## Map a MeetingActVote target to a slot index.
   ## target == -1 → SKIP (slot playerCount).
   ## target >= 0 → color index (== slot index in Among Them).
-  if action.target < 0:
-    playerCount  # SKIP
-  else:
-    action.target
+  let skipSlot = skipSlotFor(playerCount)
+  result =
+    if action.target < 0 or action.target >= playerCount:
+      skipSlot
+    else:
+      action.target
+  if isSelfVoteSlot(belief, result):
+    result = skipSlot
+
+proc deterministicTestVoteSlot(belief: Belief, playerCount: int): int =
+  ## Temporary no-LLM vote target for mechanical validation: vote for the
+  ## next selectable live player slot to the right. Strategy can replace this
+  ## later, but the mechanical target must be reachable by the voting UI.
+  if playerCount <= 1:
+    return skipSlotFor(playerCount)
+  let selfSlot = selfVoteSlot(belief)
+  if selfSlot < 0 or selfSlot >= playerCount:
+    return skipSlotFor(playerCount)
+  for offset in 1 ..< playerCount:
+    let slot = (selfSlot + offset) mod playerCount
+    if isSelectableVoteSlot(belief, slot, playerCount):
+      return slot
+  skipSlotFor(playerCount)
 
 # ---------------------------------------------------------------------------
 # Vote navigation intent
@@ -101,7 +145,8 @@ proc confirmVoteIntent(): ActionIntent =
 proc navigateToSlot(belief: Belief, scratch: var ModeScratch,
                     targetSlot: int): ActionIntent =
   ## Drive the cursor toward `targetSlot`. Returns the intent for this
-  ## tick. Uses multi-tick holds for reliable cursor movement.
+  ## tick. Cursor movement is edge-triggered by the UI, so each directional
+  ## pulse must be followed by a release tick before another pulse.
   let cursor = belief.percep.votingCursor
   let pc = belief.percep.votingPlayerCount
   let ring = ringSize(pc)
@@ -114,12 +159,20 @@ proc navigateToSlot(belief: Belief, scratch: var ModeScratch,
 
   # Already on target?
   if cursor == targetSlot:
+    scratch.meetCursorMoveTicks = 0
+    scratch.meetCursorDir = CursorNone
     return noOpIntent()  # Caller will handle confirm.
 
   # If we're in the middle of a multi-tick cursor hold, continue.
   if scratch.meetCursorMoveTicks > 0:
     scratch.meetCursorMoveTicks -= 1
     return cursorMoveIntent(scratch.meetCursorDir)
+
+  # Release once after each pulse so the voting UI observes a fresh keydown
+  # for the next cursor step. Holding Right/Left only advances one slot.
+  if scratch.meetCursorDir != CursorNone:
+    scratch.meetCursorDir = CursorNone
+    return noOpIntent()
 
   # Compute direction and start a new cursor hold.
   let dir = shortestCursorDir(cursor, targetSlot, ring)
@@ -151,29 +204,29 @@ proc decide*(belief: Belief, params: ModeParams,
 
   if estimatedTicksLeft <= MeetingFallbackTicksLeft and
      not scratch.meetVoteConfirmed:
-    # Navigate to SKIP and confirm.
-    let skipSlot = if pc > 0: pc else: 8  # Fallback if playerCount unknown.
+    let targetSlot = deterministicTestVoteSlot(belief, pc)
+    scratch.meetVoteTarget = targetSlot
 
-    # If cursor is on SKIP, confirm.
-    if cursor >= 0 and cursor == skipSlot:
+    if cursor >= 0 and cursor == targetSlot:
       scratch.meetVoteConfirmed = true
       return confirmVoteIntent()
 
-    # Navigate toward SKIP.
-    return navigateToSlot(belief, scratch, skipSlot)
+    return navigateToSlot(belief, scratch, targetSlot)
 
   # --- Auto-vote delay (no-LLM path) ---
-  # If no LLM action has arrived and enough time has passed, vote SKIP.
+  # If no LLM action has arrived and enough time has passed, cast a
+  # deterministic test vote so cursor navigation/confirmation is live-tested.
   if scratch.meetLastLlmActionTick < 0 and
      ticksInMeeting >= MeetingAutoVoteDelayTicks and
      not scratch.meetVoteConfirmed:
-    let skipSlot = if pc > 0: pc else: 8
+    let targetSlot = deterministicTestVoteSlot(belief, pc)
+    scratch.meetVoteTarget = targetSlot
 
-    if cursor >= 0 and cursor == skipSlot:
+    if cursor >= 0 and cursor == targetSlot:
       scratch.meetVoteConfirmed = true
       return confirmVoteIntent()
 
-    return navigateToSlot(belief, scratch, skipSlot)
+    return navigateToSlot(belief, scratch, targetSlot)
 
   # --- Process pending LLM meeting actions ---
   if scratch.meetPendingActions.len > 0:
@@ -194,7 +247,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
     of MeetingActVote:
       # Start navigating toward the target slot.
-      let targetSlot = targetSlotForAction(action, pc)
+      let targetSlot = targetSlotForAction(belief, action, pc)
       scratch.meetVoteTarget = targetSlot
       # If already on target, just wait for confirm.
       if cursor >= 0 and cursor == targetSlot:
@@ -202,6 +255,14 @@ proc decide*(belief: Belief, params: ModeParams,
       return navigateToSlot(belief, scratch, targetSlot)
 
     of MeetingActConfirmVote:
+      let skipSlot = skipSlotFor(pc)
+      if isSelfVoteSlot(belief, cursor) or
+         isSelfVoteSlot(belief, scratch.meetVoteTarget):
+        scratch.meetVoteTarget = skipSlot
+        if cursor >= 0 and cursor == skipSlot:
+          scratch.meetVoteConfirmed = true
+          return confirmVoteIntent()
+        return navigateToSlot(belief, scratch, skipSlot)
       scratch.meetVoteConfirmed = true
       return confirmVoteIntent()
 
@@ -223,6 +284,8 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- Continue cursor navigation if a vote target is pending ---
   if scratch.meetVoteTarget >= 0:
+    if isSelfVoteSlot(belief, scratch.meetVoteTarget):
+      scratch.meetVoteTarget = skipSlotFor(pc)
     if cursor >= 0 and cursor == scratch.meetVoteTarget:
       # Arrived at target. Wait for confirm action from LLM.
       return noOpIntent()

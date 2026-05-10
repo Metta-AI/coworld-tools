@@ -4,9 +4,9 @@
 > mode design details live here; `DESIGN.md` contains only a brief
 > overview and cross-reference.
 >
-> **Implementation:** `modes/meeting.nim` (232 LOC)
+> **Implementation:** `modes/meeting.nim` (295 LOC)
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-10
 
 ---
 
@@ -16,10 +16,10 @@ The `meeting` mode handles all bot behavior during the voting phase
 (emergency meetings and body reports). It is:
 
 - **The target of the `voting_screen_appeared` reflex**
-  (`reflex.nim:65-86`). When the game phase transitions to
+  (`reflex.nim`). When the game phase transitions to
   `PhaseVoting`, this reflex fires unconditionally (highest priority)
   and switches to `meeting` regardless of the current mode.
-- **The voting-phase default directive** (`mode_registry.nim:103`).
+- **The voting-phase default directive** (`mode_registry.nim`).
   If the bot is already in voting phase when a default is evaluated,
   `meeting` is chosen.
 - **LLM-driven via an action queue.** Unlike other modes which
@@ -28,10 +28,11 @@ The `meeting` mode handles all bot behavior during the voting phase
   The LLM controls what to say and who to vote for; the mode handles
   cursor navigation mechanics.
 
-The mode is **only legal** during `PhaseVoting` (`isLegalFor` in
-`modes/meeting.nim:20-21` checks `belief.self.phase == PhaseVoting`).
-Any role (crewmate, imposter, ghost) can be in meeting mode during
-voting.
+The mode is **only legal** during `PhaseVoting` (`isLegalFor` checks
+`belief.self.phase == PhaseVoting`). Living crewmates and imposters use
+it to vote. Ghosts may transiently record `meeting_started`, but the
+core reconcile path redirects known ghosts to the ghost default
+(`task_completing`), so ghosts do not attempt to vote.
 
 ---
 
@@ -45,13 +46,13 @@ meeting {
 }
 ```
 
-Implementation in `types.nim:269-270`:
+Implementation in `types.nim`:
 ```nim
 of ModeMeeting:
   meetWantToSpeakFirst*: bool
 ```
 
-**Default params** (from `modes/meeting.nim:23-25`):
+**Default params** (from `modes/meeting.nim`):
 - `meetWantToSpeakFirst: false`
 
 The parameter is a soft hint — the mode's `decide()` ignores it.
@@ -66,9 +67,11 @@ The guidance worker reads it when constructing the LLM prompt.
 1. **Vote confirmed** — if `meetVoteConfirmed`, emit `noOpIntent()`
    (soft-lock: the bot is done for this meeting).
 2. **Safety-net fallback** — if estimated time remaining ≤
-   `MeetingFallbackTicksLeft` (100), navigate to SKIP and confirm.
+   `MeetingFallbackTicksLeft` (100), navigate to the temporary no-LLM
+   target and confirm.
 3. **Auto-vote delay** — if no LLM action has ever arrived and
-   `MeetingAutoVoteDelayTicks` (360) have elapsed, vote SKIP.
+   `MeetingAutoVoteDelayTicks` (360) have elapsed, vote for the
+   temporary no-LLM target.
 4. **Process LLM action** — pop one action per tick from
    `meetPendingActions` and execute it.
 5. **Continue cursor navigation** — if a vote target is pending and
@@ -80,7 +83,7 @@ The guidance worker reads it when constructing the LLM prompt.
 ## 4. LLM action queue
 
 The meeting mode receives instructions from the LLM via a queue of
-`MeetingAction` values. These are pushed by `bot.nim:431-435` each
+`MeetingAction` values. These are pushed by `bot.nim` each
 tick (pumped from the guidance channel into
 `scratch.meetPendingActions`).
 
@@ -101,7 +104,7 @@ MeetingAction = object
   target: int            # MeetingActVote: color index, or -1 for SKIP.
 ```
 
-Implementation in `types.nim:97-107, 193-196`.
+Implementation in `types.nim`.
 
 ### 4.2 Action processing
 
@@ -118,8 +121,8 @@ together; the queue handles sequencing.
 | Kind | Effect |
 |---|---|
 | `MeetingActSpeak` | Sets `intent.chat = text`. Currently a stub — FFI for chat emission is not wired. The text is placed on the intent for future use. |
-| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. |
-| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. Locks the mode. |
+| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets and invalid targets are rewritten to SKIP. |
+| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. If the cursor or pending target is the bot's own slot, redirects to SKIP instead of confirming. Locks the mode only once a safe target is confirmed. |
 | `MeetingActUnvote` | Emits B press (deselects). Clears `meetVoteTarget`. |
 | `MeetingActWait` | No-op for one tick. |
 | `MeetingActNone` | No-op (defensive — shouldn't appear in practice). |
@@ -143,8 +146,7 @@ Wrapping: right from SKIP → slot 0. Left from slot 0 → SKIP.
 
 ### 5.2 Shortest-path computation
 
-`shortestCursorDir` (`modes/meeting.nim:50-65`) computes the optimal
-direction:
+`shortestCursorDir` computes the optimal direction:
 - Compute right-distance: `(target - current + ring) mod ring`.
 - Compute left-distance: `(current - target + ring) mod ring`.
 - Pick the shorter direction.
@@ -153,23 +155,26 @@ For 8 players (ring size 9), worst case is 4 cursor moves.
 
 ### 5.3 Target mapping
 
-`targetSlotForAction` (`modes/meeting.nim:67-75`):
+`targetSlotForAction`:
 - `target == -1` → SKIP (slot `playerCount`).
 - `target >= 0` → color index (== slot index, per the Among Them
   voting grid where slot `i` has color index `i`).
 
-### 5.4 Multi-tick cursor holds
+### 5.4 Edge-triggered cursor pulses
 
-The cursor needs to be held for multiple ticks per step for reliable
-movement (`MeetingCursorHoldTicks = 3`). The state machine:
+The voting UI advances one slot per fresh left/right keydown. Holding a
+direction continuously only moves one step, so the bot uses a pulse plus
+release state machine:
 
 1. If `meetCursorMoveTicks > 0`: continue emitting the same cursor
-   direction, decrement counter.
-2. If `meetCursorMoveTicks == 0` and cursor != target: compute new
-   direction, set `meetCursorMoveTicks = MeetingCursorHoldTicks - 1`
-   (current tick counts as one), emit.
-3. If cursor == target: stop. Return `noOpIntent()` and wait for
-   the confirm action.
+   direction and decrement the counter.
+2. If the hold finished and `meetCursorDir != CursorNone`: emit one
+   no-op release tick and clear `meetCursorDir`.
+3. If cursor != target: compute a fresh shortest direction, set
+   `meetCursorMoveTicks = MeetingCursorHoldTicks - 1` (current tick
+   counts as one), and emit the direction.
+4. If cursor == target: stop. Return `noOpIntent()` and wait for the
+   confirm action, or let the fallback/auto-vote branch confirm.
 
 ### 5.5 Unknown cursor fallback
 
@@ -187,9 +192,9 @@ the LLM is slow or fails.
 **Trigger:** `estimatedTicksLeft <= MeetingFallbackTicksLeft` (100
 ticks, ~4s before meeting ends).
 
-**Behavior:** navigate to SKIP using cursor tracking, then confirm.
-If the cursor is already on SKIP, immediately confirm. If cursor
-position is unknown, `navigateToSlot` falls back to CursorRight.
+**Behavior:** navigate to the temporary no-LLM target using cursor tracking,
+then confirm. If the cursor is already on that target, immediately confirm.
+If cursor position is unknown, `navigateToSlot` falls back to CursorRight.
 
 **Timer:** uses `MeetingDurationEstimateTicks` (600 ticks, ~25s) as
 the meeting length estimate. The fallback fires at tick 500 into the
@@ -208,7 +213,11 @@ For the no-LLM path (defaults-only, or LLM too slow).
 arrived this meeting) AND `ticksInMeeting >= MeetingAutoVoteDelayTicks`
 (360, ~15s).
 
-**Behavior:** same as fallback — navigate to SKIP and confirm.
+**Behavior:** same as fallback — navigate to the temporary no-LLM target
+and confirm. During mechanical voting validation this target is the next
+selectable live player slot to the right, starting from
+`(selfSlot + 1) mod playerCount`, with a self-vote guard and SKIP as the
+fallback when no live target is known.
 
 **Purpose:** ensures the bot votes within 15s even without an LLM,
 rather than waiting the full meeting timer. More aggressive than the
@@ -272,14 +281,14 @@ Initial values on `onEnter`:
 
 ## 11. Tuning constants
 
-All live in `tuning.nim:22-27`:
+All live in `tuning.nim`:
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `MeetingFallbackTicksLeft` | 100 | Safety-net fires with ~4s remaining. |
 | `MeetingDurationEstimateTicks` | 600 | Conservative meeting length estimate (~25s). |
-| `MeetingAutoVoteDelayTicks` | 360 | Auto-vote SKIP after 15s with no LLM action. |
-| `MeetingCursorHoldTicks` | 3 | Ticks to hold a cursor direction per step. |
+| `MeetingAutoVoteDelayTicks` | 360 | Temporary no-LLM fallback: vote for the next selectable live player slot to the right after 15s. |
+| `MeetingCursorHoldTicks` | 3 | Ticks to hold each cursor pulse before releasing for the next step. |
 | `MeetingChatLineGapTicks` | 12 | Min ticks between chat packets (rate-limit, future use). |
 
 ---
@@ -293,7 +302,7 @@ All live in `tuning.nim:22-27`:
 | Any mode | `PhaseVoting` entered (edge-triggered: `prevPhase != PhaseVoting`) | `meetWantToSpeakFirst: false`, TTL 0 | `voting_screen_appeared` |
 
 This is the **highest-priority reflex** — it's evaluated first in
-`evaluateReflexes` (`reflex.nim:65-86`) and fires regardless of
+`evaluateReflexes` and fires regardless of
 current mode. It has no TTL (meetings last until the phase ends
 naturally).
 
@@ -301,7 +310,7 @@ naturally).
 
 None. The meeting mode is only exited by:
 - Phase change: when `PhaseVoting` ends, `isLegalFor` returns false,
-  and `reconcileDirective`'s illegality check (`bot.nim:263-264`)
+  and `reconcileDirective`'s illegality check
   switches to the default directive.
 - This is the only mode that exits via illegality rather than TTL or
   reflex.
@@ -316,16 +325,14 @@ matters — voting phases don't end and restart within 4 seconds.
 
 ## 13. Trace events
 
-No mode-specific trace events are emitted. The standard trace captures:
+The standard trace captures:
 
-- `meeting_started` event in `bot.nim:461-463` (on PhaseVoting entry).
+- `meeting_started` event in `bot.nim` (on PhaseVoting entry).
 - `chat_observed` events for incoming chat lines.
+- `vote_attempted` event when meeting mode emits A to confirm a vote.
 - Mode entry/exit via `modes.jsonl`.
 - `decisions.jsonl` records cursor direction and button presses each
   tick, showing the full cursor navigation sequence.
-
-A future enhancement could add `vote_cast` (when `meetVoteConfirmed`
-is set) with the target color — deferred.
 
 ---
 
@@ -349,7 +356,7 @@ navigation occurs during voting).
 
 The meeting mode has special pipeline support in `bot.nim`:
 
-### 15.1 Action queue pumping (bot.nim:431-435)
+### 15.1 Action queue pumping
 
 Each tick during `PhaseVoting`, the bot pipeline reads meeting actions
 from the guidance channel and appends them to
@@ -362,7 +369,7 @@ while tryReceiveMeetingAction(bot.guidance, meetAction):
 
 This bridges the async LLM worker → synchronous per-tick mode.
 
-### 15.2 Meeting conversation flush (bot.nim:418-421)
+### 15.2 Meeting conversation flush
 
 When leaving voting phase, the guidance state's meeting conversation
 buffer is flushed (`flushMeetingConversation`), resetting chat context
@@ -372,7 +379,7 @@ for the next meeting.
 
 ## 16. LLM snapshot context
 
-During meetings, the snapshot (`snapshot.nim:82-218`) includes:
+During meetings, the snapshot (`snapshot.nim`) includes:
 
 - `phase: "voting"` — signals the LLM that meeting mode is active.
 - `current_mode: { "name": "meeting", ... }` with `ticks_active`.
@@ -390,18 +397,23 @@ state, not cursor mechanics.
 ## 17. Voting parse dependency
 
 The meeting mode depends on `perception/voting.nim`'s per-frame parse
-results, merged into belief by `mergeVotingPercept`
-(`belief.nim:188-216`):
+results, merged into belief by `mergeVotingPercept`:
 
 - `votingCursor: int` — current cursor slot index. `playerCount` for
   SKIP, `-1` if unknown.
-- `votingSelfSlot: int` — our slot index (for future self-awareness).
+- `votingSelfSlot: int` — our slot index, used for self-vote guards.
 - `votingPlayerCount: int` — total players in the grid.
 - `votingValid: bool` — whether the current frame parsed successfully.
+- Voting slot alive/dead state — merged into `memory.perPlayer[ci].alive`,
+  so the temporary no-LLM target can skip dead slots.
 
 These are updated every interstitial frame. If the parse fails
 (`votingValid = false`), cursor-based navigation degrades to the
 CursorRight fallback.
+
+The bot pipeline runs voting parse on every interstitial frame,
+including after `PhaseVoting` has already been established. This keeps
+cursor and alive-slot state fresh while the meeting mode is navigating.
 
 ---
 
@@ -418,11 +430,10 @@ CursorRight fallback.
    could cause visible cursor thrashing if the LLM changes its mind
    rapidly.
 
-3. **Self-vote prevention.** Nothing prevents the LLM from voting for
-   the bot itself. The server may reject self-votes, but the mode will
-   navigate to the self-slot and confirm regardless. A guard using
-   `votingSelfSlot` could prevent this. Low priority — the LLM should
-   be smart enough.
+3. **LLM-directed live-target guard.** The no-LLM temporary target skips
+   self and dead players. LLM-directed votes currently guard only
+   invalid/self targets mechanically; strategy should avoid dead slots
+   before issuing a vote action.
 
 4. **Vote tracking for snapshot.** The mode knows who it voted for
    (`meetVoteTarget` at confirmation time), but this isn't exposed to

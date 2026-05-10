@@ -393,9 +393,17 @@ proc parseVotingCandidate(
   if result.cursor < 0 and voteSkipSelected(frame, layout.skipX, layout.skipY):
     result.cursor = count  # SKIP
 
-  # 4. Self-marker detection.
+  # 4. Self-marker detection. If self colour is not known yet, use the
+  # parsed slot colour as the marker expectation; the server draws the
+  # local marker in the same colour as the local player's slot.
   for i in 0 ..< count:
-    if selfColorIndex >= 0 and voteSelfMarkerPresent(frame, count, i, selfColorIndex):
+    let markerColor =
+      if selfColorIndex >= 0:
+        selfColorIndex
+      else:
+        result.slots[i].colorIndex
+    if markerColor >= 0 and
+       voteSelfMarkerPresent(frame, count, i, markerColor):
       result.selfSlot = i
       break
 

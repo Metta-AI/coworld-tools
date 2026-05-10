@@ -20,11 +20,11 @@ const
   ReflexCooldownTicks*        = 96   ## Per-reflex minimum gap between firings (~4s).
 
   # --- Meeting mode ----------------------------------------------------
-  MeetingFallbackTicksLeft*   = 100  ## If no vote confirmed with <N ticks left, force skip.
+  MeetingFallbackTicksLeft*   = 100  ## If no vote confirmed with <N ticks left, force no-LLM target.
   MeetingChatLineGapTicks*    = 12   ## Min ticks between chat packets (rate-limit self).
   MeetingDurationEstimateTicks* = 600 ## Conservative estimate of meeting duration (~25s at 24Hz).
-  MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote SKIP after 15s with no LLM action.
-  MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor direction per step.
+  MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote no-LLM target after 15s with no LLM action.
+  MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor pulse before releasing.
 
   # --- Voting-screen detection fallback --------------------------------
   VotingProbeIntervalTicks*   = 12   ## Min ticks between voting-parse attempts on non-
@@ -43,9 +43,9 @@ const
   LlmMinIntervalTicks*        = 12   ## Floor on LLM call frequency (~0.5s).
 
   # --- Task-completing lifecycle (TASK_COMPLETING_DESIGN.md §8) ------
-  TaskHoldTicks*              = 84   ## A-hold duration. Server accepts ~72; 84 pads 12 ticks.
+  TaskHoldTicks*              = 74   ## A-hold duration. Server accepts ~72; pad only 2 ticks.
   TaskConfirmWindowTicks*     = 48   ## Post-hold observation window before timeout (~2s).
-  TaskIconMissCompleteTicks*  = 24   ## Consecutive post-hold icon-absent frames to confirm completion.
+  TaskIconMissCompleteTicks*  = 4    ## Consecutive post-hold icon-absent frames to confirm completion.
   TaskIconMissResolveFrames*  = 6    ## Consecutive icon-absent frames for "not mine" pruning.
                                      ## Six frames (~0.25s) absorbs transient detection gaps from bob animation and
                                      ## edge clipping while still pruning genuinely absent icons quickly.

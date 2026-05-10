@@ -130,6 +130,8 @@ def main() -> int:
         max_ticks=max_ticks,
         seed=args.seed,
         imposter_count=args.imposter_count,
+        imposter_cooldown_ticks=args.imposter_cooldown_ticks,
+        tasks_per_player=args.tasks_per_player,
         force_role=args.force_role,
     )
 

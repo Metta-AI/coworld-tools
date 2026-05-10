@@ -5,7 +5,7 @@
 > 2026-05-01. Update this file as items are completed or priorities
 > shift.
 >
-> Last reviewed: 2026-05-04
+> Last reviewed: 2026-05-10
 
 ---
 
@@ -56,8 +56,8 @@ pattern):**
 | Sub-phase | Duration | Behavior | Exit condition |
 |---|---|---|---|
 | Navigate | Variable | waypoint navigation to target station | `isInsideTaskRect` true |
-| Hold | `TaskHoldTicks` (84) | Press A, no movement | Timer expires |
-| Confirm | Up to `ConfirmWindowTicks` (48) | Stay still, watch icon | Icon absent 24 consecutive frames, OR timeout |
+| Hold | `TaskHoldTicks` (74) | Press A, no movement | Timer expires |
+| Confirm | Up to `ConfirmWindowTicks` (48) | Stay still, watch icon | Icon absent 4 consecutive frames, OR timeout |
 
 On confirmation: mark task resolved, clear `tcLockedTaskIndex`, re-run
 selection. On confirm timeout: clear lock, re-run selection (task might
@@ -70,9 +70,9 @@ New scratch fields:
 - `tcConfirmMissCount: int`
 
 New tuning constants:
-- `TaskHoldTicks = 84`
+- `TaskHoldTicks = 74`
 - `TaskConfirmWindowTicks = 48`
-- `TaskIconMissCompleteTicks = 24`
+- `TaskIconMissCompleteTicks = 4`
 
 **Selection quality improvements (same change):**
 - Only lock targets where icon or radar evidence exists.
@@ -107,10 +107,14 @@ action layer presses A within `ReportRange = 20` px.
 - If body count drops to 0 (body despawned or we moved away), clear
   the target and fall back to the default directive.
 
-### 6.3 `meeting` — chat emission + cursor tracking (P1)
+### 6.3 `meeting` — chat emission + cursor-aware voting (P1)
 
 **What exists:** LLM-driven action queue (speak, vote, confirm,
-unvote, wait). Safety-net fallback forces SKIP near timer expiry.
+unvote, wait). Cursor-aware vote navigation, edge-triggered cursor
+pulses, self-vote prevention, 600-tick timer estimate, auto-vote
+delay, and temporary no-LLM live-target selection are implemented.
+Live verification on 2026-05-10 confirmed that living bots can vote for
+specific slots in 8-agent/2-imposter meetings and ghosts do not vote.
 
 **What's missing:**
 
@@ -121,8 +125,14 @@ unvote, wait). Safety-net fallback forces SKIP near timer expiry.
    game protocol, or the chat field needs to be wired through the
    button-mask output in a way the Python harness can forward.
 
-Cursor tracking and the 600-tick meeting timer estimate are done;
-chat emission remains deferred.
+2. **Strategy-level vote choice.** The current no-LLM path deliberately
+   votes for the next selectable live player slot to the right so the
+   mechanics are easy to test. Replace this with evidence-based
+   LLM/game-state strategy once chat plumbing and meeting context are
+   ready.
+
+Cursor tracking and vote confirmation are done; chat emission and vote
+strategy remain deferred.
 
 ### 6.4 `hunting` — cover rotation + target memory (P2)
 
@@ -275,7 +285,7 @@ For historical phase completion, see [`README.md`](README.md).
 |---|---|---|---|---|
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
-| 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor + timer done; chat deferred; live verification now possible via `--force-role imposter` — run a match and confirm meetings trigger) |
+| 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor parse/navigation/confirmation live-verified 2026-05-10; chat emission and evidence-based vote strategy deferred) |
 | 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (kill confirmation still affected by localization-drop bug; see TODO.md) |
 | 6.5 | `pretending` fake A-press | P2 | Small | **Done** |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** |
@@ -307,8 +317,7 @@ All server-starting scripts (`play_local.py`, `play_match.py`,
 `play_debug.py`, `capture.py`, `server.py`) now support
 `--force-role {crewmate,imposter}`. This injects
 `"slots": [{"role": "<value>"}]` into the server config, using the
-server's native slot-pinning feature (`sim.nim:1016-1051`). No
-server changes were needed.
+server's native slot-pinning feature. No server changes were needed.
 
 **Background:** The server assigns roles via a Fisher-Yates shuffle
 seeded by `--seed` (default 42). With seed 42 and 8 players, the

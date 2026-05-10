@@ -7,8 +7,8 @@
 ## See TASK_COMPLETING_DESIGN.md for the full design.
 ##
 ## Navigate: A* to the target station centre.
-## Hold:     Press A for TaskHoldTicks (84) ticks.
-## Confirm:  Watch for icon disappearance (24 consecutive miss frames)
+## Hold:     Press A for TaskHoldTicks (74) ticks.
+## Confirm:  Watch for icon disappearance (4 consecutive miss frames)
 ##           or timeout (TaskConfirmWindowTicks = 48).
 ##
 ## Target selection uses a three-tier priority system:
