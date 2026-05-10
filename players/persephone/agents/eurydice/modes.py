@@ -390,23 +390,21 @@ def _probe_target_task(
 
     target_index, player, target_position = found
     if _distance_sq(position, target_position) < INTERACTION_RANGE_SQ:
-        last_whisper_tick = getattr(player, "last_seen_in_whisper", None)
         current_tick = getattr(belief_state, "tick", 0)
+        last_whisper_tick = getattr(player, "last_seen_in_whisper", None)
         target_in_whisper = (
             last_whisper_tick is not None
             and current_tick - last_whisper_tick < WHISPER_RECENCY_TICKS
         )
-        if not target_in_whisper:
-            whisper_player = _find_nearby_whisper_player(belief_state, position)
-            if whisper_player is not None:
-                wp_index, _wp_info, wp_position = whisper_player
-                if _distance_sq(position, wp_position) < INTERACTION_RANGE_SQ:
-                    return InitiateWhisperTask(target_index=wp_index, use_button_b=True)
-                return _move_to(wp_position)
-        return InitiateWhisperTask(
-            target_index=target_index,
-            use_button_b=target_in_whisper,
-        )
+        if target_in_whisper:
+            return InitiateWhisperTask(target_index=target_index, use_button_b=True)
+        whisper_player = _find_nearby_whisper_player(belief_state, position)
+        if whisper_player is not None:
+            wp_index, _wp_info, wp_position = whisper_player
+            if _distance_sq(position, wp_position) < INTERACTION_RANGE_SQ:
+                return InitiateWhisperTask(target_index=wp_index, use_button_b=True)
+            return _move_to(wp_position)
+        return InitiateWhisperTask(target_index=target_index, use_button_b=False)
 
     return _move_to(target_position)
 
@@ -448,16 +446,21 @@ def _find_nearby_whisper_player(
         if index == getattr(belief_state, "my_index", None):
             continue
         last_whisper = getattr(pinfo, "last_seen_in_whisper", None)
-        if last_whisper is None or current_tick - last_whisper >= WHISPER_RECENCY_TICKS:
+        if last_whisper is None or current_tick - last_whisper > WHISPER_RECENCY_TICKS:
             continue
         player_position = _position2d(getattr(pinfo, "position", None))
         if player_position is None:
-            player_position = position
+            continue
         dist = _distance_sq(position, player_position)
         if dist < best_dist:
             best = (index, pinfo, player_position)
             best_dist = dist
     return best
+
+
+def _player_currently_in_whisper(player, current_tick: int) -> bool:
+    last_whisper = getattr(player, "last_seen_in_whisper", None)
+    return last_whisper is not None and last_whisper == current_tick
 
 
 def _find_player_for_target(
