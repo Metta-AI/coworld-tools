@@ -18,7 +18,7 @@ from ._common import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
-from ._ocr import GLYPH_H, normalize_text, read_text_at
+from ._ocr import GLYPH_H, measure_text, normalize_text, read_text_at
 from .types import View
 
 
@@ -42,7 +42,7 @@ def detect_view(frame: np.ndarray) -> View:
         inner = int(frame[4, 4])
         if inner == 0:
             if border0 == COLOR_HUD_NORMAL:
-                if _row_contains_any(frame, 6, COLOR_HUD_NORMAL, ("PLAYER", "ROSTER")):
+                if _has_roster_title(frame):
                     return View.ROSTER_REVEAL
                 if _has_roster_column_headers(frame):
                     return View.ROSTER_REVEAL
@@ -142,23 +142,37 @@ def detect_view(frame: np.ndarray) -> View:
     return View.UNKNOWN
 
 
+def _has_roster_title(frame: np.ndarray) -> bool:
+    """Return True if the centered PLAYER ROSTER title is visible."""
+    expected = "PLAYER ROSTER"
+    x = (SCREEN_WIDTH - measure_text(expected)) // 2
+    for dx in (0, -1, 1, -2, 2):
+        text = read_text_at(frame, x + dx, 6, COLOR_HUD_NORMAL, len(expected) + 2)
+        norm = normalize_text(text).strip().upper()
+        if "PLAYER" in norm and "ROSTER" in norm:
+            return True
+    return False
+
+
 def _has_roster_column_headers(frame: np.ndarray) -> bool:
     """Return True if the intro roster room headers are visible."""
-    has_underworld = _row_contains_any(
+    underworld = read_text_at(
         frame,
+        5,
         17,
         COLOR_HUD_ALERT,
-        ("UNDERWORLD", "UNDER"),
         max_chars=12,
     )
-    has_mortal = _row_contains_any(
+    mortal = read_text_at(
         frame,
+        67,
         17,
         _COLOR_ROOM_B_HEADER,
-        ("MORTAL", "REALM"),
         max_chars=14,
     )
-    return has_underworld and has_mortal
+    underworld_norm = normalize_text(underworld).upper().replace(" ", "")
+    mortal_norm = normalize_text(mortal).upper().replace(" ", "")
+    return "UNDERWORLD" in underworld_norm and "MORTALREALM" in mortal_norm
 
 
 def _row_contains_any(

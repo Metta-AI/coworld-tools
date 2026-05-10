@@ -50,8 +50,8 @@ _PERSEPHONE_ROOT = _SCRIPT_DIR.parent
 if str(_PERSEPHONE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PERSEPHONE_ROOT))
 
-from perception import parse_frame  # noqa: E402
-from perception._unpack import unpack_frame  # noqa: E402
+from orpheus.perception import parse_frame  # noqa: E402
+from orpheus.perception._unpack import unpack_frame  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants

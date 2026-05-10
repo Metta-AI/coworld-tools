@@ -11,6 +11,14 @@
       "view": "role_reveal"
     },
     {
+      "name": "role_reveal_spy_echo_summary",
+      "view": "role_reveal"
+    },
+    {
+      "name": "role_reveal_round_schedule_live",
+      "view": "role_reveal"
+    },
+    {
       "name": "playing_round1",
       "view": "playing"
     },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from orpheus.action_memory import ActionMemory
@@ -13,6 +14,9 @@ from orpheus.perception.types import View
 
 from .ext_keys import (
     EURYDICE_ACCUMULATORS,
+    INFO_SCREEN_RECONCILE_PENDING,
+    LAST_DIRECTIVE,
+    LAST_NON_WHISPER_DIRECTIVE,
     LAST_DIRECTIVE_MODE,
     LAST_DIRECTIVE_TICK,
     LAST_EXCHANGE_STATUS,
@@ -68,6 +72,18 @@ def meta_decide(
             ticks_in_mode=ticks_in_mode,
         )
 
+    reconcile_override = _info_screen_reconcile_override(belief_state)
+    if reconcile_override is not None:
+        return _finish(
+            reconcile_override,
+            state,
+            belief_state,
+            reason="info_screen_reconcile_pending",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
+
     if (
         not mode_complete
         and current_mode is not None
@@ -75,7 +91,7 @@ def meta_decide(
         and not _critical_override(state, belief_state.inferences)
     ):
         return _finish(
-            _directive(current_mode),
+            _last_directive(belief_state) or _directive(current_mode),
             state,
             belief_state,
             reason="min_duration_hold",
@@ -125,6 +141,10 @@ def build_strategic_state(belief_state: BeliefState) -> StrategicState:
     state.current_round = belief_state.round or 0
     state.current_phase = _phase_from_view(belief_state.view)
     state.round_schedule = list(belief_state.round_schedule)
+    state.match_roles = list(belief_state.match_roles)
+    state.missing_roles = list(belief_state.missing_roles)
+    state.echo_substitutions = list(belief_state.echo_substitutions)
+    state.spy_in_game_config = belief_state.spy_in_game_config
     state.round_start_tick = _round_start_tick(belief_state, state)
     state.ticks_remaining_in_phase = _ticks_remaining(belief_state, state)
     state.mode_entered_tick = _last_tick(belief_state)
@@ -141,7 +161,6 @@ def build_strategic_state(belief_state: BeliefState) -> StrategicState:
         or _enemy_exchange_likely_from_flags(state, knowledge)
     )
 
-    _log_strategic_state(belief_state, state)
     return state
 
 
@@ -188,7 +207,19 @@ def _phase_override(belief_state: BeliefState) -> ModeDirective | None:
         return _directive("hostage_select" if belief_state.is_leader else "hold_position")
     if belief_state.view is View.LEADER_SUMMIT and belief_state.is_leader:
         return _directive("summit_interact")
+    if belief_state.view is View.INFO_SCREEN:
+        return _directive("check_info_screen")
     return None
+
+
+def _info_screen_reconcile_override(
+    belief_state: BeliefState,
+) -> ModeDirective | None:
+    if not belief_state.extra.get(INFO_SCREEN_RECONCILE_PENDING):
+        return None
+    if belief_state.view not in {View.PLAYING, View.GLOBAL_CHAT, View.INFO_SCREEN}:
+        return None
+    return _directive("check_info_screen")
 
 
 def _finish(
@@ -201,6 +232,7 @@ def _finish(
     mode_complete: bool,
     ticks_in_mode: int,
 ) -> tuple[ModeDirective, dict | None]:
+    _log_strategic_state(belief_state, state)
     _log_meta_decide_reason(
         directive,
         reason=reason,
@@ -227,16 +259,22 @@ def _finish(
         {
             LAST_DIRECTIVE_MODE: directive.mode,
             LAST_DIRECTIVE_TICK: last_tick,
+            LAST_DIRECTIVE: directive,
         }
     )
+    if directive.mode != "in_whisper":
+        inferences[LAST_NON_WHISPER_DIRECTIVE] = directive
 
     belief_state.extra.update(
         {
             STRATEGIC_STATE: state,
             LAST_DIRECTIVE_MODE: directive.mode,
             LAST_DIRECTIVE_TICK: last_tick,
+            LAST_DIRECTIVE: directive,
         }
     )
+    if directive.mode != "in_whisper":
+        belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = directive
 
     return directive, inferences
 
@@ -484,6 +522,7 @@ def _log_meta_decide_reason(
                 "evaluator": evaluator,
                 "mode_complete": bool(mode_complete),
                 "ticks_in_mode": int(ticks_in_mode),
+                "params": _params_event_value(directive.params),
             },
             LogLevel.VERBOSE if reason == "min_duration_hold" else LogLevel.DECISIONS,
         )
@@ -517,7 +556,7 @@ def _log_strategic_state(
             logger.event(
                 "strategic_state_change",
                 changed,
-                LogLevel.DECISIONS,
+                LogLevel.EVENTS,
             )
 
     belief_state.extra[_PREV_STRATEGIC_KEY] = snapshot
@@ -536,8 +575,16 @@ def _strategic_log_snapshot(
         "partner_location": _name(state.key_partner_room),
         "enemy_key_location": _name(state.enemy_key_role_room),
         "urgency": _name(state.urgency),
+        "current_objective": _name(state.current_objective),
+        "spy_in_game_config": state.spy_in_game_config,
         "game_elapsed_ticks": _game_elapsed_ticks(belief_state, state),
         "round_number": state.current_round,
+        "current_phase": _name(state.current_phase),
+        "ticks_remaining_in_phase": state.ticks_remaining_in_phase,
+        "round_schedule": [
+            list(item) if isinstance(item, tuple) else item
+            for item in state.round_schedule
+        ],
     }
 
 
@@ -581,6 +628,14 @@ def _last_mode(belief_state: BeliefState) -> str | None:
     )
 
 
+def _last_directive(belief_state: BeliefState) -> ModeDirective | None:
+    raw = belief_state.extra.get(
+        LAST_DIRECTIVE,
+        belief_state.inferences.get(LAST_DIRECTIVE),
+    )
+    return raw if isinstance(raw, ModeDirective) else None
+
+
 def _last_tick(belief_state: BeliefState) -> int:
     raw = belief_state.extra.get(
         LAST_DIRECTIVE_TICK, belief_state.inferences.get(LAST_DIRECTIVE_TICK, 0)
@@ -588,6 +643,28 @@ def _last_tick(belief_state: BeliefState) -> int:
     if isinstance(raw, int):
         return raw
     return 0
+
+
+def _params_event_value(params: ModeParams) -> dict[str, object] | str:
+    if type(params) is ModeParams:
+        return {}
+    if is_dataclass(params):
+        return {key: _jsonish_value(value) for key, value in asdict(params).items()}
+    return repr(params)
+
+
+def _jsonish_value(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): _jsonish_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonish_value(item) for item in value]
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.lower()
+    raw = getattr(value, "value", None)
+    if isinstance(raw, (str, int, float, bool)):
+        return raw
+    return value
 
 
 def _my_player_id(belief_state: BeliefState) -> PlayerID | None:

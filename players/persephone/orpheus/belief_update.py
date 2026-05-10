@@ -28,6 +28,7 @@ from orpheus.perception.types import (
     Room,
     RosterRevealPerception,
     View,
+    VisiblePlayer,
 )
 from orpheus.types import KnowledgeSource
 
@@ -216,6 +217,12 @@ def _apply_role_reveal(
     if role_reveal is None:
         return
 
+    if belief_state.player_count is None and role_reveal.player_count is not None:
+        belief_state.player_count = role_reveal.player_count
+
+    if role_reveal.panel_index is not None:
+        belief_state.role_reveal_panel_index = role_reveal.panel_index
+
     is_role_card = role_reveal.panel_index in (None, 1)
     if is_role_card:
         if belief_state.my_role is None and role_reveal.role is not None:
@@ -237,10 +244,38 @@ def _apply_role_reveal(
                 role_reveal.room_size,
             )
 
-    if role_reveal.panel_index == 3:
-        pass  # Schedule panel detected; round parsing remains a follow-up.
-    # TODO Stage 2 perception gap: round_schedule not yet extracted by
-    # perception.RoleRevealPerception.
+        if belief_state.my_color is None and role_reveal.self_color is not None:
+            belief_state.my_color = role_reveal.self_color
+
+        if belief_state.my_shape is None and role_reveal.self_shape is not None:
+            belief_state.my_shape = role_reveal.self_shape
+
+        if (
+            belief_state.my_index is None
+            and belief_state.my_color is not None
+            and belief_state.my_shape is not None
+        ):
+            belief_state.my_index = decode_player_index(
+                belief_state.my_color,
+                belief_state.my_shape,
+                belief_state.player_count,
+            )
+
+    if not belief_state.round_schedule and role_reveal.round_schedule:
+        belief_state.round_schedule = list(role_reveal.round_schedule)
+
+    if role_reveal.match_roles:
+        belief_state.match_roles = list(role_reveal.match_roles)
+
+    if role_reveal.missing_roles:
+        belief_state.missing_roles = list(role_reveal.missing_roles)
+
+    if role_reveal.echo_substitutions:
+        belief_state.echo_substitutions = list(role_reveal.echo_substitutions)
+
+    if role_reveal.spy_in_game_config is not None:
+        belief_state.spy_in_game_config = role_reveal.spy_in_game_config
+
     if (
         belief_state.occupancy_grid is None
         and belief_state.room_size is not None
@@ -252,8 +287,6 @@ def _apply_role_reveal(
             belief_state.room_size,
             resolution=2,
         )
-    # TODO Stage 2 perception gap: RoleRevealPerception does not yet surface
-    # own-sprite color/shape, so my_color/my_shape/my_index cannot be decoded.
 
 
 def _apply_overworld(
@@ -282,6 +315,7 @@ def _apply_overworld(
     if overworld.timer_secs is not None:
         belief_state.timer_secs = overworld.timer_secs
 
+    _apply_overworld_visible_players(belief_state, overworld)
     _apply_overworld_speech_bubbles(belief_state, overworld)
     _apply_overworld_minimap_sightings(belief_state, overworld)
 
@@ -298,8 +332,6 @@ def _apply_overworld(
     if overworld.last_shout is not None:
         _append_shout_if_new(belief_state, overworld.last_shout)
 
-    # TODO Stage 2 perception gap: overworld visible-player sprites and role
-    # indicators are not yet exposed separately from speech bubbles.
     occupancy_grid = belief_state.occupancy_grid
     if occupancy_grid is not None:
         previous_position = _previous_positions.get(id(belief_state))
@@ -356,6 +388,51 @@ def _apply_overworld_speech_bubbles(
                 belief_state.tick,
             )
         player.last_seen_in_whisper = belief_state.tick
+
+
+def _apply_overworld_visible_players(
+    belief_state: BeliefState,
+    overworld: OverworldPerception,
+) -> None:
+    for visible in overworld.visible_players:
+        _apply_visible_player(belief_state, visible, mark_in_whisper=False)
+
+
+def _apply_visible_player(
+    belief_state: BeliefState,
+    visible: VisiblePlayer,
+    *,
+    mark_in_whisper: bool,
+) -> None:
+    player_index = decode_player_index(
+        visible.player_color,
+        visible.player_shape,
+        belief_state.player_count,
+    )
+    if player_index is None:
+        player_index = _find_player_by_color(belief_state, visible.player_color)
+    if player_index is None:
+        return
+
+    player = belief_state.players.setdefault(player_index, PlayerInfo())
+    world_position = _screen_to_world(
+        belief_state,
+        visible.screen_x,
+        visible.screen_y,
+    )
+    if world_position is not None:
+        player.position = (
+            world_position[0],
+            world_position[1],
+            belief_state.tick,
+        )
+    if mark_in_whisper:
+        player.last_seen_in_whisper = belief_state.tick
+    if visible.role_indicator is not None:
+        player.role = visible.role_indicator.role
+        player.role_source = KnowledgeSource.GAME_DISPLAY
+        player.team = visible.role_indicator.team
+        player.team_source = KnowledgeSource.GAME_DISPLAY
 
 
 def _find_player_by_color(belief_state: BeliefState, color: int) -> int | None:

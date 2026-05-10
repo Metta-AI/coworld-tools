@@ -13,18 +13,12 @@ Known issues and planned work for the persephone project.
   `outline_is_black` parameter handles this for speech bubbles, pending
   entry sprites, and whisper header occupants.
 
-### URGENT: Test imports broken after perception move
+### DONE: Test imports fixed after perception move
 
-- **Status**: Partially fixed (conftest.py updated, test files still broken).
-- **Impact**: `tests/conftest.py` was migrated to `orpheus.perception` as
-  part of the Stage 0 commit (`4808ccb`). `tests/test_perception_live.py`,
-  `tests/test_perception_unit.py`, and `tests/test_sprites.py` still
-  import via the old `from perception import ...` path and fail to
-  collect under any PYTHONPATH that doesn't put `orpheus/perception` on
-  the path as the bare name `perception`.
-- **Fix**: Update the three remaining test files to use
-  `from orpheus.perception import ...`. Also update any scripts under
-  `scripts/` that still reference the old path.
+- **Status**: Complete
+- Tests now import perception through `orpheus.perception`. The legacy
+  script imports in `scripts/capture.py` and `scripts/extract_fixture.py`
+  were also updated to the current package path.
 
 ### waiting_entry not testable with current capture setup
 
@@ -65,28 +59,27 @@ The belief update pipeline integrates everything perception currently
 produces, but several DESIGN.md fields rely on perception data that is
 not yet extracted. Each is marked in `orpheus/belief_update.py`:
 
-- **`round_schedule` from RoleReveal** (line ~231):
-  `RoleRevealPerception` has no `schedule` field. `belief_state.round_schedule`
-  stays `[]`. Fix: extend perception's role-reveal parser to read the
-  schedule panel; populate `belief_state.round_schedule` in
-  `_apply_role_reveal`.
-- **Self color/shape/index from RoleReveal** (line ~243):
-  Perception does not surface the centered own-sprite at (60, 8) on the
-  role-reveal screen. `my_color`, `my_shape`, `my_index` therefore stay
-  `None` until the agent is observed in a non-RoleReveal view.
-  Fix: extract own sprite from the role-reveal centered position; use
-  `decode_player_index` to resolve `my_index`.
+- **DONE: `round_schedule` from RoleReveal**:
+  `RoleRevealPerception.round_schedule` now carries parsed
+  `(duration_secs, hostage_count)` rows from the schedule panel, and
+  `_apply_role_reveal` populates `belief_state.round_schedule`. Remaining
+  work: validate against live frames from all config presets.
+- **DONE: Self color/shape/index from RoleReveal**:
+  Perception now surfaces the centered own-sprite from the role card as
+  `self_color` and `self_shape`; `_apply_role_reveal` decodes
+  `my_color`, `my_shape`, and `my_index`. Remaining work: validate against
+  live role-card captures for all player shapes.
 - **Other-room leader colors** (line ~282):
   Only the self-leader color is set when `is_leader and my_room` are
   known. Cross-room leader detection requires perception support that
   doesn't yet exist (the overworld view only shows our own room).
-- **Visible-player overworld sprites and role indicators** (line ~289):
-  `OverworldPerception.speech_bubbles` only surfaces sprites that have a
-  bubble. Belief update only updates `players[i].position` and
-  `last_seen_in_whisper` for those sprites. Plain visible sprites (no
-  bubble) and role indicators below sprites are not yet extracted by
-  perception, so registry positions for non-bubble players come from
-  `minimap_sightings` only (color-ambiguous).
+- **DONE, needs live validation: Visible-player overworld sprites and role
+  indicators**:
+  `OverworldPerception.visible_players` now surfaces ordinary visible sprites
+  without speech bubbles, including role indicators when visible. Belief
+  update records current-tick positions without marking those players as in a
+  whisper. Remaining work: validate against live fog/obstacle frames and tune
+  false-positive suppression if needed.
 - **Whisper `my_exchange_partner` detection** (line ~428):
   Best-effort regex on a "shared roles" system message text. Full
   detection requires identifying the two participant sprites in the
@@ -95,57 +88,72 @@ not yet extracted. Each is marked in `orpheus/belief_update.py`:
   Currently approximates "leader == current usurp candidate when no
   usurp is active." Real disambiguation needs more perception state.
 
-### Whisper system messages not structured in belief state
+### Structured whisper system messages: attribution still incomplete
 
-- **Status**: Missing
-- **Impact**: The Orpheus belief state tracks `pending_offers` (from "R!" /
-  "C!" bottom-bar indicators) and `chat_history` (all messages including
-  system messages). But there is NO structured representation of whisper
-  interaction state changes derived from system messages. Agents need to
-  know:
+- **Status**: Partial
+- **What works**: `BeliefState` now includes `active_color_offers`,
+  `active_role_offers`, `last_exchange_event`, and `my_exchange_partner`.
+  `orpheus/belief_update.py` updates these fields from whisper system
+  messages including offered color/role, swapped colors, shared roles,
+  withdrawals, and leadership offers. Eurydice now consumes these structured
+  fields before falling back to `chat_history`, de-duplicates repeated active
+  offers/events, and logs ambiguous crowded-whisper completions without
+  assigning them to the wrong player.
+- **Remaining impact**: Multi-occupant attribution is still incomplete when the
+  source perception does not expose embedded refs or target-picker identity.
+  Agents need to know:
   - Whether an incoming color/role offer is active (and FROM WHOM when
     multiple occupants are present -- the bottom-bar "R!"/"C!" indicator
     does not identify the offerer)
-  - Whether a color/role exchange just completed (system msg "swapped
-    colors" / "shared roles")
-  - Whether an offer was withdrawn (system msg "withdrew")
-  - Whether a leadership offer is pending ("offered lead")
+  - Whether a completed exchange can be attributed without relying on the
+    "single other occupant" heuristic
+  - Whether a leadership offer can be tied to a specific player in crowded
+    whispers
+- **Fix**: Extend perception/system-message parsing for the remaining crowded
+  cases. Post-whisper info-screen reconciliation is now wired for parsed
+  role/color entries; live traces should confirm whether hostage-exchange
+  surfaces need a separate reconciliation trigger.
+- **Ref**: Eurydice implementation plan Phase 2.
 
-  Currently agents must parse `chat_history` entries for system message
-  patterns themselves. This is error-prone and duplicates work across
-  agents. The belief update should maintain structured fields like:
-  - `active_color_offers: list[PlayerIndex]` -- who has a pending C.OFFER
-  - `active_role_offers: list[PlayerIndex]` -- who has a pending R.OFFER
-  - `last_exchange_event: ExchangeEvent | None` -- most recent
-    completion/withdrawal with tick and participants
+### Eurydice strategic params: partial runtime wiring
 
-  These should be derivable from system messages (color 8 text in whisper
-  message area) combined with occupant tracking.
-- **Ref**: Eurydice DESIGN.md audit, finding 2.5.
+- **Status**: Partial
+- **What works**: Core role evaluators now emit typed params/objectives for
+  partner search, target probing, leadership, positioning, and disruption.
+  `meta_decide` stores full directives during hysteresis so params are not
+  erased, stores the last non-whisper directive for protocol recovery, and
+  `InWhisperMode` can select stall, key-exchange, quick-verify, and
+  infiltration behavior from that context. Probe modes now track lifecycle
+  state, cap failed target attempts per round, and avoid initiating whispers
+  during HostageSelect. Additional evaluator contracts cover cross-room key
+  partner behavior, Shade leader hostage strategy, Spy real-team verification
+  targeting, and the final-round partner-unreachable override.
+- **Remaining impact**: Advanced modes still consume only a subset of these
+  params. Hostage selection, summit behavior, cross-room coordination, decoy,
+  relay, and broader deception behavior remain shallow relative to the full
+  design.
+- **Fix**: Continue Eurydice implementation plan Phases 4-8 with live trace
+  validation after each phase.
 
-### Intro panel sequence: no panel index tracking
+### Intro panel sequence: live validation still incomplete
 
-- **Status**: Partial (roster vs role-reveal distinguished; panels 1-3
-  conflated)
+- **Status**: Partial
 - **Impact**: The perception detector classifies the 4-panel intro
-  sequence into two buckets: `ROSTER_REVEAL` (Panel 0) and `ROLE_REVEAL`
-  (Panels 1-3). There is no panel index or sequencing state. This means:
-  - Panel 2 (role summary: which roles are in the match, missing roles,
-    echo substitutions) is never specifically parsed.
-  - Panel 3 (round schedule: durations and hostage counts per round)
-    is never specifically parsed (known gap: `round_schedule` stays
-    empty).
-  - An agent cannot tell whether it's on Panel 1 vs 2 vs 3 from a
-    single frame, complicating active navigation of the intro.
-- **Fix options**:
-  1. Add sub-detection within `_role_reveal.py` based on unique visual
-     signatures of each panel (Panel 1 has "YOU ARE", Panel 2 has role
-     list, Panel 3 has a table with "ROUND" headers).
-  2. Track panel transitions over time in belief state (counting
-     forward/back transitions against the known 4-panel sequence).
-  Option 1 is simpler and sufficient since each panel has distinct
-  visual content.
-- **Ref**: Eurydice DESIGN.md audit, finding 3.1.
+  sequence into `ROSTER_REVEAL` (Panel 0) and `ROLE_REVEAL` panels 1-3.
+  `RoleRevealPerception.panel_index` now distinguishes panel 1 (role
+  card), panel 2 (role summary), and panel 3 (round schedule) when OCR
+  markers are visible. Remaining gaps:
+  - Panel 2 (role summary) now parses unique match roles, missing core roles,
+    echo substitutions, and `spy_in_game_config` from synthetic fixtures and
+    a live Spy/Echo fixture. The source game does not render exact duplicate
+    role counts on this panel. Remaining work is broader live-frame validation
+    across config presets.
+  - Panel 3 schedule rows are parsed into `belief_state.round_schedule`,
+    with a live fixture for a custom non-default three-round schedule.
+    Remaining work is broader live-frame validation across config presets.
+- **Fix**: Capture broader live intro-panel fixtures across config presets,
+  then tune OCR if those frames drift from synthetic and existing live tests.
+- **Ref**: Eurydice implementation plan Phase 1B.
 
 ### Stage 4: task `select_action` approximations
 
@@ -173,46 +181,24 @@ all 24 tasks — only the per-tick action sequencing needs work.
   does not yet drive the U/D/L/R cursor movement onto each target color
   in the grid.
 
-### Stage 7: outer-loop `staleness` not computed
+### DONE: Stage 7 outer-loop `staleness` computed when tick provider exists
 
-`orpheus/outer_loop.py:124` records `outer_loop_cycle.staleness=None`
-because the `OuterLoop` thread does not have a reference to the live
-pipeline tick — it only sees the consumed snapshot's tick. DESIGN.md
-§"Logging and tracing" lists "staleness delta" as part of the
-`outer_loop_cycle` event payload. Fix: pass a `tick_provider:
-Callable[[], int]` (or share the live `BeliefState` for read) into
-`OuterLoop`, then compute `staleness = current_tick - consumed_tick`
-when emitting the event.
+`OuterLoop` now accepts an optional `tick_provider` and records
+`staleness = current_tick - consumed_tick` when available. Existing tests
+cover both the no-provider `None` case and the computed case.
 
-### Stage 8: verbose-level log categories
+### DONE: Stage 8 verbose-level log categories
 
-Five verbose-level entry types from DESIGN.md §"Logging and tracing"
-are not yet emitted (marker at `orpheus/pipeline.py:251`):
+`orpheus/pipeline.py` now emits the verbose entries listed in DESIGN.md:
+`belief_diff`, `cooldown_change`, `minimap_sighting`, `grid_change`, and
+`action_memory_mutation`, in addition to full perception and act-command
+logging.
 
-- `belief_diff` — per-tick diff of belief-state field changes.
-- `cooldown_change` — when entries in `belief_state.cooldowns` mutate.
-- `minimap_sighting` — when an entry is appended to
-  `belief_state.minimap_sightings`.
-- `grid_change` — when occupancy-grid cells transition between states.
-- `action_memory_mutation` — fine-grained action-memory field changes.
+### DONE: `BeliefState.reset()` clears ad-hoc attributes
 
-The two big ones (`perception` full dump and `act_command` per tick)
-are wired. The remaining five are useful for offline analysis but
-require either a periodic-diff implementation or instrumentation hooks
-inside the relevant mutation sites.
-
-### `BeliefState.reset()` does not clear ad-hoc attributes
-
-`orpheus/belief_state.py:reset()` iterates `dataclasses.fields(self)` to
-restore declared fields to defaults. Attributes set via
-`belief_state.foo = ...` (the DESIGN.md "flexible space" pattern) are
-NOT cleared by `reset()`. This is a subtle behavior gap relative to
-DESIGN.md's "clear the entire belief state back to initial values"
-language for the lobby-reset path. Fix: either drop unknown attributes
-in `reset()` (`for name in list(self.__dict__): if name not in field_names: delattr(self, name)`)
-or document that ad-hoc fields persist across resets. Modes that need
-auto-clearing should use `belief_state.extra` (which IS reset because
-it's a declared field).
+`BeliefState.reset()` now restores declared dataclass fields and deletes
+attributes outside the schema. Flexible per-game data should still live in
+`belief_state.extra`.
 
 ### LOW PRIO: Mutable action mask in post_act hooks
 
@@ -234,6 +220,33 @@ it's a declared field).
   large or ordering bugs emerge.
 
 ## Eurydice Agent — Whisper Interaction
+
+### LLM control is schema-ready but not runtime-ready
+
+- **Status**: New foundation only
+- **What works**: `agents/eurydice/llm_context.py` builds a JSON-safe context
+  packet for future model calls and exposes a closed semantic decision schema.
+  `agents/eurydice/LLM_CONTROL.md` documents the intended staged rollout.
+- **Impact**: We can now shadow-test model choices for probe targeting,
+  whisper/global messages, and reveal decisions without changing live control.
+  Runtime Eurydice still uses deterministic evaluators and modes.
+- **Fix**: Add a deterministic LLM-decision validator, shadow trace events, a
+  saved-context runner, prompt templates, and finally a provider adapter behind
+  an explicit feature flag.
+
+### Probe initiation reliability remains the next live bottleneck
+
+- **Status**: Partially fixed
+- **What works**: Agents now learn roles, parse round schedules, enter
+  role-driven objectives, select probe targets, and complete some probes in
+  live traces.
+- **Impact**: A 10-agent live run on `seed=306` selected 39 targets across 9
+  unique player IDs and completed 3 probes, but logged 11
+  `initiate_timeout` failures. The issue is no longer basic strategy
+  activation; it is rendezvous/interaction reliability.
+- **Fix**: Improve approach positioning, bubble-visible-range behavior,
+  meeting-point logic, global "come to me" announcements, and entry timeout
+  handling before relying on richer LLM social strategy.
 
 ### Agents can't join each other's whispers (fog-of-war visibility)
 
@@ -273,15 +286,10 @@ it's a declared field).
   `_apply_overworld_speech_bubbles` and the pending_entry section.
   Verify no regression in shape detection coverage first.
 
-### Visible-player overworld sprites (non-bubble) not tracked
+### DONE, needs live validation: Visible-player overworld sprites (non-bubble)
 
-- **Status**: Perception gap
-- **Impact**: Only players WITH speech bubbles get their positions
-  updated via overworld sprite detection. Plain visible sprites (no
-  bubble) are only tracked via minimap dots (color-only, low-resolution
-  position). This means we can't detect nearby players' shapes from
-  their overworld sprites, only from minimap color.
-- **Fix**: Add overworld sprite scanning that finds all visible player
-  sprites (not just those with bubbles). This would give precise
-  positions and full (color, shape) identification for all visible
-  players, enabling much better whisper-join targeting.
+- **Status**: Implemented against synthetic tests; live validation pending.
+- Plain visible sprites now update precise positions and full color/shape
+  identity through `OverworldPerception.visible_players`.
+- **Follow-up**: Capture live obstacle/fog frames with non-bubble players and
+  verify no false positives in HUD, minimap, floor, or role-indicator areas.

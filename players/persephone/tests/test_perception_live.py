@@ -105,22 +105,28 @@ class TestRoleReveal:
         return request.param
 
     def test_team_detected(self, fixture: FixtureData):
-        """Team is always detectable from border color."""
+        """Team is detectable from the role-card panel's border color."""
         result = parse_frame(fixture.frame)
         assert result.view == View.ROLE_REVEAL
         assert result.role_reveal is not None
+        if result.role_reveal.panel_index != 1:
+            assert result.role_reveal.panel_index in (2, 3)
+            return
         assert result.role_reveal.team is not None
         assert result.role_reveal.team_color is not None
 
     def test_role_name(self, fixture: FixtureData):
         """Role name extraction (known broken: _scan_centered bug)."""
         result = parse_frame(fixture.frame)
+        assert result.role_reveal is not None
+
+        if result.role_reveal.panel_index != 1:
+            pytest.skip("Only the role-card panel renders the viewer's role name")
 
         if "role_name_not_extracted" in fixture.known_bugs:
             if result.role_reveal and result.role_reveal.role is None:
                 pytest.xfail("Known bug: _scan_centered fails to extract role name")
 
-        assert result.role_reveal is not None
         assert result.role_reveal.role is not None
 
     def test_assertions(self, fixture: FixtureData):

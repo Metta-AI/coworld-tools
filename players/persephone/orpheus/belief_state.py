@@ -97,6 +97,13 @@ class BeliefState:
 
     # Game schedule
     round_schedule: list[tuple[int, int]] = field(default_factory=list)
+    role_reveal_panel_index: int | None = None
+
+    # Match configuration from the role-summary intro panel
+    match_roles: list[str] = field(default_factory=list)
+    missing_roles: list[str] = field(default_factory=list)
+    echo_substitutions: list[tuple[str, str]] = field(default_factory=list)
+    spy_in_game_config: bool | None = None
 
     # Action state
     cooldowns: dict[str, int] = field(default_factory=dict)

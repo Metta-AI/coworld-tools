@@ -54,6 +54,11 @@ from orpheus.types import View
 AGENT_ID = "eurydice"
 DESCRIPTION = "Rule-based strategic agent for all roles (Orpheus framework)"
 
+
+class _ConnectionClosed(Exception):
+    """Raised when the game server closes while the policy is sending."""
+
+
 # Stub mode for unimplemented modes -- returns IdleTask every tick
 class _StubMode(Mode):
     params_type = ModeParams
@@ -104,10 +109,28 @@ def run(
             recorder = FrameRecorder(_frame_recording_path(record_frames, name))
         def send_input(mask):
             assert ws is not None
-            ws.send(struct.pack("BB", 0x00, mask & 0xFF), opcode=0x2)
+            try:
+                ws.send(struct.pack("BB", 0x00, mask & 0xFF), opcode=0x2)
+            except (
+                websocket.WebSocketConnectionClosedException,
+                BrokenPipeError,
+                ConnectionError,
+                OSError,
+            ) as exc:
+                stop_event.set()
+                raise _ConnectionClosed() from exc
         def send_chat(text):
             assert ws is not None
-            ws.send(b"\x01" + text.encode("ascii", errors="replace"), opcode=0x2)
+            try:
+                ws.send(b"\x01" + text.encode("ascii", errors="replace"), opcode=0x2)
+            except (
+                websocket.WebSocketConnectionClosedException,
+                BrokenPipeError,
+                ConnectionError,
+                OSError,
+            ) as exc:
+                stop_event.set()
+                raise _ConnectionClosed() from exc
 
         registry = build_registry()
         pipeline = Pipeline(
@@ -145,6 +168,8 @@ def run(
             pipeline.tick(unpack_frame(data))
         return 0
     except KeyboardInterrupt:
+        return 0
+    except _ConnectionClosed:
         return 0
     except Exception:
         traceback.print_exc()

@@ -151,9 +151,21 @@ def assert_field(result: FramePerception, path: str, spec: Any) -> None:
             assert val in spec["in"], f"{path} expected in {spec['in']}, got {val!r}"
     else:
         # Exact match
-        # Handle enum values: if val has a .value attribute, compare against that
-        actual = val.value if hasattr(val, "value") else val
+        actual = _jsonish(val)
         assert actual == spec, f"{path} expected {spec!r}, got {actual!r}"
+
+
+def _jsonish(value: Any) -> Any:
+    """Convert parsed values to JSON-shaped values for fixture comparisons."""
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, tuple):
+        return [_jsonish(item) for item in value]
+    if isinstance(value, list):
+        return [_jsonish(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _jsonish(item) for key, item in value.items()}
+    return value
 
 
 def assert_fixture(result: FramePerception, fixture: FixtureData) -> None:

@@ -62,7 +62,74 @@ must navigate the Underworld and Mortal Realm.
 
 ---
 
+## Implementation Status
+
+This document describes the intended full design. The current source does
+not yet implement every behavior described here. The source-verified
+roadmap and gap list live in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+Current high-level status:
+
+- Pixel perception, Orpheus belief update, Eurydice's post-belief hook,
+  `meta_decide`, basic probing modes, and the whisper FSM are implemented.
+- Role evaluators exist, but currently return mostly bare mode directives
+  for some advanced branches. Core partner-search/probe/positioning branches
+  now carry typed params and objectives through `meta_decide`, with pytest
+  contracts for key-role cross-room behavior, Shade leader hostage strategy,
+  Spy ally verification, and final-round disruption.
+- Probe modes now select a target before create-vs-join, cap failed entry
+  attempts per target/round, emit probe lifecycle trace events, and avoid
+  initiating whispers during HostageSelect.
+- The whisper FSM now recovers protocol intent from the directive that caused
+  whisper entry. Runtime-supported protocol variants include standard,
+  key-exchange, quick-verify, infiltration, and stall. Incoming role offers use
+  Spy-specific acceptance rules.
+- Leadership, hostage, cross-room, communication, deception, and Spy logic
+  are still partial. Spy role-offer handling is wired, but broader cover
+  management and outbound deception are not complete.
+- LLM runtime control is not implemented yet. `llm_context.py` now provides a
+  JSON-safe state packet and closed semantic decision schema so future model
+  control can be shadow-tested before it affects live actions. See
+  [`LLM_CONTROL.md`](LLM_CONTROL.md).
+- Structured exchange events, active offers, inbound chat parsing, unique
+  leader-color observations, post-whisper info-screen reconciliation, and
+  Spy-aware color-exchange confidence are wired into Eurydice's knowledge
+  layer. Crowded whisper attribution and outbound communication policy remain
+  partial.
+- Perception still lacks stronger leader detection. Own sprite identity, role
+  summary config, round schedule parsing, and visible non-bubble player
+  sprites are now implemented. Role summary config has a live Spy/Echo fixture,
+  and round schedule parsing has a live non-default schedule fixture. The
+  other intro and overworld fields still need broader live-frame validation
+  across config presets.
+
+When source and this design disagree, treat source as current behavior and
+update this document or the implementation plan in the same change that
+changes behavior.
+
+---
+
 ## Core Concepts
+
+### LLM Control Boundary
+
+Eurydice's current runtime strategy is deterministic. The intended next
+architecture is LLM-assisted social strategy behind deterministic safety
+guards. The LLM should choose semantic actions such as `probe_player`,
+`send_whisper`, `send_global`, `offer_role`, or `exit_whisper`; Orpheus tasks
+remain responsible for menus, button timing, movement, and view legality.
+
+The source contract lives in `agents/eurydice/llm_context.py`:
+
+- `build_llm_context(...)` serializes self identity, current strategic state,
+  match config, player knowledge, recent messages, legal actions, and hard
+  constraints.
+- `llm_decision_schema()` defines the closed model response shape.
+- No provider adapter is active yet; model decisions should first run in
+  shadow mode against saved contexts and traces.
+
+See [`LLM_CONTROL.md`](LLM_CONTROL.md) for rollout phases, validator
+requirements, and trace metrics.
 
 ### The Probe Cycle
 
@@ -499,11 +566,12 @@ IF P selected as hostage from RoomX THEN P.room = other_room (after exchange), r
 ```
 
 **Spy-in-config detection:** Panel 2 of the intro sequence lists all
-roles present in the match (including Spy if configured). The boolean
+unique roles present in the match (including Spy if configured). The boolean
 `spy_in_game_config` is set during the intro and persists for the game's
 lifetime. When false, color exchange is mechanically guaranteed truthful
-(no player can produce a false color reveal), so confidence = 1.0. The
-default 10-player composition does NOT include a Spy.
+(no player can produce a false color reveal), so confidence = 1.0. When true,
+color-only team confidence is reduced to 0.9 until a role exchange verifies
+the player. The default 10-player composition does NOT include a Spy.
 
 #### Soft Inference Rules (Certainty < 1.0)
 
@@ -1203,25 +1271,27 @@ despite being "non-interactive" in the gameplay sense.
 
 **Panel 2 -- Role Summary (phase = RoleReveal):**
 - Remain for at least 24 ticks.
-- Shows all roles present in the match and any missing/echo substitutions.
+- Shows unique roles present in the match and any missing/echo substitutions.
 - Critical for determining whether Spy is in the game (affects color
   exchange confidence levels).
-- Currently not fully parsed by Orpheus perception (panels 1-3 are
-  conflated). The agent should still pause here to allow future
-  perception improvements to extract this data.
+- Current source classifies this as `RoleRevealPerception.panel_index == 2`
+  and parses `match_roles`, `missing_roles`, `echo_substitutions`, and
+  `spy_in_game_config`. Exact duplicate role counts are not rendered by the
+  game and are therefore not available from this panel.
 
 **Panel 3 -- Round Schedule (phase = RoleReveal):**
 - Remain for at least 24 ticks.
 - Shows round durations and hostage counts per round.
-- Currently not parsed (known Orpheus perception gap: `round_schedule`
-  stays empty). Pausing allows future extraction.
+- Current source classifies this as `RoleRevealPerception.panel_index == 3`
+  and parses visible rows into `round_schedule` as
+  `(duration_secs, hostage_count)` tuples.
 - After this panel, press A/Right to mark "ready" and begin the game.
 
 **Implementation note:** The Orpheus perception module currently
-conflates Panels 1-3 under a single `ROLE_REVEAL` view type with no
-panel index. Until panel-specific detection is implemented (see project
-TODO.md), the agent should advance slowly (48 ticks per panel) to give
-perception maximum extraction time from each.
+uses a single `ROLE_REVEAL` view for panels 1-3, with
+`RoleRevealPerception.panel_index` distinguishing role card, role summary,
+and round schedule when OCR markers are visible. Panel content parsing is
+still incomplete; see `IMPLEMENTATION_PLAN.md` Phase 1.
 
 ### Mode Hysteresis
 
@@ -1876,18 +1946,16 @@ against OCR misreads:
    succeeded regardless of whether we parsed the system message. This is
    the ground-truth fallback.
 
-**Orpheus gap — WORKAROUND (remove when Orpheus provides structured
-whisper exchange events; tracked in TODO.md line 113-138):** This
-per-tick system-message parsing is a significant piece of logic that
-ideally belongs in the Orpheus belief update pipeline as structured
-fields. Until addressed upstream, Eurydice implements this in its
-agent-level `post_belief_update` hook. Additional Orpheus gaps that
-Eurydice works around at the agent level:
-- **Panel index tracking** (TODO.md line 141-163): Eurydice advances
-  panels on a fixed timer rather than detecting panel content.
-- **Shape detection** (TODO.md line 7-20): Eurydice uses color-only
-  player identification with ambiguity tolerance until shapes are
-  available.
+**Current source status:** Orpheus now provides structured whisper fields
+(`active_color_offers`, `active_role_offers`, `last_exchange_event`, and
+`my_exchange_partner`), but attribution in crowded whispers still needs
+work. Eurydice should consume those structured fields rather than duplicate
+chat parsing. Additional source gaps that still affect Eurydice:
+- **Panel content parsing:** panel index classification exists, but role
+  summary contents are not structured yet. Round schedule rows are parsed.
+- **Visible non-bubble sprites:** ordinary overworld players without speech
+  bubbles are exposed as direct observations, including visible role
+  indicators. This still needs live-frame validation in fog/obstacle cases.
 
 See the full **Whisper Interaction Protocol** section below for the
 protocol variants and detailed state transition rules.
@@ -2411,6 +2479,16 @@ global chat view to read messages → tab to info → tab back).
 
 **Exit:** After 48 ticks (2s) or once perception has extracted the list.
 Signals mode_complete.
+
+**Current source status:** Exchange-related whisper events set a pending
+reconciliation flag. `meta_decide` opens `check_info_screen` after leaving
+whisper during normal playable surfaces, and also routes any existing
+`INFO_SCREEN` view through `check_info_screen` so the visit is bounded and
+closes explicitly. Eurydice's post-belief hook updates `PlayerKnowledge` from
+parsed info-screen role/color entries. A full role entry is treated as
+mechanical role-exchange truth; a color-only entry is treated as mechanical
+color-exchange truth. Long-list scrolling and any hostage-exchange-specific
+trigger still need live-trace validation before being called complete.
 
 ---
 
@@ -3592,15 +3670,19 @@ uses a combination of automated trace analysis and live game validation.
 
 ## Key Design Decisions
 
-### Why rule-based instead of LLM?
+### Why deterministic mechanics with LLM-assisted strategy?
 
-- **Latency:** LLM calls (~500-1500ms) are incompatible with 15-second
-  rounds where every second counts. Rule-based decisions execute in <1ms.
-- **Determinism:** Reproducible behavior for testing and debugging.
-- **Efficiency:** No token costs, no API dependencies, no rate limits.
-- **Sufficiency:** The game's strategy space is large but well-structured.
-  Role-specific heuristics can cover the vast majority of situations
-  without general-purpose reasoning.
+- **Latency:** button timing, menu navigation, entry grants, and phase
+  overrides must remain deterministic because 15-second rounds leave little
+  room for slow or retry-heavy control loops.
+- **Determinism:** perception, belief updates, mechanical exchange truth, and
+  safety guards need reproducible behavior for tests and trace review.
+- **Social complexity:** probe priority, reveal decisions, global/whisper
+  messages, deception, and coalition management are where pure rules become
+  brittle. These are the surfaces that should move toward LLM assistance.
+- **Operational safety:** the LLM should choose semantic actions from a closed
+  schema, not press buttons or invent unsupported modes. Runtime code validates
+  legality and falls back to deterministic policy when needed.
 
 ### Why one agent for all roles?
 
@@ -3716,8 +3798,8 @@ concrete logger at startup.
 
 | Level | What fires |
 |-------|-----------|
-| `events` | Orpheus infrastructure only (tick metadata, view/task/mode transitions) |
-| `decisions` | All meaningful agent decisions: meta_decide reasons, strategic state changes, whisper FSM transitions, inference firings, deception decisions |
+| `events` | Orpheus infrastructure plus compact Eurydice lifecycle signals needed for live audit: strategic state changes, probe target/attempt/completion/failure, tick metadata, and view/task/mode transitions |
+| `decisions` | Detailed implemented agent decisions: meta_decide reasons, whisper FSM transitions, inference firings, and deception-helper decisions when those helpers are invoked |
 | `verbose` | Everything above plus: evaluator branch traces, min-duration holds, periodic strategic state snapshots (every 24 ticks) |
 
 ### Event Catalog
@@ -3725,15 +3807,21 @@ concrete logger at startup.
 | Event Type | Level | Source | Key Fields |
 |-----------|-------|--------|------------|
 | `meta_decide_reason` | decisions | `meta_decide.py` | reason, mode, evaluator, mode_complete, ticks_in_mode |
-| `strategic_state_change` | decisions | `meta_decide.py` | (only changed fields from: my_role, my_team, my_room, key_partner_found, key_exchange_done, partner_location, enemy_key_location, urgency, round_number) |
+| `strategic_state_change` | events | `meta_decide.py` | Only changed fields from the compact strategic snapshot: my_role, my_team, my_room, key_partner_found, key_exchange_done, partner_location, enemy_key_location, urgency, current_objective, spy_in_game_config, round_number, current_phase, ticks_remaining_in_phase, round_schedule |
 | `strategic_state_snapshot` | verbose | `meta_decide.py` | Full state including game_elapsed_ticks (fires every 24 ticks) |
 | `evaluator_branch` | verbose | `evaluators.py` | role, branch, mode |
+| `probe_target_selected` | events | `modes.py` | target, round |
+| `probe_attempt_started` | events | `modes.py` | target, round, action |
+| `whisper_created` | events | `modes.py` | target, round |
+| `entry_requested` | events | `modes.py` | target, round |
+| `probe_failed` | events | `modes.py` | target, round, reason, failures_this_round |
+| `probe_completed` | events | `pipeline.py` | target, started_tick, total_ticks |
 | `whisper_fsm_transition` | decisions | `whisper_mode.py` | old_state, new_state, protocol, target, tick_in_whisper |
 | `whisper_protocol_selected` | decisions | `whisper_mode.py` | protocol, reason, occupants, hostile_present |
 | `whisper_exchange_outcome` | decisions | `whisper_mode.py` | exchange_type, action, target, our_offer |
 | `whisper_exit` | decisions | `whisper_mode.py` | reason, protocol, total_ticks |
 | `inference_fired` | decisions | `pipeline.py` | rule, player_id, inference_type, old_value, new_value, confidence, source |
-| `deception_decision` | decisions | `deception.py` | should_deceive, reason |
+| `deception_decision` | decisions | `deception.py` | should_deceive, reason; emitted only when runtime code calls the deception helper |
 | `lie_recorded` | decisions | `deception.py` | target, lie_type, content, consistent |
 | `cover_blown` | decisions | `deception.py` | reason |
 

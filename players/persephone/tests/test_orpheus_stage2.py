@@ -35,6 +35,7 @@ from orpheus.perception.types import (
     SpeechBubble,
     UsurpCandidate,
     View,
+    VisiblePlayer,
 )
 from orpheus.pipeline import Pipeline
 from orpheus.types import KnowledgeSource, PLAYER_COLORS
@@ -262,6 +263,7 @@ def test_role_reveal_sets_self_identity() -> None:
     """RoleReveal sets static self role, team, and room fields."""
     belief_state = BeliefState()
     role_reveal = RoleRevealPerception(
+        panel_index=1,
         role="Hades",
         team="Shades",
         room="Underworld",
@@ -272,6 +274,56 @@ def test_role_reveal_sets_self_identity() -> None:
     assert belief_state.my_role == "hades"
     assert belief_state.my_team == "shades"
     assert belief_state.my_room == Room.UNDERWORLD
+    assert belief_state.role_reveal_panel_index == 1
+
+
+def test_role_reveal_populates_self_color_shape_index() -> None:
+    """RoleReveal centered own sprite resolves self color, shape, and index."""
+    belief_state = BeliefState()
+    role_reveal = RoleRevealPerception(
+        self_color=8,
+        self_shape=PlayerShape.TRIANGLE,
+        player_count=10,
+    )
+
+    _apply(belief_state, _frame(View.ROLE_REVEAL, role_reveal=role_reveal))
+
+    assert belief_state.player_count == 10
+    assert belief_state.my_color == 8
+    assert belief_state.my_shape == PlayerShape.TRIANGLE
+    assert belief_state.my_index == 2
+
+
+def test_role_reveal_populates_round_schedule() -> None:
+    """RoleReveal schedule panel stores round durations and hostage counts."""
+    belief_state = BeliefState()
+    role_reveal = RoleRevealPerception(
+        panel_index=3,
+        round_schedule=[(180, 1), (120, 2), (45, 1)],
+    )
+
+    _apply(belief_state, _frame(View.ROLE_REVEAL, role_reveal=role_reveal))
+
+    assert belief_state.round_schedule == [(180, 1), (120, 2), (45, 1)]
+
+
+def test_role_reveal_populates_match_config() -> None:
+    """RoleReveal summary panel stores role membership and Spy presence."""
+    belief_state = BeliefState()
+    role_reveal = RoleRevealPerception(
+        panel_index=2,
+        match_roles=["Hades", "Spy", "Nymph"],
+        missing_roles=["Cerberus", "Demeter"],
+        echo_substitutions=[("Echo of Hades", "Hades")],
+        spy_in_game_config=True,
+    )
+
+    _apply(belief_state, _frame(View.ROLE_REVEAL, role_reveal=role_reveal))
+
+    assert belief_state.match_roles == ["Hades", "Spy", "Nymph"]
+    assert belief_state.missing_roles == ["Cerberus", "Demeter"]
+    assert belief_state.echo_substitutions == [("Echo of Hades", "Hades")]
+    assert belief_state.spy_in_game_config is True
 
 
 def test_role_reveal_initializes_room_size_as_tuple() -> None:
@@ -388,6 +440,51 @@ def test_overworld_speech_bubble_updates_player_position() -> None:
 
     assert belief_state.players[2].position == (36, 56, 1)
     assert belief_state.players[2].last_seen_in_whisper == 1
+
+
+def test_overworld_visible_player_updates_position_without_whisper() -> None:
+    """Plain visible sprites identify player position without whisper state."""
+    belief_state = BeliefState(player_count=10, room_size=(200, 200))
+    overworld = OverworldPerception(
+        self_position=Position(room=Room.UNDERWORLD, x=80, y=90),
+        visible_players=[
+            VisiblePlayer(
+                screen_x=20,
+                screen_y=30,
+                player_color=_color(2),
+                player_shape=_shape(2),
+            )
+        ],
+    )
+
+    _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
+
+    assert belief_state.players[2].position == (36, 56, 1)
+    assert belief_state.players[2].last_seen_in_whisper is None
+
+
+def test_overworld_visible_player_updates_role_indicator() -> None:
+    """Visible role indicators become mechanical game-display knowledge."""
+    belief_state = BeliefState(player_count=10, room_size=(200, 200))
+    overworld = OverworldPerception(
+        self_position=Position(room=Room.UNDERWORLD, x=80, y=90),
+        visible_players=[
+            VisiblePlayer(
+                screen_x=20,
+                screen_y=30,
+                player_color=_color(0),
+                player_shape=_shape(0),
+                role_indicator=RoleIndicator(team="shades", role="hades"),
+            )
+        ],
+    )
+
+    _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
+
+    assert belief_state.players[0].role == "hades"
+    assert belief_state.players[0].team == "shades"
+    assert belief_state.players[0].role_source == KnowledgeSource.GAME_DISPLAY
+    assert belief_state.players[0].team_source == KnowledgeSource.GAME_DISPLAY
 
 
 def test_overworld_minimap_sightings_appended() -> None:

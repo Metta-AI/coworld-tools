@@ -1,0 +1,30 @@
+{
+  "view": "role_reveal",
+  "source": {
+    "tick": 27,
+    "date": "2026-05-10",
+    "seed": 101
+  },
+  "assertions": {
+    "role_reveal.panel_index": 2,
+    "role_reveal.match_roles": [
+      "Persephone",
+      "Hades",
+      "Echo of Cerberus",
+      "Demeter",
+      "Nymph",
+      "Spy"
+    ],
+    "role_reveal.missing_roles": [
+      "Cerberus"
+    ],
+    "role_reveal.echo_substitutions": [
+      [
+        "Echo of Cerberus",
+        "Cerberus"
+      ]
+    ],
+    "role_reveal.spy_in_game_config": true
+  },
+  "note": "Live role-summary panel from a six-player Spy/Echo config; verifies Spy membership, missing core role, and active echo substitution parsing."
+}

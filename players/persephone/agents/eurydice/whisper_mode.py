@@ -17,7 +17,10 @@ from orpheus.tasks import (
     SendMessageTask,
 )
 
+from agents.eurydice.advanced_modes import TimeWasteParams
+from agents.eurydice.deception import spy_should_accept_role_exchange
 from agents.eurydice.ext_keys import (
+    LAST_NON_WHISPER_DIRECTIVE,
     MODE_COMPLETE,
     PLAYER_KNOWLEDGE,
     STRATEGIC_STATE,
@@ -25,8 +28,17 @@ from agents.eurydice.ext_keys import (
     WHISPER_MODE_STATE,
 )
 from agents.eurydice.knowledge import PlayerKnowledge
+from agents.eurydice.modes import ProbeSystematicParams, ProbeTargetParams
 from agents.eurydice.pipeline import player_index_to_id
-from agents.eurydice.types import PROTOCOL_TIMEOUTS, PlayerID, Role, Team
+from agents.eurydice.types import (
+    PROTOCOL_TIMEOUTS,
+    Objective,
+    PlayerID,
+    ProbeIntent,
+    Role,
+    Team,
+    Urgency,
+)
 from agents.eurydice.whisper_state import WhisperModeState
 
 from .log import logger
@@ -39,6 +51,7 @@ STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
 WAIT_FOR_OCCUPANT_TIMEOUT_TICKS = 360
 _WHISPER_EXIT_LOGGED = "_eurydice_whisper_exit_logged"
+_WHISPER_ENTRY_GRANTED_LOGGED = "_eurydice_whisper_entry_granted_logged"
 
 SENSITIVE_ENTRY_STATES = frozenset({"COLOR_EXCHANGE", "ROLE_EXCHANGE", "EXTRACT", "EXIT"})
 VALID_FSM_STATES = frozenset(
@@ -96,6 +109,9 @@ class InWhisperMode(Mode):
         if entry_task is not None:
             return entry_task
 
+        if _abort_for_hostile_new_entrant(belief_state, state):
+            return IdleTask()
+
         if state.fsm_state == "ENTER":
             return self._enter_task(belief_state, state)
         if state.fsm_state == "WAIT_FOR_OCCUPANT":
@@ -122,10 +138,11 @@ class InWhisperMode(Mode):
         del action_memory
 
         previous = belief_state.extra.get(WHISPER_MODE_STATE)
-        protocol = previous.protocol if isinstance(previous, WhisperModeState) else "standard"
+        protocol = _protocol_from_context(belief_state, previous)
         belief_state.extra.pop(MODE_COMPLETE, None)
         belief_state.extra.pop(WHISPER_EXIT_REASON, None)
         belief_state.extra.pop(_WHISPER_EXIT_LOGGED, None)
+        belief_state.extra.pop(_WHISPER_ENTRY_GRANTED_LOGGED, None)
         belief_state.extra[WHISPER_MODE_STATE] = WhisperModeState(
             protocol=protocol,
             fsm_state="ENTER",
@@ -217,6 +234,29 @@ class InWhisperMode(Mode):
         if state.protocol == "key_exchange":
             _log_protocol_selected(belief_state, state, occupants, "key_exchange_protocol")
             state.fsm_state = "ROLE_EXCHANGE"
+            return IdleTask()
+
+        if state.protocol == "quick_verify":
+            if state.target_occupant is None:
+                state.fsm_state = "WAIT_FOR_OCCUPANT"
+                return IdleTask()
+            target_record = _target_knowledge(state.target_occupant, belief_state)
+            if target_record is not None and target_record.team is not None:
+                _log_protocol_selected(
+                    belief_state,
+                    state,
+                    occupants,
+                    "quick_verify_known_team",
+                )
+                state.fsm_state = "EVALUATE"
+                return IdleTask()
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                "quick_verify_unknown_target",
+            )
+            state.fsm_state = "COLOR_EXCHANGE"
             return IdleTask()
 
         if state.protocol == "infiltration" and _target_is_enemy(
@@ -354,23 +394,24 @@ class InWhisperMode(Mode):
             return IdleTask()
 
         if _pending_offer(belief_state, "role"):
-            if not _is_probable_ally(
-                state.target_occupant,
-                _player_knowledge(belief_state),
-                _my_team(belief_state),
-            ):
+            target_index = _offer_index("role", state.target_occupant, belief_state)
+            offerer_id = (
+                player_index_to_id(target_index, belief_state)
+                if target_index is not None
+                else state.target_occupant
+            )
+            if not _should_accept_role_offer(offerer_id, belief_state):
                 _log_exchange_outcome(
                     belief_state,
                     state,
                     "role",
                     "reject",
-                    state.target_occupant,
+                    offerer_id,
                     None,
                 )
                 _transition_to_exit(belief_state, state, "role_offer_rejected")
                 return IdleTask()
 
-            target_index = _offer_index("role", state.target_occupant, belief_state)
             if target_index is None:
                 return IdleTask()
             if _exchange_action_on_cooldown(state, tick):
@@ -452,13 +493,59 @@ class InWhisperMode(Mode):
 def _whisper_state(belief_state) -> WhisperModeState:
     state = belief_state.extra.get(WHISPER_MODE_STATE)
     if not isinstance(state, WhisperModeState):
-        state = WhisperModeState(entered_tick=_tick(belief_state))
+        state = WhisperModeState(
+            protocol=_protocol_from_context(belief_state, None),
+            entered_tick=_tick(belief_state),
+        )
         belief_state.extra[WHISPER_MODE_STATE] = state
     if state.fsm_state not in VALID_FSM_STATES:
         state.fsm_state = "EXIT"
     if state.protocol not in PROTOCOL_TIMEOUTS:
         state.protocol = "standard"
     return state
+
+
+def _protocol_from_context(
+    belief_state,
+    previous: WhisperModeState | None,
+) -> str:
+    """Infer the intended whisper protocol from the mode that entered whisper."""
+
+    directive = belief_state.extra.get(LAST_NON_WHISPER_DIRECTIVE)
+    params = directive.params if isinstance(directive, ModeDirective) else None
+
+    explicit_protocol = getattr(params, "protocol", None)
+    if explicit_protocol in PROTOCOL_TIMEOUTS:
+        return explicit_protocol
+
+    if isinstance(params, TimeWasteParams):
+        return "stall"
+
+    if isinstance(params, ProbeTargetParams):
+        if params.skip_color_exchange:
+            return "key_exchange"
+        if params.intent is ProbeIntent.VERIFY_SELF_AS_SPY:
+            return "quick_verify"
+        if _my_role(belief_state) is Role.SPY:
+            return "infiltration"
+
+    if isinstance(params, ProbeSystematicParams):
+        if params.intent is ProbeIntent.VERIFY_SELF_AS_SPY:
+            return "quick_verify"
+        if _my_role(belief_state) is Role.SPY:
+            return "infiltration"
+
+    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    if (
+        getattr(strategic_state, "current_objective", None)
+        is Objective.COMPLETE_KEY_EXCHANGE
+        and _key_partner_id(belief_state) is not None
+    ):
+        return "key_exchange"
+
+    if isinstance(previous, WhisperModeState) and previous.protocol in PROTOCOL_TIMEOUTS:
+        return previous.protocol
+    return "standard"
 
 
 def _forced_ejected(belief_state, state: WhisperModeState) -> bool:
@@ -477,6 +564,8 @@ def _protocol_timed_out(state: WhisperModeState, tick: int) -> bool:
 def _entry_request_task(belief_state, state: WhisperModeState) -> Task | None:
     if state.fsm_state in SENSITIVE_ENTRY_STATES:
         return None
+    if state.protocol == "key_exchange":
+        return None
     if getattr(belief_state, "view", None) is not View.WHISPER:
         return None
 
@@ -486,11 +575,44 @@ def _entry_request_task(belief_state, state: WhisperModeState) -> Task | None:
     player_id = player_index_to_id(pending_entry, belief_state)
     knowledge = _player_knowledge(belief_state)
     if _is_probable_ally(player_id, knowledge, _my_team(belief_state)):
+        _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
     record = knowledge.get(player_id) if player_id is not None else None
     if record is None or record.team is None:
+        _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
     return None
+
+
+def _abort_for_hostile_new_entrant(
+    belief_state,
+    state: WhisperModeState,
+) -> bool:
+    if state.fsm_state not in {"COLOR_EXCHANGE", "ROLE_EXCHANGE"}:
+        return False
+    if state.role_exchange_completed:
+        return False
+    if getattr(belief_state, "view", None) is not View.WHISPER:
+        return False
+    if not state.occupants_at_entry:
+        return False
+
+    current = _current_occupants(belief_state)
+    old_set = set(state.occupants_at_entry)
+    new_entrants = [pid for pid in current if pid not in old_set]
+    state.occupants_at_entry = current
+    if not new_entrants:
+        return False
+
+    knowledge = _player_knowledge(belief_state)
+    my_team = _my_team(belief_state)
+    hostile_or_unknown = [
+        pid for pid in new_entrants if not _is_probable_ally(pid, knowledge, my_team)
+    ]
+    if hostile_or_unknown and _is_key_role(_my_role(belief_state)):
+        _transition_to_exit(belief_state, state, "hostile_entered_sensitive_exchange")
+        return True
+    return False
 
 
 def _current_occupants(belief_state) -> list[PlayerID]:
@@ -562,6 +684,29 @@ def _is_probable_ally(
     if record.role is not None and _team_for_role(record.role) is my_team:
         return True
     return False
+
+
+def _should_accept_role_offer(
+    offerer_id: PlayerID | None,
+    belief_state,
+) -> bool:
+    knowledge = _player_knowledge(belief_state)
+    my_team = _my_team(belief_state)
+    my_role = _my_role(belief_state)
+
+    if my_role is Role.SPY:
+        strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+        verified_ally = getattr(strategic_state, "verified_ally", None)
+        if offerer_id is not None and offerer_id == verified_ally:
+            return True
+        return spy_should_accept_role_exchange(
+            knowledge.get(offerer_id) if offerer_id is not None else None,
+            my_team,
+            verified_ally,
+            _urgency(belief_state),
+        )
+
+    return _is_probable_ally(offerer_id, knowledge, my_team)
 
 
 def _target_is_enemy(
@@ -699,6 +844,19 @@ def _my_team(belief_state) -> Team | None:
     return _team_for_role(role)
 
 
+def _urgency(belief_state) -> Urgency:
+    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    urgency = getattr(strategic_state, "urgency", None)
+    if isinstance(urgency, Urgency):
+        return urgency
+    if urgency is None:
+        return Urgency.CALM
+    normalized = str(urgency).strip().upper()
+    if "." in normalized:
+        normalized = normalized.rsplit(".", 1)[-1]
+    return Urgency.__members__.get(normalized, Urgency.CALM)
+
+
 def _coerce_role(value) -> Role | None:
     if isinstance(value, Role):
         return value
@@ -802,6 +960,27 @@ def _log_exchange_outcome(
                     target if target is not None else state.target_occupant
                 ),
                 "our_offer": _event_value(our_offer),
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _log_entry_granted(
+    belief_state,
+    state: WhisperModeState,
+    player_id: PlayerID | None,
+) -> None:
+    key = _player_id_value(player_id)
+    if belief_state.extra.get(_WHISPER_ENTRY_GRANTED_LOGGED) == key:
+        return
+    belief_state.extra[_WHISPER_ENTRY_GRANTED_LOGGED] = key
+    if logger:
+        logger.event(
+            "entry_granted",
+            {
+                "target": key,
+                "protocol": state.protocol,
+                "fsm_state": state.fsm_state,
             },
             LogLevel.DECISIONS,
         )

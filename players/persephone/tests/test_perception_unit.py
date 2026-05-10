@@ -33,6 +33,7 @@ from orpheus.perception._common import (
     HOSTAGE_GRID_Y,
     PLAYER_H,
     PLAYER_W,
+    PLAYER_COLORS,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
     PROTOCOL_BYTES,
@@ -234,6 +235,7 @@ def _render_role_card_frame() -> np.ndarray:
     """Render a synthetic RoleReveal panel 1 frame."""
     frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
     _draw_double_border(frame, 14)
+    _draw_sprite(frame, PlayerShape.TRIANGLE, PLAYER_COLORS[2], 60, 8)
     _draw_centered_text(frame, "YOU ARE", 18, COLOR_HUD_NORMAL)
     _draw_centered_text(frame, "NYMPH", 28, 14)
     _draw_centered_text(frame, "NYMPHS TEAM", 38, 14)
@@ -255,6 +257,20 @@ def _render_role_summary_frame() -> np.ndarray:
     return frame
 
 
+def _render_role_summary_with_spy_echo_frame() -> np.ndarray:
+    """Render a role summary with Spy, missing roles, and echo substitutions."""
+    frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+    _draw_double_border(frame, COLOR_HUD_NORMAL)
+    _draw_centered_text(frame, "MATCH ROLES", 8, COLOR_HUD_NORMAL)
+    _draw_text(frame, "HADES SPY NYMPH", 6, 20, COLOR_HUD_DIM)
+    _draw_text(frame, "MISSING:", 6, 32, COLOR_HUD_ALERT)
+    _draw_text(frame, "CERBERUS DEMETER", 6, 40, COLOR_HUD_DIM)
+    _draw_text(frame, "ECHO ACTIVE:", 6, 52, 11)
+    _draw_text(frame, "ECHO OF HADES -> HADES", 6, 60, COLOR_HUD_DIM)
+    _draw_centered_text(frame, "STARTING IN 7", 118, COLOR_HUD_NORMAL)
+    return frame
+
+
 def _render_round_schedule_frame() -> np.ndarray:
     """Render a synthetic RoleReveal panel 3 frame."""
     frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
@@ -262,6 +278,8 @@ def _render_round_schedule_frame() -> np.ndarray:
     _draw_centered_text(frame, "ROUND SCHEDULE", 8, COLOR_HUD_NORMAL)
     _draw_text(frame, "ROUND  TIME  HOSTAGE", 10, 20, COLOR_HUD_DIM)
     _draw_text(frame, "  1      3:00     1", 10, 28, COLOR_HUD_NORMAL)
+    _draw_text(frame, "  2      2:00     2", 10, 36, COLOR_HUD_NORMAL)
+    _draw_text(frame, "  3      0:45     1", 10, 44, COLOR_HUD_NORMAL)
     _draw_centered_text(frame, "STARTING IN 7", 60, COLOR_HUD_NORMAL)
     return frame
 
@@ -352,6 +370,36 @@ class TestPerceptionBugFixes:
         assert result.role_name == "CERBER"
         assert result.role_team_color == 3
         assert result.is_leader is True
+
+    def test_overworld_detects_visible_nonbubble_sprite(self):
+        """Plain visible sprites are exposed even without speech bubbles."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_sprite(frame, PlayerShape.STAR, PLAYER_COLORS[4], 40, 40)
+
+        result = parse_overworld(frame, view=View.PLAYING)
+
+        assert len(result.visible_players) == 1
+        player = result.visible_players[0]
+        assert player.screen_x == 40
+        assert player.screen_y == 40
+        assert player.player_color == PLAYER_COLORS[4]
+        assert player.player_shape == PlayerShape.STAR
+
+    def test_overworld_visible_sprite_includes_role_indicator(self):
+        """Visible sprite scanning attaches the role indicator when present."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_sprite(frame, PlayerShape.CIRCLE, PLAYER_COLORS[0], 40, 40)
+        # Hades indicator: Shades bar with center alert dots.
+        frame[48:50, 41:46] = 3
+        frame[48:50, 43] = 8
+
+        result = parse_overworld(frame, view=View.PLAYING)
+
+        assert len(result.visible_players) == 1
+        indicator = result.visible_players[0].role_indicator
+        assert indicator is not None
+        assert indicator.team == "shades"
+        assert indicator.role == "hades"
 
     def test_hostage_grid_parser_reads_entries_selection_and_cursor(self):
         """The hostage grid parser mirrors the centered 12x14 cell layout."""
@@ -500,6 +548,8 @@ class TestRoleReveal:
         assert result.role_reveal.role == "Nymph"
         assert result.role_reveal.team == "Nymphs"
         assert result.role_reveal.room == "Underworld"
+        assert result.role_reveal.self_color == PLAYER_COLORS[2]
+        assert result.role_reveal.self_shape == PlayerShape.TRIANGLE
         assert result.role_reveal.player_count == 10
         assert result.role_reveal.room_size == 120
 
@@ -512,6 +562,27 @@ class TestRoleReveal:
         assert result.role_reveal.panel_index == 2
         assert result.role_reveal.role is None
         assert result.role_reveal.room is None
+        assert result.role_reveal.match_roles == [
+            "Hades",
+            "Persephone",
+            "Cerberus",
+            "Demeter",
+        ]
+        assert result.role_reveal.spy_in_game_config is False
+
+    def test_parse_frame_parses_role_summary_spy_missing_and_echo(self):
+        """Panel 2 exposes Spy presence, missing roles, and echo substitutions."""
+        result = parse_frame(_render_role_summary_with_spy_echo_frame())
+
+        assert result.view == View.ROLE_REVEAL
+        assert result.role_reveal is not None
+        assert result.role_reveal.panel_index == 2
+        assert result.role_reveal.match_roles == ["Hades", "Spy", "Nymph"]
+        assert result.role_reveal.missing_roles == ["Cerberus", "Demeter"]
+        assert result.role_reveal.echo_substitutions == [
+            ("Echo of Hades", "Hades")
+        ]
+        assert result.role_reveal.spy_in_game_config is True
 
     def test_parse_frame_classifies_round_schedule_panel(self):
         """Panel 3 is detected from the ROUND schedule headers."""
@@ -522,3 +593,4 @@ class TestRoleReveal:
         assert result.role_reveal.panel_index == 3
         assert result.role_reveal.role is None
         assert result.role_reveal.room is None
+        assert result.role_reveal.round_schedule == [(180, 1), (120, 2), (45, 1)]

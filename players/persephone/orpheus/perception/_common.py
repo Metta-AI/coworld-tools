@@ -109,7 +109,13 @@ FLOOR_DOT_OFFSET = 11  # First dot at this offset within each grid cell
 # Role names (for OCR matching)
 # ---------------------------------------------------------------------------
 
-ROLE_NAMES = ["Hades", "Persephone", "Cerberus", "Demeter", "Shade", "Nymph"]
+ROLE_NAMES = ["Hades", "Persephone", "Cerberus", "Demeter", "Shade", "Nymph", "Spy"]
+ECHO_ROLE_NAMES = [
+    "Echo of Hades",
+    "Echo of Persephone",
+    "Echo of Cerberus",
+    "Echo of Demeter",
+]
 
 # ---------------------------------------------------------------------------
 # Minimap exclusion sets

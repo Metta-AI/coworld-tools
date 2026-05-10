@@ -14,11 +14,19 @@ from collections.abc import Set
 from orpheus.belief_state import BeliefState
 from orpheus.logging import LogLevel
 from orpheus.perception._common import PLAYER_COLORS
+from orpheus.perception.types import View
 
 from .accumulators import GlobalAccumulators, PlayerAccumulator
+from .chat_parser import (
+    assess_credibility,
+    parse_message,
+    update_knowledge_from_chat,
+)
 from .ext_keys import (
     EURYDICE_ACCUMULATORS,
+    INFO_SCREEN_RECONCILE_PENDING,
     PLAYER_KNOWLEDGE,
+    PROBE_STATE,
 )
 from .knowledge import PlayerKnowledge
 from .log import logger
@@ -30,6 +38,14 @@ from .types import (
     TeamSource,
     TrustLevel,
 )
+
+
+_EXCHANGE_PROCESSED_KEYS = "_eurydice_processed_exchange_keys"
+_LAST_EXCHANGE_EVENT_KEY = "_eurydice_last_exchange_event_key"
+_PREV_ACTIVE_COLOR_OFFERS = "_eurydice_prev_active_color_offers"
+_PREV_ACTIVE_ROLE_OFFERS = "_eurydice_prev_active_role_offers"
+_PREV_PENDING_OFFERS = "_eurydice_prev_pending_offers"
+_INFO_SCREEN_RECONCILE_REASON = "_eurydice_info_screen_reconcile_reason"
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +73,9 @@ def eurydice_post_belief_update(belief_state: BeliefState) -> None:
     update_position_tracker(accumulators, knowledge, belief_state)
     update_minimap_tracker(accumulators, knowledge, belief_state)
     update_whisper_tracker(accumulators, belief_state)
+    update_probe_tracker(belief_state)
     update_exchange_tracker(accumulators, knowledge, belief_state)
+    update_info_screen_reconciliation(accumulators, knowledge, belief_state)
     update_chat_tracker(accumulators, knowledge, belief_state)
     update_leadership_tracker(accumulators, belief_state)
 
@@ -84,6 +102,12 @@ def initialize_eurydice_state(belief_state: BeliefState) -> None:
     belief_state.extra["_eurydice_prev_chat_len"] = 0
     # Track previous whisper occupants for entry detection
     belief_state.extra["_eurydice_prev_whisper_occupants"] = []
+    belief_state.extra[_EXCHANGE_PROCESSED_KEYS] = set()
+    belief_state.extra[_LAST_EXCHANGE_EVENT_KEY] = None
+    belief_state.extra[_PREV_ACTIVE_COLOR_OFFERS] = set()
+    belief_state.extra[_PREV_ACTIVE_ROLE_OFFERS] = set()
+    belief_state.extra[_PREV_PENDING_OFFERS] = {"role": False, "color": False}
+    belief_state.extra[INFO_SCREEN_RECONCILE_PENDING] = False
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +419,46 @@ def update_whisper_tracker(
     belief_state.extra["_eurydice_prev_whisper_occupants"] = current_occupants
 
 
+def update_probe_tracker(belief_state: BeliefState) -> None:
+    """Mark an active probe as complete when it reaches whisper view."""
+    state = belief_state.extra.get(PROBE_STATE)
+    if not isinstance(state, dict) or state.get("completed"):
+        return
+    if belief_state.view is not View.WHISPER:
+        return
+
+    target = state.get("target")
+    if not _is_player_id(target):
+        return
+
+    state["completed"] = True
+    state["completed_tick"] = belief_state.tick
+    belief_state.extra[PROBE_STATE] = state
+    if logger:
+        logger.event(
+            "probe_completed",
+            {
+                "target": [int(target[0]), int(target[1])],
+                "started_tick": state.get("started_tick"),
+                "total_ticks": (
+                    belief_state.tick - int(state.get("started_tick", belief_state.tick))
+                    if isinstance(state.get("started_tick"), int)
+                    else None
+                ),
+            },
+            LogLevel.EVENTS,
+        )
+
+
+def _is_player_id(value) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], int)
+        and isinstance(value[1], int)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tracker: Exchange
 # ---------------------------------------------------------------------------
@@ -405,10 +469,10 @@ def update_exchange_tracker(
     knowledge: dict[PlayerID, PlayerKnowledge],
     belief_state: BeliefState,
 ) -> None:
-    """Scan chat_history for exchange-related system messages.
+    """Update exchange state from structured Orpheus fields, then text fallback."""
+    _process_structured_exchange_event(accumulators, knowledge, belief_state)
+    _process_active_exchange_offers(accumulators, knowledge, belief_state)
 
-    Uses substring matching for OCR resilience.
-    """
     prev_len: int = belief_state.extra.get("_eurydice_prev_chat_len", 0)
     current_len = len(belief_state.chat_history)
 
@@ -425,9 +489,7 @@ def update_exchange_tracker(
             continue
 
         text_upper = msg.text.upper()
-
-        # Determine the "other" player in a 2-person whisper
-        other_index = _whisper_other_occupant(belief_state)
+        other_index = _exchange_other_occupant(belief_state, msg.occupants, msg.text)
         other_pid = (
             player_index_to_id(other_index, belief_state)
             if other_index is not None
@@ -435,73 +497,578 @@ def update_exchange_tracker(
         )
 
         if "SWAP" in text_upper or "SWAPPED" in text_upper:
-            # Color exchange completed
-            if other_pid is not None:
-                acc = _ensure_accumulator(accumulators, other_pid)
-                acc.color_offers_received_and_accepted += 1
-                pk = _ensure_knowledge(knowledge, other_pid)
-                pk.has_exchanged_colors_with_us = True
+            _record_exchange_completion(
+                accumulators,
+                knowledge,
+                belief_state,
+                "swapped_colors",
+                other_pid,
+                msg.tick,
+                source="chat_history",
+            )
 
         elif "SHARED" in text_upper and "ROLE" in text_upper:
-            # Role exchange completed
-            if other_pid is not None:
-                acc = _ensure_accumulator(accumulators, other_pid)
-                acc.role_offers_received_and_accepted += 1
-                pk = _ensure_knowledge(knowledge, other_pid)
-                pk.has_exchanged_roles_with_us = True
+            _record_exchange_completion(
+                accumulators,
+                knowledge,
+                belief_state,
+                "shared_roles",
+                other_pid,
+                msg.tick,
+                source="chat_history",
+            )
 
         elif "OFFER" in text_upper and "COLOR" in text_upper:
-            # Color offer made/received
-            if other_pid is not None:
-                acc = _ensure_accumulator(accumulators, other_pid)
-                acc.color_offers_made += 1
-                # Track eagerness
-                if acc.ticks_before_first_offer is None and belief_state.in_whisper:
-                    # Estimate ticks since whisper entry
-                    if acc.whisper_entry_ticks:
-                        entry_tick = acc.whisper_entry_ticks[-1]
-                        acc.ticks_before_first_offer = (
-                            belief_state.tick - entry_tick
-                        )
+            _record_exchange_offer(
+                accumulators,
+                knowledge,
+                belief_state,
+                "color",
+                other_pid,
+                msg.tick,
+                source="chat_history",
+            )
 
         elif "OFFER" in text_upper and "ROLE" in text_upper:
-            # Role offer made/received
-            if other_pid is not None:
-                acc = _ensure_accumulator(accumulators, other_pid)
-                acc.role_offers_made += 1
-                if acc.ticks_before_first_offer is None and belief_state.in_whisper:
-                    if acc.whisper_entry_ticks:
-                        entry_tick = acc.whisper_entry_ticks[-1]
-                        acc.ticks_before_first_offer = (
-                            belief_state.tick - entry_tick
-                        )
+            _record_exchange_offer(
+                accumulators,
+                knowledge,
+                belief_state,
+                "role",
+                other_pid,
+                msg.tick,
+                source="chat_history",
+            )
 
         elif "WITHDREW" in text_upper or "WITHDRE" in text_upper:
             # Offer withdrawn -- no accumulator update needed
             pass
 
         elif "SHOWED" in text_upper:
-            # One-way role reveal
-            pass
+            _schedule_info_screen_reconciliation(
+                belief_state,
+                reason="one_way_role_reveal",
+                player_id=other_pid,
+                tick=msg.tick,
+            )
 
         elif "DECLINED" in text_upper or "DECLINE" in text_upper:
             # Role offer declined
-            if other_pid is not None:
+            if other_pid is not None and _mark_exchange_key(
+                belief_state,
+                ("role_declined", other_pid, msg.tick),
+            ):
                 acc = _ensure_accumulator(accumulators, other_pid)
                 acc.role_offers_received_and_declined += 1
                 pk = _ensure_knowledge(knowledge, other_pid)
                 pk.refused_role_exchange = True
 
 
+def _process_structured_exchange_event(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+) -> None:
+    event = getattr(belief_state, "last_exchange_event", None)
+    if not event:
+        return
+
+    event_type = str(event.get("type", ""))
+    tick = int(event.get("tick", belief_state.tick))
+    participants = [
+        int(participant)
+        for participant in event.get("participants", []) or []
+        if participant is not None
+    ]
+    event_key = (event_type, tick, tuple(participants))
+    if belief_state.extra.get(_LAST_EXCHANGE_EVENT_KEY) == event_key:
+        return
+    belief_state.extra[_LAST_EXCHANGE_EVENT_KEY] = event_key
+
+    other_index = _exchange_partner_from_participants(participants, belief_state)
+    other_pid = (
+        player_index_to_id(other_index, belief_state)
+        if other_index is not None
+        else None
+    )
+
+    if event_type in {"swapped_colors", "shared_roles"}:
+        _record_exchange_completion(
+            accumulators,
+            knowledge,
+            belief_state,
+            event_type,
+            other_pid,
+            tick,
+            source="last_exchange_event",
+        )
+    elif event_type == "withdrew" and other_pid is not None:
+        _mark_exchange_key(belief_state, ("withdrew", other_pid, tick))
+
+
+def _process_active_exchange_offers(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+) -> None:
+    current_color = set(getattr(belief_state, "active_color_offers", []) or [])
+    current_role = set(getattr(belief_state, "active_role_offers", []) or [])
+    previous_color = set(belief_state.extra.get(_PREV_ACTIVE_COLOR_OFFERS, set()))
+    previous_role = set(belief_state.extra.get(_PREV_ACTIVE_ROLE_OFFERS, set()))
+
+    for offerer_index in sorted(current_color - previous_color):
+        _record_offer_by_index(
+            accumulators,
+            knowledge,
+            belief_state,
+            "color",
+            offerer_index,
+            source="active_color_offers",
+        )
+    for offerer_index in sorted(current_role - previous_role):
+        _record_offer_by_index(
+            accumulators,
+            knowledge,
+            belief_state,
+            "role",
+            offerer_index,
+            source="active_role_offers",
+        )
+
+    previous_pending = dict(
+        belief_state.extra.get(_PREV_PENDING_OFFERS, {"role": False, "color": False})
+    )
+    current_pending = dict(
+        getattr(belief_state, "pending_offers", {}) or {"role": False, "color": False}
+    )
+    fallback_index = _whisper_other_occupant(belief_state)
+    if fallback_index is not None:
+        if (
+            current_pending.get("color")
+            and not previous_pending.get("color")
+            and not current_color
+        ):
+            _record_offer_by_index(
+                accumulators,
+                knowledge,
+                belief_state,
+                "color",
+                fallback_index,
+                source="pending_color_offer",
+            )
+        if (
+            current_pending.get("role")
+            and not previous_pending.get("role")
+            and not current_role
+        ):
+            _record_offer_by_index(
+                accumulators,
+                knowledge,
+                belief_state,
+                "role",
+                fallback_index,
+                source="pending_role_offer",
+            )
+
+    belief_state.extra[_PREV_ACTIVE_COLOR_OFFERS] = current_color
+    belief_state.extra[_PREV_ACTIVE_ROLE_OFFERS] = current_role
+    belief_state.extra[_PREV_PENDING_OFFERS] = current_pending
+
+
+def _record_offer_by_index(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+    kind: str,
+    offerer_index: int,
+    *,
+    source: str,
+) -> None:
+    player_id = player_index_to_id(offerer_index, belief_state)
+    _record_exchange_offer(
+        accumulators,
+        knowledge,
+        belief_state,
+        kind,
+        player_id,
+        belief_state.tick,
+        source=source,
+    )
+
+
+def _record_exchange_offer(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+    kind: str,
+    player_id: PlayerID | None,
+    tick: int,
+    *,
+    source: str,
+) -> None:
+    del knowledge
+    _schedule_info_screen_reconciliation(
+        belief_state,
+        reason=f"{kind}_offer_seen",
+        player_id=player_id,
+        tick=tick,
+    )
+    if player_id is None:
+        _log_ambiguous_exchange(kind + "_offer", tick, source)
+        return
+    if not _mark_exchange_key(belief_state, (kind + "_offer", player_id, tick)):
+        return
+
+    acc = _ensure_accumulator(accumulators, player_id)
+    if kind == "color":
+        acc.color_offers_made += 1
+    else:
+        acc.role_offers_made += 1
+
+    if acc.ticks_before_first_offer is None and belief_state.in_whisper:
+        if acc.whisper_entry_ticks:
+            entry_tick = acc.whisper_entry_ticks[-1]
+            acc.ticks_before_first_offer = tick - entry_tick
+
+
+def _record_exchange_completion(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+    event_type: str,
+    player_id: PlayerID | None,
+    tick: int,
+    *,
+    source: str,
+) -> None:
+    _schedule_info_screen_reconciliation(
+        belief_state,
+        reason=event_type,
+        player_id=player_id,
+        tick=tick,
+    )
+    if player_id is None:
+        _log_ambiguous_exchange(event_type, tick, source)
+        return
+    if not _mark_exchange_key(belief_state, (event_type, player_id, tick)):
+        return
+
+    acc = _ensure_accumulator(accumulators, player_id)
+    pk = _ensure_knowledge(knowledge, player_id)
+    pk.last_interaction_tick = tick
+    pk.last_interaction_round = belief_state.round or 0
+    pk.times_interacted += 1
+
+    if event_type == "swapped_colors":
+        acc.color_offers_received_and_accepted += 1
+        pk.has_exchanged_colors_with_us = True
+        return
+
+    if event_type == "shared_roles":
+        acc.role_offers_received_and_accepted += 1
+        pk.has_exchanged_roles_with_us = True
+
+
+def _schedule_info_screen_reconciliation(
+    belief_state: BeliefState,
+    *,
+    reason: str,
+    player_id: PlayerID | None,
+    tick: int,
+) -> None:
+    """Request a brief info-screen pass after exchange-related activity."""
+    belief_state.extra[INFO_SCREEN_RECONCILE_PENDING] = True
+    belief_state.extra[_INFO_SCREEN_RECONCILE_REASON] = reason
+    if logger:
+        logger.event(
+            "info_screen_reconcile_scheduled",
+            {
+                "reason": reason,
+                "player_id": (
+                    [int(player_id[0]), int(player_id[1])]
+                    if player_id is not None
+                    else None
+                ),
+                "tick": int(tick),
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def update_info_screen_reconciliation(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    belief_state: BeliefState,
+) -> None:
+    """Reconcile Eurydice knowledge from the mechanical info screen.
+
+    Orpheus belief update has already copied the parsed info-screen entries
+    into ``belief_state.players`` by the time this hook runs. A full role entry
+    means the game now exposes that player's role to us; a color-only entry
+    means the game exposes their team but not their role.
+    """
+    if belief_state.view is not View.INFO_SCREEN:
+        return
+
+    had_pending = bool(belief_state.extra.get(INFO_SCREEN_RECONCILE_PENDING))
+    reason = belief_state.extra.pop(_INFO_SCREEN_RECONCILE_REASON, None)
+    belief_state.extra[INFO_SCREEN_RECONCILE_PENDING] = False
+
+    role_indices: list[int] = []
+    role_players: list[PlayerID] = []
+    color_players: list[PlayerID] = []
+
+    for index, player_info in sorted(belief_state.players.items()):
+        if index == belief_state.my_index:
+            continue
+        player_id = player_index_to_id(index, belief_state)
+        if player_id is None:
+            continue
+
+        role = _parse_role_string(player_info.role)
+        team = _parse_team_string(player_info.team)
+        if role is None and team is None:
+            continue
+
+        pk = _ensure_knowledge(knowledge, player_id)
+        if role is not None:
+            if team is None and role is not Role.SPY:
+                team = _team_from_role(role)
+            changed = _reconcile_info_screen_role(
+                accumulators,
+                pk,
+                belief_state,
+                role,
+                team,
+            )
+            role_indices.append(index)
+            if changed:
+                role_players.append(player_id)
+        elif team is not None:
+            changed = _reconcile_info_screen_color(
+                accumulators,
+                pk,
+                belief_state,
+                team,
+            )
+            if changed:
+                color_players.append(player_id)
+
+    if belief_state.my_exchange_partner is None and len(role_indices) == 1:
+        belief_state.my_exchange_partner = role_indices[0]
+
+    if logger and (had_pending or role_players or color_players):
+        logger.event(
+            "info_screen_reconciled",
+            {
+                "reason": reason,
+                "had_pending": had_pending,
+                "role_players": [_player_id_event_value(pid) for pid in role_players],
+                "color_players": [
+                    _player_id_event_value(pid) for pid in color_players
+                ],
+                "my_exchange_partner": belief_state.my_exchange_partner,
+            },
+            LogLevel.DECISIONS,
+        )
+
+
+def _reconcile_info_screen_role(
+    accumulators: GlobalAccumulators,
+    pk: PlayerKnowledge,
+    belief_state: BeliefState,
+    role: Role,
+    team: Team | None,
+) -> bool:
+    changed = (
+        not pk.has_exchanged_roles_with_us
+        or pk.role is not role
+        or pk.role_source is not RoleSource.ROLE_EXCHANGE
+        or (team is not None and pk.team is not team)
+        or (team is not None and pk.team_source is not TeamSource.ROLE_EXCHANGE)
+    )
+    already_role_exchanged = pk.has_exchanged_roles_with_us
+    if not already_role_exchanged:
+        _mark_exchange_key(belief_state, ("info_screen_role", pk.player_id))
+        acc = _ensure_accumulator(accumulators, pk.player_id)
+        acc.role_offers_received_and_accepted += 1
+        pk.times_interacted += 1
+
+    pk.last_interaction_tick = belief_state.tick
+    pk.last_interaction_round = belief_state.round or 0
+    pk.has_exchanged_colors_with_us = True
+    pk.has_exchanged_roles_with_us = True
+
+    _set_role_inference(
+        pk,
+        role,
+        rule="info_screen_role_reconcile",
+        confidence=1.0,
+        source="info_screen",
+    )
+    pk.role_source = RoleSource.ROLE_EXCHANGE
+
+    if team is not None:
+        _set_team_inference(
+            pk,
+            team,
+            rule="info_screen_role_team_reconcile",
+            confidence=1.0,
+            source="info_screen",
+        )
+        pk.team_source = TeamSource.ROLE_EXCHANGE
+        pk.team_confidence = 1.0
+
+    _set_trust_inference(
+        pk,
+        TrustLevel.VERIFIED,
+        rule="trust_from_info_screen_role",
+        confidence=1.0,
+        source="info_screen",
+    )
+    return changed
+
+
+def _reconcile_info_screen_color(
+    accumulators: GlobalAccumulators,
+    pk: PlayerKnowledge,
+    belief_state: BeliefState,
+    team: Team,
+) -> bool:
+    if pk.team_source is TeamSource.ROLE_EXCHANGE:
+        return False
+
+    changed = (
+        not pk.has_exchanged_colors_with_us
+        or pk.team is not team
+        or pk.team_source is not TeamSource.COLOR_EXCHANGE
+    )
+
+    already_color_exchanged = pk.has_exchanged_colors_with_us
+    if not already_color_exchanged:
+        _mark_exchange_key(belief_state, ("info_screen_color", pk.player_id))
+        acc = _ensure_accumulator(accumulators, pk.player_id)
+        acc.color_offers_received_and_accepted += 1
+        pk.times_interacted += 1
+
+    pk.last_interaction_tick = belief_state.tick
+    pk.last_interaction_round = belief_state.round or 0
+    pk.has_exchanged_colors_with_us = True
+
+    _set_team_inference(
+        pk,
+        team,
+        rule="info_screen_color_reconcile",
+        confidence=1.0,
+        source="info_screen",
+    )
+    pk.team_source = TeamSource.COLOR_EXCHANGE
+    pk.team_confidence = _color_exchange_confidence(belief_state)
+
+    my_team = _parse_team_string(belief_state.my_team)
+    if my_team is None:
+        return changed
+    _set_trust_inference(
+        pk,
+        TrustLevel.PROBABLE if team is my_team else TrustLevel.HOSTILE,
+        rule="trust_from_info_screen_color",
+        confidence=1.0,
+        source="info_screen",
+    )
+    return changed
+
+
+def _player_id_event_value(player_id: PlayerID) -> list[int]:
+    return [int(player_id[0]), int(player_id[1])]
+
+
+def _mark_exchange_key(belief_state: BeliefState, key: tuple) -> bool:
+    processed = belief_state.extra.setdefault(_EXCHANGE_PROCESSED_KEYS, set())
+    if key in processed:
+        return False
+    processed.add(key)
+    if len(processed) > 512:
+        # Keep the de-duplication cache bounded without adding ordering state.
+        processed.pop()
+    return True
+
+
+def _exchange_partner_from_participants(
+    participants: list[int],
+    belief_state: BeliefState,
+) -> int | None:
+    if belief_state.my_index is not None and belief_state.my_index in participants:
+        others = [participant for participant in participants if participant != belief_state.my_index]
+        return others[0] if len(others) == 1 else None
+    if len(participants) == 1 and participants[0] != belief_state.my_index:
+        return participants[0]
+    return _whisper_other_occupant(belief_state)
+
+
+def _exchange_other_occupant(
+    belief_state: BeliefState,
+    occupants: list[int] | None,
+    text: str,
+) -> int | None:
+    refs = _embedded_player_refs(text, belief_state)
+    from_refs = _exchange_partner_from_participants(refs, belief_state)
+    if from_refs is not None:
+        return from_refs
+
+    occupant_list = list(occupants or [])
+    if occupant_list:
+        return _single_other_from_occupants(occupant_list, belief_state)
+    return _whisper_other_occupant(belief_state)
+
+
+def _embedded_player_refs(text: str, belief_state: BeliefState) -> list[int]:
+    refs: list[int] = []
+    i = 0
+    while i + 1 < len(text):
+        if ord(text[i]) != 1:
+            i += 1
+            continue
+        player_index = ord(text[i + 1])
+        if (
+            player_index not in refs
+            and (
+                belief_state.player_count is None
+                or player_index < belief_state.player_count
+            )
+        ):
+            refs.append(player_index)
+        i += 2
+    return refs
+
+
 def _whisper_other_occupant(belief_state: BeliefState) -> int | None:
     """Return the single other occupant index in a 2-person whisper."""
     if not belief_state.in_whisper:
         return None
-    occupants = belief_state.whisper_occupants
+    return _single_other_from_occupants(belief_state.whisper_occupants, belief_state)
+
+
+def _single_other_from_occupants(
+    occupants: list[int],
+    belief_state: BeliefState,
+) -> int | None:
     if belief_state.my_index is None:
         return occupants[0] if len(occupants) == 1 else None
     others = [o for o in occupants if o != belief_state.my_index]
     return others[0] if len(others) == 1 else None
+
+
+def _log_ambiguous_exchange(event_type: str, tick: int, source: str) -> None:
+    if logger:
+        logger.event(
+            "exchange_attribution_ambiguous",
+            {
+                "exchange_type": event_type,
+                "tick": tick,
+                "source": source,
+            },
+            LogLevel.DECISIONS,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -546,8 +1113,14 @@ def update_chat_tracker(
         elif msg.channel == "whisper":
             acc.whisper_messages_sent += 1
 
-        acc.message_content_log.append((belief_state.tick, msg.text))
-        pk.claims_made.append(msg.text)
+        acc.message_content_log.append((msg.tick, msg.text))
+        if msg.text not in pk.claims_made:
+            pk.claims_made.append(msg.text)
+
+        my_team = _parse_team_string(belief_state.my_team)
+        parsed = parse_message(msg.text, player_id, msg.channel, msg.tick)
+        credibility = assess_credibility(parsed, pk, my_team)
+        update_knowledge_from_chat(parsed, credibility, knowledge, belief_state)
 
 
 # ---------------------------------------------------------------------------
@@ -565,13 +1138,63 @@ def update_leadership_tracker(
     for "LEADER" keyword. For now, we track our own leadership status
     and room leader colors.
     """
-    # Leadership tracking is primarily used by the strategic layer.
-    # The accumulator fields (sought_leadership, passed_leadership) are
-    # updated when we observe system messages about leadership changes.
-    # This is handled minimally here; full implementation requires
-    # tracking specific system message patterns that we detect in
-    # update_exchange_tracker.
-    pass
+    knowledge: dict[PlayerID, PlayerKnowledge] = belief_state.extra.get(
+        PLAYER_KNOWLEDGE,
+        {},
+    )
+    current_round = belief_state.round or 0
+
+    if belief_state.is_leader and belief_state.my_index is not None:
+        player_id = player_index_to_id(belief_state.my_index, belief_state)
+        if player_id is not None:
+            _mark_player_as_leader(
+                accumulators,
+                knowledge,
+                player_id,
+                current_round,
+            )
+
+    for room, leader_color in belief_state.leader_colors.items():
+        leader_id = _unique_player_id_for_color(leader_color, belief_state)
+        if leader_id is None:
+            continue
+        record = _ensure_knowledge(knowledge, leader_id)
+        if record.room is None:
+            record.room = room
+            record.room_confidence = max(record.room_confidence, 0.7)
+            record.room_last_confirmed_tick = belief_state.tick
+        _mark_player_as_leader(
+            accumulators,
+            knowledge,
+            leader_id,
+            current_round,
+        )
+
+
+def _mark_player_as_leader(
+    accumulators: GlobalAccumulators,
+    knowledge: dict[PlayerID, PlayerKnowledge],
+    player_id: PlayerID,
+    current_round: int,
+) -> None:
+    record = _ensure_knowledge(knowledge, player_id)
+    record.is_leader = True
+    if current_round and current_round not in record.was_leader_round:
+        record.was_leader_round.append(current_round)
+
+    acc = _ensure_accumulator(accumulators, player_id)
+    if current_round and current_round not in acc.leadership_rounds:
+        acc.leadership_rounds.append(current_round)
+
+
+def _unique_player_id_for_color(
+    color: int,
+    belief_state: BeliefState,
+) -> PlayerID | None:
+    matches = _matching_indices_for_color(color, belief_state)
+    if len(matches) != 1:
+        return None
+    return player_index_to_id(matches[0], belief_state)
 
 
 # ---------------------------------------------------------------------------
@@ -729,7 +1352,7 @@ def run_hard_inferences(
                     source=f"player_info.team={player_info.team}",
                 )
                 pk.team_source = TeamSource.COLOR_EXCHANGE
-                pk.team_confidence = 1.0  # Default config has no Spy
+                pk.team_confidence = _color_exchange_confidence(belief_state)
 
         # Role from Orpheus belief_update (role exchange or info screen)
         if player_info.role is not None and pk.role_source in (
@@ -1014,6 +1637,11 @@ def _parse_role_string(role_str: str | None) -> Role | None:
         "spy": Role.SPY,
     }
     return role_map.get(normalized)
+
+
+def _color_exchange_confidence(belief_state: BeliefState) -> float:
+    """Return team confidence for mechanical color-only exchange evidence."""
+    return 0.9 if belief_state.spy_in_game_config is True else 1.0
 
 
 def _team_from_role(role: Role) -> Team:

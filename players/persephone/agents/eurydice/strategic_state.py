@@ -67,3 +67,7 @@ class StrategicState:
     mode_entered_tick: int = 0
     consecutive_idle_ticks: int = 0
     round_schedule: list[int] = field(default_factory=list)
+    match_roles: list[str] = field(default_factory=list)
+    missing_roles: list[str] = field(default_factory=list)
+    echo_substitutions: list[tuple[str, str]] = field(default_factory=list)
+    spy_in_game_config: bool | None = None

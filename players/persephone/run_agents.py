@@ -36,6 +36,8 @@ _AGENTS_DIR = _PROJECT_ROOT / "agents"
 
 _DEFAULT_HOST = "localhost"
 _DEFAULT_PORT = 2500
+_LOG_LEVEL_AGENTS = frozenset({"eurydice", "orpheus_test"})
+_FRAME_RECORDING_AGENTS = frozenset({"eurydice"})
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +161,8 @@ def launch_agents(
     url: str,
     log_dir: Path | None,
     quiet: bool,
+    log_level: str | None,
+    record_frames: Path | None,
 ) -> int:
     """Launch all agent instances and wait for them to finish.
 
@@ -198,6 +202,10 @@ def launch_agents(
                 "--url", url,
                 "--name", name,
             ]
+            if log_level is not None and agent_id in _LOG_LEVEL_AGENTS:
+                cmd.extend(["--log-level", log_level])
+            if record_frames is not None and agent_id in _FRAME_RECORDING_AGENTS:
+                cmd.extend(["--record-frames", str(record_frames)])
 
             use_pipe = not quiet or log_dir
 
@@ -329,6 +337,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write per-agent output to DIR/{name}.log",
     )
     p.add_argument(
+        "--log-level",
+        choices=("off", "events", "decisions", "verbose"),
+        default=None,
+        help=(
+            "Forward an Orpheus/Eurydice JSONL log level to agents that "
+            "support it (eurydice, orpheus_test)."
+        ),
+    )
+    p.add_argument(
+        "--record-frames",
+        metavar="DIR",
+        help="Forward frame recording directory to agents that support it (eurydice).",
+    )
+    p.add_argument(
         "--quiet", action="store_true",
         help="Suppress agent output on console (still logged if --log-dir)",
     )
@@ -376,7 +398,19 @@ def main() -> int:
         log_dir = Path(args.log_dir).resolve()
         log_dir.mkdir(parents=True, exist_ok=True)
 
-    return launch_agents(instances, url, log_dir, args.quiet)
+    record_frames: Path | None = None
+    if args.record_frames:
+        record_frames = Path(args.record_frames).resolve()
+        record_frames.mkdir(parents=True, exist_ok=True)
+
+    return launch_agents(
+        instances,
+        url,
+        log_dir,
+        args.quiet,
+        args.log_level,
+        record_frames,
+    )
 
 
 if __name__ == "__main__":

@@ -520,18 +520,30 @@ class RoleRevealPerception:
     room: str | None          # "Underworld" or "Mortal Realm"
     player_count: int | None  # e.g., 10
     room_size: int | None     # e.g., 120 (room is square: 120x120)
+    match_roles: list[str]    # unique roles shown on panel 2
+    missing_roles: list[str]  # core roles listed under MISSING
+    echo_substitutions: list[tuple[str, str]]  # echo role -> core role
+    spy_in_game_config: bool | None
     countdown_secs: int | None  # Seconds until game starts
 ```
 
 ### Pixel Details
 
-**Border color**: Read pixels[0, 0]. This is the team color (3 or 14).
-Confirm with pixels[2, 2] matching.
+**Border color**: On Panel 1, read pixels[0, 0]. Values 3 and 14 are the
+actual team colors for Shades and Nymphs. Other intro panels use ordinary HUD
+colors, so `team_color` remains unset unless the border is a real team color.
 
 **Panel index**: Panels 1-3 all use the `ROLE_REVEAL` view. Detect panel
 1 by centered `YOU ARE` text, panel 3 by `ROUND SCHEDULE` or
 `ROUND  TIME  HOSTAGE` headers, and panel 2 by the `MATCH ROLES` summary
 header.
+
+**Role summary**: Panel 2 lists unique role names currently present in the
+match, optional `MISSING:` core-role names, and optional `ECHO ACTIVE:` rows
+in the form `Echo Role -> Core Role`. The renderer does not show exact counts
+for duplicate grunt roles, so perception exposes membership rather than role
+counts. `spy_in_game_config` is derived from whether `Spy` appears in
+`match_roles`.
 
 **Text scanning**: The text is centered, so we can't read from a fixed
 x position. Scan horizontally at each expected y offset for text in the

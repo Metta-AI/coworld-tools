@@ -4,8 +4,8 @@ Stateless frame parser: converts a raw 8192-byte pixel frame into a
 structured symbolic representation (FramePerception).
 
 Usage:
-    from perception import parse_frame
-    from perception.types import FramePerception, View
+    from orpheus.perception import parse_frame
+    from orpheus.perception.types import FramePerception, View
 
     result = parse_frame(raw_bytes)  # or parse_frame(pixels_128x128)
 

@@ -16,20 +16,31 @@ from ._common import (
     COLOR_UNREAD_DOT,
     DEFAULT_ROOM_SIZE,
     MINIMAP_SIZE,
+    MINIMAP_X,
+    OBSERVED_TO_PLAYER_COLORS,
+    OUTLINE_COLORS,
+    PLAYER_COLORS,
+    PLAYER_COLOR_PAIRS,
+    PLAYER_H,
+    PLAYER_W,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     TEAM_A_COLOR,
     TEAM_B_COLOR,
+    TOP_BAR_H,
 )
 from ._hostage_grid import parse_hostage_grid
+from ._indicators import parse_role_indicator
 from ._minimap import scan_minimap
 from ._ocr import normalize_digits, normalize_text, read_text_at, read_text_any_color
 from ._position import detect_room, estimate_position
+from ._sprites import _RAW_TEMPLATES, detect_sprite_shape
 from .types import (
     BottomBarState,
     OverworldBottomBar,
     OverworldPerception,
     Room,
+    VisiblePlayer,
     View,
 )
 
@@ -73,6 +84,9 @@ def parse_overworld(
 
     # -- Speech bubbles -------------------------------------------------------
     result.speech_bubbles = scan_speech_bubbles(frame)
+
+    # -- Visible player sprites ----------------------------------------------
+    result.visible_players = scan_visible_players(frame)
 
     # -- Hostage grid ---------------------------------------------------------
     if view == View.HOSTAGE_SELECT:
@@ -199,3 +213,104 @@ def _parse_shout_strip(frame: np.ndarray, result: OverworldPerception) -> None:
     if text_result:
         result.last_shout = text_result[0]
         result.last_shout_color = text_result[1]
+
+
+def scan_visible_players(frame: np.ndarray) -> list[VisiblePlayer]:
+    """Detect ordinary visible player sprites in the overworld viewport."""
+    candidates: list[tuple[float, int, int, VisiblePlayer]] = []
+    y_stop = min(BAR_Y - PLAYER_H, SCREEN_HEIGHT - PLAYER_H + 1)
+    x_stop = min(MINIMAP_X - PLAYER_W, SCREEN_WIDTH - PLAYER_W + 1)
+
+    for y in range(TOP_BAR_H, max(TOP_BAR_H, y_stop)):
+        for x in range(0, max(0, x_stop)):
+            color, score = _dominant_player_color_and_score(
+                frame[y : y + PLAYER_H, x : x + PLAYER_W]
+            )
+            if color is None or score < 8 or score > 32:
+                continue
+            shape = detect_sprite_shape(
+                frame,
+                x,
+                y,
+                player_color=color,
+                outline_is_black=True,
+            )
+            if shape is None:
+                continue
+            match_fraction = _sprite_match_fraction(
+                frame[y : y + PLAYER_H, x : x + PLAYER_W],
+                color,
+                shape,
+            )
+            if match_fraction < 0.85:
+                continue
+            indicator = parse_role_indicator(frame, x, y + PLAYER_H + 1)
+            candidates.append(
+                (
+                    match_fraction,
+                    x,
+                    y,
+                    VisiblePlayer(
+                        screen_x=x,
+                        screen_y=y,
+                        player_color=color,
+                        player_shape=shape,
+                        role_indicator=indicator,
+                    ),
+                )
+            )
+
+    selected: list[VisiblePlayer] = []
+    occupied: list[tuple[int, int]] = []
+    for _score, x, y, player in sorted(candidates, key=lambda item: item[0], reverse=True):
+        if any(abs(x - ox) <= PLAYER_W and abs(y - oy) <= PLAYER_H for ox, oy in occupied):
+            continue
+        occupied.append((x, y))
+        selected.append(player)
+
+    selected.sort(key=lambda player: (player.screen_y, player.screen_x))
+    return selected
+
+
+def _dominant_player_color_and_score(region: np.ndarray) -> tuple[int | None, int]:
+    counts: dict[int, int] = {}
+    for observed in region.ravel():
+        observed_int = int(observed)
+        if observed_int in (0, 1):
+            continue
+        candidates = OBSERVED_TO_PLAYER_COLORS.get(observed_int)
+        if not candidates:
+            continue
+        for candidate in candidates:
+            counts[candidate] = counts.get(candidate, 0) + 1
+    if not counts:
+        return None, 0
+    color = max(
+        PLAYER_COLORS,
+        key=lambda candidate: (
+            counts.get(candidate, 0),
+            -PLAYER_COLORS.index(candidate),
+        ),
+    )
+    score = counts.get(color, 0)
+    return (color, score) if score > 0 else (None, 0)
+
+
+def _sprite_match_fraction(
+    region: np.ndarray,
+    player_color: int,
+    shape,
+) -> float:
+    template = np.array(_RAW_TEMPLATES[shape], dtype=np.uint8)
+    fill_mask = template == 2
+    outline_mask = template == 1
+    total = int(fill_mask.sum() + outline_mask.sum())
+    if total == 0 or player_color not in PLAYER_COLOR_PAIRS:
+        return 0.0
+
+    normal_fill, shadow_fill = PLAYER_COLOR_PAIRS[player_color]
+    fill_ok = (region == normal_fill) | (region == shadow_fill)
+    outline_a, outline_b = OUTLINE_COLORS
+    outline_ok = (region == outline_a) | (region == outline_b) | (region == 0)
+    matches = int((fill_mask & fill_ok).sum() + (outline_mask & outline_ok).sum())
+    return matches / total

@@ -55,6 +55,8 @@ constructed as `ws://{host}:{port}/player`.
 | `--name-prefix` | (agent id) | Override the player name prefix |
 | `--list` | off | List registered agents and exit |
 | `--log-dir DIR` | none | Write per-agent stdout to `DIR/{name}.log` |
+| `--log-level LEVEL` | agent default | Forward Orpheus/Eurydice JSONL logging level to agents that support it |
+| `--record-frames DIR` | none | Forward frame recording directory to Eurydice agents |
 | `--quiet` | off | Suppress agent stdout on console (still logged if `--log-dir`) |
 
 ---

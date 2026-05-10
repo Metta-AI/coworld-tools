@@ -42,8 +42,8 @@ _PERSEPHONE_ROOT = _SCRIPT_DIR.parent
 if str(_PERSEPHONE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PERSEPHONE_ROOT))
 
-from perception import parse_frame  # noqa: E402
-from perception.types import FramePerception, View  # noqa: E402
+from orpheus.perception import parse_frame  # noqa: E402
+from orpheus.perception.types import FramePerception, View  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixture directory
@@ -134,6 +134,8 @@ def perception_to_assertions(perc: FramePerception) -> dict[str, Any]:
 
     if perc.role_reveal is not None:
         rr = perc.role_reveal
+        if rr.panel_index is not None:
+            assertions["role_reveal.panel_index"] = rr.panel_index
         if rr.team is not None:
             assertions["role_reveal.team"] = rr.team
         if rr.team_color is not None:
@@ -146,6 +148,22 @@ def perception_to_assertions(perc: FramePerception) -> dict[str, Any]:
             assertions["role_reveal.player_count"] = rr.player_count
         if rr.room_size is not None:
             assertions["role_reveal.room_size"] = rr.room_size
+        if rr.round_schedule:
+            assertions["role_reveal.round_schedule"] = [
+                [duration_secs, hostage_count]
+                for duration_secs, hostage_count in rr.round_schedule
+            ]
+        if rr.match_roles:
+            assertions["role_reveal.match_roles"] = rr.match_roles
+        if rr.missing_roles:
+            assertions["role_reveal.missing_roles"] = rr.missing_roles
+        if rr.echo_substitutions:
+            assertions["role_reveal.echo_substitutions"] = [
+                [echo_role, core_role]
+                for echo_role, core_role in rr.echo_substitutions
+            ]
+        if rr.spy_in_game_config is not None:
+            assertions["role_reveal.spy_in_game_config"] = rr.spy_in_game_config
 
     if perc.exchange is not None:
         ex = perc.exchange

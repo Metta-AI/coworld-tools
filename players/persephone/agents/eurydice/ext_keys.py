@@ -15,6 +15,11 @@ WHISPER_EXCHANGE_STATE = "whisper_exchange_state"
 SCOUT_STATE = "scout_state"
 HOLD_POSITION_STATE = "hold_position_state"
 WHISPER_MODE_STATE = "whisper_mode_state"
+PROBE_STATE = "probe_state"
+PROBE_FAILURES = "probe_failures"
+
+# Post-whisper reconciliation
+INFO_SCREEN_RECONCILE_PENDING = "info_screen_reconcile_pending"
 
 # Per-tick flags (cleared after read)
 MODE_COMPLETE = "mode_complete"
@@ -22,6 +27,8 @@ FOUND_TARGET = "found_target"
 WHISPER_EXIT_REASON = "whisper_exit_reason"
 
 # Persistent hysteresis (survives across ticks)
+LAST_DIRECTIVE = "last_directive"
+LAST_NON_WHISPER_DIRECTIVE = "last_non_whisper_directive"
 LAST_DIRECTIVE_MODE = "last_directive_mode"
 LAST_DIRECTIVE_TICK = "last_directive_tick"
 

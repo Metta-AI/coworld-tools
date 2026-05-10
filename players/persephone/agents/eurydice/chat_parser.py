@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from orpheus.perception._common import PLAYER_COLORS
+
 from agents.eurydice.communication import (
     ACTION_KEYWORDS,
     ROLE_KEYWORDS,
@@ -286,10 +288,7 @@ def _resolve_player_reference(
     for index, player_info in players.items():
         name = getattr(player_info, "name", None)
         if name is not None and name.upper() == normalized:
-            # Eurydice's PlayerID convention is stable across the codebase:
-            # color is index mod 8, shape is index mod 12.  Avoid importing the
-            # pipeline helper here to keep the parser independent.
-            return (index % 8, index % 12)
+            return (PLAYER_COLORS[index % len(PLAYER_COLORS)], index % 12)
 
     return None
 

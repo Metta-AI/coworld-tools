@@ -61,12 +61,21 @@ Each agent instance runs as a separate subprocess with a unique name.
 Output is prefixed with `[name]`. Use `--log-dir` to write per-agent
 logs and `--quiet` to suppress console output.
 
-Eurydice agents accept `--log-level` (off/events/decisions/verbose) and
-`--record-frames DIR` for binary frame capture. At `decisions` level,
-all strategic choices, inference firings, whisper protocol FSM
-transitions, and deception decisions are emitted as structured JSONL.
-See `agents/eurydice/DESIGN.md` § Observability for the full event
-catalog.
+`run_agents.py` forwards `--log-level` (off/events/decisions/verbose) to
+Orpheus/Eurydice agents and `--record-frames DIR` to Eurydice agents. At
+`decisions` level, all strategic choices, inference firings, whisper protocol
+FSM transitions, exchange-attribution ambiguity, and invoked deception-helper
+decisions are emitted as structured JSONL. Full advanced hostage,
+communication, Spy/deception, and live-tuned coordination strategy is still
+partial; see `agents/eurydice/IMPLEMENTATION_PLAN.md` for the source-verified
+roadmap and `agents/eurydice/DESIGN.md` § Observability for the event catalog.
+The LLM-readiness boundary is documented in
+`agents/eurydice/LLM_CONTROL.md`; current code can build a JSON-safe LLM
+context and closed semantic decision schema, but runtime control is still
+deterministic.
+
+Use `scripts/analyze_eurydice_traces.py` to summarize JSONL traces and
+flag unknown event names before relying on phase-specific trace metrics.
 
 ### `scripts/launch_server.py` -- Server Launcher
 
@@ -157,6 +166,13 @@ function rather than a raw policy loop. See
 [agents/orpheus_test/](agents/orpheus_test/) for a minimal reference
 agent.
 
+Eurydice is the main strategic Orpheus agent. Start with
+[agents/eurydice/README.md](agents/eurydice/README.md) for current status,
+[agents/eurydice/IMPLEMENTATION_PLAN.md](agents/eurydice/IMPLEMENTATION_PLAN.md)
+for the source-verified roadmap, and
+[agents/eurydice/LLM_CONTROL.md](agents/eurydice/LLM_CONTROL.md) for the
+planned LLM-control contract.
+
 ### Perception Module
 
 Python agents can use the perception module (now at
@@ -190,8 +206,8 @@ are real frames captured from a running game server, stored in
 PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 ```
 
-**Note**: test imports currently reference the old `perception` path and
-need updating to `orpheus.perception`. See TODO.md.
+Perception tests import through `orpheus.perception`; legacy bare
+`perception` imports should not be added.
 
 To capture new frames and add fixtures:
 
@@ -234,6 +250,19 @@ the integration-test driver.
 
 **Results**: *No test results yet.*
 
+### [eurydice](agents/eurydice/)
+
+**Description**: Main strategic Orpheus agent. Eurydice uses pixel
+perception, belief updates, role evaluators, probe modes, and a whisper FSM.
+It now learns its role/team/room during intro, parses match role-summary and
+round-schedule panels, selects probe targets, creates or joins whispers, and
+records event-level strategy traces. LLM runtime control is not active yet;
+`agents/eurydice/llm_context.py` defines the JSON-safe context and closed
+semantic decision schema for shadow evaluation.
+
+**Current bottleneck**: probe initiation reliability. Live traces show real
+role-driven behavior, but too many attempts still end with `initiate_timeout`.
+
 ### [baseline](agents/baseline/)
 
 **Description**: Thin wrapper around the upstream `winner_bot.ts` from
@@ -244,5 +273,3 @@ frame-parsing pipeline (minimap, phase detection, position estimation,
 whisper status). Serves as the reference baseline for comparison.
 
 **Results**: *No test results yet.*
-
-

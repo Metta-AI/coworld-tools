@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from orpheus.mode import Mode, ModeDirective, ModeParams
 from orpheus.task import Task
@@ -18,6 +19,7 @@ from orpheus.idle import IdleTask
 from orpheus.tasks import (
     MoveToTask,
     CreateWhisperTask,
+    CloseViewTask,
     OpenGlobalChatTask,
     OpenInfoScreenTask,
     VoteUsurpTask,
@@ -28,7 +30,7 @@ from orpheus.tasks import (
 from orpheus.perception.types import View
 from agents.eurydice.ext_keys import MODE_COMPLETE, PLAYER_KNOWLEDGE
 from agents.eurydice.knowledge import PlayerKnowledge
-from agents.eurydice.types import INTERACTION_RANGE_SQ, PlayerID
+from agents.eurydice.types import INTERACTION_RANGE_SQ, Objective, PlayerID, Team
 
 
 HOLD_REPICK_TICKS = 72
@@ -49,6 +51,60 @@ _CROSS_ROOM_SENT_KEY = "_coordinate_cross_room_sent"
 _CROSS_ROOM_SENT_THIS_ENTRY_KEY = "_coordinate_cross_room_sent_this_entry"
 _RELAY_SENT_KEY = "_relay_intelligence_sent"
 _TIME_WASTE_TARGET_KEY = "_time_waste_target"
+
+
+@dataclass(frozen=True)
+class HoldPositionParams(ModeParams):
+    seek_leadership: bool = False
+    defensive: bool = False
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class SeekLeadershipParams(ModeParams):
+    reason: str = ""
+    target: PlayerID | None = None
+
+
+@dataclass(frozen=True)
+class HostageSelectParams(ModeParams):
+    objective: Objective = Objective.IDLE
+    protect: tuple[PlayerID, ...] = ()
+    move: tuple[PlayerID, ...] = ()
+
+
+@dataclass(frozen=True)
+class SummitInteractParams(ModeParams):
+    request_transfer: bool = True
+    probe_identity: bool = True
+    message: str | None = None
+
+
+@dataclass(frozen=True)
+class CoordinateCrossRoomParams(ModeParams):
+    objective: Objective = Objective.POSITION_FOR_WIN
+    target: PlayerID | None = None
+    message: str = "SEND ME"
+
+
+@dataclass(frozen=True)
+class TimeWasteParams(ModeParams):
+    target: PlayerID | None = None
+    target_team: Team | None = None
+    protocol: str = "stall"
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class RelayIntelligenceParams(ModeParams):
+    message: str = "STATUS"
+    channel: str = "global"
+
+
+@dataclass(frozen=True)
+class DecoyParams(ModeParams):
+    claim: str | None = None
+    target_team: Team | None = None
 
 
 class HoldPositionMode(Mode):
@@ -191,6 +247,7 @@ class CoordinateCrossRoomMode(Mode):
     """Ask the local leader to send us across during hostage exchange."""
 
     params_type = ModeParams
+    params: CoordinateCrossRoomParams | ModeParams = CoordinateCrossRoomParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
         sent = bool(belief_state.extra.get(_CROSS_ROOM_SENT_KEY, False))
@@ -208,7 +265,8 @@ class CoordinateCrossRoomMode(Mode):
 
         belief_state.extra[_CROSS_ROOM_SENT_KEY] = True
         belief_state.extra[_CROSS_ROOM_SENT_THIS_ENTRY_KEY] = True
-        return SendMessageTask(text="SEND ME", channel="global")
+        message = getattr(self.params, "message", "SEND ME") or "SEND ME"
+        return SendMessageTask(text=message, channel="global")
 
     def mode_enter(self, belief_state, action_memory) -> None:
         del action_memory
@@ -233,6 +291,7 @@ class TimeWasteMode(Mode):
     """Approach a known player and try to occupy them in a whisper."""
 
     params_type = ModeParams
+    params: TimeWasteParams | ModeParams = TimeWasteParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
         del action_memory
@@ -241,7 +300,9 @@ class TimeWasteMode(Mode):
         if position is None:
             return IdleTask()
 
-        target_id = _time_waste_target(belief_state)
+        target_id = getattr(self.params, "target", None) or _time_waste_target(
+            belief_state
+        )
         if target_id is None:
             return IdleTask()
 
@@ -313,6 +374,7 @@ class RelayIntelligenceMode(Mode):
     """Open room chat, send one short status ping, then finish."""
 
     params_type = ModeParams
+    params: RelayIntelligenceParams | ModeParams = RelayIntelligenceParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
         del action_memory
@@ -326,7 +388,9 @@ class RelayIntelligenceMode(Mode):
 
         belief_state.extra[_RELAY_SENT_KEY] = True
         _complete_mode(belief_state)
-        return SendMessageTask(text="STATUS", channel="global")
+        message = getattr(self.params, "message", "STATUS") or "STATUS"
+        channel = getattr(self.params, "channel", "global") or "global"
+        return SendMessageTask(text=message, channel=channel)
 
     def mode_enter(self, belief_state, action_memory) -> None:
         del action_memory
@@ -349,11 +413,15 @@ class CheckInfoScreenMode(Mode):
     params_type = ModeParams
 
     def select_task(self, belief_state, action_memory) -> Task | None:
-        if getattr(belief_state, "view", None) is not View.INFO_SCREEN:
+        view = getattr(belief_state, "view", None)
+        if view is View.GLOBAL_CHAT:
+            return CloseViewTask()
+        if view is not View.INFO_SCREEN:
             return OpenInfoScreenTask()
 
         if getattr(action_memory, "ticks_active", 0) > INFO_SCREEN_WAIT_TICKS:
             _complete_mode(belief_state)
+            return CloseViewTask()
 
         return IdleTask()
 
@@ -560,6 +628,14 @@ def _clamp(value: int, lower: int, upper: int) -> int:
 
 
 __all__ = [
+    "HoldPositionParams",
+    "SeekLeadershipParams",
+    "HostageSelectParams",
+    "SummitInteractParams",
+    "CoordinateCrossRoomParams",
+    "TimeWasteParams",
+    "RelayIntelligenceParams",
+    "DecoyParams",
     "HoldPositionMode",
     "SeekLeadershipMode",
     "HostageSelectMode",

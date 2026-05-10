@@ -235,7 +235,13 @@ def test_pipeline_wander_mode_in_playing_emits_movement_or_noop() -> None:
 
 def test_full_pipeline_with_outer_loop_round_trip() -> None:
     role_reveal, _ = _fixture("role_reveal_nymphs", View.ROLE_REVEAL)
-    playing, _ = _fixture("playing_round1", View.PLAYING)
+    playing, playing_perception = _fixture("playing_round1", View.PLAYING)
+    expected_mode = "wander"
+    if (
+        playing_perception.overworld is not None
+        and playing_perception.overworld.visible_players
+    ):
+        expected_mode = "approach_nearest"
     belief_buffer = BeliefBuffer()
     mode_buffer = ModeBuffer()
     pipeline, _, _ = _pipeline(
@@ -255,16 +261,16 @@ def test_full_pipeline_with_outer_loop_round_trip() -> None:
         pipeline.tick(playing.frame)
         assert _wait_until(
             lambda: mode_buffer.has_entry()
-            or pipeline.current_mode_name == "wander"
+            or pipeline.current_mode_name == expected_mode
         )
 
-        def consumed_wander_directive() -> bool:
-            if pipeline.current_mode_name == "wander":
+        def consumed_gameplay_directive() -> bool:
+            if pipeline.current_mode_name == expected_mode:
                 return True
             pipeline.tick(playing.frame)
-            return pipeline.current_mode_name == "wander"
+            return pipeline.current_mode_name == expected_mode
 
-        assert _wait_until(consumed_wander_directive)
+        assert _wait_until(consumed_gameplay_directive)
     finally:
         outer_loop.stop()
 

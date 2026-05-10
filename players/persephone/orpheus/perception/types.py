@@ -119,6 +119,17 @@ class SpeechBubble:
 
 
 @dataclass
+class VisiblePlayer:
+    """A visible overworld player sprite, with optional role indicator."""
+
+    screen_x: int
+    screen_y: int
+    player_color: int
+    player_shape: PlayerShape | None = None
+    role_indicator: RoleIndicator | None = None
+
+
+@dataclass
 class OverworldBottomBar:
     """Parsed state of the overworld bottom bar."""
 
@@ -240,6 +251,7 @@ class OverworldPerception:
 
     # Nearby indicators
     speech_bubbles: list[SpeechBubble] = field(default_factory=list)
+    visible_players: list[VisiblePlayer] = field(default_factory=list)
 
 
 @dataclass
@@ -297,8 +309,15 @@ class RoleRevealPerception:
     team: str | None = None  # "Shades" or "Nymphs"
     team_color: int | None = None  # 3 or 14
     room: str | None = None  # "Underworld" or "Mortal Realm"
+    self_color: int | None = None
+    self_shape: PlayerShape | None = None
     player_count: int | None = None
     room_size: int | None = None  # Room is square: NxN
+    round_schedule: list[tuple[int, int]] = field(default_factory=list)
+    match_roles: list[str] = field(default_factory=list)
+    missing_roles: list[str] = field(default_factory=list)
+    echo_substitutions: list[tuple[str, str]] = field(default_factory=list)
+    spy_in_game_config: bool | None = None
     countdown_secs: int | None = None
     panel_index: int | None = None  # 1, 2, or 3; None if ambiguous
 

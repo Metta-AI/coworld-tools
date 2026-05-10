@@ -9,9 +9,17 @@ from orpheus.belief_state import BeliefState
 from orpheus.logging import LogLevel
 from orpheus.mode import ModeDirective, ModeParams
 
+from .advanced_modes import (
+    CoordinateCrossRoomParams,
+    HoldPositionParams,
+    HostageSelectParams,
+    SeekLeadershipParams,
+    TimeWasteParams,
+)
 from .log import logger
+from .modes import ProbeSystematicParams, ProbeTargetParams
 from .strategic_state import StrategicState
-from .types import PlayerID, Role, Team, Urgency
+from .types import Objective, PlayerID, ProbeIntent, Role, Team, Urgency
 
 Evaluator = Callable[[StrategicState, BeliefState, ActionMemory], ModeDirective]
 
@@ -29,22 +37,71 @@ def evaluate_hades(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _branch("hades", "final_partner_unreachable->time_waste", "time_waste")
+        return _branch(
+            state,
+            "hades",
+            "final_partner_unreachable->time_waste",
+            "time_waste",
+            TimeWasteParams(reason="final_partner_unreachable"),
+            Objective.DISRUPT_ENEMY,
+        )
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _branch("hades", "partner_in_room->probe_target", "probe_target")
+            return _branch(
+                state,
+                "hades",
+                "partner_in_room->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if _partner_in_other_room(state):
-            return _branch("hades", "partner_in_other_room->seek_leadership", "seek_leadership")
+            return _branch(
+                state,
+                "hades",
+                "partner_in_other_room->seek_leadership",
+                "seek_leadership",
+                SeekLeadershipParams(reason="reach_key_partner"),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if not state.key_partner_found:
-            return _branch("hades", "partner_unknown->probe_systematic", "probe_systematic")
+            return _branch(
+                state,
+                "hades",
+                "partner_unknown->probe_systematic",
+                "probe_systematic",
+                _partner_search_params(state),
+                Objective.FIND_KEY_PARTNER,
+            )
     else:
         if _enemy_key_unknown(state):
-            return _branch("hades", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
+            return _branch(
+                state,
+                "hades",
+                "exchange_done+enemy_unknown->probe_systematic",
+                "probe_systematic",
+                _enemy_key_search_params(state),
+                Objective.LOCATE_ENEMY_KEY,
+            )
         if _enemy_key_in_room(state):
-            return _branch("hades", "exchange_done+enemy_in_room->hold_position", "hold_position")
+            return _branch(
+                state,
+                "hades",
+                "exchange_done+enemy_in_room->hold_position",
+                "hold_position",
+                HoldPositionParams(reason="enemy_key_local"),
+                Objective.POSITION_FOR_WIN,
+            )
         if _enemy_key_in_other_room(state):
-            return _branch("hades", "exchange_done+enemy_in_other_room->coordinate_cross_room", "coordinate_cross_room")
-    return _branch("hades", "fallback->scout", "scout")
+            return _branch(
+                state,
+                "hades",
+                "exchange_done+enemy_in_other_room->coordinate_cross_room",
+                "coordinate_cross_room",
+                CoordinateCrossRoomParams(target=state.enemy_key_role_id),
+                Objective.POSITION_FOR_WIN,
+            )
+    return _branch(state, "hades", "fallback->scout", "scout")
 
 
 def evaluate_cerberus(
@@ -53,19 +110,61 @@ def evaluate_cerberus(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _branch("cerberus", "final_partner_unreachable->time_waste", "time_waste")
+        return _branch(
+            state,
+            "cerberus",
+            "final_partner_unreachable->time_waste",
+            "time_waste",
+            TimeWasteParams(reason="final_partner_unreachable"),
+            Objective.DISRUPT_ENEMY,
+        )
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _branch("cerberus", "partner_in_room->probe_target", "probe_target")
+            return _branch(
+                state,
+                "cerberus",
+                "partner_in_room->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if _partner_in_other_room(state):
-            return _branch("cerberus", "partner_in_other_room->coordinate_cross_room", "coordinate_cross_room")
+            return _branch(
+                state,
+                "cerberus",
+                "partner_in_other_room->coordinate_cross_room",
+                "coordinate_cross_room",
+                CoordinateCrossRoomParams(target=state.key_partner_id),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if not state.key_partner_found:
-            return _branch("cerberus", "partner_unknown->probe_systematic", "probe_systematic")
+            return _branch(
+                state,
+                "cerberus",
+                "partner_unknown->probe_systematic",
+                "probe_systematic",
+                _partner_search_params(state),
+                Objective.FIND_KEY_PARTNER,
+            )
     else:
         if _enemy_key_unknown(state):
-            return _branch("cerberus", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
-        return _branch("cerberus", "exchange_done->hold_position", "hold_position")
-    return _branch("cerberus", "fallback->scout", "scout")
+            return _branch(
+                state,
+                "cerberus",
+                "exchange_done+enemy_unknown->probe_systematic",
+                "probe_systematic",
+                _enemy_key_search_params(state),
+                Objective.LOCATE_ENEMY_KEY,
+            )
+        return _branch(
+            state,
+            "cerberus",
+            "exchange_done->hold_position",
+            "hold_position",
+            HoldPositionParams(reason="exchange_done"),
+            Objective.POSITION_FOR_WIN,
+        )
+    return _branch(state, "cerberus", "fallback->scout", "scout")
 
 
 def evaluate_persephone(
@@ -74,24 +173,80 @@ def evaluate_persephone(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _branch("persephone", "final_partner_unreachable->time_waste", "time_waste")
+        return _branch(
+            state,
+            "persephone",
+            "final_partner_unreachable->time_waste",
+            "time_waste",
+            TimeWasteParams(reason="final_partner_unreachable"),
+            Objective.DISRUPT_ENEMY,
+        )
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _branch("persephone", "partner_in_room->probe_target", "probe_target")
+            return _branch(
+                state,
+                "persephone",
+                "partner_in_room->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if _partner_in_other_room(state):
-            return _branch("persephone", "partner_in_other_room->hold_position", "hold_position")
+            return _branch(
+                state,
+                "persephone",
+                "partner_in_other_room->hold_position",
+                "hold_position",
+                HoldPositionParams(seek_leadership=True, defensive=True, reason="partner_other_room"),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if not state.key_partner_found:
-            return _branch("persephone", "partner_unknown->probe_systematic", "probe_systematic")
+            return _branch(
+                state,
+                "persephone",
+                "partner_unknown->probe_systematic",
+                "probe_systematic",
+                _partner_search_params(state, cautious=True),
+                Objective.FIND_KEY_PARTNER,
+            )
     else:
         if _enemy_key_in_room(state) and state.enemy_key_exchange_likely:
-            return _branch("persephone", "exchange_done+enemy_in_room+enemy_exchange_likely->coordinate_cross_room", "coordinate_cross_room")
+            return _branch(
+                state,
+                "persephone",
+                "exchange_done+enemy_in_room+enemy_exchange_likely->coordinate_cross_room",
+                "coordinate_cross_room",
+                CoordinateCrossRoomParams(target=state.enemy_key_role_id),
+                Objective.POSITION_FOR_WIN,
+            )
         if _enemy_key_in_room(state):
-            return _branch("persephone", "exchange_done+enemy_in_room->hold_position", "hold_position")
+            return _branch(
+                state,
+                "persephone",
+                "exchange_done+enemy_in_room->hold_position",
+                "hold_position",
+                HoldPositionParams(seek_leadership=True, defensive=True, reason="enemy_key_local"),
+                Objective.POSITION_FOR_WIN,
+            )
         if _enemy_key_unknown(state):
-            return _branch("persephone", "exchange_done+enemy_unknown->hold_position", "hold_position")
+            return _branch(
+                state,
+                "persephone",
+                "exchange_done+enemy_unknown->hold_position",
+                "hold_position",
+                HoldPositionParams(seek_leadership=True, defensive=True, reason="enemy_key_unknown"),
+                Objective.POSITION_FOR_WIN,
+            )
         if _enemy_key_in_other_room(state):
-            return _branch("persephone", "exchange_done+enemy_in_other_room->hold_position", "hold_position")
-    return _branch("persephone", "fallback->scout", "scout")
+            return _branch(
+                state,
+                "persephone",
+                "exchange_done+enemy_in_other_room->hold_position",
+                "hold_position",
+                HoldPositionParams(seek_leadership=True, defensive=True, reason="safe_from_enemy_key"),
+                Objective.POSITION_FOR_WIN,
+            )
+    return _branch(state, "persephone", "fallback->scout", "scout")
 
 
 def evaluate_demeter(
@@ -100,19 +255,61 @@ def evaluate_demeter(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _final_partner_unreachable(state):
-        return _branch("demeter", "final_partner_unreachable->time_waste", "time_waste")
+        return _branch(
+            state,
+            "demeter",
+            "final_partner_unreachable->time_waste",
+            "time_waste",
+            TimeWasteParams(reason="final_partner_unreachable"),
+            Objective.DISRUPT_ENEMY,
+        )
     if not state.key_exchange_done:
         if _partner_in_room(state):
-            return _branch("demeter", "partner_in_room->probe_target", "probe_target")
+            return _branch(
+                state,
+                "demeter",
+                "partner_in_room->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if _partner_in_other_room(state):
-            return _branch("demeter", "partner_in_other_room->coordinate_cross_room", "coordinate_cross_room")
+            return _branch(
+                state,
+                "demeter",
+                "partner_in_other_room->coordinate_cross_room",
+                "coordinate_cross_room",
+                CoordinateCrossRoomParams(target=state.key_partner_id),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if not state.key_partner_found:
-            return _branch("demeter", "partner_unknown->probe_systematic", "probe_systematic")
+            return _branch(
+                state,
+                "demeter",
+                "partner_unknown->probe_systematic",
+                "probe_systematic",
+                _partner_search_params(state, aggressive=True),
+                Objective.FIND_KEY_PARTNER,
+            )
     else:
         if _enemy_key_unknown(state):
-            return _branch("demeter", "exchange_done+enemy_unknown->probe_systematic", "probe_systematic")
-        return _branch("demeter", "exchange_done->hold_position", "hold_position")
-    return _branch("demeter", "fallback->scout", "scout")
+            return _branch(
+                state,
+                "demeter",
+                "exchange_done+enemy_unknown->probe_systematic",
+                "probe_systematic",
+                _enemy_key_search_params(state),
+                Objective.LOCATE_ENEMY_KEY,
+            )
+        return _branch(
+            state,
+            "demeter",
+            "exchange_done->hold_position",
+            "hold_position",
+            HoldPositionParams(reason="exchange_done"),
+            Objective.POSITION_FOR_WIN,
+        )
+    return _branch(state, "demeter", "fallback->scout", "scout")
 
 
 def evaluate_shade(
@@ -121,12 +318,44 @@ def evaluate_shade(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _room_composition_unknown(state):
-        return _branch("shade", "room_composition_unknown->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "shade",
+            "room_composition_unknown->probe_systematic",
+            "probe_systematic",
+            ProbeSystematicParams(target_team=state.my_team, intent=ProbeIntent.MAP_ROOM),
+            Objective.GATHER_INTEL,
+        )
     if state.am_leader and _key_roles_need_help(state):
-        return _branch("shade", "leader+key_roles_need_help->hold_position", "hold_position")
+        return _branch(
+            state,
+            "shade",
+            "leader+key_roles_need_help->hostage_select",
+            "hostage_select",
+            HostageSelectParams(
+                objective=Objective.PROTECT_KEY_ROLE,
+                protect=tuple(state.allies_in_my_room),
+                move=tuple(state.enemies_in_my_room),
+            ),
+            Objective.PROTECT_KEY_ROLE,
+        )
     if _hostile_leader(state):
-        return _branch("shade", "hostile_leader->seek_leadership", "seek_leadership")
-    return _branch("shade", "default_support_probe->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "shade",
+            "hostile_leader->seek_leadership",
+            "seek_leadership",
+            SeekLeadershipParams(reason="hostile_leader"),
+            Objective.PROTECT_KEY_ROLE,
+        )
+    return _branch(
+        state,
+        "shade",
+        "default_support_probe->probe_systematic",
+        "probe_systematic",
+        ProbeSystematicParams(target_team=state.my_team, intent=ProbeIntent.MAP_ROOM),
+        Objective.GATHER_INTEL,
+    )
 
 
 def evaluate_nymph(
@@ -135,10 +364,31 @@ def evaluate_nymph(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if _room_composition_unknown(state):
-        return _branch("nymph", "room_composition_unknown->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "nymph",
+            "room_composition_unknown->probe_systematic",
+            "probe_systematic",
+            ProbeSystematicParams(target_team=state.my_team, intent=ProbeIntent.MAP_ROOM),
+            Objective.GATHER_INTEL,
+        )
     if _hostile_leader_threatens_persephone(state):
-        return _branch("nymph", "hostile_leader_threatens_persephone->seek_leadership", "seek_leadership")
-    return _branch("nymph", "default_support_probe->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "nymph",
+            "hostile_leader_threatens_persephone->seek_leadership",
+            "seek_leadership",
+            SeekLeadershipParams(reason="hostile_leader_threatens_persephone"),
+            Objective.PROTECT_KEY_ROLE,
+        )
+    return _branch(
+        state,
+        "nymph",
+        "default_support_probe->probe_systematic",
+        "probe_systematic",
+        ProbeSystematicParams(target_team=state.my_team, intent=ProbeIntent.MAP_ROOM),
+        Objective.GATHER_INTEL,
+    )
 
 
 def evaluate_spy(
@@ -147,9 +397,27 @@ def evaluate_spy(
     action_memory: ActionMemory,
 ) -> ModeDirective:
     if state.verified_ally is None:
-        return _branch("spy", "no_verified_ally->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "spy",
+            "no_verified_ally->probe_systematic",
+            "probe_systematic",
+            ProbeSystematicParams(
+                target_team=state.my_team,
+                intent=ProbeIntent.VERIFY_SELF_AS_SPY,
+                cautious=True,
+            ),
+            Objective.MAINTAIN_COVER,
+        )
     if state.cover_intact:
-        return _branch("spy", "cover_intact->probe_systematic", "probe_systematic")
+        return _branch(
+            state,
+            "spy",
+            "cover_intact->probe_systematic",
+            "probe_systematic",
+            ProbeSystematicParams(intent=ProbeIntent.DISRUPT, cautious=True),
+            Objective.MAINTAIN_COVER,
+        )
     if state.my_team is Team.SHADES:
         directive = evaluate_shade(state, belief_state, action_memory)
         _log_branch("spy", "cover_blown+shades_delegate", directive.mode)
@@ -158,16 +426,25 @@ def evaluate_spy(
         directive = evaluate_nymph(state, belief_state, action_memory)
         _log_branch("spy", "cover_blown+nymphs_delegate", directive.mode)
         return directive
-    return _branch("spy", "unknown_team->scout", "scout")
+    return _branch(state, "spy", "unknown_team->scout", "scout")
 
 
-def _directive(mode: str) -> ModeDirective:
-    return ModeDirective(mode, ModeParams())
+def _directive(mode: str, params: ModeParams | None = None) -> ModeDirective:
+    return ModeDirective(mode, params or ModeParams())
 
 
-def _branch(role: str, branch: str, mode: str) -> ModeDirective:
+def _branch(
+    state: StrategicState,
+    role: str,
+    branch: str,
+    mode: str,
+    params: ModeParams | None = None,
+    objective: Objective | None = None,
+) -> ModeDirective:
+    if objective is not None:
+        state.current_objective = objective
     _log_branch(role, branch, mode)
-    return _directive(mode)
+    return _directive(mode, params)
 
 
 def _log_branch(role: str, branch: str, mode: str) -> None:
@@ -181,7 +458,9 @@ def _log_branch(role: str, branch: str, mode: str) -> None:
 
 def _partner_unreachable(state: StrategicState) -> bool:
     return (
-        state.current_round == len(state.round_schedule)
+        bool(state.round_schedule)
+        and state.current_round > 0
+        and state.current_round == len(state.round_schedule)
         and _partner_in_other_room(state)
     )
 
@@ -257,6 +536,45 @@ def _hostile_leader(state: StrategicState) -> bool:
 
 def _hostile_leader_threatens_persephone(state: StrategicState) -> bool:
     return _hostile_leader(state)
+
+
+def _partner_probe_params(state: StrategicState) -> ProbeTargetParams:
+    return ProbeTargetParams(
+        target=state.key_partner_id or (0, 0),
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        max_approach_ticks=144,
+    )
+
+
+def _partner_search_params(
+    state: StrategicState,
+    *,
+    cautious: bool = False,
+    aggressive: bool = False,
+) -> ProbeSystematicParams:
+    return ProbeSystematicParams(
+        target_team=state.my_team,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        cautious=cautious,
+        aggressive=aggressive,
+    )
+
+
+def _enemy_key_search_params(state: StrategicState) -> ProbeSystematicParams:
+    return ProbeSystematicParams(
+        target_team=_enemy_team(state.my_team),
+        intent=ProbeIntent.LOCATE_ENEMY_KEY,
+        cautious=state.urgency is Urgency.PANIC,
+    )
+
+
+def _enemy_team(team: Team | None) -> Team | None:
+    if team is Team.SHADES:
+        return Team.NYMPHS
+    if team is Team.NYMPHS:
+        return Team.SHADES
+    return None
 
 
 ROLE_EVALUATORS: dict[str, Evaluator] = {

@@ -1,583 +1,905 @@
-# Eurydice -- Implementation Plan
+# Eurydice -- Source-Verified Implementation Plan
 
-High-level roadmap for implementing the Eurydice strategic agent as
-specified in [DESIGN.md](DESIGN.md). Eurydice sits on top of the Orpheus
-framework and adds a rule-based strategic reasoning layer that plays all
-7 roles competently. Each stage builds on the previous; the dependency
-graph at the bottom shows parallelization opportunities.
+This document is the implementation roadmap for taking Eurydice from the
+current partially implemented agent to the behavior described in
+[`DESIGN.md`](DESIGN.md) and the role strategy documents.
 
----
+Last source audit: 2026-05-10.
 
-## Stage 0: Core Data Types & Knowledge Model
-
-**Goal**: Define the data structures that every other component reads and
-writes. No logic -- just shapes.
-
-1. **`types.py`** -- Eurydice-specific enums and constants: `Team`,
-   `Role`, `TrustLevel`, `Urgency`, `ProbeIntent`, `Phase` (extended
-   from Orpheus), `TeamSource`, `RoleSource`, `Objective`. `PlayerID`
-   typedef (`tuple[int, int]` for color + shape).
-2. **`knowledge.py`** -- `PlayerKnowledge` frozen/mutable dataclass with
-   all fields from DESIGN.md section "Player Knowledge Record." Include
-   factory method for initial state (all `None`/empty).
-3. **`strategic_state.py`** -- `StrategicState` dataclass with all fields
-   from DESIGN.md section "Strategic State." Read-only after construction
-   (rebuilt each `meta_decide` cycle).
-4. **`accumulators.py`** -- `PlayerAccumulator` and `GlobalAccumulators`
-   dataclasses. Include `reset_for_new_round` method on
-   `PlayerAccumulator`. `WhisperRecord` for our own history.
-5. **`ext_keys.py`** -- Central registry of all `belief_state.ext` keys
-   with type annotations and docstrings (prevents typo collisions). From
-   DESIGN.md "Belief State Extension Keys Registry" table.
-6. **`whisper_state.py`** -- `WhisperModeState` and
-   `WhisperExchangeState` dataclasses for the whisper FSM.
-7. **`communication.py` (types only)** -- `ParsedMessage`,
-   `IdentityClaim`, `LocationClaim`, `ActionRequest`, `Question`
-   dataclasses.
-
-**Exit criterion**: All dataclasses importable and constructible with
-defaults. `StrategicState` and `PlayerKnowledge` can be round-tripped
-through `dataclasses.asdict`. Type-checking (`mypy --strict` or
-equivalent) passes on all type modules.
+The important planning constraint is dependency order: a phase may only depend
+on capabilities proven by earlier phases. For example, role-specific strategy
+must not depend on full Spy deception until the generic whisper protocol,
+knowledge updates, and evaluator parameter contracts are already working.
 
 ---
 
-## Stage 1: Behavioral Accumulation & Inference Pipeline
+## Current Baseline
 
-**Goal**: The `post_belief_update` hook runs every tick, feeds raw
-observations into accumulators, derives behavioral flags, and runs
-inference rules to populate `PlayerKnowledge`.
+### Completed From This Plan
 
-1. **Hook registration** -- Register `eurydice_post_belief_update` as an
-   agent-level `post_belief_update` hook via the Orpheus `HookRegistry`.
-   Initialize `GlobalAccumulators` and `player_knowledge` dict in
-   `belief_state.ext` during mode_enter or game-start detection.
-2. **Position tracker** -- `update_position_tracker`: feed visible player
-   positions from `belief_state.players` into per-player ring buffers.
-   Track `visible_ticks_this_round`, `stationary_ticks`,
-   `total_distance_this_round`, `distinct_players_approached`.
-3. **Whisper tracker** -- `update_whisper_tracker`: detect whisper
-   entry/exit from belief state (speech bubbles, occupant lists). Track
-   `whisper_entries_this_round`, `whisper_partners_this_round`.
-   Implement proximity-based partnership inference (confidence ~0.7).
-4. **Exchange tracker** -- `update_exchange_tracker`: scan
-   `chat_history` for system messages ("offered color", "swapped
-   colors", "offered role", "shared roles", "withdrew", "showed role").
-   Update per-player exchange counters and `ticks_before_first_offer`.
-   Implement OCR-resilient substring matching (match on "SWAP",
-   "SHARED", "OFFER" fragments).
-5. **Chat tracker** -- `update_chat_tracker`: attribute incoming
-   messages to senders, increment `global_messages_sent_this_round`,
-   append to `message_content_log`.
-6. **Leadership tracker** -- `update_leadership_tracker`: detect usurp
-   votes, leadership changes from system messages.
-7. **Behavioral flag derivation** -- `derive_behavioral_flags`: implement
-   all flag rules from DESIGN.md ("aggressive_probing",
-   "avoids_interaction", "defensive_posture", "exchange_eager",
-   "refuses_role_exchange", "seeks_specific_teammate", "chatty_global",
-   "relaxed_after_urgency", "whispers_with_both_teams").
-8. **Hard inference rules** -- Certainty-1.0 updates: mutual role
-   exchange, color exchange (with Spy-config conditional confidence),
-   one-way reveals, room assignment from visibility, roster reveal,
-   hostage movement.
-9. **Soft inference rules** -- Probabilistic updates from behavioral
-   flags with capped confidence values per DESIGN.md.
-10. **Elimination rules** -- Deductive reasoning from known-identity
-    counts.
-11. **Round-reset logic** -- On round transition (detected from belief
-    state phase change): snapshot cross-round summaries, reset per-round
-    fields, handle hostage arrivals/departures.
+- **Phase 0 partial:** `scripts/analyze_eurydice_traces.py` summarizes empty,
+  plain JSONL, and runner-prefixed JSONL trace output.
+- **Phase 1A:** Role-reveal perception extracts the centered own-player sprite,
+  and belief update populates `my_color`, `my_shape`, and `my_index`.
+- **Phase 1B:** Role-reveal perception parses round schedule rows into
+  `(duration_secs, hostage_count)` tuples, and belief update populates
+  `round_schedule`. A live fixture covers a non-default three-round schedule.
+- **Phase 1C partial:** Overworld perception exposes ordinary visible player
+  sprites and visible role indicators; belief update records current-tick
+  positions without requiring a speech bubble.
+- **Phase 2 partial:** Eurydice consumes structured Orpheus exchange events and
+  active offer fields before falling back to text, records ambiguous crowded
+  exchanges without attribution, wires `chat_parser` into inbound chat updates,
+  and propagates unique leader-color observations into player knowledge.
+- **Phase 3 partial:** Core evaluators now emit typed params and objectives for
+  partner search, target probing, leadership, positioning, and disruption;
+  `meta_decide` preserves full directives during hysteresis and logs params.
+- **Phase 4 partial:** Probe attempts now track target selection, started
+  action, completion, and per-round failures; `probe_target` no longer joins an
+  unrelated nearby whisper; failed entry attempts are capped per target/round;
+  probe modes no longer initiate whispers during HostageSelect.
+- **Phase 5 partial:** `in_whisper` now derives protocol from the directive
+  that caused whisper entry, supports stall/key-exchange/quick-verify/
+  infiltration selection, applies Spy-aware incoming role-offer decisions, and
+  explicitly handles hostile entrants, forced ejection, and post-whisper
+  info-screen reconciliation.
+- **Phase 6 partial:** Additional role-evaluator contracts cover key partner
+  cross-room behavior, Persephone escape/hold behavior, Shade leader hostage
+  strategy, Spy real-team verification targeting, and final-round partner
+  unreachable disruption. P_FINAL now requires a real parsed schedule and a
+  positive current round.
+- **LLM-readiness partial:** `llm_context.py` provides a JSON-safe decision
+  context and closed semantic output schema for future LLM control. Runtime
+  decisions are still deterministic; LLM decisions should first be evaluated in
+  shadow mode. See [`LLM_CONTROL.md`](LLM_CONTROL.md).
 
-**Exit criterion**: Unit tests with synthetic belief state sequences
-verify: (a) accumulators increment correctly over multi-tick sequences,
-(b) behavioral flags fire at specified thresholds, (c) hard inferences
-produce correct knowledge updates from exchange events, (d) round reset
-preserves cross-round fields and clears per-round fields. Tested with
-at least 3 scenario sequences (cooperative probe, evasive target,
-multi-round progression).
+### Proven or Mostly Implemented
 
----
+- Eurydice policy startup, mode registry, Orpheus `Pipeline`, post-belief hook,
+  and `OuterLoop` wiring are implemented in `policy.py`.
+- Orpheus perception parses the major views and produces structured
+  `FramePerception` objects.
+- Role card parsing extracts own role, team, room, room size, own sprite
+  identity, round schedule rows, and role-reveal panel index for panels 1-3.
+- Overworld parsing extracts speech bubbles, ordinary visible player sprites,
+  minimap dots, and visible role indicators.
+- Belief state stores structured whisper exchange fields:
+  `active_color_offers`, `active_role_offers`, `last_exchange_event`, and
+  `my_exchange_partner`.
+- Eurydice initializes accumulators and player knowledge, tracks positions from
+  available observations, tracks our current whisper occupants, records simple
+  exchange/chat counters, derives a subset of behavioral flags, and runs basic
+  hard inferences from Orpheus player registry fields.
+- `meta_decide` builds a `StrategicState`, computes urgency, applies phase and
+  whisper overrides, implements a 48-tick hysteresis guard, and dispatches to
+  role evaluators.
+- Basic movement/probing modes exist: `idle`, `scout`, `probe_target`, and
+  `probe_systematic`.
+- `in_whisper` is a real FSM with color exchange, role exchange, extraction,
+  stall, exit, forced-ejection, and entry-request handling.
+- Advanced mode classes exist for leadership, hostage selection, summit,
+  cross-room coordination, relay, time-waste, decoy, and info screen checks.
+- Exchange-related whisper activity schedules a brief info-screen pass;
+  Eurydice reconciles parsed info-screen role/color entries into mechanical
+  exchange truth and repairs `my_exchange_partner` when attribution is unique.
+- Chat parsing and deception helpers exist as isolated modules.
 
-## Stage 2: meta_decide Engine
+### Major Gaps Against the Design
 
-**Goal**: The outer-loop `meta_decide` function builds strategic state,
-dispatches to role evaluators, implements hysteresis, and computes
-urgency. Produces `ModeDirective` values that the inner loop consumes.
+- Perception parses role-summary membership, missing roles, echo
+  substitutions, and Spy presence from synthetic fixtures plus a live
+  Spy/Echo role-summary fixture. Round schedule parsing has synthetic coverage
+  plus a live non-default schedule fixture. Exact duplicate role counts are not
+  rendered by the game, so elimination rules still need a separate source or
+  conservative constraints. Visible player
+  sprite/role-indicator parsing exists but still needs live-frame validation.
+- Minimap sightings are color-only and currently map to the first matching
+  non-self player index, which is ambiguous when colors repeat.
+- `update_whisper_tracker` only tracks occupants of our current whisper; it
+  does not infer other players' whisper partnerships from nearby speech
+  bubbles.
+- `update_exchange_tracker` now consumes structured fields first and schedules
+  info-screen reconciliation, but it still cannot identify crowded-whisper
+  offers unless Orpheus provides embedded refs or an unambiguous target.
+- `update_chat_tracker` now calls `chat_parser` for inbound claims and action
+  requests, but outbound communication policy and message budgeting remain
+  later-phase work.
+- `update_leadership_tracker` handles self leadership and unique leader-color
+  observations, but not detailed usurp/pass-leadership system-message parsing.
+- Spy-aware color-exchange confidence is implemented from parsed
+  `spy_in_game_config`; broader Spy suspicion and deception reasoning remain
+  later-phase work.
+- `StrategicState.current_objective` is populated for the implemented evaluator
+  branches, but phase overrides and advanced-mode internals still use shallow
+  intent.
+- Evaluators emit typed params for core branches, but several advanced modes
+  only store or lightly consume those params. They do not yet implement the
+  full role-specific behaviors described in `DESIGN.md`.
+- Probe rendezvous is target-scoped now, but still lacks cooperative
+  meeting-point behavior and safe global announcements.
+- Advanced modes are intentionally shallow: hostage selection is mechanical,
+  cross-room coordination only sends `SEND ME`, `hold_position` does not
+  actively seek leadership, and `decoy` does not communicate a false identity.
+- Deception and Spy behavior are partially wired into whisper role-offer
+  decisions, but broader cover management and outbound deception policy remain
+  later-phase work.
+- LLM control has a stable context/output contract but no provider adapter,
+  validator, shadow-runner, prompt templates, or runtime integration yet.
 
-1. **`build_strategic_state`** -- Reconstruct `StrategicState` from a
-   belief state snapshot each iteration. Populate all fields: identity,
-   temporal (round, phase, urgency), key exchange status, room
-   composition, leadership, interaction tracking, scaling parameters.
-2. **Temporal mechanics** -- `RoundBudget` tracker: `ticks_remaining`,
-   `can_start_full_probe`, `can_start_fast_probe`,
-   `probes_remaining_estimate`. Derive `probe_cycle_cost_ticks` from
-   `belief_state.round_schedule` (not hardcoded). Handle descending-
-   duration configs (medium family).
-3. **Urgency computation** -- `compute_urgency`: implement relative
-   urgency using `rounds_remaining` and `fraction_elapsed` per DESIGN.md
-   algorithm. Must work across all config presets (1-5 rounds,
-   15s-300s durations).
-4. **Hysteresis** -- Minimum mode duration (48 ticks unless critical
-   override). Never interrupt `in_whisper`. Anti-thrash cooldown on
-   re-entry. `is_critical_override` (phase change, exchange completed,
-   partner discovered).
-5. **Role dispatch table** -- `ROLE_EVALUATORS` dict mapping `Role` enum
-   to evaluator functions. Stub evaluators that return `scout` mode for
-   now (real logic in Stage 5).
-6. **Mode completion protocol** -- Read `belief_state.ext["mode_complete"]`
-   flag; clear after reading. Route to next priority.
-7. **Phase-sensitive overrides** -- HostageSelect (leader -> hostage_select
-   mode), LeaderSummit (leader -> summit_interact), HostageExchange/
-   RoleReveal/RosterReveal (-> idle). These override role logic.
-8. **Intro sequence behavior** -- Slow panel advancement: 48 ticks on
-   RosterReveal, 24 ticks per RoleReveal panel. Output idle (0x00) to
-   prevent accidental advancement. Detect panel transitions from belief
-   state population (player registry complete -> advance).
+### Latest Validation
 
-**Exit criterion**: Given a mocked belief state with known role, round,
-and phase, `meta_decide` produces the expected `ModeDirective` for:
-(a) intro sequence pacing, (b) phase overrides (HostageSelect triggers
-hostage_select mode for leaders), (c) hysteresis suppresses rapid
-switching, (d) urgency correctly computes CALM/PRESSING/PANIC for
-various round/config combinations.
-
----
-
-## Stage 3: Basic Modes (idle, scout, probe_target, probe_systematic)
-
-**Goal**: The agent can move through the room, find players, and approach
-them for whisper initiation. These modes form the "getting to the
-conversation" layer.
-
-1. **`idle` mode** -- Returns `IdleTask()`. Monitors belief state for
-   phase transitions. Absorbs perception passively.
-2. **`scout` mode** -- Internal `ScoutState`. Waypoint selection
-   algorithm (priority: last-known positions of unprobed players >
-   unexplored regions > room center). Weighted random choice. Stuck
-   detection (72-tick stale waypoint). Signals `mode_complete` +
-   `found_target` when unprobed player is within interaction range.
-3. **`probe_target` mode** -- Approach specific player via `MoveToTask`.
-   Fall back to last-known position if target not visible. Create
-   whisper (`CreateWhisperTask`) or request entry
-   (`RequestEntryTask`) depending on target's whisper state.
-   `max_approach_ticks` timeout. Probe failure escalation (evasive
-   target marking, entry-never-granted abort, immediate-exit detection).
-   2-attempt-per-round cap per target.
-4. **`probe_systematic` mode** -- `score_target` algorithm: never
-   re-probe fully identified, prefer unprobed (+50), team filter bonus
-   (+30 / -100), proximity bonus, behavioral suspicion bonus, staleness
-   penalty. Select highest-scoring target, delegate to probe_target
-   behavior. Signal mode_complete when no valid targets remain.
-5. **Mode registration** -- Register all four modes in `ModeRegistry`
-   during agent initialization.
-
-**Exit criterion**: In a live local match (small config, 4 players,
-60s rounds), the agent: (a) leaves idle after role detection, (b) scouts
-the room visiting multiple waypoints, (c) approaches visible players,
-(d) successfully creates whispers with cooperative fillers (>80% of
-attempts). Trace logs confirm mode transitions: idle -> scout ->
-probe_target -> (whisper created). No crashes over full game.
-
----
-
-## Stage 4: Whisper Interaction Protocol
-
-**Goal**: The `in_whisper` mode FSM handles all whisper interactions --
-from color exchange through role exchange to exit. This is the most
-complex single mode and where the core gameplay loop lives.
-
-1. **FSM skeleton** -- `WhisperModeState` with states: ENTER, ASSESS,
-   COLOR_EXCHANGE, EVALUATE, ROLE_EXCHANGE, EXTRACT, STALL, EXIT.
-   State dispatch via `match` statement.
-2. **ENTER state** -- Detect whisper view. Populate occupant list.
-   Select target via `select_whisper_target` (priority: key partner >
-   unknown-team > same-team-unverified > enemy). Assess eavesdrop risk
-   (hostile present + key_exchange protocol -> abort). Transition to
-   ASSESS.
-3. **ASSESS state** -- Multi-occupant eavesdrop guard (key roles abort
-   if unknown/hostile witness present with >2 occupants). Route to
-   protocol: key_exchange -> ROLE_EXCHANGE directly; known team -> skip
-   to EVALUATE; unknown -> COLOR_EXCHANGE.
-4. **COLOR_EXCHANGE state** -- Reactive path (incoming C.OFFER ->
-   C.ACCPT). Proactive path (initiate C.OFFER -> wait for response).
-   72-tick timeout -> EXIT. Completion detection from system messages.
-   Transition to EVALUATE on success.
-5. **EVALUATE state** -- `evaluate_after_color`: same-team -> ROLE_EXCHANGE
-   or EXTRACT; opposite-team -> EXIT (key roles) or EXTRACT (grunts);
-   Spy -> EXTRACT. Produce correct next state based on role + team +
-   intent.
-6. **ROLE_EXCHANGE state** -- Reactive (incoming R.OFFER -> role-dependent
-   accept/decline decision table from DESIGN.md). Proactive (R.OFFER ->
-   wait). Completion detection. Post-exchange knowledge update. 72-tick
-   timeout -> EXIT.
-7. **EXTRACT state** -- Compose probe message, send via `SendMessageTask`.
-   Wait 96 ticks for response. Transition to EXIT.
-8. **STALL state** -- Timed message sequence ("THINKING" at 48 ticks,
-   "WHO ARE YOU" at 144 ticks, C.OFFER at 240 ticks). Exit after
-   protocol timeout (288 ticks).
-9. **EXIT state** -- Send EXIT via menu nav. Wait for view transition to
-   overworld. Post-exit knowledge update (`post_whisper_knowledge_update`).
-   Signal mode_complete.
-10. **Entry request handling** -- Per-tick check: deny during sensitive
-    operations; grant for probable allies; ignore for enemies/unknowns.
-11. **Hostile entrant monitoring** -- Detect new occupants mid-interaction.
-    Abort if hostile enters during exchange.
-12. **Global timeout** -- Per-protocol-variant max duration (standard:
-    240 ticks, key_exchange: 96 ticks, infiltration: 240 ticks, stall:
-    288 ticks, quick_verify: 144 ticks).
-13. **Forced ejection handling** -- Detect view != whisper before EXIT
-    state initiated (phase transition kicked us out). Clean up, signal
-    mode_complete with "forced_ejection" reason.
-14. **Whisper exchange state derivation** -- Post-belief-update hook logic
-    for parsing system messages into structured exchange state fields.
-    Substring matching for OCR resilience. Redundant inference (offer
-    sent + subsequent system message within 120 ticks). Attribution
-    heuristics for multi-occupant whispers.
-
-**Exit criterion**: In a live match with cooperative fillers: (a) agent
-completes color exchanges >80% of whisper entries, (b) correctly
-identifies team for exchanged players, (c) completes role exchanges with
-same-team players, (d) exits within timeout bounds, (e) correctly
-handles forced ejection (phase transition during whisper). (f) Handles
-incoming offers reactively (accepts C.OFFER, role-appropriate R.OFFER
-decision). Trace logs show full FSM path for each whisper interaction.
+- `PYTHONPATH=. .venv/bin/python -m pytest tests -q`:
+  **544 passed, 5 skipped** on 2026-05-10.
+- Live strategy check, 10 Eurydice agents against a local default Persephone
+  server (`seed=306`, stopped after early round-1 interaction): trace analyzer
+  scanned 10 logs, 5,294 events, 0 malformed lines, and no unknown event
+  types. Agents acquired role/team/round schedule, entered objectives including
+  `find_key_partner` and `gather_intel`, selected 39 probe targets across 9
+  unique player IDs, started 17 probe attempts, completed 3 probes, and logged
+  11 `initiate_timeout` failures. This proves the agents do operate beyond
+  idle/random conversation, but also makes probe-initiation reliability the
+  next concrete bottleneck.
+- Live smoke, 10 Eurydice agents against a local default Persephone server
+  (`seed=48`, stopped after early interaction): trace analyzer scanned 10 logs,
+  7,103 events, 0 malformed lines, and no unknown event types. No agent
+  tracebacks or logged failure events were present, and no trace showed
+  `InitiateWhisperTask` running in `hostage_select`.
+- Live controlled Spy/Echo capture (`seed=101`, six-player config) produced
+  `tests/fixtures/role_reveal_spy_echo_summary.npy`, which verifies Panel 2
+  parsing of `Spy`, missing `Cerberus`, and
+  `Echo of Cerberus -> Cerberus` against real renderer output.
+- Live controlled schedule capture (`seed=102`, six-player config) produced
+  `tests/fixtures/role_reveal_round_schedule_live.npy`, which verifies Panel
+  3 parsing of non-default rows `[(25, 1), (40, 2), (75, 1)]` against real
+  renderer output.
+- A prior interrupted live run exposed an upstream server cleanup issue when
+  clients with pending whisper entries are killed first
+  (`Sim.tickWhispers` tried to clear `pendingWhisperEntry` on a disconnected
+  player). Stopping the server before agents avoids that external cleanup bug.
 
 ---
 
-## Stage 5: Role Evaluators
+## Validation Layers
 
-**Goal**: All 7 role-specific strategy evaluators are implemented,
-producing the correct priority-ordered mode directives based on
-strategic state.
+Every phase below has two forms of validation:
 
-1. **Hades evaluator** -- P1-P6 priority chain per DESIGN.md: partner-in-
-   room -> partner-other-room (seek_leadership) -> partner-unknown
-   (probe_systematic Shades) -> exchange-done + persephone-unknown ->
-   exchange-done + persephone-same-room (hold_position + seek_leadership)
-   -> exchange-done + persephone-other-room (coordinate_cross_room self).
-2. **Cerberus evaluator** -- P1-P5: partner-in-room -> partner-other-room
-   (coordinate_cross_room self, mobile role) -> partner-unknown
-   (probe_systematic Shades) -> exchange-done + persephone-unknown ->
-   exchange-done (support_local, relay intel to Hades).
-3. **Persephone evaluator** -- P1-P6 with tiebreaker nuance: partner-in-
-   room -> partner-other-room (hold_position defensive) -> partner-
-   unknown (probe_systematic Nymphs cautious) -> exchange-done +
-   hades-here + enemy-exchange-likely (coordinate_cross_room escape) ->
-   exchange-done + hades-here + enemy-exchange-unknown (hold_position) ->
-   exchange-done + hades-other-room (hold_position safe).
-4. **Demeter evaluator** -- P1-P5: partner-in-room -> partner-other-room
-   (coordinate_cross_room, check Hades location risk) -> partner-unknown
-   (probe_systematic Nymphs aggressive) -> exchange-done + hades-unknown
-   (probe_systematic locate_hades) -> exchange-done (hold_position
-   protect Persephone).
-5. **Shade (grunt) evaluator** -- P1-P6: room-composition-unknown
-   (probe_systematic map_room) -> key-roles-need-help + am_leader
-   (hostage_select facilitate) -> key-roles-need-help + not_leader
-   (seek_leadership or volunteer_as_hostage) -> hostile-leader
-   (usurp) -> enemy-key-role-located + ally-needs-it (relay_intelligence)
-   -> default (probe_systematic disrupt or time_waste).
-6. **Nymph (grunt) evaluator** -- P1-P6: persephone-local (hold_position
-   seek_leadership protect) -> hostile-leader-threatens-persephone
-   (usurp) -> hades-unknown (probe_systematic Shades find_hades) ->
-   hades-located + persephone-local (relay_intelligence) ->
-   can-disrupt-shades (time_waste shades_key_role) -> default (scout
-   or decoy).
-7. **Spy evaluator** -- Phase 0-4: no verified ally (probe_target with
-   VERIFY_SELF_AS_SPY) -> cover intact + high-value target (infiltration
-   protocol) -> intel gathered + local ally (relay_intelligence) ->
-   Round 3 decisive action (break_cover) -> cover blown (revert to
-   grunt evaluator).
-8. **P_FINAL override (all key roles)** -- Exchange-impossible endgame:
-   Round 3 + partner-unreachable -> disrupt_enemy_exchange (time-waste
-   enemy key roles, misdirect via global chat, use leadership to
-   separate them).
-9. **Phase override integration** -- Wire phase-sensitive overrides
-   (HostageSelect/LeaderSummit/HostageExchange/Reveal) into
-   `meta_decide` BEFORE role dispatch.
+1. **Pytest contracts** -- deterministic unit/integration tests that can run
+   without a live server.
+2. **Trace criteria** -- quantitative checks over live bot traces. These are
+   required because the hardest failures are interaction failures, timing
+   failures, and cross-agent coordination failures that unit tests cannot
+   expose.
 
-**Exit criterion**: Unit tests for each evaluator with crafted
-`StrategicState` inputs verify correct mode directive for all priority
-levels. Particularly: (a) Hades never produces `coordinate_cross_room`
-when partner is local, (b) Persephone's P4 only fires when
-`enemy_exchange_likely` is True, (c) Cerberus always volunteers for
-cross-room when partner is away, (d) P_FINAL fires correctly when
-partner is unreachable in Round 3 and not before. Full-game trace
-analysis (5 seeds, medium config) shows role-appropriate behavior
-patterns.
+Recommended default command for focused Eurydice checks:
+
+```sh
+PYTHONPATH=. .venv/bin/python -m pytest \
+  tests/test_eurydice_stages.py \
+  tests/test_eurydice_integration.py \
+  -q
+```
+
+The full suite should be run before large behavior merges:
+
+```sh
+PYTHONPATH=. .venv/bin/python -m pytest tests -q
+```
 
 ---
 
-## Stage 6: Leadership, Hostage & Cross-Room Modes
+## Phase 0: Documentation, Baseline Tests, and Trace Schema
 
-**Goal**: The agent can seek/maintain leadership, make strategic hostage
-selections, hold position defensively, negotiate in the leader summit,
-and coordinate cross-room movement.
+**Goal:** Make the repo truthful before adding behavior. This phase does not
+change agent strategy.
 
-1. **`hold_position` mode** -- Gentle wander near room center (avoid
-   `defensive_posture` flag detection). Seek leadership if param set
-   (open global chat -> usurp selector). Grant whisper requests from
-   probable allies. Anti-hostage sub-behavior during HostageSelect.
-2. **`seek_leadership` mode** -- Open global chat view. Navigate usurp
-   candidate selector. Cast vote for self or ally. Monitor for success/
-   failure via system messages. Estimate majority achievability before
-   attempting.
-3. **`usurp` mode** -- Coordinate majority vote. Count local allies.
-   Deterministic candidate selection (all Eurydice agents with same
-   knowledge independently choose same candidate). Known limitation
-   flag for non-Eurydice allies.
-4. **`hostage_select` mode** -- Selection algorithm: (a) honor ally
-   "SEND ME" volunteers (verified-team only, never send own key role
-   post-exchange), (b) team-specific logic (Shades: send Nymphs, keep
-   key roles; Nymphs: never send Persephone, send Hades away, send
-   Shades), (c) fallback to least-valuable player. Navigate the
-   hostage selection UI (grid + toggle + commit) before timer expires.
-5. **`summit_interact` mode** -- Chat-only interaction: send probing
-   message, tab to info screen (validate knowledge, 2-3 ticks), tab
-   back to read response. Strategy varies by situation (unknown enemy
-   team -> probe, confirmed enemy -> extract/misdirect, same team ->
-   coordinate). Rate-limit awareness (7 messages max in 15s summit).
-   Tab to shout view before summit ends to read accumulated room chat.
-6. **`coordinate_cross_room` mode** -- Method assessment: am-leader
-   (select target as hostage) > want-to-move (signal "SEND ME" to local
-   leader via whisper or global chat) > am-leader + summit-upcoming
-   (prepare negotiation strategy). Key constraint documentation: cannot
-   tell other room anything, cannot influence other room directly. Mode
-   only produced when agent CAN take meaningful local action.
-7. **Hostage volunteering** -- "SEND ME" signaling via whisper with
-   leader or global chat. Only effective with ally leader. No
-   "volunteer button" exists.
+**Dependencies:** None.
 
-**Exit criterion**: In a live multi-agent match (8 players, medium
-config, 3 rounds): (a) agent successfully usurps hostile leader when
-majority is available (>60% success rate across 5 seeds), (b) leader-
-agent never sends own key role as hostage, (c) agent enters
-hold_position when positioning is favorable and maintains it, (d) summit
-chat is produced (non-empty message log during LeaderSummit), (e) cross-
-room coordination produces measurable partner-proximity improvement
-across rounds (trace: distance between key pair decreases over game).
+**Implementation work:**
+
+- [x] Update stale project docs and TODO entries so they match current source.
+- [x] Add a short "Current Implementation Status" section to `DESIGN.md` or keep
+  this plan as the canonical status document and link it from the README.
+- Decide the canonical trace directory layout and trace event names for
+  Eurydice live evaluation.
+- [x] Add a trace-analysis skeleton script before depending on trace metrics in
+  later phases. It may initially only validate manifests and count events.
+
+**Pytest contracts to add or keep green:**
+
+- `tests/test_eurydice_integration.py::test_policy_importable`
+- `tests/test_eurydice_integration.py::test_all_evaluator_modes_in_registry`
+- `tests/test_eurydice_integration.py::test_pipeline_survives_100_ticks_same_frame`
+- `tests/test_eurydice_stages.py::test_meta_decide_logs_reason_and_strategic_change`
+- Add `tests/test_eurydice_trace_schema.py::test_trace_event_names_are_known`
+- Add `tests/test_eurydice_trace_schema.py::test_trace_analyzer_handles_empty_run`
+
+**Trace criteria:**
+
+- A 60-second small local run produces parseable JSONL logs.
+- Every event has `type`, `tick` when applicable, and no non-JSON payloads.
+- No crash or unhandled exception appears in agent output.
+
+**Exit criteria:**
+
+- Focused Eurydice tests pass.
+- Documentation no longer claims missing features that source already provides.
+- Trace analyzer can run on an empty or minimal trace directory.
 
 ---
 
-## Stage 7: Communication Protocol
+## Phase 1: Perception Foundation
 
-**Goal**: The agent sends strategically appropriate messages and parses
-incoming messages from other players (including non-Eurydice opponents)
-into actionable knowledge.
+**Goal:** Provide the tactical layer with the observations it needs before
+strategy depends on them.
 
-1. **Message sending (global chat)** -- Template system: "LOOKING FOR
-   [color]", "MEET [direction]", "I AM [role]", "SEND ME", "SEND
-   [color]", "VOTE FOR ME", "DONT SEND [color]", "[color] IS [role]".
-   Priority system (1-6) with one-per-round budgeting. Rate-limit
-   awareness (240-tick cooldown). Never waste slot on low-priority when
-   high-priority might be needed later.
-2. **Message sending (whisper chat)** -- Templates: "WHO ARE YOU",
-   "FOUND [role]?", "[color] IS [team/role]", "SEND ME", "THINKING",
-   "VOTE ME", summit negotiation phrases. 48-tick cooldown respect.
-3. **Message parsing** -- `parse_message` function: keyword extraction
-   with fuzzy matching against `ROLE_KEYWORDS`, `TEAM_KEYWORDS`,
-   `ACTION_KEYWORDS` dicts. Extract identity claims, location claims,
-   action requests, questions. Mark uninterpretable when nothing
-   extracted. Robust to arbitrary input (non-Eurydice opponents may
-   send anything).
-4. **Credibility assessment** -- `assess_credibility`: base 0.3 for
-   unknown, 0.85 for role-exchange-verified ally, 0.6 for color-exchange
-   ally, 0.1 for known enemy. Reduce for contradictions. Reduce for
-   unknown sender.
-5. **Knowledge update from chat** -- Only apply claims above credibility
-   threshold (0.5). Never overwrite higher-confidence sources. Track
-   action requests (always noted, even from enemies -- signal value).
-6. **`relay_intelligence` mode** -- Channel selection: whisper (private,
-   costs probe time) vs global chat (immediate, enemies see). Identify
-   target ally. Approach -> whisper -> share, or open global -> send.
-   Mark intel as relayed. Fires when: enemy key role identified + local
-   ally needs to know, or exchange status learned + local key role needs
-   to adjust.
+**Dependencies:** Phase 0.
 
-**Exit criterion**: (a) Parser correctly extracts intents from 20+ test
-messages (including misspelled, abbreviated, and multi-word inputs).
-(b) Credibility correctly downgrades enemy claims and upgrades verified
-ally claims. (c) Agent sends contextually appropriate global chat
-messages in live games (trace shows non-empty global messages with
-correct priority for game state). (d) Agent never sends global chat
-during whisper. (e) Agent never wastes cooldown on low-priority message
-when high-priority situation is active.
+### 1A. Self Identity From Role Reveal
+
+[x] Implemented with synthetic parser/belief tests. Still needs live-frame
+validation once new role-card captures are available.
+
+Extract own centered sprite color/shape from the role card and decode
+`my_index`.
+
+**Pytest contracts:**
+
+- `tests/test_perception_unit.py::test_role_reveal_extracts_own_sprite_identity`
+- `tests/test_orpheus_stage2.py::test_role_reveal_populates_self_color_shape_index`
+- `tests/test_eurydice_stages.py::test_my_player_id_uses_role_reveal_identity`
+
+**Trace criteria:**
+
+- `my_index`, `my_color`, and `my_shape` are known before first Playing tick
+  in at least 95% of role-reveal fixture/live runs.
+
+### 1B. Round Schedule Parsing
+
+[x] Implemented with synthetic parser/belief tests. Still needs live-frame
+validation across config presets.
+
+Parse role-reveal panel 3 into `round_schedule` as
+`[(duration_secs, hostage_count), ...]`.
+
+**Pytest contracts:**
+
+- `tests/test_perception_unit.py::test_parse_round_schedule_rows`
+- `tests/test_orpheus_stage2.py::test_role_reveal_populates_round_schedule`
+- `tests/test_eurydice_stages.py::test_urgency_uses_parsed_schedule_not_default`
+
+**Trace criteria:**
+
+- In configs with non-default durations, `strategic_state_snapshot` reports
+  urgency changes consistent with the parsed schedule.
+
+### 1C. Plain Visible Player Sprites
+
+[x] Implemented with synthetic parser/belief tests. Still needs live-frame
+validation in obstacle/fog cases and across all shapes/colors.
+
+Expose visible overworld player sprites even when they do not have speech
+bubbles. This should include color, shape, screen/world position, and role
+indicator if visible.
+
+**Pytest contracts:**
+
+- `tests/test_perception_unit.py::test_overworld_detects_visible_nonbubble_sprite`
+- `tests/test_orpheus_stage2.py::test_overworld_updates_plain_visible_player_position`
+- `tests/test_eurydice_stages.py::test_position_tracker_prefers_direct_sprite_over_minimap`
+
+**Trace criteria:**
+
+- During Playing, each bot has `localized: true` equivalent state from
+  position perception within 200 ticks.
+- Non-bubble nearby players update `PlayerInfo.position` on the current tick.
+- Minimap-only identity guesses are used only when no direct sprite observation
+  exists.
+
+### 1D. Global Chat and Hostage Grid Fixtures
+
+Capture and validate live fixtures for global messages, usurp candidate state,
+hostage grid cursor, selection marks, and committed state.
+
+**Pytest contracts:**
+
+- `tests/test_perception_live.py::test_global_chat_message_fixture_parses_sender_and_text`
+- `tests/test_perception_live.py::test_hostage_grid_fixture_parses_cursor_and_selected_slots`
+- `tests/test_orpheus_stage2.py::test_global_chat_hostage_grid_updates_belief`
+
+**Trace criteria:**
+
+- In HostageSelect, a leader bot can see eligible hostage count and cursor.
+- In GlobalChat, room messages are attributed when sender sprite is visible.
+
+### 1E. Leader Detection
+
+Improve leader-color inference beyond "self is leader" and usurp candidate
+approximation.
+
+**Pytest contracts:**
+
+- `tests/test_perception_unit.py::test_overworld_detects_visible_leader_indicator`
+- `tests/test_orpheus_stage2.py::test_visible_leader_updates_leader_colors`
+- `tests/test_eurydice_stages.py::test_strategic_state_room_leader_from_confirmed_source`
+
+**Trace criteria:**
+
+- `room_leader_id` and `room_leader_team` are populated before any usurp or
+  hostage strategy depends on them.
+
+**Exit criteria for Phase 1:**
+
+- Role, self identity, schedule, visible players, global chat, hostage grid,
+  and leader fields are either populated from perception or explicitly absent
+  with a trace warning.
+- No later phase may depend on a perception field until its Phase 1 pytest
+  contract is green.
 
 ---
 
-## Stage 8: Deception & Spy Framework
+## Phase 2: Knowledge and Inference Pipeline
 
-**Goal**: The agent employs strategic deception when EV-positive, the
-Spy role functions fully with cover management, and advanced modes
-(time_waste, decoy) are operational.
+**Goal:** Convert observations into reliable player knowledge before the
+strategic layer uses it.
 
-1. **Deception state** -- `DeceptionState` dataclass: `projected_role`,
-   `projected_team`, `target_audience`, `lies_told`, `cover_consistent`.
-   Track what each opponent believes about us based on what we've shown/
-   told them.
-2. **Deception EV assessment** -- `should_deceive`: evaluate
-   `P(believed) * V(belief) - P(caught) * C(exposure)`. Role-specific
-   deception freedom (grunts: high, key roles: low). Never contradict
-   mechanical reveals.
-3. **Behavioral camouflage** -- Mode parameter variants: Persephone can
-   mimic Nymph-grunt behavior (probe freely), Hades can mimic Shade-
-   grunt behavior (casual exchanges), key roles act like room composition
-   doesn't matter.
-4. **Spy Phase 0 (verified ally)** -- Target selection for first role
-   exchange: prioritize players whose observed team color matches Spy's
-   FAKE team (these are real allies due to inversion). Skip color
-   exchange, go straight to R.OFFER. Accept 40-65% success probability
-   on first attempt.
-5. **Spy cover management** -- Cover impact rules: color exchange
-   reinforces, role reveal breaks, chat consistency maintains. Track
-   cover status. Transition to grunt strategy when cover blown.
-6. **Spy infiltration protocol** -- Whisper variant: color exchange
-   (reinforces cover) -> EXTRACT (gather intel on key roles) -> EXIT.
-   Never accept R.OFFER from enemies. Never reveal role.
-7. **Spy decisive plays** -- Phase 3 (Round 3): break cover for impactful
-   action (become enemy-supported leader, relay critical intel, feed
-   false intel). Only when cover value < action value.
-8. **`time_waste` mode** -- Approach enemy key role. Create/join whisper.
-   Execute stall protocol: slow responses, fake interest, delayed
-   exchanges. Target 8-10 seconds consumed. Exit before they extract
-   value.
-9. **`decoy` mode** -- Grunt impersonates key role via global chat
-   ("I'M PERSEPHONE") and/or behavioral mimicry (defensive posture,
-   urgent probing). Accept investigation whispers (further time waste).
-   Acceptable cost: enemy eventually discovers truth, but time was
-   wasted.
-10. **Counter-intelligence** -- Detect inconsistent claims from other
-    players (`inconsistent_claims` flag). Spy awareness rules: color
-    exchange + inconsistent behavior -> Spy suspicion. Track
-    `whispers_with_both_teams` flag implications.
+**Dependencies:** Phase 1A for self identity; Phase 1C for direct visible
+player identity; Phase 1D for chat/hostage fields; Phase 1E for leadership.
 
-**Exit criterion**: (a) Spy agent maintains cover through at least 2
-rounds in a live match (color exchanges don't break it). (b) Spy
-successfully establishes verified ally in >50% of games. (c) Spy relays
-intelligence to real team at least once per game. (d) Grunt agents
-running `decoy` mode draw at least one enemy interaction (measured from
-traces). (e) `time_waste` mode keeps enemy in whisper for >6 seconds on
-average. (f) Deception state prevents self-contradiction (no tests show
-agent claiming two different roles to the same player).
+**Implementation work:**
+
+- Make `update_exchange_tracker` consume `last_exchange_event`,
+  `active_color_offers`, `active_role_offers`, and `my_exchange_partner`
+  instead of relying primarily on text-window heuristics.
+- Add robust multi-occupant attribution rules: exact embedded player refs >
+  target picker refs > two-person whisper > ambiguous event recorded without
+  identity.
+- Integrate `chat_parser.parse_message`, `assess_credibility`, and
+  `update_knowledge_from_chat` in `update_chat_tracker`.
+- Implement `update_leadership_tracker` from global/whisper system messages
+  and confirmed leader perception.
+- [x] Implement role-summary-driven match config: roles present, missing core
+  roles, echo substitutions, and Spy present/absent. Exact role counts are not
+  rendered by the source game panel.
+- [x] Replace unconditional color-exchange confidence `1.0` with Spy-aware
+  confidence.
+- Defer elimination rules until exact role counts are available from a source
+  other than the role-summary panel, or implement only conservative
+  membership/missing-role constraints.
+- [x] Add info-screen reconciliation after exchange-related whispers.
+- Add info-screen reconciliation after hostage exchange if live traces show
+  hostage-exchange role indicators are missed by the existing registry import.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_knowledge.py::test_exchange_tracker_consumes_structured_color_event`
+- `tests/test_eurydice_knowledge.py::test_exchange_tracker_consumes_structured_role_event`
+- `tests/test_eurydice_knowledge.py::test_ambiguous_multi_occupant_exchange_does_not_misatrribute`
+- `tests/test_eurydice_knowledge.py::test_chat_parser_updates_low_priority_identity_claim`
+- `tests/test_eurydice_knowledge.py::test_enemy_chat_claim_cannot_overwrite_mechanical_exchange`
+- `tests/test_eurydice_knowledge.py::test_exchange_tracker_schedules_info_screen_reconciliation`
+- `tests/test_eurydice_knowledge.py::test_info_screen_reconciles_full_role_exchange`
+- `tests/test_eurydice_knowledge.py::test_info_screen_reconciles_color_only_without_role`
+- `tests/test_perception_unit.py::TestRoleReveal::test_parse_frame_parses_role_summary_spy_missing_and_echo`
+- `tests/test_orpheus_stage2.py::test_role_reveal_populates_match_config`
+- `tests/test_eurydice_knowledge.py::test_color_exchange_confidence_lower_when_spy_possible`
+- `tests/test_eurydice_knowledge.py::test_leadership_tracker_records_usurp_and_transfer`
+- `tests/test_eurydice_knowledge.py::test_elimination_waits_for_role_counts`
+  (deferred until exact counts have a source)
+- `tests/test_eurydice_knowledge.py::test_round_reset_preserves_cross_round_identity`
+
+**Trace criteria:**
+
+- Every completed mechanical exchange produces exactly one knowledge update.
+- No trace shows a lower-confidence chat claim overwriting role-exchange truth.
+- Leadership changes appear in `strategic_state_change` within 24 ticks of
+  being visible.
+- Unknown/ambiguous multi-occupant exchange events are logged as ambiguous
+  instead of attributed to the wrong player.
+
+**Exit criteria:**
+
+- `StrategicState` can rely on team, role, trust, room, leadership, and key
+  exchange fields without reparsing chat text.
+- Known information has provenance and confidence.
 
 ---
 
-## Stage 9: Integration Testing & Tuning
+## Phase 3: Directive Parameters and Strategic Objectives
 
-**Goal**: End-to-end validation across all configs, roles, and opponent
-types. Parameter tuning from aggregate trace analysis.
+**Goal:** Make evaluator intent reach modes. This is the main architectural
+blocker for the full design.
 
-1. **Config-adaptive validation** -- Run full games across all config
-   families: `default` (15s), `short` (30s), `empty3` (45s), `simple`
-   (60s), `debug2r` (2x60s), `medium` (180/120/60s). Verify urgency
-   computation and probe budgeting adapt correctly.
-2. **Role coverage matrix** -- For each role, run 5+ games per config.
-   Verify role-appropriate behavior via trace analysis (see DESIGN.md
-   Testing Strategy section).
-3. **Key exchange success rate** -- Target: >70% of games where partner
-   is reachable. Analyze failure modes (timing, target selection, entry
-   failures).
-4. **Win rate benchmarking** -- Eurydice vs Eurydice: approximately 50/50
-   (validates balance). Eurydice vs baseline fillers: >60% win rate
-   (validates competence).
-5. **Safety invariants** -- Automated trace scanning: (a) never sends own
-   key role as hostage post-exchange, (b) Persephone never role-exchanges
-   with confirmed enemy, (c) Spy never accepts R.OFFER from enemy,
-   (d) no mode persists >300 ticks without progress during Playing phase,
-   (e) info-screen reconciliation detects missed exchanges.
-6. **Parameter tuning** -- From aggregate traces: adjust
-   `probe_cycle_cost_ticks`, target scoring weights, urgency thresholds,
-   whisper timeout durations, stall timing intervals. Each adjustment
-   requires re-run of validation suite.
-7. **Regression harness** -- Script that runs the validation suite (10+
-   seeds x 3 configs x 2 matchup types) and produces a summary report.
-   Run after every significant change. Metrics compared to stored
-   baseline.
-8. **Edge case validation** -- Hostaged unexpectedly (verify re-plan
-   fires), role detection failure (verify grunt fallback), forced whisper
-   ejection (verify clean recovery), Spy targeted by enemy role exchange
-   (verify cover-blown transition), Round 3 partner-unreachable (verify
-   P_FINAL disruption fires).
+**Dependencies:** Phase 2 knowledge fields.
 
-**Exit criterion**: All safety invariants pass over 50+ game traces with
-zero violations. Key exchange success >70%. Win rate vs baseline >60%.
-No crashes or stuck-states across full regression suite. Trace analysis
-script produces clean summary with no flagged anomalies.
+**Implementation work:**
+
+- Introduce typed params for strategic modes:
+  `ProbeTargetParams`, `ProbeSystematicParams`, `HoldPositionParams`,
+  `CoordinateCrossRoomParams`, `SeekLeadershipParams`,
+  `HostageSelectParams`, `SummitInteractParams`, `RelayIntelligenceParams`,
+  `TimeWasteParams`, `DecoyParams`, and `InWhisperParams` if needed.
+- Update `ModeRegistry` registrations so each mode accepts the params it
+  actually uses.
+- Make evaluators return params with target team, target player, objective,
+  protocol, urgency posture, and safety flags.
+- Populate `StrategicState.current_objective`.
+- Persist the last full `ModeDirective`, not just the last mode name, so
+  hysteresis preserves params.
+- Add directive serialization to traces so branch decisions are auditable.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_directives.py::test_hades_partner_unknown_sets_find_partner_probe_params`
+- `tests/test_eurydice_directives.py::test_persephone_partner_unknown_sets_cautious_probe_params`
+- `tests/test_eurydice_directives.py::test_demeter_partner_unknown_sets_aggressive_probe_params`
+- `tests/test_eurydice_directives.py::test_time_waste_directive_sets_stall_protocol`
+- `tests/test_eurydice_directives.py::test_hysteresis_preserves_directive_params`
+- `tests/test_eurydice_directives.py::test_mode_registry_param_types_accept_evaluator_directives`
+
+**Trace criteria:**
+
+- `meta_decide_reason` includes directive params or a compact param summary.
+- No mode receives bare `ModeParams` when the evaluator branch requires intent.
+- Reaffirmed directives during min-duration hold preserve the original params.
+
+**Exit criteria:**
+
+- All evaluator branches can express the behavior they intend.
+- No later phase relies on implicit global state for behavior that belongs in
+  the directive params.
+
+---
+
+## Phase 4: Probe and Whisper Rendezvous Reliability
+
+**Goal:** Get agents into the same whisper reliably enough that strategic
+protocols can matter.
+
+**Dependencies:** Phase 1C visible sprites; Phase 3 directive params.
+
+**Implementation work:**
+
+- [x] Rework probe approach so create-vs-join is target-scoped: request entry
+  only when the selected target is currently in a whisper; otherwise create or
+  approach the selected target.
+- [x] Track failed entry attempts per target and cap reattempts per round.
+- [ ] Add cooperative meeting-point behavior for Eurydice-vs-Eurydice games.
+- [ ] Optionally use short global announcements for whisper location when safe.
+- [x] Prevent probe modes from initiating new whisper actions outside Playing
+  except for pending-entry cancellation.
+- [x] Add trace events: `probe_target_selected`, `probe_attempt_started`,
+  `whisper_created`, `entry_requested`, `entry_granted`, `probe_failed`,
+  `probe_completed`.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_stages.py::test_probe_systematic_score_prefers_unprobed`
+- `tests/test_eurydice_stages.py::test_probe_systematic_score_excludes_failed_target_this_round`
+- `tests/test_eurydice_stages.py::test_probe_target_in_range_whisper_requests_entry`
+- `tests/test_eurydice_stages.py::test_probe_target_does_not_join_unrelated_nearby_whisper`
+- `tests/test_eurydice_stages.py::test_probe_systematic_does_not_join_fully_verified_nearby_whisper`
+- `tests/test_eurydice_stages.py::test_probe_waiting_entry_timeout_cancels_and_records_failure`
+- `tests/test_eurydice_stages.py::test_probe_tracker_marks_completion_when_whisper_reached`
+- `tests/test_eurydice_stages.py::test_probe_systematic_does_not_initiate_in_hostage_select`
+
+**Trace criteria:**
+
+- In small 4-agent Eurydice-vs-Eurydice runs, at least 70% of probe attempts
+  reach `View.WHISPER` within 15 seconds.
+- Median time from target selection to whisper view is below one third of the
+  current round duration.
+- Failed attempts switch target or strategy within 96 ticks after failure.
+
+**Exit criteria:**
+
+- The bot can create or request target-scoped whispers without repeatedly
+  hammering failed targets or initiating probe actions during phase-transition
+  surfaces.
+- Later role strategy can assume "probe target" often leads to an actual
+  conversation, not just wandering or solo whispers.
+
+---
+
+## Phase 5: Whisper Protocol Semantics
+
+**Goal:** Make the `in_whisper` FSM perform the correct protocol for the
+current objective.
+
+**Dependencies:** Phase 2 structured exchange knowledge; Phase 3 directive
+params; Phase 4 rendezvous reliability.
+
+**Implementation work:**
+
+- [x] Wire protocol selection from directive/objective into
+  `WhisperModeState`.
+- [x] Preserve the last non-whisper directive so `in_whisper` can recover the
+  intent that caused entry despite the phase override.
+- [x] Make same-team known partners escalate to role exchange when objective is
+  `FIND_KEY_PARTNER` or `COMPLETE_KEY_EXCHANGE`; same-team unknown candidates
+  still require color exchange first.
+- [x] Implement role-specific incoming `R.OFFER` decisions, including Spy
+  behavior for verified ally, same-team panic, and enemy rejection.
+- [x] Add quick-verify and infiltration protocol variants.
+- [x] Add info-screen reconciliation after possible role exchange.
+- [x] Make `time_waste` set stall protocol and verify `STALL` is actually
+  entered.
+- [x] Add explicit cleanup on forced ejection and phase transition.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_stages.py::test_time_waste_directive_enters_stall_protocol`
+- `tests/test_eurydice_stages.py::test_probe_key_partner_directive_enters_key_exchange_protocol`
+- `tests/test_eurydice_stages.py::test_key_role_exits_when_hostile_third_occupant_present`
+- `tests/test_eurydice_stages.py::test_spy_rejects_enemy_role_offer`
+- `tests/test_eurydice_stages.py::test_spy_accepts_verified_ally_role_offer`
+- `tests/test_eurydice_stages.py::test_infiltration_extracts_from_enemy_without_role_offer`
+- `tests/test_eurydice_stages.py::test_stall_protocol_sends_delayed_messages`
+- `tests/test_eurydice_stages.py::test_forced_ejection_sets_mode_complete`
+
+**Trace criteria:**
+
+- Every whisper has a visible FSM path from `ENTER` to terminal exit reason.
+- Key roles searching for partners perform role exchange with same-team
+  candidates instead of exiting after color exchange.
+- Role exchange completion updates `key_exchange_done` within 24 ticks.
+- Standard protocol exits within configured timeout.
+- Stall protocol keeps target occupied for at least 6 seconds on average.
+
+**Exit criteria:**
+
+- Key exchange is mechanically achievable by the runtime, not just described
+  in evaluator branches.
+
+---
+
+## Phase 6: Full Role Evaluators
+
+**Goal:** Implement the role strategy documents as priority-ordered evaluator
+branches with typed params.
+
+**Dependencies:** Phase 2 knowledge; Phase 3 params/objectives; Phase 5
+working role-exchange protocol.
+
+**Implementation work:**
+
+- [ ] Implement the documented Hades, Cerberus, Persephone, Demeter, Shade,
+  Nymph, and Spy priority chains end to end. Core key-role partner branches are
+  now covered; grunt/Spy late-game behavior remains partial.
+- [x] Add P_FINAL override for key roles when partner exchange is still
+  incomplete and partner is unreachable in the final round.
+- [x] Make evaluator outputs explainable: branch name, objective, target,
+  confidence, and reason.
+- Avoid role evaluators depending on leadership/hostage/deception features not
+  yet implemented; when they need those features, they should emit modes whose
+  Phase 7/8 tests are already green.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_directives.py::test_hades_partner_local_probe_target_has_key_exchange_params`
+- `tests/test_eurydice_directives.py::test_persephone_partner_unknown_uses_cautious_same_team_probe`
+- `tests/test_eurydice_directives.py::test_demeter_partner_unknown_uses_aggressive_same_team_probe`
+- `tests/test_eurydice_evaluators.py::test_hades_partner_other_room_seeks_leadership`
+- `tests/test_eurydice_evaluators.py::test_cerberus_partner_other_room_coordinates_cross_room`
+- `tests/test_eurydice_evaluators.py::test_persephone_partner_other_room_holds_defensively`
+- `tests/test_eurydice_evaluators.py::test_persephone_enemy_local_and_exchange_likely_coordinates_escape`
+- `tests/test_eurydice_evaluators.py::test_shade_leader_with_key_roles_need_help_selects_hostage_strategy`
+- `tests/test_eurydice_evaluators.py::test_spy_no_verified_ally_verifies_with_real_team_candidate`
+- `tests/test_eurydice_evaluators.py::test_final_partner_unreachable_fires_only_final_round`
+
+**Trace criteria:**
+
+- Key roles spend early game mostly in partner-search objectives until exchange
+  completion.
+- After exchange, Hades and Persephone shift to positioning objectives.
+- Grunts spend early game mapping room composition and later shift to
+  protection, relay, disruption, or leadership.
+- Spy first establishes a verified ally, then infiltrates or relays depending
+  on cover status.
+
+**Exit criteria:**
+
+- Evaluator behavior matches the role strategy documents for all major
+  branches in deterministic unit tests.
+
+---
+
+## Phase 7: Leadership, Hostage, Summit, and Cross-Room Control
+
+**Goal:** Make room movement and leadership strategy real enough to support
+late-game positioning.
+
+**Dependencies:** Phase 1D hostage/global fixtures; Phase 1E leader detection;
+Phase 3 params; Phase 6 evaluator branches that invoke these modes.
+
+**Implementation work:**
+
+- Refine `VoteUsurpTask` navigation so it selects the intended candidate.
+- Refine `SelectHostagesTask` cursor navigation against live hostage-grid
+  frames.
+- Implement role-aware `HostageSelectParams`: keep own exchanged key role safe,
+  move enemy key roles, honor verified ally `SEND ME`, and avoid sending
+  Persephone into Hades unless strategically necessary.
+- Expand `hold_position` to optionally seek leadership, grant ally entries,
+  avoid hostage danger, and maintain non-suspicious movement.
+- Expand `summit_interact` to probe, misdirect, tab to info, and relay relevant
+  room information.
+- Expand `coordinate_cross_room` to choose between self-volunteer, ally
+  volunteer, leader hostage selection, or summit negotiation.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_leadership.py::test_vote_usurp_task_navigates_to_target_candidate`
+- `tests/test_eurydice_hostage.py::test_select_hostages_task_moves_cursor_and_commits`
+- `tests/test_eurydice_hostage.py::test_hostage_select_never_sends_own_exchanged_key_role`
+- `tests/test_eurydice_hostage.py::test_hostage_select_honors_verified_send_me_request`
+- `tests/test_eurydice_hostage.py::test_persephone_hold_position_avoids_hostage_when_at_risk`
+- `tests/test_eurydice_summit.py::test_summit_sends_probe_then_tabs_info`
+- `tests/test_eurydice_cross_room.py::test_coordinate_cross_room_selects_meaningful_local_action`
+
+**Trace criteria:**
+
+- In HostageSelect as leader, chosen hostages match the evaluator objective.
+- Usurp attempts happen only when vote math makes success plausible.
+- Leader summit always produces at least one strategic message and does not try
+  disabled mechanical whisper actions.
+- Across rounds, key-pair room distance improves when cross-room coordination
+  is active.
+
+**Exit criteria:**
+
+- The agent can intentionally influence room composition instead of merely
+  hoping hostage exchange helps.
+
+---
+
+## Phase 8: Communication Protocol
+
+**Goal:** Make chat messages actionable without allowing unreliable claims to
+corrupt mechanical truth.
+
+**Dependencies:** Phase 1D global chat fixtures; Phase 2 knowledge pipeline.
+
+**Implementation work:**
+
+- Wire `chat_parser` into the runtime.
+- Add outbound message templates with priority, cooldown, audience, and
+  channel constraints.
+- Add message budgeting per round.
+- Implement `relay_intelligence` as real targeted behavior: choose recipient,
+  choose channel, send compact intel, and mark it relayed.
+- Add safeguards: no global messages while in whisper, no low-priority message
+  if a high-priority message is pending, no repeated identical spam.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_chat.py::test_parse_identity_claim_variants`
+- `tests/test_eurydice_chat.py::test_parse_action_request_send_me`
+- `tests/test_eurydice_chat.py::test_verified_ally_claim_updates_chat_claim_source`
+- `tests/test_eurydice_chat.py::test_enemy_claim_is_recorded_but_not_trusted`
+- `tests/test_eurydice_chat.py::test_message_budget_blocks_low_priority_spam`
+- `tests/test_eurydice_chat.py::test_global_message_not_sent_in_whisper`
+- `tests/test_eurydice_chat.py::test_relay_intelligence_marks_intel_as_relayed`
+
+**Trace criteria:**
+
+- Important discovered intel is relayed to a relevant ally before it becomes
+  stale.
+- The agent sends few, high-value messages instead of constant chatter.
+- No trace shows a chat claim overwriting mechanical exchange or info-screen
+  evidence.
+
+**Exit criteria:**
+
+- Chat improves team coordination and inference without becoming a source of
+  high-confidence falsehoods.
+
+---
+
+## Phase 8.5: LLM Shadow Control
+
+**Goal:** Prepare LLM-assisted social strategy without letting the model drive
+buttons or overwrite mechanical facts.
+
+**Dependencies:** Phase 0 trace schema; Phase 2 knowledge pipeline; Phase 4
+probe lifecycle events; Phase 5 whisper protocol semantics; Phase 8 message
+budgets and outbound channel constraints.
+
+**Implementation work:**
+
+- Keep `llm_context.py` as the canonical input/output contract:
+  `build_llm_context(...)` for model inputs and `llm_decision_schema()` for
+  outputs.
+- Add a deterministic validator for model decisions: current-view legality,
+  target existence, message ASCII/length, reveal constraints, and fallback
+  action.
+- Add shadow-mode trace events: `llm_context`, `llm_decision`,
+  `llm_decision_rejected`, and `llm_decision_accepted`.
+- Add a saved-trace runner that samples contexts from live logs/frame
+  recordings and stores aggregate model-vs-rule comparisons.
+- Add prompt templates for the first three surfaces: probe target choice,
+  whisper reveal/message choice, and global room message choice.
+- Only after shadow traces are sane, add a provider adapter behind an explicit
+  config flag. No provider should be imported or required by default.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_llm_context.py::test_llm_context_is_json_serializable_and_namespaced`
+- `tests/test_eurydice_llm_context.py::test_llm_context_whisper_actions_include_exchange_controls`
+- `tests/test_eurydice_llm_context.py::test_llm_decision_schema_is_closed_and_action_bounded`
+- Future: validator rejects illegal action for current view.
+- Future: validator rejects role reveal to known enemy unless deception/disrupt
+  strategy explicitly permits it.
+- Future: shadow runner emits parseable LLM trace events without changing the
+  selected runtime directive.
+
+**Trace criteria:**
+
+- Shadow decisions parse on more than 99% of sampled contexts.
+- Rejected decisions are categorized, not silently ignored.
+- Probe recommendations point at known/visible targets unless the model
+  explicitly chooses to scout or open global.
+- Suggested messages are short, relevant to the objective, and non-spammy.
+- No accepted decision violates a hard constraint.
+
+**Exit criteria:**
+
+- Shadow-mode LLM suggestions are measurably useful enough to test behind a
+  constrained runtime flag on one control surface.
+
+---
+
+## Phase 9: Deception and Spy
+
+**Goal:** Implement Spy and deception after honest communication and mechanical
+exchange are reliable.
+
+**Dependencies:** Phase 2 Spy-present config knowledge; Phase 5 whisper
+protocols; Phase 6 role evaluators; Phase 8 communication. LLM control is not
+required for initial deception work, but Phase 8.5 should be used before any
+model-authored deception reaches runtime.
+
+**Implementation work:**
+
+- Store `DeceptionState` in belief extra and update it from outbound claims
+  and mechanical reveals.
+- Make Spy cover team/role explicit in strategic state.
+- Implement Spy verified-ally phase: find a real-team candidate, role-exchange
+  safely, and mark the ally verified.
+- Implement infiltration protocol: reinforce cover through color exchange,
+  avoid role reveal with enemies, extract intel, then exit.
+- Implement decisive cover break when leadership, hostage selection, or intel
+  relay is worth more than continued cover.
+- Implement grunt decoy behavior and key-role camouflage only where expected
+  value is positive.
+
+**Pytest contracts:**
+
+- `tests/test_eurydice_deception.py::test_spy_cover_team_is_opposite_visible_team`
+- `tests/test_eurydice_deception.py::test_spy_verified_ally_target_uses_real_team_logic`
+- `tests/test_eurydice_deception.py::test_spy_infiltration_never_accepts_enemy_role_offer`
+- `tests/test_eurydice_deception.py::test_cover_blown_after_inconsistent_claim_to_same_target`
+- `tests/test_eurydice_deception.py::test_decoy_records_projected_identity`
+- `tests/test_eurydice_deception.py::test_deception_never_contradicts_mechanical_reveal`
+
+**Trace criteria:**
+
+- Spy maintains cover through at least two rounds when not forced to reveal.
+- Spy establishes one verified real ally in more than 50% of reachable games.
+- Spy relays at least one high-value intel item to the real team in medium
+  configs.
+- Decoy mode draws enemy interaction or consumes enemy time without corrupting
+  allied knowledge.
+
+**Exit criteria:**
+
+- Spy behavior is strategically distinct from generic grunt behavior and does
+  not accidentally self-reveal through the standard role-exchange path.
+
+---
+
+## Phase 10: End-to-End Regression and Tuning
+
+**Goal:** Prove the whole design works across configs, roles, and seeds.
+
+**Dependencies:** Phases 1-9, though the harness should be built
+incrementally starting in Phase 0.
+
+**Implementation work:**
+
+- Build `scripts/analyze_eurydice_traces.py`.
+- Build a reproducible run matrix over configs and seeds.
+- Store aggregate summaries, not giant raw traces, in documentation.
+- Tune weights and thresholds only after the trace scanner can detect
+  regressions.
+
+**Trace metrics:**
+
+- Role detection latency.
+- Self identity detection latency.
+- Parsed round schedule availability.
+- Probe attempts, successes, failures, median time to whisper.
+- Color exchange attempts and completions.
+- Role exchange attempts and completions.
+- Key exchange completion rate by role and config.
+- Mode time distribution by role.
+- Whisper FSM terminal reasons.
+- Leadership attempts, successes, and false attempts.
+- Hostage selections and safety invariant violations.
+- Spy cover status and cover break causes.
+- Messages sent by priority/channel.
+- Stuck-state count: mode active longer than limit without progress.
+- Crashes or disconnects.
+
+**Safety invariants:**
+
+- Never send own exchanged key role as hostage.
+- Persephone never role-exchanges with confirmed enemy.
+- Hades never voluntarily moves away from a completed favorable
+  Hades-Persephone co-location without a stronger reason.
+- Spy never accepts enemy role exchange while cover is valuable.
+- Chat claims never overwrite stronger mechanical knowledge.
+- No mode persists more than 300 Playing ticks without progress unless it is an
+  intentional hold/stall with a logged reason.
+- All agents recover cleanly from forced whisper ejection.
+
+**Run matrix:**
+
+- Small iteration: 4 agents, 1 imposter-equivalent role mix if supported by
+  config, 3 seeds, short duration.
+- Default pressure: default 15-second rounds, 10 agents, 5 seeds.
+- Medium strategy: medium descending rounds, 10 agents, 10 seeds.
+- Baseline comparison: Eurydice team against baseline fillers, 10 seeds.
+- Self-play balance: all Eurydice, 20 seeds.
+
+**Final acceptance criteria:**
+
+- Focused and full pytest suites pass.
+- Zero safety invariant violations across the regression trace set.
+- Key exchange completes in at least 70% of games where partner is reachable.
+- Eurydice beats baseline fillers in more than 60% of comparable games.
+- Eurydice-vs-Eurydice self-play is roughly balanced, unless config asymmetry
+  explains the skew.
+- Trace analyzer produces a concise report that explains failures by phase:
+  perception, probe, whisper, evaluator, leadership/hostage, communication, or
+  deception.
 
 ---
 
 ## Dependency Graph
 
-```
-Stage 0 (data types & knowledge model)
-  ├── Stage 1 (accumulation & inference pipeline)
-  │     └── Stage 2 (meta_decide engine)
-  │           ├── Stage 3 (basic modes: idle, scout, probe)
-  │           │     └── Stage 4 (whisper interaction protocol)
-  │           │           └── Stage 5 (role evaluators)
-  │           │                 ├── Stage 6 (leadership, hostage, cross-room)
-  │           │                 ├── Stage 7 (communication protocol)
-  │           │                 └── Stage 8 (deception & spy)
-  │           │                       └── Stage 9 (integration & tuning)
-  │           └── (Stage 5 also depends on Stage 2 directly)
-  └── (Stage 7 types used from Stage 0 onward)
+```text
+Phase 0: Docs, baseline tests, trace schema
+  -> Phase 1: Perception foundation
+      -> Phase 2: Knowledge and inference
+          -> Phase 3: Directive params and objectives
+              -> Phase 4: Probe/rendezvous reliability
+                  -> Phase 5: Whisper protocol semantics
+                      -> Phase 6: Full role evaluators
+                          -> Phase 7: Leadership/hostage/cross-room
+                          -> Phase 8: Communication protocol
+                              -> Phase 8.5: LLM shadow control
+                              -> Phase 9: Deception and Spy
+                                  -> Phase 10: End-to-end regression
 ```
 
-**Parallelization opportunities:**
-- Stages 6, 7, and 8 are largely independent of each other (all depend
-  on Stage 5 being complete, but can be developed concurrently once
-  Stage 5's evaluator interfaces are defined).
-- Stage 1 items 2-6 (individual trackers) are independent and can be
-  developed in parallel.
-- Stage 4 sub-states (COLOR_EXCHANGE, ROLE_EXCHANGE, EXTRACT, STALL) are
-  independent after the FSM skeleton (item 1) is in place.
-- Stage 9 can begin incrementally as each prior stage reaches its exit
-  criterion (don't wait for all prior stages to be complete before
-  starting integration testing on completed components).
-
-**Critical path:** Stage 0 -> Stage 1 -> Stage 2 -> Stage 3 -> Stage 4
--> Stage 5 -> Stage 9. Stages 6-8 are off the critical path and can
-slip without blocking the core gameplay loop.
+Phase 7 and Phase 8 can proceed in parallel after Phase 6 defines stable
+directive interfaces. Phase 8.5 can start in shadow mode as soon as the
+context contract exists, but runtime LLM control should wait for the relevant
+Phase 8 communication safeguards. Phase 9 should not start until Phase 8 is
+reliable, because deception depends on knowing what honest communication would
+have done.
 
 ---
 
-## Codex Delegation Notes
+## Development Rule
 
-Lessons learned from delegating implementation to OpenAI Codex CLI:
+For each phase:
 
-### Timeout Management
-
-- **Budget 600s (10 min) minimum** for any module >200 lines. Codex
-  reads surrounding files for safety even when all context is inline.
-- **Always capture the `thread_id`** from the `thread.started` JSONL
-  event. If the command times out, the session is recoverable.
-- **Resume with:** `codex exec resume <thread_id> "<instruction>" --json`
-  The resumed session retains full memory of prior turns and file state.
-- Resume does NOT accept `-s` or `-C` flags (inherits from initial).
-
-### Prompt Design (What Works)
-
-- **Inline all type definitions and API contracts** directly in the
-  prompt. Even with "do NOT read files," Codex still reads for safety.
-  Having the info inline means it can cross-check rather than spending
-  5+ minutes on exploratory reads.
-- **Provide the exact verification command** at the end of the prompt.
-  Codex will run it and fix errors, saving a resume round-trip.
-- **Specify field-by-field** for dataclasses. Codex faithfully reproduces
-  explicit field lists but makes creative (sometimes wrong) choices when
-  given vague instructions.
-- **State constraints explicitly**: line count limits, "do NOT try to
-  compact," import paths, which field is `.extra` vs `.ext`.
-
-### Common Codex Pitfalls
-
-- **Over-reading:** Codex explores broadly before writing. A 3700-line
-  DESIGN.md costs 3-5 minutes of read time. Pre-digest the relevant
-  sections into the prompt.
-- **Refactoring loops:** Codex may delete-and-rewrite a working file to
-  meet a perceived constraint (e.g., "under 300 lines"). Explicitly say
-  "do NOT refactor or compact" if the first version passes tests.
-- **Schema mismatches:** Codex may assume `(tick, x, y)` when the actual
-  format is `(x, y, tick)`. Always include the exact field layout from
-  the source file.
-- **`python` vs `.venv/bin/python`:** The workspace has no bare `python`
-  on PATH. All verification commands must use `.venv/bin/python`.
+1. Add or update pytest contracts first, marking future-only tests `xfail` only
+   when they document a known unimplemented behavior and are not part of the
+   normal green suite.
+2. Implement the smallest capability needed to make the phase contracts pass.
+3. Run focused tests.
+4. Run a live trace scenario that exercises the new behavior.
+5. Update docs in the same change if behavior diverges from `DESIGN.md`.
+6. Only then let later phases depend on the new capability.
