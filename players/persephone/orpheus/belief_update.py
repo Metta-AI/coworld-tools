@@ -467,6 +467,10 @@ def _apply_whisper(
             chatroom.pending_entry_shape,
             belief_state.player_count,
         )
+        if belief_state.pending_entry is None:
+            belief_state.pending_entry = _find_player_by_color(
+                belief_state, chatroom.pending_entry_color,
+            )
     else:
         belief_state.pending_entry = None
 

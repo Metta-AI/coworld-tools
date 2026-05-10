@@ -9,7 +9,7 @@ from orpheus.task import ActCommand, Task
 from orpheus.tasks._menu_nav import MenuNavigator
 from orpheus.tasks.movement import _distance, _movement_command_to, _position2d
 from orpheus.tasks.view_management import OPEN_VIEW_VIEWS
-from orpheus.types import BUTTON_A, BUTTON_B, BUTTON_SELECT, View
+from orpheus.types import BUTTON_A, BUTTON_B, BUTTON_DOWN, BUTTON_RIGHT, BUTTON_SELECT, View
 
 ENTRY_DISTANCE_PX = 7.0
 RECENT_WHISPER_TICKS = 60
@@ -116,20 +116,36 @@ class ExitWhisperTask(Task):
         return ActCommand(buttons=action_memory.step_button_press(BUTTON_SELECT))
 
 
+_GRANT_SEQUENCE = [
+    BUTTON_B, 0,
+    BUTTON_RIGHT, 0, BUTTON_RIGHT, 0, BUTTON_RIGHT, 0,
+    BUTTON_DOWN, 0, BUTTON_DOWN, 0,
+    BUTTON_A, 0,
+]
+
+
 @dataclass(frozen=True)
 class GrantEntryTask(Task):
-    """Grant a pending entry request from the whisper menu."""
+    """Grant a pending entry request via fixed button sequence."""
 
     valid_views: ClassVar[frozenset[View]] = frozenset({View.WHISPER})
 
     def select_action(self, belief_state, action_memory) -> ActCommand:
-        return MenuNavigator(
-            (
-                ("category", "LEADER"),
-                ("item", "GRANT"),
-                ("confirm",),
-            )
-        ).next_command(belief_state, action_memory)
+        menu = getattr(belief_state, "menu_state", None)
+        if menu is not None:
+            cat = str(getattr(menu, "category", None) or
+                      (menu.get("category") if isinstance(menu, dict) else "") or "").upper()
+            item = str(getattr(menu, "item", None) or
+                       (menu.get("item") if isinstance(menu, dict) else "") or "").upper()
+            if cat == "LEADER" and item == "GRANT":
+                return ActCommand(buttons=action_memory.step_button_press(BUTTON_A))
+
+        step = getattr(action_memory, "grant_step", 0)
+        if step >= len(_GRANT_SEQUENCE):
+            return ActCommand()
+        button = _GRANT_SEQUENCE[step]
+        action_memory.grant_step = step + 1
+        return ActCommand(buttons=button)
 
 
 __all__ = [
