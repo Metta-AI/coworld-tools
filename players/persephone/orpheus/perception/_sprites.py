@@ -226,6 +226,7 @@ def detect_sprite_shape(
     y: int,
     player_color: int | None = None,
     threshold: float = SHAPE_MATCH_THRESHOLD,
+    outline_is_black: bool = False,
 ) -> PlayerShape | None:
     """Classify the shape of a 7x7 player sprite at screen position (x, y).
 
@@ -244,31 +245,27 @@ def detect_sprite_shape(
             that must match. Defaults to SHAPE_MATCH_THRESHOLD from
             _common.py. Pass a higher value (e.g. 0.90) when you know the
             sprite is unoccluded for stricter matching.
+        outline_is_black: If True, accept color 0 as outline (game renders
+            outline as black in HUD contexts).
 
     Returns:
         The detected PlayerShape, or None if no template scores above
         the threshold (partial sprite, off-screen, not a player sprite).
     """
-    # Bounds check
     if x < 0 or y < 0 or x + PLAYER_W > SCREEN_WIDTH or y + PLAYER_H > SCREEN_HEIGHT:
         return None
 
     region = frame[y : y + PLAYER_H, x : x + PLAYER_W]  # (7, 7)
 
-    # Determine the player color (and its shadow variant) for fill matching
     if player_color is None:
-        # Collect all candidate player colors from the observed pixels in the
-        # region. We union all resolved candidates from every unique non-
-        # background color present.
         candidates = _resolve_region_candidates(region)
         if not candidates:
             return None
-        return _best_match_multi(region, candidates, threshold)
+        return _best_match_multi(region, candidates, threshold, outline_is_black)
 
-    # Single known color — direct match
     if player_color not in PLAYER_COLOR_PAIRS:
         return None
-    return _best_match(region, player_color, threshold)
+    return _best_match(region, player_color, threshold, outline_is_black)
 
 
 def read_sprite(
@@ -332,6 +329,7 @@ def scan_sprite_row_with_shapes(
     y: int,
     stride: int,
     max_slots: int = 12,
+    outline_is_black: bool = False,
 ) -> list[tuple[int, PlayerShape | None]]:
     """Scan a horizontal row of sprites, returning (color, shape) pairs.
 
@@ -344,6 +342,7 @@ def scan_sprite_row_with_shapes(
         y: Y position of all sprites.
         stride: Pixel distance between sprite starts.
         max_slots: Maximum sprites to check.
+        outline_is_black: If True, accept color 0 as outline.
 
     Returns:
         List of (color, shape) tuples. Shape may be None if classification
@@ -357,7 +356,7 @@ def scan_sprite_row_with_shapes(
         c = read_sprite_color(frame, sx, y)
         if c is None:
             break
-        shape = detect_sprite_shape(frame, sx, y)
+        shape = detect_sprite_shape(frame, sx, y, outline_is_black=outline_is_black)
         results.append((c, shape))
     return results
 
@@ -371,40 +370,27 @@ def _best_match(
     region: np.ndarray,
     player_color: int,
     threshold: float,
+    outline_is_black: bool = False,
 ) -> PlayerShape | None:
-    """Find the best-matching shape for a single known player color.
-
-    Tests all 12 templates against the region, scoring each by the fraction
-    of non-transparent pixels that match (fill = normal or shadow color,
-    outline = 1 or 12).
-
-    Special case: when shadow_fill == shadow_outline (e.g. BLUE/PURPLE both
-    shadow to 12), fill matching only uses the normal color. In full shadow,
-    fill and outline are indistinguishable by color and shape detection
-    honestly returns None rather than guessing.
-    """
     normal_c, shadow_c = PLAYER_COLOR_PAIRS[player_color]
     outline_a, outline_b = OUTLINE_COLORS
 
-    # When shadow_fill == shadow_outline, using shadow_c for fill would
-    # match outline pixels too — making all shapes score equally. Only
-    # match fill against normal color in this degenerate case. Similarly,
-    # outline can only match normal outline (1), since 12 is ambiguous.
     if shadow_c == outline_b:
         fill_ok = region == normal_c
-        outline_ok = region == outline_a  # Only normal outline (1)
+        outline_ok = region == outline_a
     else:
         fill_ok = (region == normal_c) | (region == shadow_c)
         outline_ok = (region == outline_a) | (region == outline_b)
 
-    # Score each template: count matching pixels at expected positions
-    fill_scores = (_FILL_MASKS & fill_ok).sum(axis=(1, 2))  # (12,)
-    outline_scores = (_OUTLINE_MASKS & outline_ok).sum(axis=(1, 2))  # (12,)
-    total_scores = fill_scores + outline_scores  # (12,)
+    if outline_is_black:
+        outline_ok = outline_ok | (region == 0)
 
-    # Normalize by non-transparent pixel count per template
+    fill_scores = (_FILL_MASKS & fill_ok).sum(axis=(1, 2))
+    outline_scores = (_OUTLINE_MASKS & outline_ok).sum(axis=(1, 2))
+    total_scores = fill_scores + outline_scores
+
     with np.errstate(divide="ignore", invalid="ignore"):
-        fractions = total_scores / _NON_TRANSPARENT_COUNTS  # (12,)
+        fractions = total_scores / _NON_TRANSPARENT_COUNTS
 
     best_idx = int(np.argmax(fractions))
     if fractions[best_idx] >= threshold:
@@ -416,12 +402,8 @@ def _best_match_multi(
     region: np.ndarray,
     candidates: frozenset[int],
     threshold: float,
+    outline_is_black: bool = False,
 ) -> PlayerShape | None:
-    """Find the best-matching shape across multiple candidate player colors.
-
-    Used when the center pixel is a shadow color that maps to multiple
-    possible players. Tests each candidate and returns the overall best.
-    """
     best_shape: PlayerShape | None = None
     best_score: float = 0.0
 
@@ -432,13 +414,15 @@ def _best_match_multi(
             continue
         normal_c, shadow_c = PLAYER_COLOR_PAIRS[candidate_color]
 
-        # Skip shadow colors when they collide with shadow outline
         if shadow_c == outline_b:
             fill_ok = region == normal_c
             outline_ok = region == outline_a
         else:
             fill_ok = (region == normal_c) | (region == shadow_c)
             outline_ok = (region == outline_a) | (region == outline_b)
+
+        if outline_is_black:
+            outline_ok = outline_ok | (region == 0)
 
         fill_scores = (_FILL_MASKS & fill_ok).sum(axis=(1, 2))
         outline_scores = (_OUTLINE_MASKS & outline_ok).sum(axis=(1, 2))

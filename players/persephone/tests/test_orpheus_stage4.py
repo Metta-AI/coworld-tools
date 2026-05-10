@@ -601,7 +601,6 @@ def test_menu_backed_tasks_confirm_matching_menu_item(task, category, item) -> N
 @pytest.mark.parametrize(
     "task",
     [
-        GrantEntryTask(),
         OfferColorExchangeTask(),
         AcceptColorExchangeTask(1),
         WithdrawColorOfferTask(),

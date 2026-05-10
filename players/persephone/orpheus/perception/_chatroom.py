@@ -31,8 +31,10 @@ def parse_chatroom(frame: np.ndarray) -> ChatroomPerception:
     """
     result = ChatroomPerception()
 
-    # -- Header: occupant sprites at x=22, stride=9, y=1 ---------------------
-    occupants = scan_sprite_row_with_shapes(frame, 22, 1, PLAYER_W + 2)
+    # -- Header: occupant sprites (x=66 in current renderer, x=22 in legacy)
+    occupants = scan_sprite_row_with_shapes(frame, 66, 1, PLAYER_W + 2, outline_is_black=True)
+    if not occupants:
+        occupants = scan_sprite_row_with_shapes(frame, 22, 1, PLAYER_W + 2, outline_is_black=True)
     result.occupant_colors = [c for c, _ in occupants]
     result.occupant_shapes = [s for _, s in occupants]
 
@@ -63,7 +65,7 @@ def _parse_pending_entry(frame: np.ndarray, result: ChatroomPerception) -> None:
                     req_color = read_sprite_color(frame, 8, 111)
                     result.pending_entry_color = req_color
                     # Also classify shape for full player ID
-                    result.pending_entry_shape = detect_sprite_shape(frame, 8, 111)
+                    result.pending_entry_shape = detect_sprite_shape(frame, 8, 111, outline_is_black=True)
                     return
 
 
