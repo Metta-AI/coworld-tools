@@ -6,19 +6,21 @@ harnesses, or a remote tournament host).
 
 Usage::
 
-    # Default: 1 modulabot agent, 60 seconds
+    # Current guided_bot policy, 60 seconds
     PYTHONPATH=among_them python among_them/scripts/connect.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --host 127.0.0.1 --port 2000
 
     # 4 agents, custom policy, 120 seconds
     PYTHONPATH=among_them python among_them/scripts/connect.py \\
         --host 127.0.0.1 --port 2000 \\
         --num-agents 4 --duration 120 \\
-        -p modulabot.policy.AmongThemPolicy \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --policy-kwarg seed=42
 
     # With trace + metrics + frame capture
     PYTHONPATH=among_them python among_them/scripts/connect.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --host 127.0.0.1 --port 2000 \\
         --trace-dir /tmp/trace --metrics-out /tmp/metrics.jsonl \\
         --capture-frames /tmp/frames.npy

@@ -53,8 +53,8 @@ Conventions (from `MISSION.md`):
   Override with `AMONG_THEM_BINARY=/path/to/binary`.
 - Canonical prior art lives outside this repo — cite, don't copy unless
   needed:
-  - `~/coding/bitworld/among_them/players/` — Nim bots, `modulabot/DESIGN.md`,
-    `how_to_submit_to_cogames.md`, `how_to_make_a_bot.md`.
+  - `~/coding/bitworld/among_them/players/` — external Nim bots and guides
+    such as `how_to_submit_to_cogames.md` and `how_to_make_a_bot.md`.
   - `~/coding/metta/packages/cogames/` — cogames package source.
   - `~/coding/metta/cogames-agents/` — Softmax's scripted baselines.
 
@@ -62,45 +62,57 @@ Conventions (from `MISSION.md`):
 
 All commands assume the repo root as cwd unless noted.
 
-```bash
-# Tests for modulabot (237 tests, ~18s, must be green)
-PYTHONPATH=among_them .venv/bin/python -m unittest discover \
-    -s among_them/modulabot/tests
+**Among Them active-agent rule:** `among_them/modulabot/` is fully
+deprecated. Keep it for historical reference only. Do not inspect,
+modify, run tests for, ship, or use the local modulabot unless James
+explicitly asks for modulabot work in the current prompt. For Among Them,
+default to `guided_bot`.
 
-# Run a single test module
+```bash
+# Build guided_bot's Nim library wrapper
+python3 among_them/guided_bot/build_guided_bot.py
+
+# Python action-table guard for guided_bot
 PYTHONPATH=among_them .venv/bin/python -m unittest \
-    among_them.modulabot.tests.test_voting -v
+    among_them.guided_bot.test.test_action_table -v
+
+# Guided_bot fallback/playability suite
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/fallback_test.nim
 
 # Local Among Them episode against a real Nim server + nottoodumb fillers
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --duration 20
 
 # Same, but force imposter role for testing imposter-specific behavior
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_local.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --duration 20 --force-role imposter --trace-dir /tmp/trace
 
 # Connect to an existing server (replaces old play_live.py)
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/connect.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --host 127.0.0.1 --port 2000
 
 # All-agent match (replaces old play_eight.sh)
-PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_match.py
-
-# Debug overlay window (replaces old play_debug.sh)
-PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_debug.py
-
-# Visual debug overlay (renders perception output over raw frames)
-PYTHONPATH=among_them .venv/bin/python among_them/scripts/debug_overlay.py \
-    /tmp/mb_frames.npy --frame 150 --save /tmp/overlay.png
+PYTHONPATH=among_them .venv/bin/python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy
 
 # Capture frames for offline analysis (replaces old capture_frames.py)
 PYTHONPATH=among_them .venv/bin/python among_them/scripts/capture.py \
     --duration 20 --output /tmp/frames.npy
 ```
 
-All play/connect scripts accept `-p modulabot.policy.AmongThemPolicy`
-(default) to select the policy and `--policy-kwarg KEY=VALUE` for
-constructor kwargs. Use `--help` on any script for the full flag list.
+Some older play/connect scripts still default to the deprecated local
+modulabot. Always pass `-p guided_bot.cogames.amongthem_policy.AmongThemPolicy`
+for guided_bot unless the current prompt explicitly asks for another
+policy. Use `--policy-kwarg KEY=VALUE` for constructor kwargs and
+`--help` on any script for the full flag list.
+
+The visual overlay scripts (`play_debug.py`, `play_watch.py`,
+`debug_overlay.py`) are legacy modulabot tooling. Do not use them unless
+James explicitly asks for modulabot.
 
 `cogames play` does **not** support Among Them — use `scripts/play_local.py`.
 `cogames` commands that bundle policies (`ship`, `create-bundle`, `upload`)
@@ -112,16 +124,16 @@ must be run from the repo root so `-f <agent_dir>` resolves correctly.
   kind=pixels` with the PICO-8 palette. The `STATE_FEATURES` structured-
   state layout exists **only** in the training harness, not in
   `BitWorldRunner`. Any serious bot needs its own localization, sprite
-  matching, task recognition, and voting-screen parsing. See
-  `among_them/modulabot/README.md` § "Reality check" and § "Perception
-  status".
+  matching, task recognition, and voting-screen parsing. For current
+  implementation details, read `among_them/guided_bot/README.md` and
+  `among_them/guided_bot/DESIGN.md`.
 - **10-step validation gate**: `--skip-validation` is only appropriate for
   the exact "Policy took no actions (all no-ops)" failure. Any other
   dry-run error (Nim build, import, ABI mismatch, traceback) means fix
   the bug. Decision tree in `COGAMES.md`.
-- **Modulabot trace writer** is opt-in and non-perturbing. Enable via
-  `MODULABOT_TRACE_DIR=/tmp/modulabot_runs`
-  `MODULABOT_TRACE_LEVEL=decisions` — see `among_them/modulabot/README.md`
+- **Guided_bot tracing** is opt-in via the play-script `--trace-dir`
+  / `--trace-level` flags or `GUIDED_BOT_TRACE_DIR` /
+  `GUIDED_BOT_TRACE_LEVEL`. See `among_them/guided_bot/README.md`
   § "Tracing".
 
 ## Workflow expectations

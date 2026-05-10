@@ -1,5 +1,11 @@
 # modulabot (Python port)
 
+> **Deprecated / historical only.** This local modulabot is no longer an
+> active agent. Keep the code for historical reference, but do not
+> inspect, modify, test, run, benchmark, ship, or otherwise work on it
+> unless James explicitly asks for modulabot work in the current prompt.
+> Use `../guided_bot/` for active Among Them development.
+
 A modular scripted agent for cogames Among Them. Python port of the Nim
 [modulabot][nim-design] architecture: one concern per file, state decomposed
 into sub-records, pluggable perception and policy layers.

@@ -18,6 +18,13 @@ Detailed task lifecycle and completion detection.
 **Open bugs:** [`TODO.md`](TODO.md). Known issues and reproduction
 steps.
 
+**Modulabot deprecation:** the local `../modulabot/` directory is fully
+deprecated and kept only for historical reference. Do not inspect,
+modify, test, run, or rely on it while working on guided_bot unless
+James explicitly asks for modulabot. Historical mentions of modulabot in
+older design notes describe provenance, not current source-of-truth
+guidance.
+
 ## Status
 
 **Phase 6 (mode completeness) in progress.** The bot completes
@@ -189,12 +196,12 @@ nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/perception_test.nim
 
 # Phase 1.1 — palette / sprite / map / font shape, magic-number checks,
-# parity pins against modulabot's source data.
+# parity pins against guided_bot's baked source data.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/data_test.nim
 
-# Phase 1.2 — camera math, patch index, fixture-pinned camera locks
-# (matches modulabot ground truth), pipeline + reseed flow, smoke
+# Phase 1.2 — camera math, patch index, fixture-pinned camera locks,
+# pipeline + reseed flow, smoke
 # benchmark.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/localize_test.nim
@@ -251,7 +258,7 @@ plus a non-zero exit on a regression.
 (`~/coding/bitworld`, override with `BITWORLD_DIR`). The tool is Nim
 so it can use the same `bitworld/aseprite` parser the live server
 uses to render `skeld2.aseprite` and `tiny5.aseprite` — no Python
-aseprite library required, and no risk of the modulabot snapshot
+aseprite library required, and no risk of a deprecated local snapshot
 drifting from upstream.
 
 Re-run when the upstream Among Them assets change:
@@ -513,8 +520,8 @@ The following blockers have been fixed:
 - ~~**Per-agent trace directories.**~~ The trace writer now appends a
   per-instance monotonic counter to session IDs, so multiple writers
   in the same process (e.g. `play_match.py`) get unique session dirs.
-- ~~**Body-report button bug.**~~ modulabot now correctly uses A (not
-  B) for body reports, matching the server's `tryReport` trigger.
+- ~~**Body-report button mismatch.**~~ guided_bot uses A for body
+  reports, matching the server's `tryReport` trigger.
 
 **Still pending:** Run a live match with tracing to verify
 body→report→meeting pipeline and meeting voting end-to-end.
@@ -546,5 +553,5 @@ Imposter hunting + partner avoidance is now verified.
   points.
 - **CurlPool reuse.** Fresh pool per LLM call; thread-local pool
   would be cleaner.
-- **Modulabot report bug.** Presses B instead of A for reports;
-  server ignores B for crewmates. Not blocking guided_bot.
+- **Historical modulabot notes.** Any remaining modulabot-specific
+  issues are out of scope for guided_bot unless James explicitly asks.

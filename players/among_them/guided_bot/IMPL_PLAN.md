@@ -9,6 +9,16 @@
 
 ---
 
+## Deprecation note
+
+The local `../modulabot/` tree is fully deprecated and kept only for
+historical reference. Do not inspect, modify, test, run, or rely on it
+while following this plan unless James explicitly asks for modulabot.
+Any modulabot mentions below are historical provenance, not active
+implementation guidance.
+
+---
+
 ## Context
 
 Phases 1–5 built the full perception pipeline, action layer, 6 mode
@@ -40,7 +50,8 @@ arrival.
 station. It holds A forever — no hold-duration cap, no
 icon-disappearance detection, no target unlock/re-selection.
 
-**Proposed fix — 3-phase lifecycle (from modulabot's proven pattern):**
+**Proposed fix — 3-phase lifecycle (from the legacy bot's historical
+pattern):**
 
 | Sub-phase | Duration | Behavior | Exit condition |
 |---|---|---|---|
@@ -280,7 +291,7 @@ For historical phase completion, see [`README.md`](README.md).
 
 ### ~~Per-agent trace directories~~ (resolved)
 
-The modulabot trace writer now appends a per-instance monotonic
+The guided_bot trace writer now appends a per-instance monotonic
 counter to session IDs (`trace.py:_session_id`), so multiple writers
 in the same process get unique session directories. `play_match.py`
 traces no longer collide.

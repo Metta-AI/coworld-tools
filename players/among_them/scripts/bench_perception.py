@@ -1,4 +1,7 @@
-"""Benchmark modulabot perception kernels against the captured frame fixture.
+"""Deprecated benchmark for modulabot perception kernels.
+
+This script belongs to the deprecated local modulabot. Do not use it for
+active guided_bot work unless James explicitly asks for modulabot.
 
 Run before and after each phase of the Nim-perception port to track
 progress against the targets in ``modulabot/PERCEPTION_PERF_PLAN.md``.

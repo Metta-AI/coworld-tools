@@ -7,11 +7,19 @@ rest of BitWorld, with 2 imposters and 8 tasks per player by default.
 
 Current season: `among-them` (verify with `cogames season list`).
 
+## Active agent
+
+`guided_bot/` is the only active Among Them bot in this directory.
+`modulabot/` is fully deprecated and remains only as historical reference.
+Do not inspect, modify, test, run, benchmark, ship, or otherwise work on
+the local modulabot unless James explicitly asks for modulabot work in
+the current prompt.
+
 ## Agents in this directory
 
 | Agent | Status | Strategy |
 |---|---|---|
-| [`modulabot/`](modulabot/README.md) | full perception + crewmate task lifecycle complete; 236 tests passing | Modular scripted bot ported from the Nim `modulabot` architecture — pixel-mode perception (sprite matching, camera localization, voting parser, A\*), crewmate task selection / approach / hold / server-confirmed completion (with radar-dot evidence + icon-miss negative-evidence pruning), imposter fake-task/kill/flee, evidence-based voting. See [`modulabot/CREWMATE_TASK_FIX_PLAN.md`](modulabot/CREWMATE_TASK_FIX_PLAN.md) for the recent task-lifecycle fix work (Phases 0-4 + 6-7, Apr--May 2026). |
+| [`modulabot/`](modulabot/README.md) | **deprecated / historical only** | Former Python port of the Nim modulabot architecture. Keep the code for future reference, but do not read, modify, test, run, or submit it unless explicitly asked. |
 | [`guided_bot/`](guided_bot/README.md) | phase 6 in progress — full perception pipeline, A\* pathfinding, 6 mode handlers (task\_completing, hunting, pretending, reporting, fleeing, meeting) with complete lifecycles, 4-reflex system, LLM guidance loop, structured trace writer, all 8 Nim test suites passing | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slow asynchronous LLM guidance loop that sets active `mode` + structured params. LLM takes direct control during meetings (phase 3). See [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md). |
 
 ## Shared code
@@ -20,16 +28,18 @@ Current season: `among-them` (verify with `cogames season list`).
   or more** agents in this directory. Currently:
   [`common/perception_kernels/`](common/perception_kernels/) holds
   the pure-Nim perception kernels (sprite matching, camera fit /
-  patch hash, task icon scan, OCR) that both modulabot and guided_bot
-  import. The bar for adding to `common/` is at least two real
-  consumers -- don't speculatively grow it.
+  patch hash, task icon scan, OCR). The kernels were extracted when
+  both modulabot and guided_bot consumed them; guided_bot is now the
+  active consumer and modulabot is historical-only. The bar for adding
+  to `common/` is still real reuse by active code -- don't
+  speculatively grow it.
 
 ## Conventions
 
 - One agent per subdirectory. Each has its own `README.md` answering:
   what strategy, current status, leaderboard score once submitted, what's
   next.
-- Submission bundle root is the agent directory (e.g. `modulabot/`). The
+- Submission bundle root is the agent directory (e.g. `guided_bot/`). The
   cogames `ship` command gets `-f <agent_dir>`; everything the policy
   imports must live inside that directory. Code under `common/` that
   an agent's submission needs is bundled via `-f among_them/common/...`
@@ -43,8 +53,9 @@ than copied unless we need to:
 - `~/coding/bitworld/among_them/players/` — canonical Nim bots
   (`nottoodumb.nim`, `modulabot/`, `evidencebot_v2.nim`), the battle-tested
   submission guide (`how_to_submit_to_cogames.md`), and the deep bot-making
-  guide (`how_to_make_a_bot.md`). Read `modulabot/DESIGN.md` before making
-  any architectural decisions here.
+  guide (`how_to_make_a_bot.md`). Treat upstream modulabot material as
+  historical prior art only; active architectural decisions belong in
+  [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md).
 - `~/coding/metta/cogames-agents/src/cogames_agents/policy/bitworld_among_them.py` —
   Softmax's own scripted Python policies (`BitWorldAmongThemScoutPolicy`,
   `BitWorldAmongThemCyborgPolicy`). Good prior art for the BitWorld action
@@ -80,38 +91,44 @@ Docker is required for `cogames ship --dry-run` / `cogames upload --dry-run`.
 
 ## Running tests
 
-Each agent ships its own tests. For modulabot, run from the repo root:
+Each agent ships its own tests. For active Among Them work, use
+guided_bot's checks. The full suite is documented in
+[`guided_bot/README.md`](guided_bot/README.md#tests); common quick checks
+from the repo root are:
 
 ```bash
-PYTHONPATH=among_them .venv/bin/python -m unittest discover \
-    -s among_them/modulabot/tests
-```
+# Build the guided_bot shared library used by the cogames wrapper.
+python3 among_them/guided_bot/build_guided_bot.py
 
-Expected: **236 tests, 0 failures**. With `MODULABOT_DISABLE_NATIVE=1` a
-handful of Nim FFI parity tests skip; everything else passes via the
-pure-Python fallback.
-
-Run a single test module:
-
-```bash
+# Python action-table guard.
 PYTHONPATH=among_them .venv/bin/python -m unittest \
-    among_them.modulabot.tests.test_voting -v
+    among_them.guided_bot.test.test_action_table -v
+
+# Fallback/playability Nim suite.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/fallback_test.nim
 ```
+
+Do not run modulabot's tests unless James explicitly asks for modulabot.
 
 ---
 
 ## Running a bot
 
-There are several ways to run modulabot (or any `-p` compatible policy),
-depending on what you're testing. All play scripts accept `-p class.Path`
-to select the policy and `--policy-kwarg KEY=VALUE` for constructor args.
+There are several ways to run the active guided_bot policy, depending on
+what you're testing. All play scripts accept `-p class.Path` to select
+the policy and `--policy-kwarg KEY=VALUE` for constructor args.
+
+Some scripts still have an old modulabot default. Always pass
+`-p guided_bot.cogames.amongthem_policy.AmongThemPolicy` for current
+work unless James explicitly asks for another policy.
 
 | Mode | What it does | Server needed? | Script |
 |---|---|---|---|
 | [Local episode](#local-episode-play_localpy) | Starts server + fillers, connects 1 agent | No (starts its own) | `scripts/play_local.py` |
 | [Connect to server](#connect-to-server-connectpy) | Connects N agents to an existing server | Yes (you provide it) | `scripts/connect.py` |
-| [Live debug overlay](#live-debug-overlay-play_watchpy) | 1 agent + real-time perception overlay window | Yes (you provide it) | `scripts/play_watch.py` |
-| [Debug harness](#debug-harness-play_debugpy) | Starts server + fillers + debug overlay | No (starts its own) | `scripts/play_debug.py` |
+| Live debug overlay | **Deprecated modulabot-only tooling** | n/a | `scripts/play_watch.py` |
+| Debug harness | **Deprecated modulabot-only tooling** | n/a | `scripts/play_debug.py` |
 | [All-agent match](#all-agent-match-play_matchpy) | Starts server, fills all slots with agents | No (starts its own) | `scripts/play_match.py` |
 | [Standalone server](#standalone-server-serverpy) | Start a server only, print host:port | n/a | `scripts/server.py` |
 | [Capture frames](#capture-frames-capturepy) | Passive capture to .npy (no policy) | No (starts its own) | `scripts/capture.py` |
@@ -127,20 +144,23 @@ Boots a real Nim server, fills the lobby with `nottoodumb` filler bots,
 and connects one agent. Requires the Nim binaries.
 
 ```bash
-PYTHONPATH=among_them python among_them/scripts/play_local.py --duration 20
+PYTHONPATH=among_them python among_them/scripts/play_local.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --duration 20
 ```
 
-Use `-p` to run a different policy:
+Use `--policy-kwarg` to pass constructor options:
 
 ```bash
 PYTHONPATH=among_them python among_them/scripts/play_local.py \
-    -p modulabot.policy.AmongThemPolicy --duration 60 \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
+    --duration 60 \
     --metrics-out /tmp/metrics.jsonl
 ```
 
 | Flag | Default | Notes |
 |---|---|---|
-| `-p` / `--policy` | `modulabot.policy.AmongThemPolicy` | Policy class path. |
+| `-p` / `--policy` | pass `guided_bot.cogames.amongthem_policy.AmongThemPolicy` | Policy class path. |
 | `--policy-kwarg` | | `KEY=VALUE` (repeatable). |
 | `--duration` | 60 | Wall-clock seconds. 0 = indefinite. |
 | `--num-players` | 8 | Total lobby size. |
@@ -148,7 +168,7 @@ PYTHONPATH=among_them python among_them/scripts/play_local.py \
 | `--seed` | 42 | Policy RNG seed (also seeds server role shuffle). |
 | `--imposter-count` | 2 | Number of imposters. |
 | `--force-role` | off | `crewmate` or `imposter` — pins the first player slot via the server's `"slots"` config. **Not 100% reliable** due to a connection-order race with fillers; use known-good seeds instead (see below). |
-| `--trace-dir` | off | Sets `MODULABOT_TRACE_DIR`. |
+| `--trace-dir` | off | Enables per-run trace output. |
 | `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
 | `--metrics-out` | off | Per-tick JSONL. |
 | `--capture-frames` | off | Frame `.npy` dump. |
@@ -172,6 +192,7 @@ Does not start a server or spawn fillers -- you provide those.
 
 ```bash
 PYTHONPATH=among_them python among_them/scripts/connect.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --host 127.0.0.1 --port 2000
 ```
 
@@ -179,6 +200,7 @@ PYTHONPATH=among_them python among_them/scripts/connect.py \
 
 ```bash
 PYTHONPATH=among_them python among_them/scripts/connect.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --host 127.0.0.1 --port 2000 --num-agents 4 --duration 120
 ```
 
@@ -186,6 +208,7 @@ PYTHONPATH=among_them python among_them/scripts/connect.py \
 
 ```bash
 PYTHONPATH=among_them python among_them/scripts/connect.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --host 127.0.0.1 --port 2000 --duration 0
 ```
 
@@ -193,42 +216,24 @@ PYTHONPATH=among_them python among_them/scripts/connect.py \
 |---|---|---|
 | `--host` | `127.0.0.1` | Server address. |
 | `--port` | 2000 | Server port. |
-| `-p` / `--policy` | `modulabot.policy.AmongThemPolicy` | Policy class path. |
+| `-p` / `--policy` | pass `guided_bot.cogames.amongthem_policy.AmongThemPolicy` | Policy class path. |
 | `--name` | derived from policy | Player name. With `--num-agents > 1`, agents are named `<name>-0`, etc. |
 | `--num-agents` | 1 | Number of agents, each on its own WebSocket. |
 | `--duration` | 60 | Seconds. **0 = run indefinitely.** |
 | `--seed` | 42 | Seed for agent 0. Agent *i* uses `seed + i`. |
 | `--connect-timeout` | 10 | WebSocket connect timeout (seconds). |
-| `--trace-dir` | off | Sets `MODULABOT_TRACE_DIR`. |
+| `--trace-dir` | off | Enables per-run trace output. |
 | `--trace-level` | `decisions` | `off`, `events`, or `decisions`. |
 | `--metrics-out` | off | Per-tick JSONL (all agents interleaved, sorted by tick). |
 | `--capture-frames` | off | Raw `.npy` frame dump. Per-agent suffix added when `--num-agents > 1`. |
 
-### Live debug overlay (`play_watch.py`)
+### Legacy debug overlays
 
-Connects one agent to an existing server and opens a tkinter window
-showing the raw frame + perception overlay in real time. Requires a
-running server.
-
-```bash
-PYTHONPATH=among_them python among_them/scripts/play_watch.py \
-    --host 127.0.0.1 --port 2000
-```
-
-Close the window or press q/Esc to stop. Use `--render-every N` if the
-overlay lags (BitWorld ticks at ~42 ms; the overlay renders at ~30-50 ms).
-
-### Debug harness (`play_debug.py`)
-
-One-shot: starts server + `nottoodumb` fillers + one agent with the
-live debug overlay window. No manual server setup needed.
-
-```bash
-PYTHONPATH=among_them python among_them/scripts/play_debug.py
-# With options:
-PYTHONPATH=among_them python among_them/scripts/play_debug.py \
-    --duration 120 --num-players 6 --trace-dir /tmp/debug
-```
+`scripts/play_watch.py`, `scripts/play_debug.py`, and
+`scripts/debug_overlay.py` are modulabot-specific visual debugging tools.
+Do not use them unless James explicitly asks for modulabot. For guided_bot,
+use trace output (`--trace-dir`, `--trace-level`) and the live test
+workflow in [`guided_bot/README.md`](guided_bot/README.md).
 
 ### All-agent match (`play_match.py`)
 
@@ -236,9 +241,11 @@ Starts a server and fills every slot with a Python policy instance
 (no fillers). Useful for watching agents play against each other.
 
 ```bash
-PYTHONPATH=among_them python among_them/scripts/play_match.py
+PYTHONPATH=among_them python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy
 # Custom count + duration:
 PYTHONPATH=among_them python among_them/scripts/play_match.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --num-agents 6 --duration 120 --seed 42
 ```
 
@@ -265,53 +272,37 @@ PYTHONPATH=among_them python among_them/scripts/capture.py \
     --duration 20 --output /tmp/captured.npy
 ```
 
-### Post-hoc debug overlay (`debug_overlay.py`)
+### Legacy modulabot analysis scripts
 
-Runs the full perception pipeline over previously captured `.npy` frames
-and renders annotated overlays. Useful for offline debugging.
-
-```bash
-PYTHONPATH=among_them python among_them/scripts/debug_overlay.py \
-    /tmp/mb_frames.npy --frame 150 --save /tmp/overlay.png
-```
-
-| Flag | Notes |
-|---|---|
-| `--frame N` | Render a single frame. |
-| `--range START:END` | Render a range of frames. |
-| `--outdir DIR` | Save all overlays to a directory. |
-| `--summary` | Print perception stats without rendering. |
-| `--watch` | Scrub through frames interactively. |
-| `--scale N` | Upscale factor (default 4). |
-
-### Perception benchmark (`bench_perception.py`)
-
-Reports p50/p95/p99/max/mean timing for each perception kernel and
-end-to-end `BotCore.step`. Run before and after any perception change.
-
-```bash
-PYTHONPATH=among_them python among_them/scripts/bench_perception.py
-```
+`scripts/debug_overlay.py` and `scripts/bench_perception.py` run the
+deprecated modulabot pipeline. Do not use them for guided_bot work unless
+James explicitly asks for modulabot.
 
 ---
 
 ## Tournament submission (`cogames ship`)
 
-`cogames ship` bundles, validates (dry-run), uploads, and submits in one
-step:
+Use guided_bot's submission wrapper for active Among Them submissions:
+
+```bash
+cd /Users/jamesboggs/coding/personal_cogs/among_them/guided_bot/cogames
+SEASON=among-them POLICY_NAME="$USER-guided-bot" ./ship.sh dry-run
+```
+
+Or run `cogames ship` directly from the repo root:
 
 ```bash
 cogames ship \
-    -p "class=modulabot.policy.AmongThemPolicy" \
-    -f among_them/modulabot \
-    -n "$USER-modulabot-py" \
+    -p "class=guided_bot.cogames.amongthem_policy.AmongThemPolicy" \
+    -f among_them/guided_bot \
+    -f among_them/common/perception_kernels \
+    -n "$USER-guided-bot" \
     --season among-them \
     --dry-run          # remove once dry-run is clean
 ```
 
-The `-f among_them/modulabot` flag bundles the whole package. If the
-policy pulls in external files (trained weights, prompt templates), add
-another `-f`.
+Do not ship modulabot unless James explicitly asks for a modulabot
+submission.
 
 ### Upload without submitting
 
@@ -321,18 +312,19 @@ submit later, or submit an already-uploaded policy to a different season:
 ```bash
 # 1. Bundle
 cogames create-bundle \
-    -p "class=modulabot.policy.AmongThemPolicy" \
+    -p "class=guided_bot.cogames.amongthem_policy.AmongThemPolicy" \
     -o submission.zip \
-    -f among_them/modulabot
+    -f among_them/guided_bot \
+    -f among_them/common/perception_kernels
 
 # 2. Upload (dry-run validates in Docker)
-cogames upload -p ./submission.zip -n "$USER-modulabot-py" --no-submit
+cogames upload -p ./submission.zip -n "$USER-guided-bot" --no-submit
 
 # 3. Submit to a season
-cogames submit "$USER-modulabot-py" --season among-them
+cogames submit "$USER-guided-bot" --season among-them
 
 # 4. Track
-cogames submissions --season among-them --policy "$USER-modulabot-py"
+cogames submissions --season among-them --policy "$USER-guided-bot"
 cogames season matches among-them --limit 20
 ```
 
@@ -361,22 +353,23 @@ failure, `--skip-validation` is appropriate. Any other dry-run error
 ## Tracing
 
 All play scripts support trace output via `--trace-dir` (or the
-`MODULABOT_TRACE_DIR` environment variable). The trace is a structured
+`GUIDED_BOT_TRACE_DIR` environment variable). The trace is a structured
 JSONL stream recording every policy branch decision.
 
 ```bash
 # Via flag
 PYTHONPATH=among_them python among_them/scripts/connect.py \
+    -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \
     --host 127.0.0.1 --port 2000 \
-    --trace-dir /tmp/modulabot_runs --trace-level decisions
+    --trace-dir /tmp/guided_bot_runs --trace-level decisions
 
 # Via env vars
-export MODULABOT_TRACE_DIR=/tmp/modulabot_runs
-export MODULABOT_TRACE_LEVEL=decisions
+export GUIDED_BOT_TRACE_DIR=/tmp/guided_bot_runs
+export GUIDED_BOT_TRACE_LEVEL=decisions
 ```
 
-See [`modulabot/README.md` -- Tracing](modulabot/README.md#tracing) for
-the full schema, trace levels, and output layout.
+See [`guided_bot/README.md` -- Tracing](guided_bot/README.md#tracing) for
+the schema, trace levels, and output layout.
 
 ---
 
@@ -386,10 +379,9 @@ the full schema, trace levels, and output layout.
 |---|---|
 | `AMONG_THEM_BINARY` | Override path to the Nim `among_them` server binary. |
 | `FILLER_BOT_BINARY` | Override path to the Nim `nottoodumb` filler bot binary. |
-| `MODULABOT_DISABLE_NATIVE=1` | Skip Nim FFI, use pure-Python perception fallback. |
-| `MODULABOT_TRACE_DIR` | Enable JSONL trace writer to this directory. |
-| `MODULABOT_TRACE_LEVEL` | `decisions` (default) or `events`. |
-| `MODULABOT_TRACE_META` | Comma-separated `key=value` pairs for the trace manifest. |
+| `GUIDED_BOT_TRACE_DIR` | Enable guided_bot JSONL tracing to this directory. |
+| `GUIDED_BOT_TRACE_LEVEL` | `decisions` or `full`; prefer the play-script `--trace-level` flag. |
+| `ANTHROPIC_API_KEY` | Enables guided_bot's LLM guidance loop in submissions/local runs. |
 
 ---
 

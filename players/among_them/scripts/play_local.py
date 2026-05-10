@@ -7,17 +7,19 @@ session stats on exit.
 
 Usage::
 
-    # Quick 20-second run with modulabot
+    # Quick 20-second run with guided_bot
     PYTHONPATH=among_them python among_them/scripts/play_local.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --duration 20
 
-    # Different policy, longer run, with metrics
+    # Guided_bot, longer run, with metrics
     PYTHONPATH=among_them python among_them/scripts/play_local.py \\
-        -p modulabot.policy.AmongThemPolicy --duration 60 \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy --duration 60 \\
         --metrics-out /tmp/metrics.jsonl
 
     # With trace + frame capture
     PYTHONPATH=among_them python among_them/scripts/play_local.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --duration 30 --trace-dir /tmp/trace \\
         --capture-frames /tmp/frames.npy
 

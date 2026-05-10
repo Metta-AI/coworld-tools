@@ -1,5 +1,10 @@
 # Perception performance plan — moving modulabot pixel work to native code
 
+> **Deprecated / historical only.** This plan belongs to the local
+> modulabot, which is no longer active. Keep it for reference, but do
+> not use it as current guidance or work on modulabot unless James
+> explicitly asks.
+
 > **Status (2026-04-30):** Phases 0–4 complete. All headline wins landed.
 >
 > Results summary:

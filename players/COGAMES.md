@@ -121,6 +121,11 @@ ensure `docker info` succeeds before validating.
 
 **Status:** active game, season visibility fluctuates.
 
+**Local agent policy:** in this repo, `among_them/guided_bot/` is the
+active Among Them agent. `among_them/modulabot/` is fully deprecated and
+kept only for historical reference. Do not inspect, modify, test, run, or
+ship the local modulabot unless James explicitly asks for it.
+
 - **Type:** Among-Us-style hidden-role game. Crewmates complete tasks
   and identify imposters; imposters kill crewmates and avoid detection.
 - **Interface:** the cogames `BitWorldRunner`
@@ -249,8 +254,9 @@ cogames tutorial make-policy --amongthem    -o my_policy.py   # Among Them
   on load. Bump the constant on both the Nim and Python sides when the
   FFI changes.
 
-Canonical example:
-`~/coding/bitworld/among_them/players/modulabot/cogames/`.
+External historical example:
+`~/coding/bitworld/among_them/players/modulabot/cogames/`. For active
+work in this repo, prefer `among_them/guided_bot/cogames/`.
 
 Always include enough Nim source in the bundle for a clean rebuild.
 Missing transitive `import` targets are the #1 cause of dry-run failures.
@@ -306,8 +312,9 @@ cogames episode replay <EPISODE_ID>
 ```
 
 Or do it in one step with `cogames ship` (bundle + validate + upload +
-submit). For Among Them, the `modulabot`-style `ship.sh` wrapper in the
-canonical example is worth copying.
+submit). For Among Them work in this repo, use
+`among_them/guided_bot/cogames/ship.sh` or explicit `cogames` commands
+against `guided_bot`; the local modulabot is deprecated.
 
 ### Secrets (LLM keys, etc.)
 

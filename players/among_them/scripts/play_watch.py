@@ -1,4 +1,6 @@
-"""Live debug viewer — one modulabot against an existing server, with a
+"""Deprecated modulabot-only live debug viewer.
+
+One modulabot against an existing server, with a
 real-time tkinter window showing the debug overlay every tick.
 
 Combines :mod:`scripts.play_live` (connect + run policy) with
@@ -6,6 +8,10 @@ Combines :mod:`scripts.play_live` (connect + run policy) with
 scrubbing of captured frames it paints the overlay as the bot plays.
 Use it to *watch the bot decide* rather than reconstruct its decisions
 after the fact.
+
+This viewer introspects modulabot internals (``policy._cores`` and
+``modulabot`` state types). Do not use it for active guided_bot work
+unless James explicitly asks for modulabot.
 
 Usage:
 

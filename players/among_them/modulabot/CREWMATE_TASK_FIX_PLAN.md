@@ -1,5 +1,10 @@
 # Crewmate task-selection fix plan
 
+> **Deprecated / historical only.** This plan belongs to the local
+> modulabot, which is no longer active. Keep it for reference, but do
+> not use it as current guidance or work on modulabot unless James
+> explicitly asks.
+
 Scope: wire real per-bot task-assignment evidence into `modulabot`'s crewmate
 loop, replace the fake hold-completion latch with server-confirmed completion,
 and clean up the smaller issues noted. Structured so each phase is

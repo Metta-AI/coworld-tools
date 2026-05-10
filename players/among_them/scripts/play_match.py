@@ -6,16 +6,18 @@ match ends or the duration cap is reached.
 
 Usage::
 
-    # 8 modulabots, 10 minutes
-    PYTHONPATH=among_them python among_them/scripts/play_match.py
+    # 8 guided_bot agents, 10 minutes
+    PYTHONPATH=among_them python among_them/scripts/play_match.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy
 
     # 6 agents, different policy, shorter match
     PYTHONPATH=among_them python among_them/scripts/play_match.py \\
         --num-agents 6 --duration 120 \\
-        -p modulabot.policy.AmongThemPolicy
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy
 
     # With per-agent trace + metrics
     PYTHONPATH=among_them python among_them/scripts/play_match.py \\
+        -p guided_bot.cogames.amongthem_policy.AmongThemPolicy \\
         --trace-dir /tmp/match_trace --metrics-out /tmp/match.jsonl
 
 Each agent gets a unique name (``<name>-0``, ``<name>-1``, ...),

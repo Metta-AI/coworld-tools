@@ -72,11 +72,11 @@ personal_cogs/
 - One agent per directory. No monorepo-style shared `main.py` at the root.
 - Each agent directory has a `README.md` that answers: what strategy, what's
   the current leaderboard score, what's known broken, what's next.
-- If two agents share substantial code, extract it to a `<game>/common/`
-  subdirectory and have each agent import from there. Don't reach into one
-  agent's tree from another. Don't speculatively grow `common/` either —
-  the bar is at least two real consumers (e.g. modulabot + guided_bot
-  sharing `among_them/common/perception_kernels/`).
+- If two active agents share substantial code, extract it to a
+  `<game>/common/` subdirectory and have each agent import from there.
+  Don't reach into one agent's tree from another. Don't speculatively grow
+  `common/` either — the bar is at least two real active consumers or a
+  clearly documented migration need.
 - Game-of-the-week work goes in the game's directory, not at the root.
 
 ## Working practices
@@ -145,7 +145,17 @@ None of this is required on day one. It's where we're heading.
 
 > Update this section whenever priorities shift. Don't let it rot.
 
-**As of 2026-05-04:**
+**As of 2026-05-10:**
+
+- **Current active Among Them agent:** `among_them/guided_bot/`.
+  Use guided_bot for development, testing, local matches, traces, and
+  submissions unless James explicitly asks for a different agent.
+- **Local modulabot is fully deprecated.** `among_them/modulabot/`
+  remains in the repository only as historical/reference material. Do
+  not inspect, modify, test, benchmark, ship, or otherwise work on the
+  local modulabot unless James explicitly asks for modulabot work in the
+  current prompt. Older notes below that mention modulabot are retained
+  as archive context, not current direction.
 
 - **Game of the week / primary target:** Among Them (BitWorld social
   deduction). The `among-them` season has disappeared from

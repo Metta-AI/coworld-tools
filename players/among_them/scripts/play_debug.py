@@ -1,9 +1,13 @@
-"""One agent with a live debug overlay window.
+"""Deprecated modulabot-only live debug overlay window.
 
 Replaces ``play_debug.sh``.  Starts a server, fills the lobby with
 filler bots, connects one policy agent, and opens a tkinter window
 showing the debug overlay in real time (same renderer as
 ``debug_overlay.py``).
+
+This overlay introspects modulabot internals (``policy._cores`` and
+``modulabot`` state types). Do not use it for active guided_bot work
+unless James explicitly asks for modulabot.
 
 Usage::
 
@@ -15,7 +19,7 @@ Usage::
         --duration 120 --trace-dir /tmp/debug_trace \\
         --capture-frames /tmp/debug_frames.npy
 
-    # Different policy
+    # Legacy modulabot invocation (only when James explicitly asks)
     PYTHONPATH=among_them python among_them/scripts/play_debug.py \\
         -p modulabot.policy.AmongThemPolicy --seed 123
 

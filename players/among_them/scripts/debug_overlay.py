@@ -1,4 +1,7 @@
-"""Rich visual debug overlay for modulabot perception.
+"""Deprecated visual debug overlay for modulabot perception.
+
+This script belongs to the deprecated local modulabot. Do not use it for
+active guided_bot work unless James explicitly asks for modulabot.
 
 Runs the full :mod:`modulabot.perception.pixel_pipeline` on captured
 frames (``.npy`` array of ``(N, 128, 128)`` uint8 frames) and shows

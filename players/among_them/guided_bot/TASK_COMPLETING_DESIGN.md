@@ -414,8 +414,10 @@ scan reports raw screen-space sprite coordinates.
 - Icon found: reset `tcConfirmMissCount = 0`.
 - Icon not found: increment `tcConfirmMissCount`.
 
-This debounce handles icon animation flicker. The 24-frame threshold
-matches modulabot's `ICON_MISS_COMPLETE_TICKS`.
+This debounce handles icon animation flicker. The 24-frame threshold is
+the guided_bot completion threshold; older notes compared it with the
+deprecated local modulabot, but that tree is historical-only and is not
+current guidance.
 
 ---
 

@@ -29,14 +29,9 @@
 >
 > **Related reading** — load-bearing context:
 >
-> - `among_them/modulabot/README.md` and
->   `bitworld/among_them/players/modulabot/DESIGN.md` — the scripted
->   baseline whose perception layer we reuse.
 > - `bitworld/among_them/players/how_to_make_a_bot.md` — the hard-won
 >   lessons about localization, task states, radar, momentum, voting.
 >   Still all applicable.
-> - `bitworld/among_them/players/modulabot/TRACING.md` — the trace
->   schema we extend.
 > - `bitworld/src/bitworld/ais/{claude,openai}.nim` — existing Nim HTTP
 >   LLM clients (`curly` + `jsony`, ~60 LOC each). We adapt these.
 > - `bitworld/among_them/players/italkalot.nim` — existence proof of a
@@ -44,6 +39,12 @@
 > - `metta/packages/cogames/POLICY_SECRETS.md` — how API keys reach the
 >   policy subprocess in the tournament (env-var injection via
 >   `--secret-env`). The LLM is a first-class submission citizen.
+>
+> **Deprecated reference:** the local `among_them/modulabot/` tree is
+> historical-only. Do not inspect, modify, test, run, or rely on it for
+> guided_bot work unless James explicitly asks for modulabot. Older
+> references to modulabot in this design record provenance, not current
+> implementation guidance.
 
 ---
 
@@ -74,19 +75,19 @@
    transiently unreachable, the bot keeps playing competently on the
    most recent directive or the default.
 7. **Cogames-submission-ready.** Bundle format, Nim-via-ctypes wrapper,
-   and validation gate all follow the modulabot pattern. LLM keys flow
-   in via `--secret-env` (cogames' documented mechanism).
+   and validation gate follow the current guided_bot submission wrapper.
+   LLM keys flow in via `--secret-env` (cogames' documented mechanism).
 
 ### Non-goals (v0)
 
-- **No new perception.** Reuse modulabot's perception modules
-  (localization, sprite matching, task icons, voting parse, ASCII OCR).
+- **No dependency on local modulabot.** Perception kernels live under
+  `among_them/common/perception_kernels/` and guided_bot owns its own
+  baked data, orchestration, tests, and trace schema.
 - **No training.** No neural policies, no RL.
 - **No games other than Among Them.**
-- **No parity bar with modulabot.** We expect different behavior.
-  modulabot's scripted crewmate policy is a reference, **not a
-  verbatim starting point** — it has known jank; we take inspiration
-  but rebuild per-mode.
+- **No parity bar with deprecated modulabot.** Guided_bot owns its
+  behavior. Historical modulabot behavior is not a target unless James
+  explicitly asks for a comparison.
 - **No LLM-per-tick.** Not even in meetings. The LLM is event-driven
   during meetings, not polled at 24 Hz.
 
@@ -173,15 +174,15 @@ The belief state is the agent's working model of the world. It is:
 2. **Perception.** Camera lock, self world position, visible actors
    (colour + position + last-seen tick), visible bodies, visible task
    icons, radar dots, interstitial state, voting parse when
-   applicable. Everything modulabot's perception layer already
-   produces.
+   applicable. Guided_bot owns this pipeline; shared hot kernels live
+   under `among_them/common/perception_kernels/`.
 3. **Memory.** Per-player summary (role [unknown / crewmate /
    imposter], alive flag, last seen tick/place, times near bodies,
    times witnessing kills, alibi evidence, vote history, ejected
    flag); per-body event; per-meeting event; sightings log. Role and
    alive fields are populated during gameplay; imposter roles are
    detected from the role-reveal interstitial via palette-colour
-   scanning. Pattern from `modulabot/memory.nim`.
+   scanning.
 4. **Tasks.** Per-task-station state: `not_doing` / `checkout`
    (radar-dot confirmed) / `confirmed` (icon visible) / `completed`
    (hold confirmed, icon disappeared). Plus `checkout` latch,
@@ -196,9 +197,9 @@ The belief state is the agent's working model of the world. It is:
    task stations use these instead of computing the raw centre inline,
    so the waypoint system receives a reachable target (see §6.3 for
    the full rationale).
-5. **Social.** Recent chat lines (speaker-attributed per modulabot's
-   voting-screen OCR), accusations heard, votes cast, votes received,
-   most-recent meeting transcript.
+5. **Social.** Recent chat lines from guided_bot's voting-screen OCR,
+   accusations heard, votes cast, votes received, most-recent meeting
+   transcript.
 6. **Directive.** Current mode, mode parameters, directive source
    (`llm` / `default`), issue tick, TTL, reasoning (debug only).
 7. **Flags.** Recent "wake up" events for the guidance loop to
@@ -251,8 +252,10 @@ frame ──► perceive ──► update belief ──► decide ──► act
 - Output: a percept — the delta of what this frame says about the
   world (camera lock, visible actors/bodies/icons/radar dots,
   interstitial/voting state, new chat lines, role reveal, game-over).
-- Reuses modulabot's perception layer verbatim. The percept is a
-  small typed struct; merging it into belief is the next stage's job.
+- Uses guided_bot's perception pipeline. Shared hot kernels live in
+  `among_them/common/perception_kernels/`; orchestration, baked data,
+  and belief-facing percept types are guided_bot-owned. The percept is
+  a small typed struct; merging it into belief is the next stage's job.
 
 ### 4.2 Update belief
 
@@ -263,8 +266,8 @@ frame ──► perceive ──► update belief ──► decide ──► act
   - Merge percept into perception fields.
   - Maintain memory (sightings log, per-player summaries, body /
     meeting events). Round-reset on role-reveal interstitial.
-  - Task-state transitions (`mandatory ↔ completed` per modulabot's
-    icon-area rules).
+  - Task-state transitions (`not_doing` / `checkout` / `confirmed` /
+    `completed`) per `TASK_COMPLETING_DESIGN.md`.
   - Update the directive slot (atomic swap in the latest LLM output
     if one is pending; expire the current directive if TTL elapsed,
     falling back to the per-role default).
@@ -745,7 +748,7 @@ snapshot (§8.3). It adds, critically:
 
 - **Full speaker-attributed chat transcript of the current
   meeting**, in order. Every message, every speaker, every tick.
-  Produced by modulabot's voting-screen chat OCR + colour-pip
+  Produced by guided_bot's voting-screen chat OCR + colour-pip
   speaker attribution.
 - **Full meeting history from the current round** (previous meetings
   this match, with their chat, votes, and outcomes). Already in
@@ -1064,8 +1067,8 @@ sidecar. Justification:
    a Nim Among Them bot doing live LLM calls.
 3. The rest of the bot is Nim. Two languages cost more than one.
 4. The cogames bundle is already "Nim compiled into shared lib + thin
-   Python wrapper" (modulabot pattern). No need to add a second
-   Python subprocess lifecycle.
+   Python wrapper" for guided_bot. No need to add a second Python
+   subprocess lifecycle.
 5. API keys flow in via `--secret-env`
    (`metta/packages/cogames/POLICY_SECRETS.md`). The Nim process
    reads `ANTHROPIC_API_KEY` (or provider-appropriate var) from its
@@ -1138,11 +1141,12 @@ We revisit if the in-Nim path turns out to cost more than it saves.
 
 ## 11. Trace schema
 
-We extend the modulabot schema (see its `TRACING.md`). Trace output
-is a session directory with one subdirectory per round, each
-containing JSONL streams plus a manifest. Designed for post-match
-replay, offline analysis, and eventually for an LLM-driven harness
-that proposes refactors to mode handlers.
+Guided_bot owns its trace schema. Earlier drafts compared it to the
+deprecated local modulabot trace format, but current work should use
+`trace.nim` and this section as the source of truth. Trace output is a
+session directory with JSONL streams plus a manifest. Designed for
+post-match replay, offline analysis, and eventually for an LLM-driven
+harness that proposes refactors to mode handlers.
 
 ### 11.1 Files per round
 
@@ -1228,8 +1232,8 @@ rather than overriding this tick's action. The corresponding
 the full provenance.)
 
 Branch IDs are named strings the mode handlers emit at each
-decision point, following modulabot's `BRANCH_IDS.md` convention.
-Auto-generated catalogue per build; drift detection in CI.
+decision point. Auto-generated catalogue per build; drift detection in
+CI.
 
 ### 11.4 `guidance.jsonl` shape
 
@@ -1335,7 +1339,7 @@ adapters in v0 — we upgrade tools when we change the schema.
 | Reflex interrupts | **Reflex = forced mode switch**, edge-triggered, per-mode declaration, evaluated in update-belief stage so target mode runs same tick. Anti-thrash cooldown. Starter list of 4 (§5.8). |
 | Mode param format | **Enum + structured params per mode schema** (§5.3). Examples drafted. |
 | Conversation history | **Stateful in meetings, stateless in gameplay.** Not cost-optimizing at this stage (§8.5). |
-| Trace schema | **Drafted in §11.** Extends modulabot schema with guidance, modes, and reflexes streams. |
+| Trace schema | **Drafted in §11.** Guided_bot-owned schema with guidance, modes, and reflexes streams. |
 
 ### 12.2 Pushback kept from v0.1
 
@@ -1346,12 +1350,12 @@ strategic reactivity needs a reflex baked in. Modes without
 reflexes will exhibit ~1-5 s of lag to critical events. Accept
 this; measure it.
 
-**Modulabot as reference, not ancestor.** Per review note #6, the
-modulabot crewmate policy is known janky. We implement
-`task_completing` fresh, informed by modulabot's code and by the
+**Legacy bot behavior is not a target.** We implement
+`task_completing` as guided_bot-owned behavior, informed by the
 known-problem list in `how_to_make_a_bot.md` (icon-area clearing,
-radar-vs-mandatory separation, hold-A discipline), but we do not
-copy it verbatim. One of the reasons for this architecture is to
+radar-vs-mandatory separation, hold-A discipline). The deprecated
+local modulabot is not a current reference unless James explicitly
+asks for a comparison. One of the reasons for this architecture is to
 make it easier to iterate on individual modes without touching
 perception.
 
@@ -1415,7 +1419,7 @@ Specifically three numbers per agent:
 
 - Leaderboard score with LLM enabled.
 - Leaderboard score with LLM forcibly disabled (defaults only).
-- Modulabot leaderboard score.
+- A current external/scripted baseline score, if one is available.
 
 If `LLM ≈ defaults`, the LLM isn't pulling weight — we either fix
 the prompting or remove the LLM cost.
@@ -1434,7 +1438,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | Snapshot format | §8.3. JSON dump of curated subset. Not token-bounded yet. |
 | Reflex interrupts | §5.8. Four to start. |
 | Fallback defaults | §9.1 per role. §9.2 test plan mandatory. |
-| Trace schema | §11 drafted. Extends modulabot schema. |
+| Trace schema | §11 drafted. Guided_bot-owned schema. |
 | Concurrency / LLM placement | §10: in-Nim worker thread. Python sidecar preserved as fallback. |
 | Mode scratch state lifecycle | §5.6: reset on mode switch, preserved within mode across directive changes. |
 | Action layer owns navigation | §4.4 + §6. Modes emit `steer_to`; action layer owns waypoint routing, edge progress, vent traversal, and task-hold discipline. |
@@ -1448,8 +1452,8 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
   empirically.
 - Token budgeting for snapshots.
 - Frame-dump retention policy.
-- Parity harness (we don't have a parity target here; the baseline
-  is modulabot on the leaderboard, not modulabot's mask stream).
+- Parity harness (we don't have a parity target here; compare against
+  current external/scripted baselines when available).
 
 ---
 
@@ -1468,8 +1472,8 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D9 | Validation | Guidance validates once; inner loop re-validates every tick. | §8.4 |
 | D10 | Reflex pattern | **Reflex = forced mode switch**, edge-triggered, evaluated in update-belief, anti-thrash cooldown, starter list of 4. | §5.8 |
 | D11 | Imposter default directive | `hunting` with opportunistic + cover. See `HUNTING_DESIGN.md`. | §9.1 |
-| D12 | Task-completing mode | Fresh implementation, informed by modulabot's code but not copied. | §12.2 |
-| D13 | Trace schema | Extends modulabot's: adds guidance, modes, reflexes streams. | §11 |
+| D12 | Task-completing mode | Guided_bot-owned implementation; legacy bot comparisons are historical only. | §12.2 |
+| D13 | Trace schema | Guided_bot-owned schema with guidance, modes, and reflexes streams. | §11 |
 | D14 | Fallback-only playability test | Required before first submission. | §9.2 |
 | D15 | Meeting LLM context | Full speaker-attributed chat transcript + meeting history + vote tally + per-player evidence + self-action history via conversation history. | §7.2 |
 | D16 | LLM conversation history | Stateful across a meeting's calls; stateless across gameplay calls. | §7.3, §8.5 |
@@ -1477,11 +1481,11 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D18 | Reflex evaluation stage | Update-belief, not decide, so target mode's `decide` runs same tick. | §4.2, §5.8 |
 | D19 | Phase 1 sub-plan | Port perception in 6 sub-phases (1.0 foundation → 1.6 voting). Each sub-phase is its own commit with tests. | §15 |
 | D20 | Phase 1.1 asset baking | Door #1 of the §15 choice: deterministic Nim bake tool (`tools/bake_assets.nim`) emits raw `.bin` blobs into `perception/baked/`; runtime consumes them via `staticRead`. Bake tool reads the upstream `~/coding/bitworld` checkout *directly* (using the same `bitworld/aseprite` parser the live server uses) so modulabot's data dir is no longer in the trust chain. No PNG decoder dependency in the runtime, no runtime file I/O, no nimby in the runtime build. `BakeSchemaVersion` constant pins compile-time vs. baked-dir agreement. | §15, README "Regenerating baked assets" |
-| D21 | Phase 1.2 kernel sharing | Followed §15's guidance: `perception/localize.nim` imports `among_them/common/perception_kernels/{sprite_match,localize}.nim` via `from "../../..." as kX import nil` (relative-path import, no leaked identifiers, qualified-only access). Avoids both code duplication and FFI/shared-library indirection. The kernels are pure Nim, parity-pinned by modulabot's test suite; drift on either side fails our compile or our fixture-pinned camera tests. Patch index is built in Nim (modulabot built it in numpy); scalar one-shot, cached at module level. | §15, `perception/localize.nim` header |
-| D22 | Phase 1.3 actor scan pattern | `perception/actors.nim` imports `kSpriteMatch.mb_match_actor_sprite_all` and `kSpriteMatch.mb_actor_color_index_all` via the same `from "../../..." as kSpriteMatch import nil` pattern. Orchestration mirrors modulabot's `actors.py::scan_all` ordering (role → self-colour → bodies → ghosts → crewmates). Dedup is greedy raster-order within Chebyshev radius, matching the Python `_dedup_anchors`. Actor scan runs in the bot pipeline *after* localize (needs camera for future world-coord conversion) and *before* decision/action. Detected sprites are stamped into the ignore mask for phase 1.4's task-icon scanner. New `ActorScanner` struct holds reusable match/colour buffers to avoid per-frame allocation. | §15, `perception/actors.nim` header |
+| D21 | Phase 1.2 kernel sharing | Followed §15's guidance: `perception/localize.nim` imports `among_them/common/perception_kernels/{sprite_match,localize}.nim` via `from "../../..." as kX import nil` (relative-path import, no leaked identifiers, qualified-only access). Avoids both code duplication and FFI/shared-library indirection. The kernels are pure Nim and covered by guided_bot fixture tests; drift fails our compile or fixture-pinned camera tests. Patch index is built in Nim; scalar one-shot, cached at module level. | §15, `perception/localize.nim` header |
+| D22 | Phase 1.3 actor scan pattern | `perception/actors.nim` imports `kSpriteMatch.mb_match_actor_sprite_all` and `kSpriteMatch.mb_actor_color_index_all` via the same `from "../../..." as kSpriteMatch import nil` pattern. Guided_bot owns orchestration ordering (role → self-colour → bodies → ghosts → crewmates). Dedup is greedy raster-order within Chebyshev radius. Actor scan runs in the bot pipeline *after* localize (needs camera for future world-coord conversion) and *before* decision/action. Detected sprites are stamped into the ignore mask for phase 1.4's task-icon scanner. New `ActorScanner` struct holds reusable match/colour buffers to avoid per-frame allocation. | §15, `perception/actors.nim` header |
 | D23 | Phase 1.4 task/radar scan | `perception/tasks.nim` wraps `mb_scan_task_icons` from `among_them/common/perception_kernels/actors.nim` via `from "../../..." as kActors import nil`. Task-icon scan only runs when `localized` is true and not alive imposter. Radar-dot scan is pure Nim (no kernel) — collects palette-8 (yellow) pixels in the 2-pixel periphery ring with Chebyshev-1 greedy dedup. Both produce raw perception output (`IconMatch`, `RadarDotMatch`); the higher-level task-state machine (icon→task assignment, checkout latching, icon-miss pruning) is deferred to phase 2. Task-coord cache built lazily from `referenceData.map.tasks`. | §15, `perception/tasks.nim` header |
-| D24 | Phase 1.5 OCR pattern | `perception/ocr.nim` wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Font data repacked into flat arrays at module init (`PackedFont`). `findText` is pure Nim (full-frame sweep, ~12 ms) since modulabot's numpy `sliding_window_view` approach isn't available. `classifyInterstitial` tries banner strings in longest-first order to avoid partial matches. | §15, `perception/ocr.nim` header |
-| D25 | Phase 1.6 voting parse | `perception/voting.nim` ports the core of modulabot's `voting.py`. Strict validator: SKIP text must match, and each slot's colour must equal its index. Reuses scalar `matchesCrewmate` / `crewmateColorAt` for slot and speaker-pip parsing (not the vectorised kernel — slots are at known positions). Chat OCR uses `readRun` from `ocr.nim`. Voting parse gates `PhaseVoting` on the belief; if parse fails, falls back to banner OCR for other interstitial kinds. `VotingParse.chatLines` merged into `Belief.social.currentMeetingChat`. | §15, `perception/voting.nim` header |
+| D24 | Phase 1.5 OCR pattern | `perception/ocr.nim` wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Font data repacked into flat arrays at module init (`PackedFont`). `findText` is pure Nim (full-frame sweep, ~12 ms). `classifyInterstitial` tries banner strings in longest-first order to avoid partial matches. | §15, `perception/ocr.nim` header |
+| D25 | Phase 1.6 voting parse | `perception/voting.nim` owns guided_bot's voting parse. Strict validator: SKIP text must match, and each slot's colour must equal its index. Reuses scalar `matchesCrewmate` / `crewmateColorAt` for slot and speaker-pip parsing (not the vectorised kernel — slots are at known positions). Chat OCR uses `readRun` from `ocr.nim`. Voting parse gates `PhaseVoting` on the belief; if parse fails, falls back to banner OCR for other interstitial kinds. `VotingParse.chatLines` merged into `Belief.social.currentMeetingChat`. | §15, `perception/voting.nim` header |
 
 Further decisions get appended here as they're made.
 
@@ -1496,11 +1500,10 @@ Further decisions get appended here as they're made.
 
 ## 15. Phase 1 sub-plan (perception port)
 
-Phase 1 was originally scoped as a single commit: "wire in modulabot's
-localize / sprite / task / voting parse." That's ~4.5 kLOC of Python
-(or ~2.8 kLOC of Nim in `bitworld/among_them/players/modulabot/`).
-Doing it in one commit would be rushed and poorly tested. Breaking
-it into sub-phases lets each one land fully tested and documented.
+Phase 1 was originally scoped as a single commit for localization,
+sprite matching, task-icon scanning, OCR, and voting parse. Doing it in
+one commit would be rushed and poorly tested. Breaking it into
+sub-phases lets each one land fully tested and documented.
 
 Each sub-phase is a self-contained commit that extends the real
 `Percept` and `PerceptionState` fields, wires new perception code
@@ -1510,8 +1513,8 @@ through the pipeline, and adds fixture-based tests.
 |---|---|---|---|
 | **1.0** | Frame unpacking, interstitial detection (black-pixel %), dynamic-pixel ignore-mask scaffolding, pipeline wire-in (`perceive` → `updateBelief` → `PerceptionState`). Fixture tests using real frames. | none | ✅ shipped |
 | **1.1** | Perception data loading — palette, player colours, sprite atlas, map/walk/wall layers, ASCII font, map.json. Baked into raw `.bin` blobs by `tools/bake_assets.nim` (reads `~/coding/bitworld` directly via the upstream `bitworld/aseprite` parser, single source of truth) and embedded into the Nim binary via `staticRead`. No PNG decoder, no nimby in the runtime. Compile-time shape asserts catch stale baked dirs. | 1.0 | ✅ shipped |
-| **1.2** | Camera localization — port of `modulabot/localize.py`'s orchestration in `perception/{geometry,localize}.nim`. Reuses `mb_score_camera`, `mb_hash_frame_patches`, `mb_vote_camera_candidates` from `among_them/common/perception_kernels/` via `from "../../common/perception_kernels/X" as kX import nil` — keeps the kernel as the single source of truth, no FFI / shared-library indirection (DESIGN.md §15 "Sharing nim_perception"). Patch-index built lazily in Nim on first non-interstitial frame. Pipeline calls `updateLocation` on gameplay frames and `reseedCameraAtHome` on interstitials. Camera-lock fixtures pinned against modulabot ground truth; smoke benchmark guards against catastrophic regressions. | 1.1 | ✅ shipped |
-| **1.3** | Actor / body / ghost scanning — wraps `mb_match_actor_sprite_all` and `mb_actor_color_index_all` from `among_them/common/perception_kernels/sprite_match.nim`. Ports modulabot's `scan_all` ordering (role detection → self-colour → bodies → ghosts → crewmates). Stamps actor sprite exclusions into the ignore mask. Merges results into `SelfState.role/colorIndex` and `PerceptionState.visibleCrewmates/Bodies/Ghosts`. ~2 ms per gameplay frame. | 1.2 | ✅ shipped |
+| **1.2** | Camera localization — guided_bot orchestration in `perception/{geometry,localize}.nim`. Reuses `mb_score_camera`, `mb_hash_frame_patches`, `mb_vote_camera_candidates` from `among_them/common/perception_kernels/` via `from "../../common/perception_kernels/X" as kX import nil` — keeps the kernel as the single source of truth, no FFI / shared-library indirection. Patch-index built lazily in Nim on first non-interstitial frame. Pipeline calls `updateLocation` on gameplay frames and `reseedCameraAtHome` on interstitials. Smoke benchmark guards against catastrophic regressions. | 1.1 | ✅ shipped |
+| **1.3** | Actor / body / ghost scanning — wraps `mb_match_actor_sprite_all` and `mb_actor_color_index_all` from `among_them/common/perception_kernels/sprite_match.nim`. Guided_bot owns the scan orchestration (role detection → self-colour → bodies → ghosts → crewmates). Stamps actor sprite exclusions into the ignore mask. Merges results into `SelfState.role/colorIndex` and `PerceptionState.visibleCrewmates/Bodies/Ghosts`. ~2 ms per gameplay frame. | 1.2 | ✅ shipped |
 | **1.4** | Task-icon scanning — wraps `mb_scan_task_icons` from `among_them/common/perception_kernels/actors.nim`. For each task station, probes a 3-bob × 7×7 neighbourhood around the expected icon screen position. Radar-dot scanning — pure Nim scan for palette-8 (yellow) pixels in the 2-pixel screen-edge periphery ring, deduped with Chebyshev-1 grouping. Stamps task-icon exclusions into the ignore mask. Merges results into `PerceptionState.visibleTaskIcons/radarDots`. ~0.1 ms per gameplay frame. | 1.2 | ✅ shipped |
 | **1.5** | ASCII OCR — wraps `mb_best_glyph` and `mb_text_matches` from `among_them/common/perception_kernels/ocr.nim`. Adds `findText` (pure-Nim full-frame sweep, ~12 ms) for interstitial banner detection. `classifyInterstitial` searches for `"CREW WIN"`, `"IMPS WIN"`, `"CREWMATE"`, `"IMPS"` banners to refine `InterstitialKind`. Provides `readRun` and `readLineStrict` for chat-line OCR. Font data repacked into flat kernel format at module init. | 1.1 | ✅ shipped |
 | **1.6** | Voting-screen parse — `parseVotingScreen` iterates player counts 16→1, validating each via strict slot checks (per-slot colour must match slot index). Parses cursor position, self-marker, vote dots (8-wide grid per target), SKIP text + SKIP vote dots. Chat OCR: `readRun` at each non-empty text row, speaker pips attributed via nearest crewmate sprite match above the text line. Results in `VotingParse` with slots, cursor, choices, chatLines. Voting parse gates `PhaseVoting` on the belief; failed parse falls back to banner OCR classification. | 1.5 | ✅ shipped |
@@ -1520,33 +1523,26 @@ through the pipeline, and adds fixture-based tests.
 
 `among_them/common/perception_kernels/*.nim` is pure Nim,
 self-contained (no bitworld imports), stateless kernels with
-parity-pinned numpy fallbacks. Both modulabot and guided_bot consume
-them directly:
+active tests in guided_bot. Guided_bot consumes them directly:
 
-- **modulabot** wires them into its FFI surface via
-  [`modulabot/nim_perception/lib.nim`](../modulabot/nim_perception/lib.nim)
-  + a Python ctypes loader; modulabot's
-  [`build.py`](../modulabot/nim_perception/build.py) compiles the
-  dylib with `--path:` set to the shared directory.
 - **guided_bot** (phase 1.2+) imports them directly via
   `from "../../common/perception_kernels/X" as kX import nil` — no
   FFI roundtrip, qualified-only access to keep namespaces clean.
+- **modulabot** is a deprecated historical consumer only. Do not update
+  its FFI/ABI or tests unless James explicitly asks for modulabot work.
 
 Rationale:
 
-- No code duplication between agents.
-- Neither agent reaches into the other's tree; the shared dir is the
-  *only* place these kernels live.
-- A change to one of the kernels is a single diff that benefits both
-  agents simultaneously, and the parity tests live with the kernels'
-  one canonical implementation (modulabot owns the parity oracle
-  because it has the numpy fallback).
+- No code duplication in the active guided_bot pipeline.
+- Guided_bot does not reach into the deprecated local modulabot tree;
+  shared kernels live only under `among_them/common/`.
+- A change to one of the kernels is a single diff protected by
+  guided_bot tests.
 
-Risk: the kernels evolve under modulabot's parity tests. If guided_bot
-depends on a specific kernel shape and the kernel signature changes,
-guided_bot breaks silently until its tests catch it. The
-phase-1 test suite in guided_bot specifically exercises every
-kernel guided_bot consumes, so drift shows up immediately.
+Risk: if guided_bot depends on a specific kernel shape and the kernel
+signature changes, guided_bot breaks silently until its tests catch it.
+The phase-1 test suite in guided_bot specifically exercises every kernel
+guided_bot consumes, so drift shows up immediately.
 
 Phase 1.0 did not yet import any kernel; phase 1.2 adds the
 dependency on `sprite_match.nim` + `localize.nim`. Phase 1.3 adds

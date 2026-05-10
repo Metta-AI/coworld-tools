@@ -72,10 +72,9 @@ log = logging.getLogger("among_them.scripts")
 def setup_pythonpath() -> None:
     """Ensure the ``among_them/`` package root is on ``sys.path``.
 
-    Call once at script startup so that ``import modulabot`` (and any
-    other game-level packages) works regardless of how the script was
-    invoked — from repo root, from ``scripts/``, with or without an
-    explicit ``PYTHONPATH=among_them``.
+    Call once at script startup so local game-level packages work
+    regardless of how the script was invoked — from repo root, from
+    ``scripts/``, with or without an explicit ``PYTHONPATH=among_them``.
     """
     among_them_dir = str(Path(__file__).resolve().parent.parent)
     if among_them_dir not in sys.path:
@@ -303,7 +302,7 @@ def resolve_policy(
 
     Args:
         class_path: ``module.ClassName``, e.g.
-            ``modulabot.policy.AmongThemPolicy``.
+            ``guided_bot.cogames.amongthem_policy.AmongThemPolicy``.
         env_info: The :class:`PolicyEnvInterface` passed to the
             constructor as the first positional argument.
         policy_kwargs: Extra keyword arguments.  String values from
@@ -882,8 +881,15 @@ def add_policy_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-p",
         "--policy",
+        # Legacy default retained for modulabot-only overlay scripts that
+        # introspect policy internals. Current Among Them work should always
+        # pass guided_bot explicitly.
         default="modulabot.policy.AmongThemPolicy",
-        help="Policy class path (e.g. modulabot.policy.AmongThemPolicy).",
+        help=(
+            "Policy class path. Legacy default is deprecated; pass "
+            "guided_bot.cogames.amongthem_policy.AmongThemPolicy for "
+            "current work."
+        ),
     )
     parser.add_argument(
         "--policy-kwarg",
@@ -920,7 +926,7 @@ def add_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--trace-dir",
         default=None,
-        help="Trace output directory (sets MODULABOT_TRACE_DIR).",
+        help="Trace output directory (sets guided_bot and legacy modulabot trace env vars).",
     )
     parser.add_argument(
         "--trace-level",

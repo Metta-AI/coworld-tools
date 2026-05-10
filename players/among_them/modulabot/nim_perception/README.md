@@ -1,5 +1,11 @@
 # modulabot/nim_perception/
 
+> **Deprecated / historical only.** This directory belongs to the local
+> modulabot, which is no longer active. Do not inspect, modify, rebuild,
+> test, or use it unless James explicitly asks for modulabot work. Active
+> perception-kernel work belongs in `../../common/perception_kernels/`
+> and active bot work belongs in `../../guided_bot/`.
+
 Native Nim perception kernels loaded into Python via `ctypes`. Every
 hot-path pixel kernel has a parity-pinned numpy fallback in the
 corresponding `modulabot/*.py` module, so `MODULABOT_DISABLE_NATIVE=1`
