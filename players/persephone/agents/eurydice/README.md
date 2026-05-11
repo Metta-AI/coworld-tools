@@ -29,12 +29,16 @@ trying to start or join whispers.
 
 - `build_llm_context(...)` returns a JSON-safe context packet.
 - `llm_decision_schema()` returns the closed semantic action schema.
+- `llm_validator.py` checks future decisions for schema validity, view
+  legality, target safety, message bounds, and reveal constraints.
+- `validate_and_trace_llm_decision(...)` can emit compact shadow decision
+  traces when a saved-context or future runtime caller invokes it.
 - No LLM provider is called yet.
 - Runtime policy still uses deterministic evaluators and modes.
 
-The intended next step is shadow evaluation: generate LLM decisions from saved
-contexts, validate them, and compare them to the rule stack before allowing any
-live control.
+The intended next step is a saved-context shadow runner plus prompt templates:
+generate LLM decisions from recorded contexts, validate them, and compare them
+to the rule stack before allowing any live control.
 
 ## Validation
 
@@ -46,6 +50,7 @@ PYTHONPATH=. .venv/bin/python -m pytest \
   tests/test_eurydice_evaluators.py \
   tests/test_eurydice_knowledge.py \
   tests/test_eurydice_llm_context.py \
+  tests/test_eurydice_llm_validator.py \
   tests/test_eurydice_trace_schema.py \
   -q
 ```

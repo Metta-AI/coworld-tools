@@ -221,18 +221,19 @@ attributes outside the schema. Flexible per-game data should still live in
 
 ## Eurydice Agent — Whisper Interaction
 
-### LLM control is schema-ready but not runtime-ready
+### LLM control is validator-ready but not runtime-ready
 
-- **Status**: New foundation only
+- **Status**: Context and validation foundation only
 - **What works**: `agents/eurydice/llm_context.py` builds a JSON-safe context
   packet for future model calls and exposes a closed semantic decision schema.
+  `agents/eurydice/llm_validator.py` validates future model decisions, returns
+  deterministic fallback metadata, and can emit compact shadow trace events.
   `agents/eurydice/LLM_CONTROL.md` documents the intended staged rollout.
 - **Impact**: We can now shadow-test model choices for probe targeting,
   whisper/global messages, and reveal decisions without changing live control.
   Runtime Eurydice still uses deterministic evaluators and modes.
-- **Fix**: Add a deterministic LLM-decision validator, shadow trace events, a
-  saved-context runner, prompt templates, and finally a provider adapter behind
-  an explicit feature flag.
+- **Fix**: Add a saved-context shadow runner, prompt templates, evaluation
+  metrics, and finally a provider adapter behind an explicit feature flag.
 
 ### Probe initiation reliability remains the next live bottleneck
 

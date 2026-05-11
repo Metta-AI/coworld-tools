@@ -5,8 +5,10 @@ strategy to LLM-assisted control without giving up deterministic safety
 contracts, traceability, or pytest coverage.
 
 Current status: `agents/eurydice/llm_context.py` builds a JSON-safe context
-packet and exposes a closed decision schema. It does not call an LLM and is not
-yet wired into runtime decisions.
+packet and exposes a closed decision schema. `agents/eurydice/llm_validator.py`
+validates future model decisions against that packet and can emit compact
+shadow trace events. Eurydice still does not call an LLM, does not import a
+provider, and is not wired to let model decisions affect runtime actions.
 
 ---
 
@@ -79,6 +81,29 @@ Allowed actions are:
 Every decision must include confidence and a short rationale. Optional target
 uses `PlayerID` as `[color, shape]`. Optional message text is capped at 48 ASCII
 characters before runtime use.
+
+### Validation
+
+`validate_llm_decision(decision, context)` is the deterministic gate that every
+future model output must pass before any executor sees it. It rejects:
+
+- malformed schema versions, unknown fields, unknown actions, and invalid
+  confidence/rationale values;
+- actions not legal in the current view;
+- missing, unknown, or self targets for target-required actions;
+- probe targets that are neither visible nor position-known;
+- exchange actions against players outside the current whisper;
+- non-ASCII, overlong, or unsupported mechanical-claim messages;
+- role reveals to known enemies unless the current objective is explicitly
+  disruptive or cover-maintaining;
+- color reveals while Spy risk is active unless the current objective explicitly
+  permits disruption or cover maintenance.
+
+`validate_and_trace_llm_decision(...)` wraps validation and emits
+`llm_context`, `llm_decision`, and either `llm_decision_accepted` or
+`llm_decision_rejected` at decision trace level. The trace records a stable
+context hash so saved contexts, model outputs, and fallback behavior can be
+correlated without logging raw frame data.
 
 ---
 
@@ -153,16 +178,17 @@ contract.
 
 ## Immediate Engineering Tasks
 
-1. Add trace events for `llm_context`, `llm_decision`, `llm_decision_rejected`,
-   and `llm_decision_accepted`.
-2. Add a deterministic validator that checks action legality, target presence,
-   message length/ASCII, and reveal constraints.
-3. Add a shadow-mode runner over saved traces and frame recordings.
-4. Add prompt templates for the three first control surfaces:
+1. [x] Add trace event names and a helper for `llm_context`, `llm_decision`,
+   `llm_decision_rejected`, and `llm_decision_accepted`.
+2. [x] Add a deterministic validator that checks action legality, target
+   presence, message length/ASCII, and reveal constraints.
+3. [ ] Add a shadow-mode runner over saved traces and frame recordings.
+4. [ ] Add prompt templates for the three first control surfaces:
    `probe_player`, `send_whisper`, and `send_global`.
-5. Add evaluation scripts for useful-message rate, probe completion rate,
+5. [ ] Add evaluation scripts for useful-message rate, probe completion rate,
    illegal-action rate, and strategic consistency.
-6. Only then add an LLM provider adapter behind an explicit configuration flag.
+6. [ ] Only then add an LLM provider adapter behind an explicit configuration
+   flag.
 
 ---
 

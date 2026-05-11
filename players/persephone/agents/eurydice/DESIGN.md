@@ -88,9 +88,10 @@ Current high-level status:
   are still partial. Spy role-offer handling is wired, but broader cover
   management and outbound deception are not complete.
 - LLM runtime control is not implemented yet. `llm_context.py` now provides a
-  JSON-safe state packet and closed semantic decision schema so future model
-  control can be shadow-tested before it affects live actions. See
-  [`LLM_CONTROL.md`](LLM_CONTROL.md).
+  JSON-safe state packet and closed semantic decision schema, and
+  `llm_validator.py` provides the deterministic validation and shadow tracing
+  boundary for future model outputs. No provider, prompt templates, saved-trace
+  runner, or runtime handoff exists yet. See [`LLM_CONTROL.md`](LLM_CONTROL.md).
 - Structured exchange events, active offers, inbound chat parsing, unique
   leader-color observations, post-whisper info-screen reconciliation, and
   Spy-aware color-exchange confidence are wired into Eurydice's knowledge
@@ -125,6 +126,8 @@ The source contract lives in `agents/eurydice/llm_context.py`:
   match config, player knowledge, recent messages, legal actions, and hard
   constraints.
 - `llm_decision_schema()` defines the closed model response shape.
+- `agents/eurydice/llm_validator.py` rejects malformed, illegal, unsafe, or
+  mechanically unsupported decisions and can trace shadow validation results.
 - No provider adapter is active yet; model decisions should first run in
   shadow mode against saved contexts and traces.
 

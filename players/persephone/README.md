@@ -71,8 +71,8 @@ partial; see `agents/eurydice/IMPLEMENTATION_PLAN.md` for the source-verified
 roadmap and `agents/eurydice/DESIGN.md` § Observability for the event catalog.
 The LLM-readiness boundary is documented in
 `agents/eurydice/LLM_CONTROL.md`; current code can build a JSON-safe LLM
-context and closed semantic decision schema, but runtime control is still
-deterministic.
+context, closed semantic decision schema, and deterministic validation trace
+records, but runtime control is still deterministic.
 
 Use `scripts/analyze_eurydice_traces.py` to summarize JSONL traces and
 flag unknown event names before relying on phase-specific trace metrics.
@@ -258,7 +258,9 @@ It now learns its role/team/room during intro, parses match role-summary and
 round-schedule panels, selects probe targets, creates or joins whispers, and
 records event-level strategy traces. LLM runtime control is not active yet;
 `agents/eurydice/llm_context.py` defines the JSON-safe context and closed
-semantic decision schema for shadow evaluation.
+semantic decision schema for shadow evaluation, and
+`agents/eurydice/llm_validator.py` defines the deterministic acceptance gate
+for future model decisions.
 
 **Current bottleneck**: probe initiation reliability. Live traces show real
 role-driven behavior, but too many attempts still end with `initiate_timeout`.

@@ -49,9 +49,11 @@ knowledge updates, and evaluator parameter contracts are already working.
   unreachable disruption. P_FINAL now requires a real parsed schedule and a
   positive current round.
 - **LLM-readiness partial:** `llm_context.py` provides a JSON-safe decision
-  context and closed semantic output schema for future LLM control. Runtime
-  decisions are still deterministic; LLM decisions should first be evaluated in
-  shadow mode. See [`LLM_CONTROL.md`](LLM_CONTROL.md).
+  context and closed semantic output schema for future LLM control.
+  `llm_validator.py` validates future model decisions and can emit compact
+  shadow trace events. Runtime decisions are still deterministic; no provider,
+  prompt template layer, saved-trace runner, or runtime handoff exists yet. See
+  [`LLM_CONTROL.md`](LLM_CONTROL.md).
 
 ### Proven or Mostly Implemented
 
@@ -123,13 +125,14 @@ knowledge updates, and evaluator parameter contracts are already working.
 - Deception and Spy behavior are partially wired into whisper role-offer
   decisions, but broader cover management and outbound deception policy remain
   later-phase work.
-- LLM control has a stable context/output contract but no provider adapter,
-  validator, shadow-runner, prompt templates, or runtime integration yet.
+- LLM control has a stable context/output contract plus a deterministic
+  validator and shadow trace helper, but no provider adapter, saved-trace
+  runner, prompt templates, or runtime integration yet.
 
 ### Latest Validation
 
 - `PYTHONPATH=. .venv/bin/python -m pytest tests -q`:
-  **544 passed, 5 skipped** on 2026-05-10.
+  **556 passed, 5 skipped** on 2026-05-10.
 - Live strategy check, 10 Eurydice agents against a local default Persephone
   server (`seed=306`, stopped after early round-1 interaction): trace analyzer
   scanned 10 logs, 5,294 events, 0 malformed lines, and no unknown event
@@ -176,6 +179,8 @@ Recommended default command for focused Eurydice checks:
 PYTHONPATH=. .venv/bin/python -m pytest \
   tests/test_eurydice_stages.py \
   tests/test_eurydice_integration.py \
+  tests/test_eurydice_llm_context.py \
+  tests/test_eurydice_llm_validator.py \
   -q
 ```
 
@@ -709,16 +714,16 @@ budgets and outbound channel constraints.
 - Keep `llm_context.py` as the canonical input/output contract:
   `build_llm_context(...)` for model inputs and `llm_decision_schema()` for
   outputs.
-- Add a deterministic validator for model decisions: current-view legality,
+- [x] Add a deterministic validator for model decisions: current-view legality,
   target existence, message ASCII/length, reveal constraints, and fallback
   action.
-- Add shadow-mode trace events: `llm_context`, `llm_decision`,
+- [x] Add shadow-mode trace event support: `llm_context`, `llm_decision`,
   `llm_decision_rejected`, and `llm_decision_accepted`.
-- Add a saved-trace runner that samples contexts from live logs/frame
+- [ ] Add a saved-trace runner that samples contexts from live logs/frame
   recordings and stores aggregate model-vs-rule comparisons.
-- Add prompt templates for the first three surfaces: probe target choice,
+- [ ] Add prompt templates for the first three surfaces: probe target choice,
   whisper reveal/message choice, and global room message choice.
-- Only after shadow traces are sane, add a provider adapter behind an explicit
+- [ ] Only after shadow traces are sane, add a provider adapter behind an explicit
   config flag. No provider should be imported or required by default.
 
 **Pytest contracts:**
@@ -726,9 +731,11 @@ budgets and outbound channel constraints.
 - `tests/test_eurydice_llm_context.py::test_llm_context_is_json_serializable_and_namespaced`
 - `tests/test_eurydice_llm_context.py::test_llm_context_whisper_actions_include_exchange_controls`
 - `tests/test_eurydice_llm_context.py::test_llm_decision_schema_is_closed_and_action_bounded`
-- Future: validator rejects illegal action for current view.
-- Future: validator rejects role reveal to known enemy unless deception/disrupt
-  strategy explicitly permits it.
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_action_illegal_for_current_view`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_role_reveal_to_known_enemy`
+- `tests/test_eurydice_llm_validator.py::test_validator_allows_role_reveal_to_enemy_for_disruption_objective`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_color_reveal_when_spy_risk_active`
+- `tests/test_eurydice_llm_validator.py::test_validate_and_trace_emits_shadow_events`
 - Future: shadow runner emits parseable LLM trace events without changing the
   selected runtime directive.
 
