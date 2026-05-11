@@ -6,7 +6,7 @@
 > removed seasons, renamed commands, broken flows). If `cogames --help` and
 > this file disagree, the CLI is right — fix this file.
 >
-> Last reviewed: 2026-05-06 | cogames CLI: `/Users/jamesboggs/.local/bin/cogames`
+> Last reviewed: 2026-05-11 | cogames CLI: `/Users/jamesboggs/coding/personal_cogs/.venv/bin/cogames`
 
 ---
 
@@ -92,7 +92,7 @@ Docker is required for `--dry-run` validation (which runs your policy for
 10 steps in the real tournament image). Install Docker Desktop on macOS and
 ensure `docker info` succeeds before validating.
 
-## Games (as of 2026-05-06)
+## Games (as of 2026-05-11)
 
 > This is a living list. Confirm with `cogames season list` and
 > `cogames bitworld games` before relying on it.
@@ -143,9 +143,12 @@ ship the local modulabot unless James explicitly asks for it.
   of this).
 - **Phases:** gameplay, voting interstitials, result screens. Chat only
   during voting.
-- **Season:** `among-them` is live as of 2026-05-06 — "Among Them
-  freeplay: policies compete in 8-player BitWorld matches scored by role
-  win rate." Confirm with `cogames season list` before submitting.
+- **Season:** `among-them` is visible to the authenticated CLI as of
+  2026-05-11 — "Among Them freeplay: policies compete in 8-player
+  BitWorld matches scored by role win rate." The API currently reports
+  `status: complete` and `public: false`, with `competition` as both
+  entry and leaderboard pool. Confirm with `cogames season list` and
+  `cogames season show among-them` before submitting.
 - **Package:** needs `pip install 'bitworld @ git+https://github.com/Metta-AI/bitworld.git'`
   for local episode runs; pinned SHA is in the cogames `pyproject.toml`
   (see `bitworld` extra). Pre-built Nim binaries live at
@@ -163,11 +166,12 @@ ship the local modulabot unless James explicitly asks for it.
   `libnottoodumb` shared library (when available) — *not* a reference
   pixel-perception implementation in Python. The scripted baselines are
   simpler, portable, pixel-only policies used as tournament opponents.
-- **Submission path:** standard `cogames ship` with a Python policy
-  subclass of `MultiAgentPolicy`. The 10-step validation gate trips up
-  perception bots that can't localize within 10 frames — use
-  `--skip-validation` *only* for the documented "Policy took no actions"
-  failure mode.
+- **Submission path:** Python policy subclass of `MultiAgentPolicy`.
+  For guided_bot, use `among_them/guided_bot/cogames/ship.sh`, which
+  bundles via `cogames upload --season` so Bedrock/secret flags are
+  supported. The 10-step validation gate trips up perception bots that
+  can't localize within 10 frames — use `--skip-validation` *only* for
+  documented validator limitations.
 
 ### Four Score
 
@@ -203,14 +207,14 @@ cogames season leaderboard <SEASON>
 cogames season pool-config <SEASON> <POOL>
 ```
 
-Current seasons (2026-05-06):
+Current seasons (2026-05-11):
 
 | Season | Game | Format |
 |---|---|---|
 | `beta-cvc` | Cogs vs Clips | Freeplay; qualify via self-play, then 20 matches vs random partners |
 | `beta-teams-tiny-fixed` | Teams | Multi-stage progressive culling; policies seeded into teams |
 | `beta-four-score` | Four Score | 4-player freeplay with rotated corner assignments |
-| `among-them` | Among Them | 8-player BitWorld matches scored by role win rate |
+| `among-them` | Among Them | Visible to authenticated CLI; reports `status: complete`, `public: false`; 8-player BitWorld matches scored by role win rate |
 
 Previously seen seasons, currently absent from `cogames season list` (may
 return; check before planning):
@@ -312,9 +316,11 @@ cogames episode replay <EPISODE_ID>
 ```
 
 Or do it in one step with `cogames ship` (bundle + validate + upload +
-submit). For Among Them work in this repo, use
-`among_them/guided_bot/cogames/ship.sh` or explicit `cogames` commands
-against `guided_bot`; the local modulabot is deprecated.
+submit) when the policy does not need LLM credential flags. Current
+`cogames ship` does not expose `--use-bedrock` / `--secret-env`; for
+guided_bot use `among_them/guided_bot/cogames/ship.sh` or explicit
+`cogames upload --season ...` commands against `guided_bot`. The local
+modulabot is deprecated.
 
 ### Secrets / Bedrock (LLM credentials, etc.)
 
@@ -329,12 +335,15 @@ cogames upload -p ./my_policy -n my-llm-policy \
 If your policy uses AWS Bedrock, prefer the built-in flag:
 
 ```bash
-cogames upload -p ./my_policy -n my-bedrock-policy --use-bedrock
+cogames upload -p ./my_policy -n my-bedrock-policy \
+    --use-bedrock \
+    --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
 
-`--use-bedrock` sets `USE_BEDROCK=true` in the policy environment and
-grants Bedrock access in the cogames runtime. guided_bot's `ship.sh`
-passes this flag by default.
+`--use-bedrock` configures Softmax-provided Bedrock Claude access in the
+cogames runtime. Current `cogames upload` also requires `--llm-model`;
+guided_bot's `ship.sh` passes both by default and forwards the same
+model to guided_bot as `GUIDED_BOT_BEDROCK_MODEL`.
 
 See `~/coding/metta/packages/cogames/POLICY_SECRETS.md` for storage,
 scoping, and cleanup details.

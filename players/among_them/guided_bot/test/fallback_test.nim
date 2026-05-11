@@ -58,6 +58,8 @@ proc disableLlm() =
   ## machines where AWS Bedrock credentials may be present by default.
   putEnv("GUIDED_BOT_LLM_DISABLE", "1")
   delEnv("ANTHROPIC_API_KEY")
+  delEnv("COGAMES_LLM_PROVIDER")
+  delEnv("COGAMES_LLM_MODEL")
   delEnv("CLAUDE_CODE_USE_BEDROCK")
   delEnv("USE_BEDROCK")
 

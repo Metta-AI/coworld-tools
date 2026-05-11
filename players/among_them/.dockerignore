@@ -1,0 +1,25 @@
+.claude/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+
+# Coworld image context only needs guided_bot production sources plus common kernels.
+modulabot/
+scripts/
+tools/
+README.md
+
+# Large or host-specific guided_bot outputs.
+guided_bot/traces/
+guided_bot/nimcache/
+guided_bot/.nimcache/
+guided_bot/test/
+guided_bot/tools/
+guided_bot/guided_bot
+guided_bot/libguidedbot.dylib
+guided_bot/libguidedbot.dylib.abi
+guided_bot/libguidedbot.so
+guided_bot/libguidedbot.so.abi
+guided_bot/guidedbot.dll
+guided_bot/guidedbot.dll.abi

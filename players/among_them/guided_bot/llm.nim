@@ -25,6 +25,8 @@ const
   GuidedBotLlmModelEnv* = "GUIDED_BOT_LLM_MODEL"
   GuidedBotBedrockModelEnv* = "GUIDED_BOT_BEDROCK_MODEL"
   GuidedBotAnthropicModelEnv* = "GUIDED_BOT_ANTHROPIC_MODEL"
+  CogamesLlmProviderEnv* = "COGAMES_LLM_PROVIDER"
+  CogamesLlmModelEnv* = "COGAMES_LLM_MODEL"
   ClaudeCodeBedrockEnv* = "CLAUDE_CODE_USE_BEDROCK"
   CogamesBedrockEnv* = "USE_BEDROCK"
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -86,9 +88,15 @@ proc envFlag(name: string): bool =
 proc llmDisabled(): bool =
   envFlag(GuidedBotLlmDisableEnv)
 
+proc configuredProvider(): string =
+  result = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
+  if result.len == 0:
+    result = getEnv(CogamesLlmProviderEnv, "").strip().toLowerAscii()
+
 proc bedrockRequested(): bool =
-  let provider = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
-  provider == "bedrock" or envFlag(ClaudeCodeBedrockEnv) or
+  let provider = configuredProvider()
+  provider == "bedrock" or provider == "bedrock-claude" or
+    envFlag(ClaudeCodeBedrockEnv) or
     envFlag(CogamesBedrockEnv)
 
 proc haveStaticAwsEnv(): bool =
@@ -105,13 +113,13 @@ proc haveAwsCredentialHint(): bool =
 proc selectedProvider(): LlmProvider =
   if llmDisabled():
     return ProviderNone
-  let provider = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
+  let provider = configuredProvider()
   case provider
   of "anthropic", "direct":
     if getEnv(AnthropicKeyEnv, "").len > 0:
       return ProviderAnthropic
     return ProviderNone
-  of "bedrock":
+  of "bedrock", "bedrock-claude":
     if haveAwsCredentialHint():
       return ProviderBedrock
     return ProviderNone
@@ -147,10 +155,14 @@ proc directAnthropicModel(): string =
   let direct = getEnv(GuidedBotAnthropicModelEnv, "").strip()
   if direct.len > 0:
     return direct
+  let cogames = getEnv(CogamesLlmModelEnv, "").strip()
+  if cogames.len > 0:
+    return cogames
   DefaultAnthropicModel
 
 proc bedrockModel(): string =
   for name in [GuidedBotLlmModelEnv, GuidedBotBedrockModelEnv,
+               CogamesLlmModelEnv,
                "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_MODEL"]:
     let value = getEnv(name, "").strip()
     if value.len > 0:

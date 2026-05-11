@@ -18,9 +18,11 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import zipfile
 from pathlib import Path
 
 GUIDED_BOT_DIR = Path(__file__).resolve().parent
+NIMBY_LOCK = GUIDED_BOT_DIR / "nimby.lock"
 NIM_VERSION = "2.2.4"
 NIMBY_VERSION = "0.1.26"
 # Keep in sync with `ffi/lib.nim:GuidedBotAbiVersion`.
@@ -30,6 +32,7 @@ GUIDED_BOT_ABI_VERSION = 3
 def build_guided_bot() -> Path:
     """Builds the guided_bot shared library and returns its path."""
     _install_nim()
+    _sync_nimby_deps()
     out_path = GUIDED_BOT_DIR / _library_name()
     cmd = [
         "nim",
@@ -42,6 +45,7 @@ def build_guided_bot() -> Path:
         "--mm:orc",
         f"--nimcache:{GUIDED_BOT_DIR / 'nimcache'}",
         f"--out:{out_path}",
+        *_nim_paths_from_lock(),
         str(GUIDED_BOT_DIR / "guided_bot.nim"),
     ]
     result = subprocess.run(cmd, cwd=GUIDED_BOT_DIR, capture_output=True, text=True)
@@ -84,6 +88,75 @@ def _install_nim() -> None:
 
     os.environ["PATH"] = f"{dst.parent}{os.pathsep}" + os.environ.get("PATH", "")
     os.environ["PATH"] = f"{nim_bin_dir}{os.pathsep}" + os.environ.get("PATH", "")
+
+
+def _sync_nimby_deps() -> None:
+    """Fetch Nim package deps listed in nimby.lock.
+
+    The episode-runner image may not have git, so download GitHub source
+    archives directly. This mirrors the support code used by Softmax's
+    Nim agents and keeps tournament builds independent of local ~/.nimby.
+    """
+    if not NIMBY_LOCK.exists():
+        return
+
+    pkgs_dir = Path.home() / ".nimby" / "pkgs"
+    pkgs_dir.mkdir(parents=True, exist_ok=True)
+
+    for raw in NIMBY_LOCK.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split()
+        if len(parts) < 4:
+            raise RuntimeError(f"Unexpected nimby.lock line: {raw!r}")
+        name, url, commit = parts[0], parts[2], parts[3]
+
+        if not url.startswith("https://github.com/"):
+            raise RuntimeError(f"Unsupported nimby.lock URL without git: {url}")
+        owner_repo = url.removeprefix("https://github.com/").strip("/")
+        if owner_repo.count("/") != 1:
+            raise RuntimeError(f"Unsupported GitHub URL: {url}")
+        owner, repo = owner_repo.split("/", 1)
+
+        dest = pkgs_dir / name
+        marker = dest / ".nimby_commit"
+        if marker.is_file() and marker.read_text().strip() == commit:
+            continue
+        if dest.exists():
+            shutil.rmtree(dest)
+
+        zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/{commit}"
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / f"{name}.zip"
+            urllib.request.urlretrieve(zip_url, zip_path)
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(tmp)
+            extracted_dirs = [p for p in Path(tmp).iterdir() if p.is_dir()]
+            if len(extracted_dirs) != 1:
+                raise RuntimeError(
+                    f"Unexpected zip layout for {zip_url} (dirs={extracted_dirs})"
+                )
+            shutil.move(str(extracted_dirs[0]), dest)
+        marker.write_text(commit)
+
+
+def _nim_paths_from_lock() -> list[str]:
+    if not NIMBY_LOCK.exists():
+        return []
+    pkgs_dir = Path.home() / ".nimby" / "pkgs"
+    args: list[str] = []
+    for raw in NIMBY_LOCK.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name = line.split()[0]
+        candidate = pkgs_dir / name / "src"
+        if not candidate.exists():
+            candidate = pkgs_dir / name
+        args.append(f"--path:{candidate}")
+    return args
 
 
 def _nimby_url() -> str | None:

@@ -218,7 +218,13 @@ guided_bot/
   prompts.nim               # system prompts for gameplay + meeting LLM calls (phase 3)
   trace.nim                 # trace writer (phase 4)
   nim.cfg                   # nimby package paths (curly, jsony, libcurl)
+  nimby.lock                # package pins used by build_guided_bot.py in Docker
+  coplayer_manifest.json    # BitWorld tournament-runner player manifest
   guided_bot.nim            # CLI entry + library gate
+  coworld/
+    Dockerfile              # linux/amd64 policy image for Coworld/private daily
+    policy_player.py        # /bin/guided_bot BitWorld + Coworld websocket bridge
+    README.md               # image build, upload, and runtime notes
   modes/
     idle.nim               task_completing.nim      fear.nim
     investigating.nim      reporting.nim            pretending.nim
@@ -520,11 +526,9 @@ See DESIGN.md §11 for the exact JSON schemas.
 
 See [`cogames/README.md`](cogames/README.md). Phase 5 added fallback-only
 playability: the bot emits non-NOOP actions from tick 1 on gameplay frames
-(passes the cogames 10-step validation gate on fixture data). A Docker
-dry-run against `beta-cvc` confirmed the FFI bundle loads and the Nim
-library compiles; the `among-them` season returns 404 on API access
-despite appearing in `cogames season list` (phantom entry as of
-2026-05-01).
+(passes the cogames 10-step validation gate on fixture data). As of
+2026-05-11, the real `among-them` Observatory season is accessible and
+accepts uploads, but reports `status: complete` / `public: false`.
 
 The `mettagrid.bitworld` import is now optional in `amongthem_policy.py`
 (inline fallback constants) so the policy loads in Docker images that
@@ -536,6 +540,8 @@ only ship `mettagrid` without the `bitworld` extra.
 |---|---|---|---|---|
 | 2026-05-01 | jamesboggs-guided-bot-fallback-test | among-them | **blocked**: season 404 | — |
 | 2026-05-01 | jamesboggs-guided-bot-dryrun | beta-cvc (fallback) | import fixed, Nim build attempted | — |
+| 2026-05-11 | jamesboggs-guided-bot-20260511-115205:v1 | among-them | Docker dry-run built library, connected 8 players, completed 10-step episode; failed only known no-op gate, shipped with `--skip-validation` | pending |
+| 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-120701:v1 | none — Coworld image upload for private daily website | linux/amd64 Docker build passed; container smoke loaded `AmongThemPolicy` and stepped slot 3; image upload completed via `crane` after Docker 29 ECR `HEAD` failure | website submission pending |
 
 ## Change log (recent)
 

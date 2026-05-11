@@ -22,6 +22,7 @@ import ctypes
 import importlib.util
 import platform
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 
@@ -192,26 +193,52 @@ class AmongThemPolicy(MultiAgentPolicy):
         return _GuidedBotAgentPolicy(self._policy_env_info, self, agent_id)
 
     def step_batch(self, raw_observations: np.ndarray, raw_actions: np.ndarray) -> None:
+        batch_size = raw_observations.shape[0]
+        actions = self.step_agent_observations(range(batch_size), raw_observations)
+        raw_actions[:batch_size] = actions.astype(raw_actions.dtype, copy=False)
+
+    def step_agent_observations(
+        self,
+        agent_ids: Sequence[int],
+        raw_observations: np.ndarray,
+    ) -> np.ndarray:
+        """Step a subset of slots with raw BitWorld pixel observations.
+
+        Coworld launches one policy container per player slot, while the
+        historical BitWorld runner calls ``step_batch`` with all slots at
+        once. This helper preserves the true slot id without forcing the
+        Coworld bridge to send zero frames for every other agent.
+        """
         observations = self._normalize_observations(raw_observations)
         batch_size = observations.shape[0]
-        self._ensure_agent_count(batch_size)
-        agent_ids = np.arange(batch_size, dtype=np.int32)
+        agent_ids_array = np.asarray(list(agent_ids), dtype=np.int32)
+        if agent_ids_array.shape != (batch_size,):
+            raise ValueError(
+                "agent_ids and raw_observations must have matching batch size."
+            )
+        if batch_size == 0:
+            return np.zeros((0,), dtype=np.int32)
+
+        highest_agent_id = int(agent_ids_array.max())
+        if highest_agent_id < 0:
+            raise ValueError("agent_ids must be non-negative.")
+        self._ensure_agent_count(highest_agent_id + 1)
         actions = np.zeros(batch_size, dtype=np.int32)
         self._lib.guidedbot_step_batch(
             self._handle,
-            agent_ids.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+            agent_ids_array.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
             ctypes.c_int(batch_size),
-            ctypes.c_int(max(self._num_agents, batch_size)),
+            ctypes.c_int(self._num_agents),
             ctypes.c_int(observations.shape[1]),
             ctypes.c_int(observations.shape[2]),
             ctypes.c_int(observations.shape[3]),
             ctypes.c_void_p(observations.ctypes.data),
             ctypes.c_void_p(actions.ctypes.data),
         )
-        self._last_actions[:batch_size] = actions
-        raw_actions[:batch_size] = actions.astype(raw_actions.dtype, copy=False)
-        for agent_id in range(batch_size):
-            self._drain_chat(agent_id)
+        for row, agent_id in enumerate(agent_ids_array):
+            self._last_actions[int(agent_id)] = actions[row]
+            self._drain_chat(int(agent_id))
+        return actions
 
     def step_agent(self, agent_id: int) -> int:
         if 0 <= agent_id < self._last_actions.shape[0]:

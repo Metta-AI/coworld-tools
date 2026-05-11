@@ -38,6 +38,8 @@ proc main() =
   # directly. This matters on machines with Bedrock credentials.
   putEnv("GUIDED_BOT_LLM_DISABLE", "1")
   delEnv("ANTHROPIC_API_KEY")
+  delEnv("COGAMES_LLM_PROVIDER")
+  delEnv("COGAMES_LLM_MODEL")
   delEnv("CLAUDE_CODE_USE_BEDROCK")
   delEnv("USE_BEDROCK")
 

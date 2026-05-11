@@ -132,7 +132,7 @@ work unless James explicitly asks for another policy.
 | [All-agent match](#all-agent-match-play_matchpy) | Starts server, fills all slots with agents | No (starts its own) | `scripts/play_match.py` |
 | [Standalone server](#standalone-server-serverpy) | Start a server only, print host:port | n/a | `scripts/server.py` |
 | [Capture frames](#capture-frames-capturepy) | Passive capture to .npy (no policy) | No (starts its own) | `scripts/capture.py` |
-| [Tournament submission](#tournament-submission-cogames-ship) | Bundle + validate + upload + submit | Cloud (Softmax infra) | `cogames ship` |
+| [Tournament submission](#tournament-submission-shipsh) | Bundle + validate + upload + submit | Cloud (Softmax infra) | `guided_bot/cogames/ship.sh` |
 | [Upload without submitting](#upload-without-submitting) | Bundle + upload only | Cloud (Softmax infra) | `cogames upload` + `cogames submit` |
 
 > `cogames play` does **not** support Among Them -- it only works for
@@ -294,23 +294,37 @@ James explicitly asks for modulabot.
 
 ---
 
-## Tournament submission (`cogames ship`)
+## Tournament submission (`ship.sh`)
 
 Use guided_bot's submission wrapper for active Among Them submissions:
 
 ```bash
 cd /Users/jamesboggs/coding/personal_cogs/among_them/guided_bot/cogames
-SEASON=among-them POLICY_NAME="$USER-guided-bot" ./ship.sh dry-run
+export SEASON=among-them
+export POLICY_NAME="$USER-guided-bot-$(date +%Y%m%d-%H%M%S)"
+./ship.sh dry-run
+# If dry-run passes:
+./ship.sh ship
+# If dry-run builds/runs cleanly but fails only "Policy took no actions",
+# use:
+./ship.sh ship-skip-validation
 ```
 
-Or run `cogames ship` directly from the repo root:
+Current `cogames ship` does not expose LLM credential flags. For
+guided_bot, the wrapper uses `cogames upload --season`, which validates,
+uploads, and submits unless `--no-submit` is present. To run it directly
+from the repo root:
 
 ```bash
-cogames ship \
-    -p "class=guided_bot.cogames.amongthem_policy.AmongThemPolicy" \
+.venv/bin/cogames upload \
+    -p class=amongthem_policy.AmongThemPolicy \
+    -f among_them/guided_bot/cogames/amongthem_policy.py \
     -f among_them/guided_bot \
     -f among_them/common/perception_kernels \
-    -n "$USER-guided-bot" \
+    --use-bedrock \
+    --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+    -n "$USER-guided-bot-$(date +%Y%m%d-%H%M%S)" \
     --season among-them \
     --dry-run          # remove once dry-run is clean
 ```
@@ -324,21 +338,29 @@ Split the process into separate steps when you want to upload first and
 submit later, or submit an already-uploaded policy to a different season:
 
 ```bash
+POLICY_NAME="$USER-guided-bot-$(date +%Y%m%d-%H%M%S)"
+
 # 1. Bundle
 cogames create-bundle \
-    -p "class=guided_bot.cogames.amongthem_policy.AmongThemPolicy" \
+    -p class=amongthem_policy.AmongThemPolicy \
     -o submission.zip \
+    -f among_them/guided_bot/cogames/amongthem_policy.py \
     -f among_them/guided_bot \
     -f among_them/common/perception_kernels
 
-# 2. Upload (dry-run validates in Docker)
-cogames upload -p ./submission.zip -n "$USER-guided-bot" --no-submit
+# 2. Upload only (validates in Docker unless --skip-validation is passed)
+cogames upload -p ./submission.zip \
+    -n "$POLICY_NAME" \
+    --use-bedrock \
+    --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+    --no-submit
 
 # 3. Submit to a season
-cogames submit "$USER-guided-bot" --season among-them
+cogames submit "$POLICY_NAME" --season among-them
 
 # 4. Track
-cogames submissions --season among-them --policy "$USER-guided-bot"
+cogames submissions --season among-them --policy "$POLICY_NAME"
 cogames season matches among-them --limit 20
 ```
 
