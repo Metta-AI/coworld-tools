@@ -64,6 +64,13 @@ proc colorName(idx: int): string =
   else:
     "unknown"
 
+proc taskStateStr(state: TaskSlotState): string =
+  case state
+  of TaskNotDoing:  "not_doing"
+  of TaskCheckout:  "checkout"
+  of TaskConfirmed: "confirmed"
+  of TaskCompleted: "completed"
+
 proc wakeReasonStr(w: WakeReason): string =
   case w
   of WakePeriodic:              "periodic"
@@ -94,6 +101,9 @@ proc renderSnapshot*(belief: Belief): string =
   selfObj["alive"] = newJBool(belief.self.alive)
   if belief.percep.localized:
     selfObj["position"] = %*[belief.percep.selfX, belief.percep.selfY]
+    let room = roomNameAt(referenceData.map, belief.percep.selfX, belief.percep.selfY)
+    if room != "unknown":
+      selfObj["room"] = newJString(room)
   selfObj["kill_cooldown_remaining"] = newJInt(belief.self.killCooldownRemaining)
   var impColors = newJArray()
   for c in belief.self.knownImposterColors:
@@ -161,14 +171,21 @@ proc renderSnapshot*(belief: Belief): string =
   # --- memory ---
   var memObj = newJObject()
 
-  # Per-player summaries.
+  # Per-player summaries. During meetings include all voting slots so the
+  # LLM can reason about alive/dead and no-evidence cases explicitly.
   var ppObj = newJObject()
   for i in 0 ..< PlayerColorCount:
     let ps = belief.memory.perPlayer[i]
-    # Only include players we've seen at least once.
-    if ps.lastSeenTick > 0:
+    let includePlayer =
+      ps.lastSeenTick > 0 or belief.self.phase == PhaseVoting or
+      ps.role != RoleUnknown or not ps.alive
+    if includePlayer:
       var pSummary = newJObject()
-      pSummary["last_seen_tick"] = newJInt(ps.lastSeenTick)
+      pSummary["color"] = newJString(colorName(i))
+      pSummary["alive"] = newJBool(ps.alive)
+      pSummary["role"] = newJString(roleStr(ps.role))
+      if ps.lastSeenTick > 0:
+        pSummary["last_seen_tick"] = newJInt(ps.lastSeenTick)
       if ps.lastSeenX != 0 or ps.lastSeenY != 0:
         let room = roomNameAt(referenceData.map, ps.lastSeenX, ps.lastSeenY)
         if room != "unknown":
@@ -186,11 +203,7 @@ proc renderSnapshot*(belief: Belief): string =
   for i, slot in belief.tasks.slots:
     var sObj = newJObject()
     sObj["index"] = newJInt(i)
-    case slot.state
-    of TaskNotDoing:  sObj["state"] = newJString("not_doing")
-    of TaskCheckout:  sObj["state"] = newJString("checkout")
-    of TaskConfirmed: sObj["state"] = newJString("confirmed")
-    of TaskCompleted: sObj["state"] = newJString("completed")
+    sObj["state"] = newJString(taskStateStr(slot.state))
     sObj["checkout"] = newJBool(slot.checkout)
     sObj["resolved_not_mine"] = newJBool(slot.resolvedNotMine)
     stationsArr.add sObj
@@ -205,14 +218,58 @@ proc renderSnapshot*(belief: Belief): string =
     wakeArr.add newJString(wakeReasonStr(w))
   root["wake_up_reasons"] = wakeArr
 
-  # --- recent_chat ---
-  var chatArr = newJArray()
+  # --- meeting context ---
+  if belief.self.phase == PhaseVoting:
+    var meetingObj = newJObject()
+    meetingObj["player_count"] = newJInt(belief.percep.votingPlayerCount)
+    meetingObj["self_slot"] = newJInt(belief.percep.votingSelfSlot)
+    meetingObj["cursor"] = newJInt(belief.percep.votingCursor)
+    var selectable = newJArray()
+    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
+      if i != belief.percep.votingSelfSlot and belief.memory.perPlayer[i].alive:
+        selectable.add newJString(colorName(i))
+    meetingObj["selectable_players"] = selectable
+    var votesObj = newJObject()
+    for voter in 0 ..< PlayerColorCount:
+      let target = belief.social.votesCast[voter]
+      if target == -1:
+        votesObj[colorName(voter)] = newJString("skip")
+      elif target >= 0 and target < PlayerColorCount:
+        votesObj[colorName(voter)] = newJString(colorName(target))
+    meetingObj["votes_observed"] = votesObj
+
+    var alibiArr = newJArray()
+    for i in 0 ..< PlayerColorCount:
+      let ps = belief.memory.perPlayer[i]
+      if i != belief.self.colorIndex and ps.alive and ps.lastSeenTick > 0 and
+         belief.tick - ps.lastSeenTick <= 480:
+        var aObj = newJObject()
+        aObj["color"] = newJString(colorName(i))
+        aObj["last_seen_tick"] = newJInt(ps.lastSeenTick)
+        let room = roomNameAt(referenceData.map, ps.lastSeenX, ps.lastSeenY)
+        if room != "unknown":
+          aObj["last_seen_room"] = newJString(room)
+        alibiArr.add aObj
+    meetingObj["recent_alibi_witnesses"] = alibiArr
+    root["meeting"] = meetingObj
+
+  # --- chat ---
+  var visibleChatArr = newJArray()
   for cl in belief.social.currentMeetingChat:
     var clObj = newJObject()
     clObj["tick"] = newJInt(cl.tick)
     clObj["speaker"] = newJString(colorName(cl.speakerColor))
     clObj["text"] = newJString(cl.text)
-    chatArr.add clObj
-  root["recent_chat"] = chatArr
+    visibleChatArr.add clObj
+  root["visible_chat"] = visibleChatArr
+
+  var recentChatArr = newJArray()
+  for cl in belief.social.recentChat:
+    var clObj = newJObject()
+    clObj["tick"] = newJInt(cl.tick)
+    clObj["speaker"] = newJString(colorName(cl.speakerColor))
+    clObj["text"] = newJString(cl.text)
+    recentChatArr.add clObj
+  root["recent_chat"] = recentChatArr
 
   $root

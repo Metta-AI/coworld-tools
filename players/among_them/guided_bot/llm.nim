@@ -1,28 +1,47 @@
 ## LLM client — phase 3.
 ##
 ## Adapted from `~/coding/bitworld/src/bitworld/ais/claude.nim` (curly +
-## jsony HTTP client). Calls the Anthropic Messages API synchronously
-## (intended to run on the guidance worker thread, never on the main
-## thread).
+## jsony HTTP client). Calls Claude synchronously through either AWS
+## Bedrock or the direct Anthropic Messages API (intended to run on the
+## guidance worker thread, never on the main thread).
 ##
-## The API key is read from env var `ANTHROPIC_API_KEY`, injected by
-## cogames via `--secret-env` in the tournament runner.
+## Provider selection follows the local Softmax convention:
+## `CLAUDE_CODE_USE_BEDROCK=1` / `USE_BEDROCK=true` prefers Bedrock
+## credentials; `ANTHROPIC_API_KEY` is only the direct-API fallback.
 
-import std/[os, json, strutils, times]
+import std/[os, osproc, json, strutils, times]
 import curly, jsony
+import crunchy/common
+import crunchy/sha256
 import types
 import perception/data
 import prompts
 
 const
   AnthropicKeyEnv* = "ANTHROPIC_API_KEY"
+  GuidedBotLlmDisableEnv* = "GUIDED_BOT_LLM_DISABLE"
+  GuidedBotLlmProviderEnv* = "GUIDED_BOT_LLM_PROVIDER"
+  GuidedBotLlmModelEnv* = "GUIDED_BOT_LLM_MODEL"
+  GuidedBotBedrockModelEnv* = "GUIDED_BOT_BEDROCK_MODEL"
+  GuidedBotAnthropicModelEnv* = "GUIDED_BOT_ANTHROPIC_MODEL"
+  ClaudeCodeBedrockEnv* = "CLAUDE_CODE_USE_BEDROCK"
+  CogamesBedrockEnv* = "USE_BEDROCK"
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
-  AnthropicModel = "claude-sonnet-4-20250514"
+  DefaultAnthropicModel = "claude-sonnet-4-20250514"
+  DefaultBedrockModel = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
   AnthropicVersion = "2023-06-01"
+  BedrockAnthropicVersion = "bedrock-2023-05-31"
+  BedrockService = "bedrock"
+  AwsCredsEndpoint = "http://169.254.170.2"
   MaxTokens = 1024
   TimeoutMs = 15_000   ## HTTP timeout in milliseconds.
 
 type
+  LlmProvider = enum
+    ProviderNone
+    ProviderAnthropic
+    ProviderBedrock
+
   LlmRequestKind* = enum
     LlmReqGameplay
     LlmReqMeeting
@@ -50,15 +69,102 @@ type
     responseTokens*: int
     detail*: string
 
+  AwsCredentials = object
+    accessKeyId: string
+    secretAccessKey: string
+    sessionToken: string
+
 # ---------------------------------------------------------------------------
-# API key
+# Provider selection / credentials
 # ---------------------------------------------------------------------------
+
+proc envFlag(name: string): bool =
+  let value = getEnv(name, "").strip().toLowerAscii()
+  value in ["1", "true", "yes", "on"]
+
+proc llmDisabled(): bool =
+  envFlag(GuidedBotLlmDisableEnv)
+
+proc bedrockRequested(): bool =
+  let provider = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
+  provider == "bedrock" or envFlag(ClaudeCodeBedrockEnv) or
+    envFlag(CogamesBedrockEnv)
+
+proc haveStaticAwsEnv(): bool =
+  getEnv("AWS_ACCESS_KEY_ID", "").len > 0 and
+    getEnv("AWS_SECRET_ACCESS_KEY", "").len > 0
+
+proc haveAwsCredentialHint(): bool =
+  haveStaticAwsEnv() or
+    getEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "").len > 0 or
+    getEnv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "").len > 0 or
+    getEnv("AWS_PROFILE", "").len > 0 or
+    bedrockRequested()
+
+proc selectedProvider(): LlmProvider =
+  if llmDisabled():
+    return ProviderNone
+  let provider = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
+  case provider
+  of "anthropic", "direct":
+    if getEnv(AnthropicKeyEnv, "").len > 0:
+      return ProviderAnthropic
+    return ProviderNone
+  of "bedrock":
+    if haveAwsCredentialHint():
+      return ProviderBedrock
+    return ProviderNone
+  of "", "auto":
+    if bedrockRequested() or getEnv(AnthropicKeyEnv, "").len == 0:
+      if haveAwsCredentialHint():
+        return ProviderBedrock
+    if getEnv(AnthropicKeyEnv, "").len > 0:
+      return ProviderAnthropic
+    if haveAwsCredentialHint():
+      return ProviderBedrock
+    return ProviderNone
+  else:
+    return ProviderNone
+
+proc haveLlmProvider*(): bool =
+  selectedProvider() != ProviderNone
 
 proc haveApiKey*(): bool =
-  getEnv(AnthropicKeyEnv, "").len > 0
+  ## Backwards-compatible name retained for older call sites/tests.
+  haveLlmProvider()
+
+proc currentProviderName*(): string =
+  case selectedProvider()
+  of ProviderAnthropic: "anthropic"
+  of ProviderBedrock: "bedrock"
+  of ProviderNone: "none"
+
+proc directAnthropicModel(): string =
+  let guided = getEnv(GuidedBotLlmModelEnv, "").strip()
+  if guided.len > 0:
+    return guided
+  let direct = getEnv(GuidedBotAnthropicModelEnv, "").strip()
+  if direct.len > 0:
+    return direct
+  DefaultAnthropicModel
+
+proc bedrockModel(): string =
+  for name in [GuidedBotLlmModelEnv, GuidedBotBedrockModelEnv,
+               "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_MODEL"]:
+    let value = getEnv(name, "").strip()
+    if value.len > 0:
+      return value
+  DefaultBedrockModel
+
+proc awsRegion(): string =
+  for name in ["AWS_REGION", "AWS_DEFAULT_REGION"]:
+    let value = getEnv(name, "").strip()
+    if value.len > 0:
+      return value
+  "us-east-1"
 
 # ---------------------------------------------------------------------------
-# Anthropic wire types (for jsony serialization)
+# Claude / AWS wire types (for jsony serialization)
 # ---------------------------------------------------------------------------
 
 type
@@ -72,12 +178,188 @@ type
     system: string
     messages: seq[AnthropicMessage]
 
+  BedrockRequest = object
+    anthropic_version: string
+    max_tokens: int
+    temperature: float
+    system: string
+    messages: seq[AnthropicMessage]
+
+proc parseClaudeTextResponse(body: string, latencyMs: int): LlmResult =
+  ## Parse the common Claude Messages response shape returned by both
+  ## direct Anthropic and Bedrock InvokeModel.
+  var data: JsonNode
+  try:
+    data = parseJson(body)
+  except CatchableError:
+    return LlmResult(kind: LlmSchemaError, latencyMs: latencyMs,
+                     rawResponse: body,
+                     detail: "Failed to parse response JSON")
+
+  var reply = ""
+  if data.hasKey("content"):
+    for part in data["content"]:
+      if part.hasKey("type") and part["type"].getStr() == "text":
+        reply.add part["text"].getStr()
+
+  var promptTok, responseTok: int
+  if data.hasKey("usage"):
+    let usage = data["usage"]
+    if usage.hasKey("input_tokens"):
+      promptTok = usage["input_tokens"].getInt()
+    elif usage.hasKey("inputTokens"):
+      promptTok = usage["inputTokens"].getInt()
+    if usage.hasKey("output_tokens"):
+      responseTok = usage["output_tokens"].getInt()
+    elif usage.hasKey("outputTokens"):
+      responseTok = usage["outputTokens"].getInt()
+
+  LlmResult(kind: LlmOk, rawResponse: reply, latencyMs: latencyMs,
+            promptTokens: promptTok, responseTokens: responseTok)
+
+proc stripQuotes(value: string): string =
+  result = value.strip()
+  if result.len >= 2 and
+     ((result[0] == '"' and result[^1] == '"') or
+      (result[0] == '\'' and result[^1] == '\'')):
+    result = result[1 .. ^2]
+
+proc parseAwsCredentialLines(output: string): AwsCredentials =
+  for rawLine in output.splitLines():
+    let line = rawLine.strip()
+    if line.len == 0 or line.startsWith("#"):
+      continue
+    let eq = line.find('=')
+    if eq <= 0:
+      continue
+    let key = line[0 ..< eq].strip()
+    let value = stripQuotes(line[eq + 1 .. ^1])
+    case key
+    of "AWS_ACCESS_KEY_ID": result.accessKeyId = value
+    of "AWS_SECRET_ACCESS_KEY": result.secretAccessKey = value
+    of "AWS_SESSION_TOKEN": result.sessionToken = value
+    else: discard
+
+proc fetchContainerCredentials(): (bool, AwsCredentials, string) =
+  ## Resolve ECS task-role credentials when cogames grants Bedrock via
+  ## `--use-bedrock`. The endpoint and token are local metadata; no
+  ## user secrets are logged.
+  let rel = getEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "").strip()
+  let full = getEnv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "").strip()
+  if rel.len == 0 and full.len == 0:
+    return (false, AwsCredentials(), "container credentials env not set")
+
+  let url = if full.len > 0: full else: AwsCredsEndpoint & rel
+  var headers: seq[(string, string)] = @[]
+  let token = getEnv("AWS_CONTAINER_AUTHORIZATION_TOKEN", "")
+  let tokenFile = getEnv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "")
+  if token.len > 0:
+    headers.add ("Authorization", token)
+  elif tokenFile.len > 0 and fileExists(tokenFile):
+    try:
+      headers.add ("Authorization", readFile(tokenFile).strip())
+    except CatchableError:
+      discard
+
+  let pool = newCurlPool(1)
+  defer: pool.close()
+  var response: Response
+  try:
+    response = pool.get(url, headers, 2.0'f32)
+  except CatchableError as e:
+    return (false, AwsCredentials(), "container credentials fetch failed: " & e.msg)
+
+  if response.code != 200:
+    return (false, AwsCredentials(),
+            "container credentials HTTP " & $response.code)
+
+  try:
+    let data = parseJson(response.body)
+    let creds = AwsCredentials(
+      accessKeyId: data.getOrDefault("AccessKeyId").getStr(""),
+      secretAccessKey: data.getOrDefault("SecretAccessKey").getStr(""),
+      sessionToken: data.getOrDefault("Token").getStr("")
+    )
+    if creds.accessKeyId.len > 0 and creds.secretAccessKey.len > 0:
+      return (true, creds, "")
+    (false, AwsCredentials(), "container credentials missing access key fields")
+  except CatchableError:
+    (false, AwsCredentials(), "container credentials JSON parse failed")
+
+proc exportAwsCliCredentials(): (bool, AwsCredentials, string) =
+  ## Local development path for AWS SSO profiles. `aws configure
+  ## export-credentials` resolves the standard CLI chain without
+  ## exposing credential values to logs.
+  if findExe("aws").len == 0:
+    return (false, AwsCredentials(), "aws CLI not found")
+  let (output, exitCode) = execCmdEx(
+    "aws configure export-credentials --format env-no-export"
+  )
+  if exitCode != 0:
+    return (false, AwsCredentials(), "aws credential export failed")
+  let creds = parseAwsCredentialLines(output)
+  if creds.accessKeyId.len > 0 and creds.secretAccessKey.len > 0:
+    return (true, creds, "")
+  (false, AwsCredentials(), "aws credential export missing access key fields")
+
+proc resolveAwsCredentials(): (bool, AwsCredentials, string) =
+  let envCreds = AwsCredentials(
+    accessKeyId: getEnv("AWS_ACCESS_KEY_ID", ""),
+    secretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
+    sessionToken: getEnv("AWS_SESSION_TOKEN", "")
+  )
+  if envCreds.accessKeyId.len > 0 and envCreds.secretAccessKey.len > 0:
+    return (true, envCreds, "")
+
+  let (metadataOk, metadataCreds, metadataDetail) = fetchContainerCredentials()
+  if metadataOk:
+    return (true, metadataCreds, "")
+
+  let (cliOk, cliCreds, cliDetail) = exportAwsCliCredentials()
+  if cliOk:
+    return (true, cliCreds, "")
+
+  (false, AwsCredentials(),
+   metadataDetail & "; " & cliDetail)
+
 # ---------------------------------------------------------------------------
-# HTTP call via curly
+# HTTP calls via curly
 # ---------------------------------------------------------------------------
 
-proc httpPost(systemPrompt, userContent: string,
-              conversationHistory: seq[AnthropicMessage] = @[]): LlmResult =
+proc awsUriEncode(value: string): string =
+  ## AWS SigV4 URI encoding for a single path segment.
+  const hex = "0123456789ABCDEF"
+  for ch in value:
+    if ch in {'A'..'Z'} or ch in {'a'..'z'} or ch in {'0'..'9'} or
+       ch in {'-', '_', '.', '~'}:
+      result.add ch
+    else:
+      let b = ord(ch)
+      result.add '%'
+      result.add hex[(b shr 4) and 0xF]
+      result.add hex[b and 0xF]
+
+proc sha256Hex(value: string): string =
+  sha256(value).toHex()
+
+proc sigv4SigningKey(secretKey, dateStamp, region, service: string): array[32, uint8] =
+  let kDate = hmacSha256("AWS4" & secretKey, dateStamp)
+  let kRegion = hmacSha256(kDate, region)
+  let kService = hmacSha256(kRegion, service)
+  hmacSha256(kService, "aws4_request")
+
+proc awsIsoDate(): (string, string) =
+  let ts = now().utc()
+  (ts.format("yyyyMMdd'T'HHmmss'Z'"), ts.format("yyyyMMdd"))
+
+proc buildAnthropicMessages(userContent: string,
+                            conversationHistory: seq[AnthropicMessage]): seq[AnthropicMessage] =
+  for msg in conversationHistory:
+    result.add msg
+  result.add AnthropicMessage(role: "user", content: userContent)
+
+proc httpPostAnthropic(systemPrompt, userContent: string,
+                       conversationHistory: seq[AnthropicMessage] = @[]): LlmResult =
   ## Send a request to the Anthropic Messages API. Returns the
   ## assistant's text reply or an error result.
   ##
@@ -89,15 +371,10 @@ proc httpPost(systemPrompt, userContent: string,
   if apiKey.len == 0:
     return LlmResult(kind: LlmNoKey, detail: "ANTHROPIC_API_KEY not set")
 
-  var messages: seq[AnthropicMessage]
-  # Append conversation history (meeting mode).
-  for msg in conversationHistory:
-    messages.add msg
-  # Append the current user message.
-  messages.add AnthropicMessage(role: "user", content: userContent)
+  let messages = buildAnthropicMessages(userContent, conversationHistory)
 
   let reqBody = AnthropicRequest(
-    model: AnthropicModel,
+    model: directAnthropicModel(),
     max_tokens: MaxTokens,
     system: systemPrompt,
     messages: messages
@@ -106,6 +383,7 @@ proc httpPost(systemPrompt, userContent: string,
   let startTime = cpuTime()
   var response: Response
   let pool = newCurlPool(1)
+  defer: pool.close()
   try:
     response = pool.post(
       AnthropicUrl,
@@ -136,32 +414,137 @@ proc httpPost(systemPrompt, userContent: string,
                      rawResponse: response.body,
                      detail: "HTTP " & $response.code)
 
-  # Parse the response body to extract the text content.
-  var data: JsonNode
+  parseClaudeTextResponse(response.body, elapsed)
+
+proc httpPostBedrock(systemPrompt, userContent: string,
+                     conversationHistory: seq[AnthropicMessage] = @[]): LlmResult =
+  ## Send a Claude Messages request through AWS Bedrock InvokeModel.
+  let (credsOk, creds, credDetail) = resolveAwsCredentials()
+  if not credsOk:
+    return LlmResult(kind: LlmNoKey,
+                     detail: "AWS Bedrock credentials unavailable: " & credDetail)
+
+  let region = awsRegion()
+  let host = "bedrock-runtime." & region & ".amazonaws.com"
+  let model = bedrockModel()
+  let encodedModel = awsUriEncode(model)
+  let canonicalUri = "/model/" & encodedModel & "/invoke"
+  # Send the raw model id in the URL. SigV4 signs the single-encoded
+  # canonical URI above; passing an already-escaped id to libcurl causes
+  # AWS to canonicalize `%` again and reject the signature.
+  let url = "https://" & host & "/model/" & model & "/invoke"
+  let messages = buildAnthropicMessages(userContent, conversationHistory)
+  let reqBody = BedrockRequest(
+    anthropic_version: BedrockAnthropicVersion,
+    max_tokens: MaxTokens,
+    temperature: 0.0,
+    system: systemPrompt,
+    messages: messages
+  )
+  let payload = reqBody.toJson()
+  let payloadHash = sha256Hex(payload)
+  let (amzDate, dateStamp) = awsIsoDate()
+
+  var signedHeaders = "accept;content-type;host;x-amz-content-sha256;x-amz-date"
+  var canonicalHeaders =
+    "accept:application/json\n" &
+    "content-type:application/json\n" &
+    "host:" & host & "\n" &
+    "x-amz-content-sha256:" & payloadHash & "\n" &
+    "x-amz-date:" & amzDate & "\n"
+  if creds.sessionToken.len > 0:
+    signedHeaders.add ";x-amz-security-token"
+    canonicalHeaders.add "x-amz-security-token:" & creds.sessionToken & "\n"
+
+  let canonicalRequest =
+    "POST\n" & canonicalUri & "\n\n" & canonicalHeaders & "\n" &
+    signedHeaders & "\n" & payloadHash
+  let credentialScope =
+    dateStamp & "/" & region & "/" & BedrockService & "/aws4_request"
+  let stringToSign =
+    "AWS4-HMAC-SHA256\n" & amzDate & "\n" & credentialScope & "\n" &
+    sha256Hex(canonicalRequest)
+  let signingKey = sigv4SigningKey(
+    creds.secretAccessKey, dateStamp, region, BedrockService
+  )
+  let signature = hmacSha256(signingKey, stringToSign).toHex()
+  let authorization =
+    "AWS4-HMAC-SHA256 Credential=" & creds.accessKeyId & "/" &
+    credentialScope & ", SignedHeaders=" & signedHeaders &
+    ", Signature=" & signature
+
+  var headers = @[
+    ("Accept", "application/json"),
+    ("Content-Type", "application/json"),
+    ("Host", host),
+    ("X-Amz-Content-Sha256", payloadHash),
+    ("X-Amz-Date", amzDate),
+    ("Authorization", authorization)
+  ]
+  if creds.sessionToken.len > 0:
+    headers.add ("X-Amz-Security-Token", creds.sessionToken)
+
+  let startTime = cpuTime()
+  var response: Response
+  let pool = newCurlPool(1)
+  defer: pool.close()
   try:
-    data = parseJson(response.body)
-  except CatchableError:
-    return LlmResult(kind: LlmSchemaError, latencyMs: elapsed,
-                     rawResponse: response.body,
-                     detail: "Failed to parse response JSON")
+    response = pool.post(
+      url,
+      headers,
+      payload,
+      float32(TimeoutMs) / 1000.0'f32
+    )
+  except CatchableError as e:
+    let elapsed = int((cpuTime() - startTime) * 1000)
+    let lowerMsg = e.msg.toLowerAscii()
+    if lowerMsg.contains("timeout") or lowerMsg.contains("timed out"):
+      return LlmResult(kind: LlmTimeout, latencyMs: elapsed,
+                       detail: "Bedrock HTTP timeout: " & e.msg)
+    return LlmResult(kind: LlmHttpError, latencyMs: elapsed,
+                     detail: "Bedrock HTTP error: " & e.msg)
 
-  var reply = ""
-  if data.hasKey("content"):
-    for part in data["content"]:
-      if part.hasKey("type") and part["type"].getStr() == "text":
-        reply.add part["text"].getStr()
+  let elapsed = int((cpuTime() - startTime) * 1000)
 
-  # Extract token usage if available.
-  var promptTok, responseTok: int
-  if data.hasKey("usage"):
-    let usage = data["usage"]
-    if usage.hasKey("input_tokens"):
-      promptTok = usage["input_tokens"].getInt()
-    if usage.hasKey("output_tokens"):
-      responseTok = usage["output_tokens"].getInt()
+  proc bedrockErrorDetail(): string =
+    result = "Bedrock HTTP " & $response.code
+    try:
+      let data = parseJson(response.body)
+      if data.hasKey("message"):
+        var msg = data["message"].getStr("").strip()
+        let canonicalAt = msg.find("\n\nThe Canonical String")
+        if canonicalAt >= 0:
+          msg = msg[0 ..< canonicalAt].strip()
+        if msg.len > 240:
+          msg = msg[0 ..< 240] & "..."
+        if msg.len > 0:
+          result.add ": " & msg
+    except CatchableError:
+      discard
 
-  LlmResult(kind: LlmOk, rawResponse: reply, latencyMs: elapsed,
-            promptTokens: promptTok, responseTokens: responseTok)
+  if response.code == 429:
+    return LlmResult(kind: LlmRateLimit, latencyMs: elapsed,
+                     detail: "Bedrock rate limited (429)")
+  if response.code != 200:
+    return LlmResult(kind: LlmHttpError, latencyMs: elapsed,
+                     detail: bedrockErrorDetail())
+
+  parseClaudeTextResponse(response.body, elapsed)
+
+proc httpPost(systemPrompt, userContent: string,
+              conversationHistory: seq[AnthropicMessage] = @[]): LlmResult =
+  case selectedProvider()
+  of ProviderAnthropic:
+    httpPostAnthropic(systemPrompt, userContent, conversationHistory)
+  of ProviderBedrock:
+    httpPostBedrock(systemPrompt, userContent, conversationHistory)
+  of ProviderNone:
+    let detail =
+      if llmDisabled():
+        "LLM disabled by " & GuidedBotLlmDisableEnv
+      else:
+        "No Anthropic API key or AWS Bedrock credentials configured"
+    LlmResult(kind: LlmNoKey, detail: detail)
 
 # ---------------------------------------------------------------------------
 # JSON response parsing → Directive / MeetingAction
@@ -405,8 +788,8 @@ proc parseMeetingActionFromJson(raw: string): (bool, MeetingAction) =
 # ---------------------------------------------------------------------------
 
 proc callLlm*(req: LlmRequest): LlmResult =
-  ## Call the Anthropic Messages API. Synchronous — designed to run on
-  ## the guidance worker thread.
+  ## Call Claude through the selected provider. Synchronous — designed
+  ## to run on the guidance worker thread.
   ##
   ## For gameplay requests: sends the snapshot as the user message with
   ## the gameplay system prompt. Parses the response into a Directive.
@@ -415,7 +798,7 @@ proc callLlm*(req: LlmRequest): LlmResult =
   ## with the meeting system prompt. Parses into a MeetingAction.
   if not haveApiKey():
     return LlmResult(kind: LlmNoKey,
-                     detail: "ANTHROPIC_API_KEY not set")
+                     detail: "No enabled LLM provider")
 
   let systemPrompt = case req.kind
     of LlmReqGameplay: GameplaySystemPrompt

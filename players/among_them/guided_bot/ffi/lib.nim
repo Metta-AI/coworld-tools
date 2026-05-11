@@ -22,7 +22,7 @@ when defined(guidedBotLibrary):
   import ../trace
   import std/strutils
 
-  const GuidedBotAbiVersion* = 2
+  const GuidedBotAbiVersion* = 3
 
   ## Action-index table. Ordering must match
   ## `mettagrid.bitworld.BITWORLD_ACTION_MASKS` exactly. Pattern:
@@ -154,6 +154,35 @@ when defined(guidedBotLibrary):
       )
       let mask = policy.bots[agentId].stepUnpackedFramePtr(frame, rowLen)
       outs[row] = actionIndexForMask(mask)
+
+  proc copyToBuffer(text: string, buffer: pointer, bufferLen: cint): cint =
+    ## Copies up to ``bufferLen - 1`` bytes and NUL-terminates.
+    if buffer.isNil or bufferLen <= 0 or text.len == 0:
+      return cint(0)
+    let dst = cast[ptr UncheckedArray[byte]](buffer)
+    let maxLen = min(text.len, int(bufferLen) - 1)
+    for i in 0 ..< maxLen:
+      dst[i] = byte(text[i])
+    dst[maxLen] = 0
+    cint(maxLen)
+
+  proc guidedbot_take_chat*(
+      handle: cint,
+      agentId: cint,
+      buffer: pointer,
+      bufferLen: cint): cint {.exportc, dynlib.} =
+    ## Drains one queued meeting chat line for the Python/WebSocket bridge.
+    if handle < 0 or int(handle) >= GuidedBotPolicies.len:
+      return cint(0)
+    let policy = GuidedBotPolicies[int(handle)]
+    if policy.isNil or int(agentId) < 0 or int(agentId) >= policy.bots.len:
+      return cint(0)
+    let text = policy.bots[int(agentId)].actionState.pendingChat
+    if text.len == 0:
+      return cint(0)
+    let written = copyToBuffer(text, buffer, bufferLen)
+    policy.bots[int(agentId)].actionState.pendingChat = ""
+    written
 
   proc guidedbot_destroy_policy*(handle: cint) {.exportc, dynlib.} =
     ## Tear down a policy: call destroyBot on each bot (stops guidance

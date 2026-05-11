@@ -25,6 +25,11 @@ const
   MeetingDurationEstimateTicks* = 600 ## Conservative estimate of meeting duration (~25s at 24Hz).
   MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote no-LLM target after 15s with no LLM action.
   MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor pulse before releasing.
+  MeetingLlmActionPeriodTicks* = 48   ## During meetings, ask for the next LLM action more often than gameplay.
+  MeetingCrewEvidenceThreshold* = 5   ## Minimum fallback suspicion score before crew votes a player.
+  MeetingBodyEvidenceRadius*  = 48   ## World-px radius for "seen near a body" memory evidence.
+  MeetingBodyEvidenceCooldownTicks* = 72 ## Cooldown before counting the same near-body evidence again.
+  MeetingChatMaxLen*          = 80   ## Hard cap for outbound chat text passed to the server.
 
   # --- Voting-screen detection fallback --------------------------------
   VotingProbeIntervalTicks*   = 12   ## Min ticks between voting-parse attempts on non-

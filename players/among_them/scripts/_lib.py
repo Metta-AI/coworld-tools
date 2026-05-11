@@ -46,6 +46,7 @@ from mettagrid.bitworld import (
     BITWORLD_ACTION_NAMES,
     BITWORLD_DEFAULT_FRAME_STACK,
     PACKED_FRAME_BYTES,
+    pack_chat_packet,
     pack_input_packet,
 )
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
@@ -514,7 +515,15 @@ def agent_loop(
             if hasattr(policy, "last_chat"):
                 chat_text = policy.last_chat(0)
                 if chat_text:
-                    log.info("[%s] chat queued: %r", tag, chat_text)
+                    log.info("[%s] chat sent: %r", tag, chat_text)
+                    try:
+                        ws.send(
+                            pack_chat_packet(chat_text),
+                            opcode=websocket.ABNF.OPCODE_BINARY,
+                        )
+                    except Exception as exc:
+                        log.info("[%s] Chat send failed: %s", tag, exc)
+                        break
 
             result.frame_count += 1
     except Exception as exc:

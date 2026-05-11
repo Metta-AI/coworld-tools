@@ -564,6 +564,8 @@ proc initActionState*(): ActionState =
     taskHoldTicks: 0,
     lastLookahead: Point(x: 0, y: 0),
     lastLookaheadValid: false,
+    pendingChat: "",
+    lastChatTick: -1000000,
   )
 
 proc goalChanged*(state: ActionState, goalX, goalY: int): bool =

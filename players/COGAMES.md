@@ -316,15 +316,25 @@ submit). For Among Them work in this repo, use
 `among_them/guided_bot/cogames/ship.sh` or explicit `cogames` commands
 against `guided_bot`; the local modulabot is deprecated.
 
-### Secrets (LLM keys, etc.)
+### Secrets / Bedrock (LLM credentials, etc.)
 
-If your policy needs an API key at runtime:
+If your policy needs direct API keys at runtime:
 
 ```bash
 cogames upload -p ./my_policy -n my-llm-policy \
     --secret-env ANTHROPIC_API_KEY=sk-ant-... \
     --secret-env OTHER_SECRET=value
 ```
+
+If your policy uses AWS Bedrock, prefer the built-in flag:
+
+```bash
+cogames upload -p ./my_policy -n my-bedrock-policy --use-bedrock
+```
+
+`--use-bedrock` sets `USE_BEDROCK=true` in the policy environment and
+grants Bedrock access in the cogames runtime. guided_bot's `ship.sh`
+passes this flag by default.
 
 See `~/coding/metta/packages/cogames/POLICY_SECRETS.md` for storage,
 scoping, and cleanup details.

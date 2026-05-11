@@ -168,11 +168,11 @@ proc postKillPlanStr(plan: PostKillPlanKind): string =
   of PkPlayer:  "player"
 
 proc ensureGuidanceStarted(bot: var Bot) =
-  ## Start the guidance worker thread on the first frame, if an API
-  ## key is available. No-op if already started or no key.
+  ## Start the guidance worker thread on the first frame, if an LLM
+  ## provider is available. No-op if already started or no provider.
   if bot.guidanceStarted:
     return
-  if haveApiKey():
+  if haveLlmProvider():
     startGuidance(bot.guidance)
     bot.guidanceStarted = true
 
@@ -186,6 +186,17 @@ proc shouldSubmitSnapshot(bot: Bot): bool =
 
   # Always submit if wake-up reasons are pending.
   if bot.belief.flags.wakeReasons.len > 0:
+    return true
+
+  # Meetings need several single-action LLM calls (speak -> vote ->
+  # confirm) inside a short voting timer, so use a faster cadence than
+  # the gameplay strategy loop while the meeting is still undecided.
+  if bot.belief.self.phase == PhaseVoting and
+     bot.modeScratch.mode == ModeMeeting and
+     not bot.modeScratch.meetVoteConfirmed and
+     bot.modeScratch.meetPendingActions.len == 0 and
+     (tick - bot.guidance.lastCallTick >= MeetingLlmActionPeriodTicks or
+      bot.guidance.lastCallTick < 0):
     return true
 
   # Periodic submission every GuidancePeriodTicks.
@@ -666,6 +677,15 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
     payload["target"] = newJInt(bot.modeScratch.meetVoteTarget)
     payload["self_slot"] = newJInt(bot.belief.percep.votingSelfSlot)
     logGameEvent(bot.trace, "vote_attempted", bot.belief.tick, $payload)
+
+  # 4a''. Meeting chat: the action layer owns the one-line outbound
+  # buffer that the FFI/Python bridge drains after step_batch.
+  if intent.chat.len > 0:
+    let queued = emitChat(bot.actionState, bot.belief.tick, intent.chat)
+    if queued and bot.trace != nil:
+      var payload = newJObject()
+      payload["text"] = newJString(bot.actionState.pendingChat)
+      logGameEvent(bot.trace, "chat_sent", bot.belief.tick, $payload)
 
   # 4b. Trace: task_started event (Navigate→Hold transition detected
   #     by checking if we just entered Hold this tick).

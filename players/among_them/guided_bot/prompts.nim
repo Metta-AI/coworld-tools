@@ -73,17 +73,22 @@ RULES:
 
 CREWMATE MEETING STRATEGY:
 - Share evidence about suspicious players.
-- Vote for the most suspicious player based on evidence.
+- Vote for the most suspicious player based on memory evidence:
+  witnessed kills, players repeatedly seen near bodies, vote dots,
+  credible chat accusations, and last-seen rooms.
 - Don't vote without evidence — voting skip is better than a random vote.
 - Pay attention to what others say and who accuses whom.
 - Defend yourself if accused, citing alibis (who you were near, what tasks you did).
 
 IMPOSTER MEETING STRATEGY:
+- Use the memory fields as alibi material: cite recent rooms, nearby
+  witnesses, fake task context, and uncertainty.
 - Deflect suspicion. Accuse crewmates who might have evidence against you.
 - Build on existing accusations (bandwagon).
 - Don't be the first to accuse unless you have a cover story.
 - Vote with the majority to blend in.
 - If someone saw you near a body, have a story ready.
+- Never vote for yourself or a known imposter teammate.
 
 AVAILABLE ACTIONS:
 - speak: Say something in chat.

@@ -6,26 +6,30 @@ Organized by category, then by feature/mode. Priority in brackets.
 
 ## New Features
 
-### Meeting chat emission [MEDIUM]
+### Meeting LLM tuning [MEDIUM]
 
-Agents don't chat during meetings. LLM generates `MeetingActSpeak` w/ text,
-infra queues it through meeting mode, but emission to server is stubbed.
+Meeting chat and vote plumbing is implemented and live-validated with
+Bedrock in a full 8-agent standard run. Without an available LLM
+provider, the guidance worker does not start; the bot uses evidence/alibi
+fallback strategy after `MeetingAutoVoteDelayTicks=360`.
 
 **Current state:**
-- `modes/meeting.nim`: `MeetingActSpeak` sets `intent.chat`
-- `action.nim`: `emitChat` is still a hard no-op (`discard; false`)
-- `ffi/lib.nim`: only returns button-mask action indices; no text mechanism
-- Server accepts chat via separate WS text message, not button presses
+- `modes/meeting.nim`: consumes `speak`, `vote`, `confirm_vote`, `unvote`, `wait`
+- `action.nim`: queues sanitized chat in `ActionState.pendingChat`
+- `ffi/lib.nim`: exports `guidedbot_take_chat`
+- `cogames/amongthem_policy.py`: exposes `bitworld_chat_messages(agent_ids)`
+- `snapshot.nim`: meeting context includes memory evidence, vote dots, chat,
+  selectable players, and alibi witnesses
+- `llm.nim`: Bedrock provider is wired and smoke-tested; direct Anthropic
+  remains a fallback
 
 **Needed:**
-1. New FFI export — `guidedbot_get_chat(handle, agentId)` returning pending text
-2. Python wrapper — after `step_batch`, poll agents for chat, send via
-   `ws.send(json.dumps({"type":"chat", "text": ...}))`
-3. Rate limiting — `MeetingChatLineGapTicks=12` defined in `tuning.nim` but unused
-
-**Note:** Without `ANTHROPIC_API_KEY`, guidance worker never starts, no meeting
-actions are generated, and the bot uses the temporary mechanical vote target
-after `MeetingAutoVoteDelayTicks=360`.
+1. Inspect whether `meeting_action_received`, `chat_sent`, and
+   `vote_attempted` sequencing is strategically useful before fallback.
+2. Tune `MeetingLlmActionPeriodTicks` / prompt if the LLM waits too long or
+   fails to confirm.
+3. Tighten chat formatting and evidence wording; current traces include
+   occasional rough generated text such as missing spaces.
 
 **Key code:** `modes/meeting.nim`, `action.nim`, `ffi/lib.nim`,
 `cogames/amongthem_policy.py`, `tuning.nim`
@@ -259,12 +263,11 @@ than the authoritative server task counter.
 
 ---
 
-### Meeting vote strategy [LOW]
+### Meeting LLM vote quality [LOW]
 
-The no-LLM meeting fallback is temporarily wired to vote for the next
-selectable live player slot to the right, starting from
-`(self_slot + 1) mod player_count`. This is intentional mechanical scaffolding
-to validate live cursor parsing, navigation, and confirmation.
+The no-LLM meeting fallback now uses role-aware evidence/alibi strategy:
+crewmates require suspicion evidence before voting a player, imposters avoid
+self/known teammates and blend into existing accusations when possible.
 
 **Current evidence:** voting mechanics are now proven end-to-end in the
 2026-05-10 full-trace live run
@@ -272,10 +275,10 @@ to validate live cursor parsing, navigation, and confirmation.
 Living bots reached intentional targets and emitted `vote_attempted`; ghost bots
 did not vote.
 
-**Next step:** replace the temporary target with real crew/imposter vote policy
-after chat emission and meeting-context strategy are ready.
+**Next step:** run the LLM-enabled path live and inspect whether generated
+vote targets improve on fallback decisions.
 
-**Key code:** `modes/meeting.nim`
+**Key code:** `modes/meeting.nim`, `snapshot.nim`, `prompts.nim`
 
 ---
 

@@ -112,27 +112,25 @@ action layer presses A within `ReportRange = 20` px.
 **What exists:** LLM-driven action queue (speak, vote, confirm,
 unvote, wait). Cursor-aware vote navigation, edge-triggered cursor
 pulses, self-vote prevention, 600-tick timer estimate, auto-vote
-delay, and temporary no-LLM live-target selection are implemented.
+delay, chat emission through FFI/Python WebSocket plumbing, and
+role-aware evidence/alibi fallback selection are implemented.
 Live verification on 2026-05-10 confirmed that living bots can vote for
 specific slots in 8-agent/2-imposter meetings and ghosts do not vote.
 
 **What's missing:**
 
-1. **Chat is dead.** `MeetingActSpeak` sets `intent.chat` but
-   `action.nim:emitChat` is a stub (always returns false). Chat text
-   from the LLM is silently dropped. Fix: implement chat emission in
-   the action layer — the FFI needs to expose chat packets to the
-   game protocol, or the chat field needs to be wired through the
-   button-mask output in a way the Python harness can forward.
+1. **LLM strategy tuning.** The plumbing is in place and full 8-agent
+   Bedrock validation confirms `meeting_action_received`, `chat_sent`,
+   and `vote_attempted` sequencing with zero LLM failures. Next pass:
+   tune speak→vote→confirm quality, chat wording, and vote rationale
+   under the meeting timer.
 
-2. **Strategy-level vote choice.** The current no-LLM path deliberately
-   votes for the next selectable live player slot to the right so the
-   mechanics are easy to test. Replace this with evidence-based
-   LLM/game-state strategy once chat plumbing and meeting context are
-   ready.
+2. **Self vote memory.** Other players' vote dots are merged into
+   `social.votesCast`; the bot's own confirmed target is not yet
+   persisted back into social memory after confirmation.
 
-Cursor tracking and vote confirmation are done; chat emission and vote
-strategy remain deferred.
+Cursor tracking, vote confirmation, chat emission, and fallback vote
+strategy are implemented; LLM-quality iteration remains.
 
 ### 6.4 `hunting` — cover rotation + target memory (P2)
 
@@ -285,7 +283,7 @@ For historical phase completion, see [`README.md`](README.md).
 |---|---|---|---|---|
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
-| 6.3 | `meeting` chat + cursor | P1 | Medium | **Partial** (cursor parse/navigation/confirmation live-verified 2026-05-10; chat emission and evidence-based vote strategy deferred) |
+| 6.3 | `meeting` chat + cursor | P1 | Medium | **Done** (cursor parse/navigation/confirmation live-verified 2026-05-10; chat emission and evidence/alibi fallback strategy implemented; LLM quality validation remains) |
 | 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (kill confirmation still affected by localization-drop bug; see TODO.md) |
 | 6.5 | `pretending` fake A-press | P2 | Small | **Done** |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** |

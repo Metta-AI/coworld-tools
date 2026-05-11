@@ -1,5 +1,5 @@
 ## Phase-5 fallback-only playability test. Proves the bot plays a
-## full match sequence without the LLM (no ANTHROPIC_API_KEY set).
+## full match sequence without the LLM (provider explicitly disabled).
 ##
 ## DESIGN.md §9.2 requirements:
 ##   - Play every phase without crashing.
@@ -11,8 +11,8 @@
 ## Strategy: replay the real fixture frames (test/fixtures/) through
 ## `stepUnpackedFrame` in a deterministic sequence that exercises the
 ## gameplay→interstitial→gameplay transitions a real match produces.
-## The bot runs on scripted defaults the entire time because
-## ANTHROPIC_API_KEY is explicitly cleared.
+## The bot runs on scripted defaults the entire time because the LLM
+## provider is explicitly disabled.
 ##
 ## Run:
 ##   nim c -r -d:release --threads:on --mm:orc \
@@ -50,13 +50,16 @@ proc loadFixture(name: string): seq[uint8] =
     result[i] = uint8(data[i])
 
 # ---------------------------------------------------------------------------
-# 1. Ensure ANTHROPIC_API_KEY is unset
+# 1. Ensure LLM provider is disabled
 # ---------------------------------------------------------------------------
 
-proc clearApiKey() =
-  ## Force the API key out of the environment so the bot runs on
-  ## scripted defaults only. The guidance worker will never start.
+proc disableLlm() =
+  ## Force the bot onto scripted defaults only. This matters on local
+  ## machines where AWS Bedrock credentials may be present by default.
+  putEnv("GUIDED_BOT_LLM_DISABLE", "1")
   delEnv("ANTHROPIC_API_KEY")
+  delEnv("CLAUDE_CODE_USE_BEDROCK")
+  delEnv("USE_BEDROCK")
 
 # ---------------------------------------------------------------------------
 # 2. Validation-gate test: non-NOOP within 10 frames
@@ -66,7 +69,7 @@ proc testValidationGate() =
   ## Replay gameplay fixtures as if they're consecutive frames. The bot
   ## must emit at least one non-NOOP mask within the first 10 frames.
   ## This mirrors the cogames 10-step dry-run gate (DESIGN.md §9.3).
-  clearApiKey()
+  disableLlm()
   var b = initBot()
   defer: destroyBot(b)
 
@@ -108,7 +111,7 @@ proc testModeTransitions() =
   ## transitions between modes. At minimum: the initial idle mode
   ## should transition to task_completing once the localizer locks
   ## and role detection kicks in.
-  clearApiKey()
+  disableLlm()
   var b = initBot()
   defer: destroyBot(b)
 
@@ -173,7 +176,7 @@ proc testNoCrashFullSequence() =
   ## Replay all fixtures in a long sequence to prove the bot doesn't
   ## crash, panic, or enter an unrecoverable state. Exercises the full
   ## gameplay→interstitial→gameplay→interstitial cycle.
-  clearApiKey()
+  disableLlm()
   var b = initBot()
   defer: destroyBot(b)
 
@@ -224,9 +227,9 @@ proc testNoCrashFullSequence() =
 # ---------------------------------------------------------------------------
 
 proc testDefaultDirectiveSource() =
-  ## Verify that with no API key, the directive source stays "default"
+  ## Verify that with no LLM provider, the directive source stays "default"
   ## or "reflex" throughout — never "llm".
-  clearApiKey()
+  disableLlm()
   var b = initBot()
   defer: destroyBot(b)
 
@@ -239,7 +242,7 @@ proc testDefaultDirectiveSource() =
     let src = b.belief.directive.source
     expect(src != SourceLlm,
       &"tick {i+1}: directive source must not be SourceLlm " &
-      "when ANTHROPIC_API_KEY is unset (got " & $src & ")")
+      "when the LLM provider is disabled (got " & $src & ")")
 
 # ---------------------------------------------------------------------------
 # Entry point

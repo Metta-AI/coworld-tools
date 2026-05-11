@@ -9,6 +9,7 @@ import std/strformat
 import ../types
 import ../belief
 import ../tuning
+import ../action
 import ../modes/meeting as meetingMode
 
 var failures = 0
@@ -88,43 +89,85 @@ proc testConfirmOnSkipStillVotes() =
   expect(intent.pressA, "confirm on SKIP presses A")
   expect(scratch.meetVoteConfirmed, "confirm on SKIP marks vote confirmed")
 
-proc testAutoVoteTargetsRightNeighbor() =
+proc testSpeakActionEmitsChatIntent() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActSpeak,
+    text: "red was near body",
+    target: -1)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(intent.chat, "red was near body",
+           "speak action exposes chat text on intent")
+
+proc testEmitChatQueuesSanitizedText() =
+  var state = initActionState()
+
+  let queued = emitChat(state, 100, "  red was near body  ")
+  expect(queued, "emitChat queues a clean chat line")
+  expectEq(state.pendingChat, "red was near body",
+           "emitChat trims outbound chat")
+
+  let blocked = emitChat(state, 101, "second line")
+  expect(not blocked, "emitChat does not overwrite pending chat")
+
+proc testCrewAutoVoteSkipsWithoutEvidence() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  var scratch = makeScratch(belief)
+  belief.tick = 100 + MeetingAutoVoteDelayTicks
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 4,
+           "crew auto-vote targets SKIP without evidence")
+  expect(not intent.pressA,
+         "auto-vote navigates before confirming when cursor is not on target")
+
+proc testCrewAutoVoteTargetsEvidence() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  belief.memory.perPlayer[2].timesNearBody = 1
   var scratch = makeScratch(belief)
   belief.tick = 100 + MeetingAutoVoteDelayTicks
 
   let intent = meetingMode.decide(belief, meetingParams(), scratch)
 
   expectEq(scratch.meetVoteTarget, 2,
-           "auto-vote targets the next slot to the right")
+           "crew auto-vote targets strongest memory evidence")
   expect(not intent.pressA,
-         "auto-vote navigates before confirming when cursor is not on target")
+         "auto-vote navigates before confirming the evidence target")
 
-proc testAutoVoteSkipsDeadRightNeighbor() =
+proc testImposterAutoVoteAvoidsKnownPartner() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
-  belief.memory.perPlayer[2].alive = false
+  belief.self.role = RoleImposter
+  belief.self.knownImposterColors = @[2]
   var scratch = makeScratch(belief)
   belief.tick = 100 + MeetingAutoVoteDelayTicks
 
   let intent = meetingMode.decide(belief, meetingParams(), scratch)
 
   expectEq(scratch.meetVoteTarget, 3,
-           "auto-vote skips dead slots when choosing a right-neighbor target")
+           "imposter auto-vote skips known imposter partner")
   expect(not intent.pressA,
-         "auto-vote navigates before confirming the next live target")
+         "imposter auto-vote navigates before confirming")
 
-proc testAutoVoteConfirmsRightNeighbor() =
+proc testCrewAutoVoteConfirmsEvidenceTarget() =
   var belief = makeVotingBelief(cursor = 2, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  belief.memory.perPlayer[2].timesNearBody = 1
   var scratch = makeScratch(belief)
   belief.tick = 100 + MeetingAutoVoteDelayTicks
 
   let intent = meetingMode.decide(belief, meetingParams(), scratch)
 
   expectEq(scratch.meetVoteTarget, 2,
-           "auto-vote records target even when already on target")
-  expect(intent.pressA, "auto-vote presses A on right-neighbor target")
+           "auto-vote records evidence target even when already on target")
+  expect(intent.pressA, "auto-vote presses A on evidence target")
   expect(scratch.meetVoteConfirmed,
-         "auto-vote marks right-neighbor vote confirmed")
+         "auto-vote marks evidence-target vote confirmed")
 
 proc advanceCursorOnFreshPress(cursor: var int, keyDown: var CursorDir,
                                intent: ActionIntent, ring: int) =
@@ -140,6 +183,8 @@ proc advanceCursorOnFreshPress(cursor: var int, keyDown: var CursorDir,
 
 proc testAutoVotePulsesThroughMultipleCursorSteps() =
   var belief = makeVotingBelief(cursor = 0, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  belief.memory.perPlayer[2].timesNearBody = 1
   var scratch = makeScratch(belief)
   var cursor = 0
   var keyDown = CursorNone
@@ -155,7 +200,7 @@ proc testAutoVotePulsesThroughMultipleCursorSteps() =
     advanceCursorOnFreshPress(cursor, keyDown, intent, ring = 5)
 
   expectEq(cursor, 2,
-           "edge-triggered cursor simulation reaches the right-neighbor target")
+           "edge-triggered cursor simulation reaches the evidence target")
   expect(pressedAt >= 0,
          "auto-vote eventually confirms after multiple cursor pulses")
 
@@ -163,9 +208,12 @@ proc main() =
   testLlmSelfVoteRedirectsToSkip()
   testConfirmOnSelfRedirectsToSkip()
   testConfirmOnSkipStillVotes()
-  testAutoVoteTargetsRightNeighbor()
-  testAutoVoteSkipsDeadRightNeighbor()
-  testAutoVoteConfirmsRightNeighbor()
+  testSpeakActionEmitsChatIntent()
+  testEmitChatQueuesSanitizedText()
+  testCrewAutoVoteSkipsWithoutEvidence()
+  testCrewAutoVoteTargetsEvidence()
+  testImposterAutoVoteAvoidsKnownPartner()
+  testCrewAutoVoteConfirmsEvidenceTarget()
   testAutoVotePulsesThroughMultipleCursorSteps()
 
   if failures == 0:

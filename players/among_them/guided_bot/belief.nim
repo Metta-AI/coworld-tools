@@ -17,6 +17,8 @@ import perception/data
 import perception/geometry
 import tuning
 
+const RecentChatLimit = 24
+
 proc initDirective*(): Directive =
   Directive(
     mode: ModeIdle,
@@ -78,6 +80,7 @@ proc initMemoryState*(): MemoryState =
   for i in 0 ..< PlayerColorCount:
     result.perPlayer[i].alive = true
     result.perPlayer[i].role = RoleUnknown
+    result.perPlayer[i].lastNearBodyTick = -1000000
 
 proc initTaskState*(): TaskState =
   TaskState(slots: @[],
@@ -204,6 +207,30 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
     if ci >= 0 and ci < PlayerColorCount:
       belief.memory.perPlayer[ci].alive = false
 
+  # Suspicion evidence: visible players repeatedly near visible bodies.
+  # Cooldown keeps a single lingering frame sequence from becoming many
+  # independent "times".
+  if belief.percep.localized and actors.bodies.len > 0 and actors.crewmates.len > 0:
+    let camX = belief.percep.cameraX
+    let camY = belief.percep.cameraY
+    for body in actors.bodies:
+      let bx = visibleCrewmateWorldX(camX, body.x)
+      let by = visibleCrewmateWorldY(camY, body.y)
+      for cm in actors.crewmates:
+        let ci = cm.colorIndex
+        if ci < 0 or ci >= PlayerColorCount:
+          continue
+        if ci == belief.self.colorIndex or ci == body.colorIndex:
+          continue
+        let px = visibleCrewmateWorldX(camX, cm.x)
+        let py = visibleCrewmateWorldY(camY, cm.y)
+        let dist = abs(px - bx) + abs(py - by)
+        if dist <= MeetingBodyEvidenceRadius and
+           belief.tick - belief.memory.perPlayer[ci].lastNearBodyTick >=
+             MeetingBodyEvidenceCooldownTicks:
+          inc belief.memory.perPlayer[ci].timesNearBody
+          belief.memory.perPlayer[ci].lastNearBodyTick = belief.tick
+
 proc rememberKnownImposterColor*(belief: var Belief, color: int): bool =
   ## Add one imposter colour to long-lived belief and per-player memory.
   ## Returns true only when the public known-imposter list grew.
@@ -267,6 +294,14 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
     let ci = voting.slots[i].colorIndex
     if ci >= 0 and ci < PlayerColorCount:
       belief.memory.perPlayer[ci].alive = voting.slots[i].alive
+  for voter in 0 ..< PlayerColorCount:
+    let choice = voting.choices[voter]
+    if choice == voting.playerCount:
+      belief.social.votesCast[voter] = -1
+    elif choice >= 0 and choice < voting.playerCount:
+      let targetColor = voting.slots[choice].colorIndex
+      if targetColor >= 0 and targetColor < PlayerColorCount:
+        belief.social.votesCast[voter] = targetColor
   if voting.selfSlot >= 0 and voting.selfSlot < voting.playerCount:
     let selfColor = voting.slots[voting.selfSlot].colorIndex
     if selfColor >= 0 and selfColor < PlayerColorCount and
@@ -275,10 +310,22 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
       belief.self.alive = voting.slots[voting.selfSlot].alive
   belief.social.currentMeetingChat = @[]
   for cl in voting.chatLines:
-    belief.social.currentMeetingChat.add ChatLine(
+    let line = ChatLine(
       tick: belief.tick,
       speakerColor: cl.speakerColor,
       text: cl.text)
+    belief.social.currentMeetingChat.add line
+    var alreadyKnown = false
+    let start = max(0, belief.social.recentChat.len - RecentChatLimit)
+    for i in start ..< belief.social.recentChat.len:
+      let old = belief.social.recentChat[i]
+      if old.speakerColor == line.speakerColor and old.text == line.text:
+        alreadyKnown = true
+        break
+    if not alreadyKnown:
+      belief.social.recentChat.add line
+      if belief.social.recentChat.len > RecentChatLimit:
+        belief.social.recentChat.delete(0)
   # Flag for the guidance loop.
   if voting.chatLines.len > 0:
     belief.flags.wakeReasons.incl WakeChatObserved

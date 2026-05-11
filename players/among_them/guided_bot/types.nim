@@ -376,6 +376,7 @@ type
     lastSeenTick*: int
     lastSeenX*, lastSeenY*: int
     timesNearBody*: int
+    lastNearBodyTick*: int
     timesWitnessedKill*: int
     ejected*: bool
 
@@ -525,6 +526,8 @@ type
     taskHoldTicks*: int            ## Counter for TaskHold discipline.
     lastLookahead*: Point          ## World-space pixel target from selectLookahead.
     lastLookaheadValid*: bool      ## True when lastLookahead was set this tick.
+    pendingChat*: string           ## One outbound meeting chat line awaiting FFI drain.
+    lastChatTick*: int             ## Tick when the current/last pending chat was queued.
 
 # ---------------------------------------------------------------------------
 # Mode scratch state

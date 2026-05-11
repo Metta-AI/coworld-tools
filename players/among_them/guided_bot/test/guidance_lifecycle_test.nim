@@ -33,9 +33,13 @@ proc readGuidanceEvents(rootDir: string): seq[JsonNode] =
       result.add parseJson(clean)
 
 proc main() =
-  # Force no-key behavior so the worker returns immediately without
-  # touching the network. startGuidance is intentionally tested directly.
+  # Force no-provider behavior so the worker returns immediately
+  # without touching the network. startGuidance is intentionally tested
+  # directly. This matters on machines with Bedrock credentials.
+  putEnv("GUIDED_BOT_LLM_DISABLE", "1")
   delEnv("ANTHROPIC_API_KEY")
+  delEnv("CLAUDE_CODE_USE_BEDROCK")
+  delEnv("USE_BEDROCK")
 
   let traceRoot = getTempDir() / "guided_bot_guidance_lifecycle_" &
     $getCurrentProcessId()
@@ -59,8 +63,9 @@ proc main() =
       isMeeting: false
     ))
 
-  # Give the no-key workers time to emit their trace event, then drain
-  # repeatedly to catch scheduling variation without blocking the test.
+  # Give the no-provider workers time to emit their trace event, then
+  # drain repeatedly to catch scheduling variation without blocking the
+  # test.
   for _ in 0 ..< 100:
     for i in 0 ..< BotCount:
       drainGuidanceTraceEvents(states[i], writers[i])
@@ -82,9 +87,9 @@ proc main() =
       expectEq(events[0]["t"].getInt(), 1000 + i,
                &"bot {i}: guidance event tick isolated")
       expectEq(events[0]["kind"].getStr(), "llm_call_failed",
-               &"bot {i}: no-key event kind")
+               &"bot {i}: no-provider event kind")
       expectEq(events[0]["reason"].getStr(), "no_key",
-               &"bot {i}: no-key reason")
+               &"bot {i}: no-provider reason")
 
   if failures == 0:
     echo "guidance_lifecycle_test: PASS"

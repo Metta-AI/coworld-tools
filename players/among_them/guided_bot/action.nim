@@ -12,10 +12,12 @@
 ##   - `DisciplineWander`     — raw directional movement (pre-localization)
 ##   - `DisciplineNoOp`       — mask 0 (plus cursor/button passthrough)
 
+import std/strutils
 import types
 import navigation
 import perception/data
 import perception/geometry
+import tuning
 
 export navigation.initActionState
 
@@ -563,11 +565,32 @@ proc applyIntent*(
   mask
 
 # ---------------------------------------------------------------------------
-# Chat emission stub (meeting mode)
+# Chat emission (meeting mode)
 # ---------------------------------------------------------------------------
 
-proc emitChat*(state: var ActionState, text: string): bool =
-  ## Phase 2 stub: chat queuing for meeting mode.
-  discard state
-  discard text
-  false
+proc sanitizeChatText(text: string): string =
+  ## Keep the protocol-facing chat packet short and printable ASCII.
+  let stripped = text.strip()
+  for ch in stripped:
+    let o = ord(ch)
+    if o >= 32 and o <= 126:
+      result.add ch
+    if result.len >= MeetingChatMaxLen:
+      break
+
+proc emitChat*(state: var ActionState, tick: int, text: string): bool =
+  ## Queue one outbound chat line for the Python/WebSocket bridge.
+  ## The FFI drain consumes ``pendingChat`` exactly once after the next
+  ## ``step_batch``.
+  if text.len == 0:
+    return false
+  if state.pendingChat.len > 0:
+    return false
+  if tick - state.lastChatTick < MeetingChatLineGapTicks:
+    return false
+  let clean = sanitizeChatText(text)
+  if clean.len == 0:
+    return false
+  state.pendingChat = clean
+  state.lastChatTick = tick
+  true

@@ -5,7 +5,7 @@
 > If you're touching strategy, directory layout, or submission workflow, touch
 > this file too. Stale missions are worse than no mission.
 >
-> Last reviewed: 2026-05-10
+> Last reviewed: 2026-05-11
 
 ---
 
@@ -145,7 +145,7 @@ None of this is required on day one. It's where we're heading.
 
 > Update this section whenever priorities shift. Don't let it rot.
 
-**As of 2026-05-10:**
+**As of 2026-05-11:**
 
 - **Current active Among Them agent:** `among_them/guided_bot/`.
   Use guided_bot for development, tests, local matches, traces, and
@@ -175,13 +175,30 @@ None of this is required on day one. It's where we're heading.
 - **Meeting/voting mechanics are live-verified.** Voting parse, phase
   detection, per-frame cursor updates, alive-slot merging, cursor
   pulse/release navigation, vote confirmation, and the self-vote guard
-  work in live traces. The temporary no-LLM target votes for the next
-  selectable live slot to the right so mechanics are testable.
+  work in live traces. The fallback vote target now uses role-aware
+  evidence/alibi strategy: crew require suspicion evidence or SKIP,
+  imposters avoid self/known teammates and blend into accusations.
+- **Meeting chat plumbing is implemented.** `MeetingActSpeak` queues
+  sanitized chat through the Nim action buffer, `guidedbot_take_chat`
+  FFI export, Python `bitworld_chat_messages(agent_ids)` hook, and
+  local `pack_chat_packet` runner path. The LLM client now prefers AWS
+  Bedrock credentials (`CLAUDE_CODE_USE_BEDROCK=1` locally,
+  `--use-bedrock`/`USE_BEDROCK=true` in cogames) and falls back to
+  direct Anthropic only when configured. Bedrock smoke and short live
+  meeting validation are verified; prompt quality still needs tuning
+  from longer traces.
 - **Latest voting trace:** 8 guided_bot agents, 2 imposters, 600-tick
   kill cooldown, 600-tick vote timer, 16 tasks per crewmate, 90 seconds,
   seed 42, `--trace-level full`:
   `among_them/guided_bot/traces/voting_mechanics_20260510_8p2i_cd600_vote600_tasks16_livetarget_full`.
   Every living bot voted in meetings; the ghost did not.
+- **Latest Bedrock meeting trace:** 8 guided_bot agents, 2 imposters,
+  standard 1200-tick kill cooldown, 8 tasks per crewmate, 180 seconds,
+  seed 42, `--trace-level decisions`:
+  `among_them/guided_bot/traces/meeting_bedrock_20260511_8p2i_standard`.
+  All manifests closed; roles detected; two meetings per bot; 358
+  successful LLM responses, 89 meeting actions, 6 chat lines, 12 vote
+  attempts, and zero LLM failures.
 - **Local live-test knobs exist.** Server-starting scripts support
   `--imposter-cooldown-ticks`, `--tasks-per-player`, and
   `--force-role {crewmate,imposter}` for focused live validation. Use
@@ -189,13 +206,11 @@ None of this is required on day one. It's where we're heading.
 
 ### Next
 
-- **Vote strategy.** Replace the temporary "next selectable live slot to
-  the right" target with evidence-based crew/imposter meeting policy.
-  Imposters must never vote for themselves.
-- **Chat emission.** `MeetingActSpeak` reaches `intent.chat`, but
-  sending chat to the server still needs Nim buffer → C FFI export →
-  Python WebSocket plumbing. See
-  `among_them/guided_bot/MEETING_DESIGN.md`.
+- **LLM meeting tuning.** Tune the Bedrock meeting prompt/cadence from
+  full-run `guidance.jsonl` and `events.jsonl`; current validation
+  shows `meeting_action_received`, `chat_sent`, and `vote_attempted`
+  sequencing before fallback, but chat quality and target rationale need
+  review.
 - **Imposter efficiency.** Baseline kill flow works, including repeated
   kills with shorter cooldowns, but seeking patrol, cover timing,
   killed-player memory, and partner coordination need strategy work.

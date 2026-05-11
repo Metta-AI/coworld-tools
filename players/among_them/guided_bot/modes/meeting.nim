@@ -8,12 +8,14 @@
 ##
 ## Safety-net fallback (DESIGN.md §7.7): if `MeetingFallbackTicksLeft`
 ## ticks remain and no vote has been confirmed, the mode navigates to
-## the temporary no-LLM target and confirms. This is a structural
+## a role-aware evidence target and confirms. This is a structural
 ## backstop; the LLM cannot override it.
 
+import std/strutils
 import ../types
 import ../action
 import ../tuning
+import ../perception/data
 
 const Name* = ModeMeeting
 
@@ -72,6 +74,13 @@ proc isSelectableVoteSlot(belief: Belief, slot, playerCount: int): bool =
     not isSelfVoteSlot(belief, slot) and
     belief.memory.perPlayer[slot].alive
 
+proc isKnownImposterTeammate(belief: Belief, slot: int): bool =
+  belief.self.role == RoleImposter and slot in belief.self.knownImposterColors
+
+proc isSafeVoteSlot(belief: Belief, slot, playerCount: int): bool =
+  isSelectableVoteSlot(belief, slot, playerCount) and
+    not isKnownImposterTeammate(belief, slot)
+
 proc shortestCursorDir(current, target, ring: int): CursorDir =
   ## Compute the shortest direction to move from `current` to `target`
   ## in a wrapped ring of `ring` positions. Returns CursorNone if
@@ -100,23 +109,107 @@ proc targetSlotForAction(belief: Belief, action: MeetingAction,
       skipSlot
     else:
       action.target
-  if isSelfVoteSlot(belief, result):
+  if result >= 0 and result < playerCount and
+     (not belief.memory.perPlayer[result].alive or
+      isSelfVoteSlot(belief, result) or
+      isKnownImposterTeammate(belief, result)):
     result = skipSlot
 
-proc deterministicTestVoteSlot(belief: Belief, playerCount: int): int =
-  ## Temporary no-LLM vote target for mechanical validation: vote for the
-  ## next selectable live player slot to the right. Strategy can replace this
-  ## later, but the mechanical target must be reachable by the voting UI.
+proc textNamesColor(text: string, color: int): bool =
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  let lower = text.toLowerAscii()
+  let name = PlayerColorNames[color].toLowerAscii()
+  if name.len == 0:
+    return false
+  lower.contains(name)
+
+proc chatSuspicionScore(belief: Belief, color: int): int =
+  ## Lightweight parser for OCR'd meeting chat. The LLM gets the raw text;
+  ## fallback strategy only needs a conservative "someone named this color".
+  for line in belief.social.recentChat:
+    if line.speakerColor == belief.self.colorIndex:
+      continue
+    if line.text.textNamesColor(color):
+      let lower = line.text.toLowerAscii()
+      if lower.contains("sus") or lower.contains("kill") or
+         lower.contains("body") or lower.contains("vote"):
+        result += 6
+      else:
+        result += 2
+
+proc votesReceivedScore(belief: Belief, color: int): int =
+  for voter in 0 ..< PlayerColorCount:
+    if belief.social.votesCast[voter] == color:
+      result += 3
+
+proc crewSuspicionScore(belief: Belief, slot: int): int =
+  let ps = belief.memory.perPlayer[slot]
+  if ps.role == RoleImposter:
+    result += 100
+  result += ps.timesWitnessedKill * 20
+  result += ps.timesNearBody * 8
+  result += belief.chatSuspicionScore(slot)
+  result += belief.votesReceivedScore(slot)
+
+proc pickCrewVoteSlot(belief: Belief, playerCount: int): int =
+  var bestSlot = -1
+  var bestScore = 0
+  for slot in 0 ..< playerCount:
+    if not isSelectableVoteSlot(belief, slot, playerCount):
+      continue
+    let score = crewSuspicionScore(belief, slot)
+    if score > bestScore:
+      bestScore = score
+      bestSlot = slot
+  if bestSlot >= 0 and bestScore >= MeetingCrewEvidenceThreshold:
+    bestSlot
+  else:
+    skipSlotFor(playerCount)
+
+proc pickImposterVoteSlot(belief: Belief, playerCount: int): int =
+  ## Blend with plausible accusations. If the table has no evidence,
+  ## pick the next live non-teammate to the right to avoid wasting an
+  ## imposter vote.
   if playerCount <= 1:
     return skipSlotFor(playerCount)
+  var bestSlot = -1
+  var bestScore = low(int)
+  for slot in 0 ..< playerCount:
+    if not isSafeVoteSlot(belief, slot, playerCount):
+      continue
+    let ps = belief.memory.perPlayer[slot]
+    var score = belief.chatSuspicionScore(slot) * 2 +
+      belief.votesReceivedScore(slot) +
+      ps.timesNearBody * 4 +
+      ps.timesWitnessedKill * 6
+    if ps.lastSeenTick > 0:
+      score += max(0, 4 - ((belief.tick - ps.lastSeenTick) div 120))
+    if score > bestScore:
+      bestScore = score
+      bestSlot = slot
+  if bestSlot >= 0 and bestScore > 0:
+    return bestSlot
+
   let selfSlot = selfVoteSlot(belief)
   if selfSlot < 0 or selfSlot >= playerCount:
     return skipSlotFor(playerCount)
   for offset in 1 ..< playerCount:
     let slot = (selfSlot + offset) mod playerCount
-    if isSelectableVoteSlot(belief, slot, playerCount):
+    if isSafeVoteSlot(belief, slot, playerCount):
       return slot
   skipSlotFor(playerCount)
+
+proc strategicFallbackVoteSlot(belief: Belief, playerCount: int): int =
+  ## Role-aware no-LLM vote target. Crew require evidence; imposters use
+  ## evidence/alibis opportunistically but never vote self or known partners.
+  case belief.self.role
+  of RoleCrewmate:
+    pickCrewVoteSlot(belief, playerCount)
+  of RoleImposter:
+    pickImposterVoteSlot(belief, playerCount)
+  of RoleUnknown:
+    skipSlotFor(playerCount)
 
 # ---------------------------------------------------------------------------
 # Vote navigation intent
@@ -204,7 +297,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
   if estimatedTicksLeft <= MeetingFallbackTicksLeft and
      not scratch.meetVoteConfirmed:
-    let targetSlot = deterministicTestVoteSlot(belief, pc)
+    let targetSlot = strategicFallbackVoteSlot(belief, pc)
     scratch.meetVoteTarget = targetSlot
 
     if cursor >= 0 and cursor == targetSlot:
@@ -215,11 +308,11 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- Auto-vote delay (no-LLM path) ---
   # If no LLM action has arrived and enough time has passed, cast a
-  # deterministic test vote so cursor navigation/confirmation is live-tested.
+  # role-aware fallback vote so the bot does not idle through meetings.
   if scratch.meetLastLlmActionTick < 0 and
      ticksInMeeting >= MeetingAutoVoteDelayTicks and
      not scratch.meetVoteConfirmed:
-    let targetSlot = deterministicTestVoteSlot(belief, pc)
+    let targetSlot = strategicFallbackVoteSlot(belief, pc)
     scratch.meetVoteTarget = targetSlot
 
     if cursor >= 0 and cursor == targetSlot:
@@ -236,8 +329,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
     case action.kind
     of MeetingActSpeak:
-      # Chat emission is a stub (deferred). Put text on intent anyway
-      # so it's ready when the FFI pipeline is wired.
+      # Bot/action/FFI layers queue this text for the WebSocket bridge.
       return ActionIntent(
         steerValid: false,
         pressA: false, pressB: false,
@@ -256,8 +348,15 @@ proc decide*(belief: Belief, params: ModeParams,
 
     of MeetingActConfirmVote:
       let skipSlot = skipSlotFor(pc)
-      if isSelfVoteSlot(belief, cursor) or
-         isSelfVoteSlot(belief, scratch.meetVoteTarget):
+      let cursorUnsafe = cursor >= 0 and cursor < pc and
+        (not belief.memory.perPlayer[cursor].alive or
+         isSelfVoteSlot(belief, cursor) or
+         isKnownImposterTeammate(belief, cursor))
+      let targetUnsafe = scratch.meetVoteTarget >= 0 and scratch.meetVoteTarget < pc and
+        (not belief.memory.perPlayer[scratch.meetVoteTarget].alive or
+         isSelfVoteSlot(belief, scratch.meetVoteTarget) or
+         isKnownImposterTeammate(belief, scratch.meetVoteTarget))
+      if cursorUnsafe or targetUnsafe:
         scratch.meetVoteTarget = skipSlot
         if cursor >= 0 and cursor == skipSlot:
           scratch.meetVoteConfirmed = true

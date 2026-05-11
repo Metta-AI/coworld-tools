@@ -156,6 +156,13 @@ class AmongThemPolicy(MultiAgentPolicy):
             ctypes.c_void_p,
         ]
         self._lib.guidedbot_step_batch.restype = None
+        self._lib.guidedbot_take_chat.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        self._lib.guidedbot_take_chat.restype = ctypes.c_int
         # Destroy export — optional (additive FFI, may be absent in old libs).
         self._destroy_fn = getattr(self._lib, "guidedbot_destroy_policy", None)
         if self._destroy_fn is not None:
@@ -170,6 +177,8 @@ class AmongThemPolicy(MultiAgentPolicy):
         self._handle = int(self._lib.guidedbot_new_policy(self._num_agents))
         self._closed = False
         self._last_actions = np.zeros(self._num_agents, dtype=np.int32)
+        self._pending_chat: dict[int, str] = {}
+        self._chat_buf = ctypes.create_string_buffer(256)
 
         # Per-instance trace override: kwarg wins over env var.
         # When set, closes existing env-var-derived trace writers and
@@ -201,11 +210,29 @@ class AmongThemPolicy(MultiAgentPolicy):
         )
         self._last_actions[:batch_size] = actions
         raw_actions[:batch_size] = actions.astype(raw_actions.dtype, copy=False)
+        for agent_id in range(batch_size):
+            self._drain_chat(agent_id)
 
     def step_agent(self, agent_id: int) -> int:
         if 0 <= agent_id < self._last_actions.shape[0]:
             return int(self._last_actions[agent_id])
         return 0
+
+    def take_chat(self, agent_id: int) -> str:
+        """Pop one pending chat line for local runners."""
+        return self._pending_chat.pop(agent_id, "")
+
+    def last_chat(self, agent_id: int) -> str:
+        """Compatibility hook used by local Among Them scripts."""
+        return self.take_chat(agent_id)
+
+    def bitworld_chat_messages(self, agent_ids) -> list[str | None]:
+        """Batched chat hook used by mettagrid's BitWorld runner."""
+        messages: list[str | None] = []
+        for agent_id in agent_ids:
+            text = self._pending_chat.pop(int(agent_id), "")
+            messages.append(text if text else None)
+        return messages
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -229,6 +256,24 @@ class AmongThemPolicy(MultiAgentPolicy):
             trace_dir.encode("utf-8"),
             trace_level.encode("utf-8"),
         )
+
+    def _drain_chat(self, agent_id: int) -> None:
+        written = int(
+            self._lib.guidedbot_take_chat(
+                self._handle,
+                ctypes.c_int(agent_id),
+                ctypes.c_void_p(ctypes.addressof(self._chat_buf)),
+                ctypes.c_int(len(self._chat_buf)),
+            )
+        )
+        if written <= 0:
+            return
+        try:
+            text = self._chat_buf.raw[:written].decode("ascii").strip()
+        except UnicodeDecodeError:
+            return
+        if text:
+            self._pending_chat[agent_id] = text
 
     def close(self, *, reason: str = "session_end") -> None:
         """Tear down the Nim policy: stops guidance worker, flushes traces.

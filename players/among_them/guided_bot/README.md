@@ -30,15 +30,28 @@ guidance.
 **Phase 6 core mode behavior is implemented and live-verified.** The
 bot completes tasks, navigates by hierarchical waypoints, identifies its
 own colour from the centered player sprite, parses voting screens, and
-executes cursor-aware votes in meetings. Focused Nim/Python checks pass
-and the cogames shared library builds.
+executes cursor-aware votes in meetings. Meeting chat now flows through
+the Nim action buffer, C FFI, Python policy hook, and local WebSocket
+runner; LLM meeting snapshots include player memory, vote dots, recent
+chat, and alibi witnesses. Focused Nim/Python checks pass and the
+cogames shared library builds.
 
 Latest end-to-end voting check: an 8-agent, 2-imposter live match with
 600-tick kill cooldown, 600-tick vote timer, 16 tasks per crewmate, and
 `--trace-level full` produced two meetings with frame traces. Every
 living bot cast the intended temporary mechanical vote; ghosts correctly
-did not vote. Trace root:
+did not vote. The post-2026-05-10 strategy path replaces that temporary
+target with evidence-gated crewmate votes, imposter partner/self guards,
+and SKIP when crew lacks evidence. Trace root:
 `guided_bot/traces/voting_mechanics_20260510_8p2i_cd600_vote600_tasks16_livetarget_full`.
+
+Latest Bedrock meeting check: an 8-agent, 2-imposter live match with
+standard 1200-tick kill cooldown, 8 tasks per crewmate, 180 seconds,
+seed 42, and `--trace-level decisions` closed all manifests, detected
+all roles, produced two meetings per bot, 358 successful LLM responses,
+89 meeting actions, 6 chat lines, 12 vote attempts, and zero LLM
+failures. Trace root:
+`guided_bot/traces/meeting_bedrock_20260511_8p2i_standard`.
 
 Phases 1–5 (perception, action, LLM guidance, tracing, fallback
 playability) remain intact underneath.
@@ -73,14 +86,14 @@ Voting parse: variable, dominated by chat OCR line count.
 | 2.0 | Initial action layer — button-mask generation, discipline dispatch, ghost steering | done |
 | — | Hierarchical waypoint navigation — replaces per-pixel A\* with precomputed graph + paths | done |
 | 2.1 | `task_completing` mode — task-icon-based target selection, navigation, hold-A completion | done |
-| 2.2 | `meeting` mode — cursor-aware voting, self-vote guard, no-LLM temporary target | done |
+| 2.2 | `meeting` mode — cursor-aware voting, self-vote guard, evidence/alibi fallback target | done |
 | 2.3 | Reflex system — 4 starter reflexes: body→reporting, body→fleeing, lone-crew→hunting, voting→meeting | done |
 | 2.4 | `hunting` mode — preferred/opportunistic kill-strike + cover-behavior wander | done |
 | 2.5 | `pretending` mode — walk-to-task loiter cycle for imposter cover | done |
 | 2.6 | `reporting` mode — navigate to body, press A via DisciplineReport | done |
 | 2.7 | `fleeing` mode — steer away from body for duration/distance | done |
 | 3.1 | `snapshot.nim` — belief-state JSON rendering for LLM (DESIGN.md §8.3) | done |
-| 3.2 | `llm.nim` — real Anthropic Messages API client (curly + jsony) | done |
+| 3.2 | `llm.nim` — real Claude client via Bedrock or direct Anthropic (curly + jsony) | done |
 | 3.3 | `guidance.nim` — worker thread + channels (snapshot→directive, meeting actions) | done |
 | 3.4 | `bot.nim` — periodic/triggered snapshot submission + directive channel reads + TTL expiry | done |
 | 3.5 | `modes/meeting.nim` — LLM-driven meeting behavior with chat, voting, and safety-net fallback | done |
@@ -90,7 +103,7 @@ Voting parse: variable, dominated by chat OCR line count.
 | — | Trace enhancement: decision records include mask + self position | done |
 | 6.1 | `task_completing` hold lifecycle + completion detection + belief task state + radar checkout | done |
 | 6.2 | `reporting` success detection + body-visibility check + approach/in-range timeouts | done |
-| 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay + live target verification (chat deferred) | done |
+| 6.3 | `meeting` cursor-aware vote navigation + timer fix + auto-vote delay + chat emission + evidence/alibi fallback strategy | done |
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
 | 6.5 | `pretending` fake A-press during loiter + witness swap | done |
 | 6.6 | `fleeing` post-flee cover navigation + flee target snap-to-passable | done |
@@ -134,7 +147,7 @@ guided_bot/
   mode_registry.nim         # mode lookup + default directive
   reflex.nim                # reflex evaluation (edge-triggered mode switches)
   guidance.nim              # worker-thread + channels (phase 3)
-  llm.nim                   # Anthropic Messages API client (curly + jsony, phase 3)
+  llm.nim                   # Claude client: AWS Bedrock preferred, direct Anthropic fallback
   snapshot.nim              # belief → JSON snapshot for the LLM (phase 3)
   prompts.nim               # system prompts for gameplay + meeting LLM calls (phase 3)
   trace.nim                 # trace writer (phase 4)
@@ -244,8 +257,8 @@ nim c -r -d:release --threads:on --mm:orc \
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/voting_pipeline_test.nim
 
-# Meeting mode — cursor pulse/release navigation, temporary no-LLM live
-# target selection, confirm behavior, and self-vote prevention.
+# Meeting mode — cursor pulse/release navigation, evidence/alibi fallback
+# target selection, confirm behavior, chat intent, and self-vote prevention.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/meeting_test.nim
 
@@ -527,7 +540,8 @@ For forward-looking work, see [`IMPL_PLAN.md`](IMPL_PLAN.md).
   timeouts. Structurally verified (no body encounters in test seeds).
 - ~~Meeting cursor~~ → position-aware shortest-path navigation, timer
   fix (600 not 1200), auto-vote delay, edge-triggered cursor pulses,
-  self-vote guard, and temporary no-LLM live target selection.
+  self-vote guard, chat emission, and evidence/alibi fallback target
+  selection.
   Live-verified in 8-agent/2-imposter matches with full frame traces.
 - ~~Hunting cover~~ → station patrol, target memory, kill confirmation,
   **imposter-aware target filtering**. Live-verified in 3-min 8-player
@@ -552,17 +566,17 @@ The following blockers have been fixed:
 
 **Live voting status:** Meeting detection, voting parse, cursor
 navigation, alive-slot merging, and vote confirmation are verified
-end-to-end from live traces. Chat emission and evidence-based vote
-strategy remain pending; the current no-LLM vote target is deliberately
-mechanical for testability.
+end-to-end from live traces. Chat emission and evidence-based fallback
+strategy are implemented. The Bedrock LLM provider is smoke-tested, and
+the full LLM chat/vote path is short-run live validated; longer runs
+should tune prompt quality and cadence.
 
 ### Remaining implementation (IMPL_PLAN.md)
 
 - **6.7 Reflex scope** — body reflexes only fire from one mode each.
   Trivial.
-- **Chat emission** — requires Nim→C FFI→Python plumbing. Medium.
-- **Vote strategy** — replace the temporary "next selectable live slot to
-  the right" target with evidence-based LLM/game-state strategy.
+- **LLM meeting tuning** — review full Bedrock meeting traces and tune
+  speak→vote→confirm cadence, chat formatting, and vote rationale.
 - **Phase 7 stub modes** — `fear`, `investigating`, `alibi_building`.
   LLM-only, not on critical path.
 

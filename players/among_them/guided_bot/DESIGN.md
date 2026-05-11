@@ -7,7 +7,8 @@
 > (`task_completing`, `meeting`, `hunting`, `pretending`, `reporting`,
 > `fleeing`) plus the four-reflex system. Phase 3 (3.1–3.6) wired the
 > LLM guidance loop: `snapshot.nim` renders beliefs to JSON,
-> `llm.nim` calls the Anthropic Messages API via curly+jsony,
+> `llm.nim` calls Claude via AWS Bedrock or direct Anthropic using
+> curly+jsony,
 > `guidance.nim` runs a worker thread with channels, `bot.nim`
 > submits snapshots periodically/on-trigger and reads directives,
 > `modes/meeting.nim` executes LLM-driven chat/vote actions with a
@@ -19,9 +20,9 @@
 > Docker-compatible `mettagrid.bitworld` import fallback. Phase 6
 > completed the core mode lifecycles, replaced per-pixel runtime
 > pathfinding with the hierarchical waypoint system described in §6.3
-> and `NAVIGATION_DESIGN.md`, and live-verified cursor-aware meeting
-> voting with frame traces. Meeting chat emission and evidence-based
-> vote strategy remain pending.
+> and `NAVIGATION_DESIGN.md`, live-verified cursor-aware meeting
+> voting with frame traces, and added meeting chat emission plus
+> evidence/alibi fallback voting strategy.
 >
 > **Audience:** future self, collaborators, and the LLM harness that will
 > eventually consume this file. This doc describes the *shape* of the
@@ -38,9 +39,9 @@
 >   LLM clients (`curly` + `jsony`, ~60 LOC each). We adapt these.
 > - `bitworld/among_them/players/italkalot.nim` — existence proof of a
 >   Nim-native Among Them bot making live LLM calls.
-> - `metta/packages/cogames/POLICY_SECRETS.md` — how API keys reach the
->   policy subprocess in the tournament (env-var injection via
->   `--secret-env`). The LLM is a first-class submission citizen.
+> - `metta/packages/cogames/POLICY_SECRETS.md` and `cogames upload
+>   --use-bedrock` — how LLM credentials reach the policy subprocess.
+>   Bedrock is preferred; direct Anthropic remains a fallback.
 >
 > **Deprecated reference:** the local `among_them/modulabot/` tree is
 > historical-only. Do not inspect, modify, test, run, or rely on it for
@@ -831,10 +832,10 @@ left) and **no vote has been confirmed**, the inner loop forces a
 safe default:
 
 - If the LLM has issued a `vote` but not `confirm_vote`, confirm it.
-- Otherwise, move the cursor to the temporary no-LLM target and confirm.
-  The current validation target is the next selectable live player slot
-  to the right, skipping self and dead slots, with SKIP as the fallback
-  when no live target is known.
+- Otherwise, move the cursor to the evidence/alibi fallback target and
+  confirm. Crewmates require suspicion evidence and otherwise SKIP;
+  imposters avoid self and known teammates while blending into existing
+  accusations when possible.
 
 This fallback is not configurable by the LLM — it is a structural
 backstop that ensures we always cast *some* vote. The bot logs
@@ -1028,7 +1029,7 @@ after an LLM failure), the inner loop picks a per-role default:
 - **Voting phase, any role** →
   `meeting { want_to_speak_first: false }` (the LLM is still the
   driver; if it's unavailable the meeting fallback in §7.7 takes
-  over and votes for the temporary no-LLM live target)
+  over with role-aware evidence/alibi voting)
 
 ### 9.2 Test plan
 
@@ -1073,10 +1074,10 @@ sidecar. Justification:
 4. The cogames bundle is already "Nim compiled into shared lib + thin
    Python wrapper" for guided_bot. No need to add a second Python
    subprocess lifecycle.
-5. API keys flow in via `--secret-env`
-   (`metta/packages/cogames/POLICY_SECRETS.md`). The Nim process
-   reads `ANTHROPIC_API_KEY` (or provider-appropriate var) from its
-   env. This is the same path a Python sidecar would use.
+5. Bedrock access flows in through `cogames upload --use-bedrock`
+   (`USE_BEDROCK=true`, AWS env vars, or ECS task-role metadata).
+   Direct Anthropic API keys still work through `--secret-env
+   ANTHROPIC_API_KEY=...` when Bedrock is disabled.
 
 **Python sidecar remains a viable fallback** if the threading or the
 libcurl dependency turns painful. Preserved as §10.4 below.
@@ -1471,7 +1472,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 | D4 | Mode scratch lifecycle | Reset on mode switch, persist within mode. | §5.6 |
 | D5 | Action-layer owns navigation | Modes emit `steer_to`, action layer owns waypoint routing + tactical steering + discipline. | §4.4, §6 |
 | D6 | Ghost behavior | Forced to `task_completing`; action layer uses straight-line steering for ghosts. | §5.7 |
-| D7 | Meeting mode | LLM direct control via action queue; cursor-aware voting; self-vote guard; safety-net fallback to a temporary no-LLM live target. | §7 |
+| D7 | Meeting mode | LLM direct control via action queue; cursor-aware voting; chat emission; self/teammate guard; safety-net fallback to role-aware evidence/alibi voting. | §7 |
 | D8 | LLM snapshot format | JSON dump of curated belief subset. | §8.3 |
 | D9 | Validation | Guidance validates once; inner loop re-validates every tick. | §8.4 |
 | D10 | Reflex pattern | **Reflex = forced mode switch**, edge-triggered, evaluated in update-belief, anti-thrash cooldown, starter list of 4. | §5.8 |
@@ -1493,11 +1494,11 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 
 Further decisions get appended here as they're made.
 
-| D26 | Phase 3 LLM client | Adapted bitworld's `claude.nim`. Uses `curly` + `jsony` via nimby. Fresh `CurlPool` per call to avoid GC-safety issues with globals; overhead negligible at <1 Hz. | `llm.nim` |
+| D26 | Phase 3 LLM client | Adapted bitworld's `claude.nim`. Uses `curly` + `jsony` via nimby. Prefers AWS Bedrock (`CLAUDE_CODE_USE_BEDROCK=1` / `USE_BEDROCK=true`) with SigV4 signing and AWS credentials from env, ECS metadata, or local AWS CLI export; direct Anthropic is fallback. Fresh `CurlPool` per call, closed after each request, avoids GC-safety issues with globals and descriptor leaks. | `llm.nim` |
 | D27 | Phase 3 threading | `system.Channel[T]` (Nim 2.2.4), owned per `GuidanceState` through a heap-stable `GuidanceRuntime` pointer. Worker thread holds meeting conversation history as thread-local state. Main thread: non-blocking `tryRecv`. No module-global guidance channels or worker handles. | `guidance.nim` |
 | D28 | Phase 3 snapshot rendering | `std/json` (not jsony) for structured, readable output. Room name lookups via `geometry.roomNameAt`. Screen→world via `visibleCrewmateWorldX/Y`. | `snapshot.nim` |
 | D29 | Phase 3 wake-flag lifecycle | Flags raised during update-belief, consumed (snapshot submitted) and cleared at end of `decideNextMask`. External code (tests) cannot observe flags after `stepUnpackedFrame`. | `bot.nim` |
-| D30 | Phase 3 LLM model | `claude-sonnet-4-20250514` — fast enough for ~1-5 Hz call rate, smart enough for strategic directives. Max 1024 response tokens. | `llm.nim` |
+| D30 | Phase 3 LLM model | Bedrock default: `us.anthropic.claude-sonnet-4-5-20250929-v1:0`; direct Anthropic default: `claude-sonnet-4-20250514`. `GUIDED_BOT_LLM_MODEL` overrides either provider; provider-specific overrides are `GUIDED_BOT_BEDROCK_MODEL` and `GUIDED_BOT_ANTHROPIC_MODEL`. Max 1024 response tokens. | `llm.nim` |
 | D31 | Phase 3 meeting action queue | Actions pumped from `meetingActionChan` into `ModeScratch.meetPendingActions` in the bot pipeline, popped one-per-tick by meeting mode's `decide()`. | `bot.nim`, `modes/meeting.nim` |
 
 ---

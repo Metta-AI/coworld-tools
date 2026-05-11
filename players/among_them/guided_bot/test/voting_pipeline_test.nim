@@ -90,6 +90,8 @@ proc testRightNeighborAutoVoteConfirms() =
   setCursor(frame0, 8, 0)
 
   var b = initBot()
+  b.belief.self.role = RoleCrewmate
+  b.belief.memory.perPlayer[0].timesNearBody = 1
   var sawA = false
   for _ in 0 .. MeetingAutoVoteDelayTicks + 8:
     let mask = b.stepUnpackedFrame(frame0)
@@ -101,7 +103,7 @@ proc testRightNeighborAutoVoteConfirms() =
            "auto-vote replay remains in PhaseVoting")
   expectEq(b.belief.percep.votingSelfSlot, 7,
            "auto-vote replay self slot parsed")
-  expect(sawA, "right-neighbor auto-vote eventually presses A")
+  expect(sawA, "evidence-target auto-vote eventually presses A")
 
 proc main() =
   testVotingCursorRefreshesAfterPhaseVoting()

@@ -4,9 +4,9 @@
 > mode design details live here; `DESIGN.md` contains only a brief
 > overview and cross-reference.
 >
-> **Implementation:** `modes/meeting.nim` (295 LOC)
+> **Implementation:** `modes/meeting.nim` (395 LOC)
 >
-> Last updated: 2026-05-10
+> Last updated: 2026-05-11
 
 ---
 
@@ -67,11 +67,11 @@ The guidance worker reads it when constructing the LLM prompt.
 1. **Vote confirmed** — if `meetVoteConfirmed`, emit `noOpIntent()`
    (soft-lock: the bot is done for this meeting).
 2. **Safety-net fallback** — if estimated time remaining ≤
-   `MeetingFallbackTicksLeft` (100), navigate to the temporary no-LLM
-   target and confirm.
+   `MeetingFallbackTicksLeft` (100), navigate to the role-aware
+   evidence/alibi fallback target and confirm.
 3. **Auto-vote delay** — if no LLM action has ever arrived and
    `MeetingAutoVoteDelayTicks` (360) have elapsed, vote for the
-   temporary no-LLM target.
+   role-aware fallback target.
 4. **Process LLM action** — pop one action per tick from
    `meetPendingActions` and execute it.
 5. **Continue cursor navigation** — if a vote target is pending and
@@ -120,9 +120,9 @@ together; the queue handles sequencing.
 
 | Kind | Effect |
 |---|---|
-| `MeetingActSpeak` | Sets `intent.chat = text`. Currently a stub — FFI for chat emission is not wired. The text is placed on the intent for future use. |
-| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets and invalid targets are rewritten to SKIP. |
-| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. If the cursor or pending target is the bot's own slot, redirects to SKIP instead of confirming. Locks the mode only once a safe target is confirmed. |
+| `MeetingActSpeak` | Sets `intent.chat = text`; `bot.nim` queues it through `action.emitChat`, `guidedbot_take_chat`, and the Python WebSocket chat hook. |
+| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets, dead targets, invalid targets, and known imposter teammates are rewritten to SKIP. |
+| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. If the cursor or pending target is unsafe, redirects to SKIP instead of confirming. Locks the mode only once a safe target is confirmed. |
 | `MeetingActUnvote` | Emits B press (deselects). Clears `meetVoteTarget`. |
 | `MeetingActWait` | No-op for one tick. |
 | `MeetingActNone` | No-op (defensive — shouldn't appear in practice). |
@@ -192,9 +192,18 @@ the LLM is slow or fails.
 **Trigger:** `estimatedTicksLeft <= MeetingFallbackTicksLeft` (100
 ticks, ~4s before meeting ends).
 
-**Behavior:** navigate to the temporary no-LLM target using cursor tracking,
+**Behavior:** navigate to `strategicFallbackVoteSlot` using cursor tracking,
 then confirm. If the cursor is already on that target, immediately confirm.
 If cursor position is unknown, `navigateToSlot` falls back to CursorRight.
+
+Crewmate fallback requires evidence. It scores known-imposter role memory,
+near-body sightings, witnessed-kill counts, visible vote dots, and chat
+mentions; if no score reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
+
+Imposter fallback avoids self and known imposter teammates. It prefers a
+live crewmate who already has chat/vote/body evidence against them; if the
+table has no usable accusation, it chooses the next live non-teammate to
+avoid wasting the imposter vote.
 
 **Timer:** uses `MeetingDurationEstimateTicks` (600 ticks, ~25s) as
 the meeting length estimate. The fallback fires at tick 500 into the
@@ -213,11 +222,8 @@ For the no-LLM path (defaults-only, or LLM too slow).
 arrived this meeting) AND `ticksInMeeting >= MeetingAutoVoteDelayTicks`
 (360, ~15s).
 
-**Behavior:** same as fallback — navigate to the temporary no-LLM target
-and confirm. During mechanical voting validation this target is the next
-selectable live player slot to the right, starting from
-`(selfSlot + 1) mod playerCount`, with a self-vote guard and SKIP as the
-fallback when no live target is known.
+**Behavior:** same as fallback — navigate to `strategicFallbackVoteSlot`
+and confirm.
 
 **Purpose:** ensures the bot votes within 15s even without an LLM,
 rather than waiting the full meeting timer. More aggressive than the
@@ -238,17 +244,20 @@ This prevents:
 
 ---
 
-## 9. Chat emission (stub)
+## 9. Chat emission
 
-`MeetingActSpeak` places the chat text on `intent.chat`, but the
-action layer's `emitChat` is currently a stub. Full chat requires:
+`MeetingActSpeak` places the chat text on `intent.chat`. The bot pipeline
+then calls `action.emitChat`, which sanitizes printable ASCII, caps length
+at `MeetingChatMaxLen`, applies `MeetingChatLineGapTicks`, and stores one
+pending line in `ActionState.pendingChat`.
 
-- A Nim-side buffer for outgoing chat strings.
-- A C FFI export (`guidedbot_take_chat`) for the Python bridge.
-- Python-side `bitworld_chat_messages()` method integration.
+The C FFI export `guidedbot_take_chat(handle, agentId, buffer, bufferLen)`
+drains that pending line. The Python policy polls it after `step_batch`
+and exposes both:
 
-Deferred to a separate implementation phase. The mode is structurally
-ready — once FFI is wired, chat works without mode-side changes.
+- `bitworld_chat_messages(agent_ids)` for the tournament BitWorld runner.
+- `last_chat(agent_id)` for local `scripts/_lib.py`, which sends
+  `pack_chat_packet(text)` on the player websocket.
 
 ---
 
@@ -287,9 +296,14 @@ All live in `tuning.nim`:
 |---|---|---|
 | `MeetingFallbackTicksLeft` | 100 | Safety-net fires with ~4s remaining. |
 | `MeetingDurationEstimateTicks` | 600 | Conservative meeting length estimate (~25s). |
-| `MeetingAutoVoteDelayTicks` | 360 | Temporary no-LLM fallback: vote for the next selectable live player slot to the right after 15s. |
+| `MeetingAutoVoteDelayTicks` | 360 | No-LLM fallback: vote via evidence/alibi strategy after 15s. |
 | `MeetingCursorHoldTicks` | 3 | Ticks to hold each cursor pulse before releasing for the next step. |
-| `MeetingChatLineGapTicks` | 12 | Min ticks between chat packets (rate-limit, future use). |
+| `MeetingChatLineGapTicks` | 12 | Min ticks between chat packets. |
+| `MeetingLlmActionPeriodTicks` | 48 | Faster meeting cadence for speak/vote/confirm LLM actions. |
+| `MeetingCrewEvidenceThreshold` | 5 | Minimum fallback score before crew votes a player instead of SKIP. |
+| `MeetingBodyEvidenceRadius` | 48 | World-pixel radius for counting a player near a body. |
+| `MeetingBodyEvidenceCooldownTicks` | 72 | Cooldown before counting the same near-body evidence again. |
+| `MeetingChatMaxLen` | 80 | Hard cap for outbound chat text. |
 
 ---
 
@@ -329,6 +343,7 @@ The standard trace captures:
 
 - `meeting_started` event in `bot.nim` (on PhaseVoting entry).
 - `chat_observed` events for incoming chat lines.
+- `chat_sent` events when outgoing chat enters the FFI buffer.
 - `vote_attempted` event when meeting mode emits A to confirm a vote.
 - Mode entry/exit via `modes.jsonl`.
 - `decisions.jsonl` records cursor direction and button presses each
@@ -344,7 +359,7 @@ use `DisciplineNoOp` with button/cursor fields set directly:
 - **Cursor movement:** `cursor: CursorLeft | CursorRight` with no A/B.
 - **Vote confirm:** `pressA: true` with no cursor or steering.
 - **Unvote:** `pressB: true` with no cursor or steering.
-- **Chat:** `chat: <text>` with no buttons (stub path).
+- **Chat:** `chat: <text>` with no buttons.
 - **Idle:** `noOpIntent()` — no buttons, no cursor, no steering.
 
 `steerValid` is always `false` during meetings (no world-space
@@ -383,9 +398,14 @@ During meetings, the snapshot (`snapshot.nim`) includes:
 
 - `phase: "voting"` — signals the LLM that meeting mode is active.
 - `current_mode: { "name": "meeting", ... }` with `ticks_active`.
-- `recent_chat` — all chat lines from this meeting with speaker
-  colors and text.
-- Standard fields: visible players, memory, self state.
+- `meeting` — player count, self slot, cursor, selectable players,
+  observed votes, and recent alibi witnesses.
+- `memory.per_player` — alive/role status, last-seen room, near-body
+  counts, witnessed-kill counts, and ejection state for each voting
+  slot during meetings.
+- `visible_chat` and `recent_chat` — current OCR-visible chat plus the
+  deduplicated recent transcript with speaker colours and text.
+- Standard fields: visible players, task state, self state.
 
 The LLM uses this to decide what to say (chat) and who to vote for.
 The mode's scratch state (cursor position, pending actions, vote
@@ -405,7 +425,9 @@ results, merged into belief by `mergeVotingPercept`:
 - `votingPlayerCount: int` — total players in the grid.
 - `votingValid: bool` — whether the current frame parsed successfully.
 - Voting slot alive/dead state — merged into `memory.perPlayer[ci].alive`,
-  so the temporary no-LLM target can skip dead slots.
+  so fallback strategy and LLM guards can skip dead slots.
+- Vote-dot choices — merged into `social.votesCast`, then exposed in
+  the meeting snapshot as observed votes.
 
 These are updated every interstitial frame. If the parse fails
 (`votingValid = false`), cursor-based navigation degrades to the
@@ -419,28 +441,19 @@ cursor and alive-slot state fresh while the meeting mode is navigating.
 
 ## 18. Open questions
 
-1. **Chat emission FFI.** The biggest missing feature. Requires
-   Nim buffer + C export + Python bridge. The mode is ready; the
-   infrastructure is not.
-
-2. **Vote target persistence across actions.** If the LLM sends
+1. **Vote target persistence across actions.** If the LLM sends
    `MeetingActVote(target: 3)` and then later `MeetingActVote(target: 5)`
    before the first navigation completes, the second action overwrites
    `meetVoteTarget`. This is correct (latest instruction wins) but
    could cause visible cursor thrashing if the LLM changes its mind
    rapidly.
 
-3. **LLM-directed live-target guard.** The no-LLM temporary target skips
-   self and dead players. LLM-directed votes currently guard only
-   invalid/self targets mechanically; strategy should avoid dead slots
-   before issuing a vote action.
-
-4. **Vote tracking for snapshot.** The mode knows who it voted for
+2. **Self vote tracking for snapshot.** The mode knows who it voted for
    (`meetVoteTarget` at confirmation time), but this isn't exposed to
    the snapshot or memory. A future version could record the vote in
    `belief.social.votesCast` for cross-meeting memory.
 
-5. **Meeting duration calibration.** `MeetingDurationEstimateTicks = 600`
+3. **Meeting duration calibration.** `MeetingDurationEstimateTicks = 600`
    matches the local server. Tournament servers may use different
    values. If the fallback fires too early or too late, this constant
    needs adjustment. Ideally the bot would detect meeting duration
