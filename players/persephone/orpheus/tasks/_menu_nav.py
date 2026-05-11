@@ -30,7 +30,9 @@ from orpheus.types import (
 
 MenuStep = tuple[Any, ...]
 
-CATEGORY_ORDER = ["EXIT", "COLOR", "ROLE", "LEADER"]
+CATEGORY_ORDER = ["COLOR", "ROLE", "LEADER", "EXIT"]
+MENU_BUTTON_HOLD_TICKS = 2
+MENU_BUTTON_RELEASE_TICKS = 2
 
 ITEM_ORDER_BY_CATEGORY: dict[str, tuple[tuple[str, ...], ...]] = {
     "EXIT": (("EXIT",),),
@@ -62,6 +64,10 @@ class MenuNavigator:
 
     def next_command(self, belief_state, action_memory) -> ActCommand:
         """Return the next menu-navigation command for this tick."""
+        active_command = _continue_menu_button(action_memory)
+        if active_command is not None:
+            return active_command
+
         if not hasattr(action_memory, "menu_step"):
             action_memory.menu_step = 0
 
@@ -109,9 +115,16 @@ class MenuNavigator:
     ) -> ActCommand | None:
         state = _menu_state(belief_state)
         if _bar_is_default(_state_value(state, "bar", "bottom_bar")):
-            return _button_command(action_memory, BUTTON_B)
+            if not getattr(action_memory, "menu_open_attempted", False):
+                action_memory.menu_open_attempted = True
+                action_memory.menu_category_index = 0
+                action_memory.menu_item_index = 0
+                return _button_command(action_memory, BUTTON_B)
+            current = _synthetic_category(action_memory)
+        else:
+            current = _state_value(state, "category", "menu_category")
+            _sync_synthetic_category(action_memory, current)
 
-        current = _state_value(state, "category", "menu_category")
         if _matches(current, expected):
             return None
 
@@ -122,7 +135,12 @@ class MenuNavigator:
             forward_button=BUTTON_RIGHT,
             backward_button=BUTTON_LEFT,
         )
-        return _button_command(action_memory, button or BUTTON_RIGHT)
+        button = button or BUTTON_RIGHT
+        return _button_command(
+            action_memory,
+            button,
+            on_press=lambda: _advance_synthetic_category(action_memory, button),
+        )
 
     def _handle_item(
         self,
@@ -132,13 +150,22 @@ class MenuNavigator:
     ) -> ActCommand | None:
         state = _menu_state(belief_state)
         if _bar_is_default(_state_value(state, "bar", "bottom_bar")):
-            return _button_command(action_memory, BUTTON_B)
+            if not getattr(action_memory, "menu_open_attempted", False):
+                action_memory.menu_open_attempted = True
+                action_memory.menu_category_index = 0
+                action_memory.menu_item_index = 0
+                return _button_command(action_memory, BUTTON_B)
+            category = _synthetic_category(action_memory)
+            current = _synthetic_item(action_memory, category)
+        else:
+            current = _state_value(state, "item", "menu_item")
+            category = _state_value(state, "category", "menu_category")
+            _sync_synthetic_category(action_memory, category)
+            _sync_synthetic_item(action_memory, category, current)
 
-        current = _state_value(state, "item", "menu_item")
         if _matches(current, expected):
             return None
 
-        category = _state_value(state, "category", "menu_category")
         item_order = _item_order_for_category(category)
         button = (
             _shortest_cycle_button(
@@ -151,7 +178,16 @@ class MenuNavigator:
             if item_order is not None
             else None
         )
-        return _button_command(action_memory, button or BUTTON_DOWN)
+        button = button or BUTTON_DOWN
+        return _button_command(
+            action_memory,
+            button,
+            on_press=lambda: _advance_synthetic_item(
+                action_memory,
+                category,
+                button,
+            ),
+        )
 
     def _handle_target(
         self,
@@ -162,7 +198,7 @@ class MenuNavigator:
         state = _menu_state(belief_state)
         bar = _state_value(state, "bar", "bottom_bar")
         if not _bar_is_target_picker(bar):
-            return _release_or_noop(action_memory)
+            return self._press_and_advance(action_memory, BUTTON_A)
 
         current_index = _current_target_index(state, action_memory)
         if current_index == target_index:
@@ -183,25 +219,74 @@ class MenuNavigator:
             button = BUTTON_LEFT
             next_index = (current_index - 1) % target_count
 
-        command = action_memory.step_button_press(button)
-        if command:
-            action_memory.menu_target_index = next_index
-        return ActCommand(buttons=command)
+        return _button_command(
+            action_memory,
+            button,
+            on_press=lambda: setattr(action_memory, "menu_target_index", next_index),
+        )
 
     def _press_and_advance(self, action_memory, button: int) -> ActCommand:
-        command = action_memory.step_button_press(button)
-        if command:
-            action_memory.menu_step += 1
-            action_memory.sequence_step = action_memory.menu_step
-        return ActCommand(buttons=command)
+        action_memory.menu_step += 1
+        action_memory.sequence_step = action_memory.menu_step
+        return _button_command(action_memory, button)
 
     def _next_step_is_confirm(self, action_memory) -> bool:
         next_index = action_memory.menu_step + 1
         return next_index < len(self.steps) and self.steps[next_index][0] == "confirm"
 
 
-def _button_command(action_memory, button: int) -> ActCommand:
-    return ActCommand(buttons=action_memory.step_button_press(button))
+def _button_command(action_memory, button: int, on_press=None) -> ActCommand:
+    if on_press is not None:
+        on_press()
+    return _start_menu_button(action_memory, button)
+
+
+def _start_menu_button(action_memory, button: int) -> ActCommand:
+    action_memory.menu_button_active = True
+    action_memory.menu_button = button
+    action_memory.menu_button_phase = "press"
+    action_memory.menu_button_ticks = 1
+    action_memory.pressed_last_tick = True
+    return ActCommand(buttons=button)
+
+
+def _continue_menu_button(action_memory) -> ActCommand | None:
+    if not getattr(action_memory, "menu_button_active", False):
+        return None
+
+    button = int(getattr(action_memory, "menu_button", 0))
+    phase = getattr(action_memory, "menu_button_phase", "press")
+    ticks = int(getattr(action_memory, "menu_button_ticks", 0))
+
+    if phase == "press":
+        if ticks < MENU_BUTTON_HOLD_TICKS:
+            action_memory.menu_button_ticks = ticks + 1
+            action_memory.pressed_last_tick = True
+            return ActCommand(buttons=button)
+        action_memory.menu_button_phase = "release"
+        action_memory.menu_button_ticks = 1
+        action_memory.pressed_last_tick = False
+        return ActCommand()
+
+    if ticks < MENU_BUTTON_RELEASE_TICKS:
+        action_memory.menu_button_ticks = ticks + 1
+        action_memory.pressed_last_tick = False
+        return ActCommand()
+
+    _clear_menu_button(action_memory)
+    return None
+
+
+def _clear_menu_button(action_memory) -> None:
+    for name in (
+        "menu_button_active",
+        "menu_button",
+        "menu_button_phase",
+        "menu_button_ticks",
+    ):
+        if hasattr(action_memory, name):
+            delattr(action_memory, name)
+    action_memory.pressed_last_tick = False
 
 
 def _release_or_noop(action_memory) -> ActCommand:
@@ -221,6 +306,63 @@ def _state_value(state, *names: str, default=None):
         if hasattr(state, name):
             return getattr(state, name)
     return default
+
+
+def _synthetic_category(action_memory) -> str:
+    index = int(getattr(action_memory, "menu_category_index", 0))
+    return CATEGORY_ORDER[index % len(CATEGORY_ORDER)]
+
+
+def _synthetic_item(action_memory, category) -> str:
+    order = _item_order_for_category(category) or (("",),)
+    index = int(getattr(action_memory, "menu_item_index", 0))
+    index = max(0, min(index, len(order) - 1))
+    action_memory.menu_item_index = index
+    return order[index][0]
+
+
+def _sync_synthetic_category(action_memory, current) -> None:
+    index = _cycle_index(current, CATEGORY_ORDER)
+    if index is not None:
+        action_memory.menu_category_index = index
+        _cap_synthetic_item(action_memory, CATEGORY_ORDER[index])
+
+
+def _sync_synthetic_item(action_memory, category, current) -> None:
+    order = _item_order_for_category(category)
+    if order is None:
+        return
+    index = _cycle_index(current, order)
+    if index is not None:
+        action_memory.menu_item_index = index
+
+
+def _advance_synthetic_category(action_memory, button: int) -> None:
+    direction = -1 if button == BUTTON_LEFT else 1
+    current = int(getattr(action_memory, "menu_category_index", 0))
+    action_memory.menu_category_index = (current + direction) % len(CATEGORY_ORDER)
+    _cap_synthetic_item(
+        action_memory,
+        CATEGORY_ORDER[action_memory.menu_category_index],
+    )
+
+
+def _advance_synthetic_item(action_memory, category, button: int) -> None:
+    order = _item_order_for_category(category)
+    if order is None:
+        return
+    direction = -1 if button == BUTTON_UP else 1
+    current = int(getattr(action_memory, "menu_item_index", 0))
+    action_memory.menu_item_index = (current + direction) % len(order)
+
+
+def _cap_synthetic_item(action_memory, category) -> None:
+    order = _item_order_for_category(category)
+    if order is None:
+        action_memory.menu_item_index = 0
+        return
+    current = int(getattr(action_memory, "menu_item_index", 0))
+    action_memory.menu_item_index = max(0, min(current, len(order) - 1))
 
 
 def _bar_is_default(value) -> bool:

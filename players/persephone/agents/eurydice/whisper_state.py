@@ -35,5 +35,10 @@ class WhisperModeState:
     role_exchange_initiated: bool = False
     role_exchange_completed: bool = False
     waiting_for_response_since: int = 0
+    active_exchange_task: str | None = None
+    active_exchange_target_index: int | None = None
+    active_exchange_started_tick: int = 0
     messages_sent: int = 0
+    last_llm_action_tick: int = 0
+    last_llm_action: str | None = None
     exit_initiated: bool = False

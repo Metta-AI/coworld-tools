@@ -125,7 +125,46 @@ def test_menu_navigator_opens_closed_menu_with_b_press() -> None:
     assert MenuNavigator((("category", "ROLE"),)).next_command(
         belief,
         memory,
+    ) == ActCommand(buttons=BUTTON_B)
+    assert MenuNavigator((("category", "ROLE"),)).next_command(
+        belief,
+        memory,
     ) == ActCommand()
+    assert MenuNavigator((("category", "ROLE"),)).next_command(
+        belief,
+        memory,
+    ) == ActCommand()
+    assert MenuNavigator((("category", "ROLE"),)).next_command(
+        belief,
+        memory,
+    ) == ActCommand(buttons=BUTTON_RIGHT)
+
+
+def test_menu_navigator_can_complete_with_default_bar_fallback() -> None:
+    belief = BeliefState(menu_state={"bar": ChatroomBarState.DEFAULT})
+    memory = ActionMemory()
+    navigator = MenuNavigator(
+        (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
+    )
+    nonzero_buttons = []
+
+    for _ in range(20):
+        command = navigator.next_command(belief, memory)
+        if command.buttons:
+            nonzero_buttons.append(command.buttons)
+        if memory.menu_step >= 3:
+            break
+
+    assert nonzero_buttons == [
+        BUTTON_B,
+        BUTTON_B,
+        BUTTON_RIGHT,
+        BUTTON_RIGHT,
+        BUTTON_DOWN,
+        BUTTON_DOWN,
+        BUTTON_A,
+    ]
+    assert memory.menu_step == 3
 
 
 def test_menu_navigator_advances_wrong_category() -> None:
@@ -200,6 +239,12 @@ def test_menu_navigator_confirms_when_category_and_item_match() -> None:
     assert memory.menu_step == 3
     assert MenuNavigator(
         (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
+    ).next_command(belief, memory) == ActCommand(buttons=BUTTON_A)
+    assert MenuNavigator(
+        (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
+    ).next_command(belief, memory) == ActCommand()
+    assert MenuNavigator(
+        (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
     ).next_command(belief, memory) == ActCommand()
 
 
@@ -241,6 +286,16 @@ def test_menu_navigator_confirms_current_target() -> None:
             target_index=1,
         )
     )
+    memory = ActionMemory()
+
+    command = MenuNavigator((("target", 1),)).next_command(belief, memory)
+
+    assert command == ActCommand(buttons=BUTTON_A)
+    assert memory.menu_step == 1
+
+
+def test_menu_navigator_target_picker_falls_back_to_default_confirm() -> None:
+    belief = BeliefState(menu_state={"bar": ChatroomBarState.DEFAULT})
     memory = ActionMemory()
 
     command = MenuNavigator((("target", 1),)).next_command(belief, memory)
@@ -303,8 +358,18 @@ TASK_CASES = [
     (PassLeadershipTask(), PassLeadershipTask(), TakeLeadershipTask(), frozenset({View.WHISPER})),
     (TakeLeadershipTask(), TakeLeadershipTask(), PassLeadershipTask(), frozenset({View.WHISPER})),
     (VoteUsurpTask(1), VoteUsurpTask(1), VoteUsurpTask(2), frozenset({View.GLOBAL_CHAT})),
-    (SelectHostagesTask((1, 2)), SelectHostagesTask((1, 2)), SelectHostagesTask((2,)), frozenset({View.GLOBAL_CHAT})),
-    (SendMessageTask("hi"), SendMessageTask("hi"), SendMessageTask("bye"), frozenset({View.WHISPER, View.GLOBAL_CHAT, View.PLAYING})),
+    (
+        SelectHostagesTask((1, 2)),
+        SelectHostagesTask((1, 2)),
+        SelectHostagesTask((2,)),
+        frozenset({View.HOSTAGE_SELECT, View.GLOBAL_CHAT}),
+    ),
+    (
+        SendMessageTask("hi"),
+        SendMessageTask("hi"),
+        SendMessageTask("bye"),
+        frozenset({View.WHISPER, View.GLOBAL_CHAT, View.PLAYING, View.LEADER_SUMMIT}),
+    ),
 ]
 
 
@@ -618,6 +683,10 @@ def test_menu_backed_tasks_open_menu_when_menu_state_missing(task) -> None:
     command = task.select_action(BeliefState(menu_state=None), memory)
 
     assert command == ActCommand(buttons=BUTTON_B)
+    assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand(
+        buttons=BUTTON_B,
+    )
+    assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand()
     assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand()
 
 
@@ -627,10 +696,12 @@ def test_accept_role_exchange_confirms_target_after_item_confirm() -> None:
     belief = BeliefState(menu_state=_menu_state(category="ROLE", item="R.ACCPT"))
 
     assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
+    assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
+    assert task.select_action(belief, memory) == ActCommand()
     assert task.select_action(belief, memory) == ActCommand()
     belief.menu_state = _menu_state(
         bar=ChatroomBarState.TARGET_PICKER,
-        target_index=1,
+        target_index=0,
     )
 
     assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
@@ -688,6 +759,7 @@ def test_send_message_respects_cooldown() -> None:
     ("task", "in_whisper"),
     [
         (SendMessageTask("HELLO", channel="chatroom"), False),
+        (SendMessageTask("HELLO", channel="whisper"), False),
         (SendMessageTask("HELLO", channel="global"), True),
     ],
 )
@@ -698,3 +770,15 @@ def test_send_message_channel_mismatch_noops(task, in_whisper) -> None:
 
     assert command == ActCommand()
     assert "chat" not in belief.cooldowns
+
+
+def test_send_message_treats_leader_summit_as_whisper_like() -> None:
+    belief = BeliefState(view=View.LEADER_SUMMIT, in_whisper=False)
+
+    command = SendMessageTask("SEND HADES", channel="whisper").select_action(
+        belief,
+        ActionMemory(),
+    )
+
+    assert command == ActCommand(buttons=0, chat_text="SEND HADES")
+    assert belief.cooldowns["chat"] == 48

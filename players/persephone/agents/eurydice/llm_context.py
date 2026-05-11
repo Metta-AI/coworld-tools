@@ -14,21 +14,28 @@ from typing import Any, Literal
 from orpheus.belief_state import BeliefState, ChatMessageRecord
 from orpheus.perception.types import View
 
-from agents.eurydice.ext_keys import PLAYER_KNOWLEDGE
+from agents.eurydice.ext_keys import (
+    LAST_DIRECTIVE_MODE,
+    PROBE_FAILURES,
+    PROBE_STATE,
+    PLAYER_KNOWLEDGE,
+)
 from agents.eurydice.knowledge import PlayerKnowledge
 from agents.eurydice.meta_decide import build_strategic_state, player_index_to_id
 from agents.eurydice.strategic_state import StrategicState
 from agents.eurydice.types import PlayerID
 
 
-SCHEMA_VERSION = "eurydice.llm_context.v1"
-DECISION_SCHEMA_VERSION = "eurydice.llm_decision.v1"
+SCHEMA_VERSION = "eurydice.llm_context.v2"
+DECISION_SCHEMA_VERSION = "eurydice.llm_decision.v2"
 
 LLM_ACTIONS: tuple[str, ...] = (
     "hold",
     "probe_player",
     "create_whisper",
     "join_whisper",
+    "grant_entry",
+    "deny_entry",
     "send_whisper",
     "send_global",
     "open_global",
@@ -94,9 +101,11 @@ class LLMDecisionContext:
     self: dict[str, Any]
     strategy: dict[str, Any]
     match: dict[str, Any]
+    runtime: dict[str, Any]
     players: list[LLMPlayerSnapshot]
     recent_messages: list[LLMMessageSnapshot]
     legal_actions: list[str]
+    action_affordances: dict[str, dict[str, Any]]
     hard_constraints: list[str]
 
 
@@ -110,6 +119,8 @@ class LLMDecision:
         "probe_player",
         "create_whisper",
         "join_whisper",
+        "grant_entry",
+        "deny_entry",
         "send_whisper",
         "send_global",
         "open_global",
@@ -124,7 +135,10 @@ class LLMDecision:
         "select_hostage",
         "move_to",
     ] = "hold"
+    surface: str | None = None
     target: list[int] | None = None
+    destination: list[int] | None = None
+    hostage_targets: list[list[int]] | None = None
     message: str | None = None
     reveal_color: bool = False
     reveal_role: bool = False
@@ -151,9 +165,11 @@ def build_llm_context(
         self=_self_snapshot(belief_state, state),
         strategy=_strategy_snapshot(state),
         match=_match_snapshot(belief_state, state),
+        runtime=_runtime_snapshot(belief_state),
         players=_player_snapshots(belief_state),
         recent_messages=_recent_messages(belief_state, max_messages),
         legal_actions=_legal_actions(belief_state),
+        action_affordances=_action_affordances(belief_state),
         hard_constraints=_hard_constraints(belief_state),
     )
     return _json_safe(asdict(context))
@@ -169,12 +185,34 @@ def llm_decision_schema() -> dict[str, Any]:
         "properties": {
             "schema_version": {"const": DECISION_SCHEMA_VERSION},
             "action": {"enum": list(LLM_ACTIONS)},
+            "surface": {
+                "description": "Optional control surface such as probe, whisper, or global.",
+                "type": ["string", "null"],
+                "maxLength": 32,
+            },
             "target": {
                 "description": "Optional PlayerID as [color, shape].",
                 "type": ["array", "null"],
                 "items": {"type": "integer"},
                 "minItems": 2,
                 "maxItems": 2,
+            },
+            "destination": {
+                "description": "Optional world coordinate as [x, y] for move_to.",
+                "type": ["array", "null"],
+                "items": {"type": "integer"},
+                "minItems": 2,
+                "maxItems": 2,
+            },
+            "hostage_targets": {
+                "description": "Optional hostage PlayerIDs for select_hostage.",
+                "type": ["array", "null"],
+                "items": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
             },
             "message": {
                 "description": "Optional ASCII chat text, already game-safe.",
@@ -237,11 +275,74 @@ def _match_snapshot(
 ) -> dict[str, Any]:
     return {
         "player_count": getattr(belief_state, "player_count", None),
+        "room_size": _position(getattr(belief_state, "room_size", None)),
         "round_schedule": [list(item) for item in state.round_schedule],
         "match_roles": list(state.match_roles),
         "missing_roles": list(state.missing_roles),
         "echo_substitutions": [list(item) for item in state.echo_substitutions],
         "spy_in_game_config": state.spy_in_game_config,
+    }
+
+
+def _runtime_snapshot(belief_state: BeliefState) -> dict[str, Any]:
+    pending_entry = getattr(belief_state, "pending_entry", None)
+    probe_state = getattr(belief_state, "extra", {}).get(PROBE_STATE, {})
+    return {
+        "current_mode": _current_mode(belief_state),
+        "current_task": _current_task(belief_state),
+        "cooldowns": {
+            str(key): int(value)
+            for key, value in getattr(belief_state, "cooldowns", {}).items()
+            if isinstance(value, int)
+        },
+        "pending_entry": _indexed_player_ref(pending_entry, belief_state),
+        "active_color_offers": _indexed_player_refs(
+            getattr(belief_state, "active_color_offers", []),
+            belief_state,
+        ),
+        "active_role_offers": _indexed_player_refs(
+            getattr(belief_state, "active_role_offers", []),
+            belief_state,
+        ),
+        "current_whisper_occupants": _indexed_player_refs(
+            getattr(belief_state, "whisper_occupants", []),
+            belief_state,
+        ),
+        "pending_offers": dict(getattr(belief_state, "pending_offers", {}) or {}),
+        "last_exchange_event": _json_safe(
+            getattr(belief_state, "last_exchange_event", None)
+        ),
+        "hostage_options": _hostage_options_snapshot(belief_state),
+        "probe_state": _json_safe(probe_state if isinstance(probe_state, dict) else {}),
+        "probe_failures": _probe_failures_snapshot(belief_state),
+    }
+
+
+def _action_affordances(belief_state: BeliefState) -> dict[str, dict[str, Any]]:
+    legal = set(_legal_actions(belief_state))
+    occupants = _indexed_player_refs(
+        getattr(belief_state, "whisper_occupants", []),
+        belief_state,
+    )
+    pending_entry = _indexed_player_ref(getattr(belief_state, "pending_entry", None), belief_state)
+    return {
+        action: {
+            "legal": action in legal,
+            "requires_target": action in _target_required_actions(belief_state),
+            "requires_message": action in {"send_whisper", "send_global"},
+            "requires_destination": action == "move_to",
+            "requires_hostage_targets": action == "select_hostage",
+            "requires_active_offer": action in {"accept_color", "accept_role"},
+            "current_occupants": occupants if action.endswith("role") or action.endswith("color") else [],
+            "pending_entry": pending_entry if action in {"grant_entry", "deny_entry"} else None,
+            "hostage_options": (
+                _hostage_options_snapshot(belief_state)
+                if action == "select_hostage"
+                else None
+            ),
+            "chat_cooldown": int(getattr(belief_state, "cooldowns", {}).get("chat", 0)),
+        }
+        for action in LLM_ACTIONS
     }
 
 
@@ -359,7 +460,7 @@ def _legal_actions(belief_state: BeliefState) -> list[str]:
             "exit_whisper",
         ]
         if getattr(belief_state, "pending_entry", None) is not None:
-            actions.append("join_whisper")
+            actions.extend(["grant_entry", "deny_entry"])
         return actions
     if view is View.GLOBAL_CHAT:
         return ["hold", "send_global", "open_info", "seek_leadership"]
@@ -367,6 +468,8 @@ def _legal_actions(belief_state: BeliefState) -> list[str]:
         return ["hold", "open_global"]
     if view is View.HOSTAGE_SELECT:
         return ["hold", "select_hostage"]
+    if view is View.LEADER_SUMMIT:
+        return ["hold", "send_whisper"]
     if view in {View.PLAYING, View.WAITING_ENTRY}:
         return [
             "hold",
@@ -378,6 +481,23 @@ def _legal_actions(belief_state: BeliefState) -> list[str]:
             "move_to",
         ]
     return ["hold"]
+
+
+def _target_required_actions(belief_state: BeliefState) -> set[str]:
+    actions = {
+        "probe_player",
+        "join_whisper",
+        "grant_entry",
+        "deny_entry",
+        "accept_color",
+        "accept_role",
+        "offer_color",
+        "offer_role",
+    }
+    if _single_non_self_whisper_occupant(belief_state) is not None:
+        actions.discard("offer_color")
+        actions.discard("offer_role")
+    return actions
 
 
 def _hard_constraints(belief_state: BeliefState) -> list[str]:
@@ -398,6 +518,166 @@ def _hard_constraints(belief_state: BeliefState) -> list[str]:
 def _knowledge(belief_state: BeliefState) -> dict[PlayerID, PlayerKnowledge]:
     raw = getattr(belief_state, "extra", {}).get(PLAYER_KNOWLEDGE, {})
     return raw if isinstance(raw, dict) else {}
+
+
+def _current_mode(belief_state: BeliefState) -> str | None:
+    raw = getattr(belief_state, "extra", {}).get(
+        LAST_DIRECTIVE_MODE,
+        getattr(belief_state, "inferences", {}).get(LAST_DIRECTIVE_MODE),
+    )
+    return str(raw) if raw is not None else None
+
+
+def _current_task(belief_state: BeliefState) -> str | None:
+    task = getattr(belief_state, "current_task", None)
+    return type(task).__name__ if task is not None else None
+
+
+def _indexed_player_ref(index: Any, belief_state: BeliefState) -> dict[str, Any] | None:
+    if not isinstance(index, int):
+        return None
+    return {
+        "index": int(index),
+        "player_id": _player_id(player_index_to_id(index, belief_state)),
+    }
+
+
+def _indexed_player_refs(
+    indices: Any,
+    belief_state: BeliefState,
+) -> list[dict[str, Any]]:
+    if not isinstance(indices, list | tuple | set):
+        return []
+    refs = []
+    for index in indices:
+        ref = _indexed_player_ref(index, belief_state)
+        if ref is not None:
+            refs.append(ref)
+    return refs
+
+
+def _probe_failures_snapshot(belief_state: BeliefState) -> list[dict[str, Any]]:
+    raw = getattr(belief_state, "extra", {}).get(PROBE_FAILURES, {})
+    if not isinstance(raw, dict):
+        return []
+    failures = []
+    for key, count in raw.items():
+        if (
+            isinstance(key, tuple)
+            and len(key) == 2
+            and isinstance(key[0], int)
+            and isinstance(key[1], tuple)
+            and len(key[1]) == 2
+        ):
+            failures.append(
+                {
+                    "round": int(key[0]),
+                    "target": _player_id(key[1]),
+                    "count": int(count),
+                }
+            )
+    return failures
+
+
+def _hostage_options_snapshot(belief_state: BeliefState) -> dict[str, Any] | None:
+    selections = getattr(belief_state, "hostage_selections", None)
+    if selections is None:
+        return None
+
+    eligible_colors = list(_state_value(selections, "eligible_colors") or [])
+    eligible_shapes = list(_state_value(selections, "eligible_shapes") or [])
+    selected_positions = set(_int_sequence(_state_value(selections, "selected_positions")))
+    required_count = _hostage_target_total(selections, len(eligible_colors))
+    remaining_count = max(0, required_count - len(selected_positions))
+
+    options: list[dict[str, Any]] = []
+    for position, color in enumerate(eligible_colors):
+        shape = eligible_shapes[position] if position < len(eligible_shapes) else None
+        shape_value = _shape_value(shape)
+        player_id = [int(color), shape_value] if shape_value is not None else None
+        options.append(
+            {
+                "position": position,
+                "color": int(color),
+                "shape": shape_value,
+                "player_id": player_id,
+                "selected": position in selected_positions,
+            }
+        )
+
+    return {
+        "required_count": required_count,
+        "remaining_count": remaining_count,
+        "selected_positions": sorted(selected_positions),
+        "is_committed": bool(_state_value(selections, "is_committed")),
+        "options": options,
+    }
+
+
+def _single_non_self_whisper_occupant(
+    belief_state: BeliefState,
+) -> PlayerID | None:
+    my_index = getattr(belief_state, "my_index", None)
+    candidates: list[PlayerID] = []
+    for index in getattr(belief_state, "whisper_occupants", []) or []:
+        if index == my_index:
+            continue
+        player_id = player_index_to_id(index, belief_state)
+        if player_id is not None:
+            candidates.append(player_id)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _hostage_target_total(selections: Any, eligible_count: int) -> int:
+    count_label = _state_value(selections, "count_label")
+    if isinstance(count_label, str):
+        parts = count_label.split("/")
+        if len(parts) >= 2:
+            digits = "".join(char for char in parts[1] if char.isdigit())
+            if digits:
+                return min(eligible_count, max(0, int(digits)))
+
+    for name in ("required_count", "hostage_count", "target_count", "count"):
+        value = _state_value(selections, name)
+        if value is None:
+            continue
+        try:
+            return min(eligible_count, max(0, int(value)))
+        except (TypeError, ValueError):
+            continue
+
+    return min(2, eligible_count)
+
+
+def _int_sequence(value: Any) -> tuple[int, ...]:
+    if isinstance(value, list | tuple):
+        result: list[int] = []
+        for item in value:
+            try:
+                result.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return tuple(result)
+    return ()
+
+
+def _shape_value(shape: Any) -> int | None:
+    if shape is None:
+        return None
+    value = getattr(shape, "value", shape)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _state_value(source: Any, *names: str) -> Any:
+    for name in names:
+        if isinstance(source, dict) and name in source:
+            return source[name]
+        if hasattr(source, name):
+            return getattr(source, name)
+    return None
 
 
 def _is_self(belief_state: BeliefState, player_id: PlayerID) -> bool:

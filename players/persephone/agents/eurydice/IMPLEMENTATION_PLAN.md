@@ -4,7 +4,7 @@ This document is the implementation roadmap for taking Eurydice from the
 current partially implemented agent to the behavior described in
 [`DESIGN.md`](DESIGN.md) and the role strategy documents.
 
-Last source audit: 2026-05-10.
+Last source audit: 2026-05-11.
 
 The important planning constraint is dependency order: a phase may only depend
 on capabilities proven by earlier phases. For example, role-specific strategy
@@ -42,18 +42,33 @@ knowledge updates, and evaluator parameter contracts are already working.
   that caused whisper entry, supports stall/key-exchange/quick-verify/
   infiltration selection, applies Spy-aware incoming role-offer decisions, and
   explicitly handles hostile entrants, forced ejection, and post-whisper
-  info-screen reconciliation.
+  info-screen reconciliation. Exchange menu tasks persist until the menu
+  sequence completes, menu-backed tasks use robust held button presses, and
+  solo/key-exchange whispers grant the first or intended requester instead of
+  blocking all entry during sensitive states.
 - **Phase 6 partial:** Additional role-evaluator contracts cover key partner
   cross-room behavior, Persephone escape/hold behavior, Shade leader hostage
   strategy, Spy real-team verification targeting, and final-round partner
   unreachable disruption. P_FINAL now requires a real parsed schedule and a
   positive current round.
-- **LLM-readiness partial:** `llm_context.py` provides a JSON-safe decision
-  context and closed semantic output schema for future LLM control.
-  `llm_validator.py` validates future model decisions and can emit compact
-  shadow trace events. Runtime decisions are still deterministic; no provider,
-  prompt template layer, saved-trace runner, or runtime handoff exists yet. See
-  [`LLM_CONTROL.md`](LLM_CONTROL.md).
+- **LLM-readiness partial:** `llm_context.py` provides a JSON-safe v2 decision
+  context and closed semantic output schema for LLM control. `llm_validator.py`
+  validates model-shaped decisions and can emit compact shadow trace events.
+  `llm_prompts.py`, `llm_provider.py`, `llm_shadow.py`, `llm_executor.py`, and
+  `llm_action_mode.py` now provide strategic prompts, deterministic providers,
+  an opt-in standard-library AWS Bedrock Claude Haiku provider, shadow-runner,
+  and semantic executor. Runtime LLM control is still off by
+  default, but `--llm-control shadow|targets|whispers|all` can trace decisions,
+  limit authority to probe targets or whisper-local choices, or let `all`
+  drive every validated executor-backed semantic action in the current view:
+  probe targets, movement/open-view actions, global chat, leader-summit chat,
+  leadership seeking, and hostage selection. Real-provider calls have
+  cooldown/fallback safeguards; executor-backed actions fail closed after view
+  changes, and validators reject false self-identity or unsupported role
+  claims. Short Haiku smoke validation produced no provider errors and no
+  `valid_views_mismatch` events, but default self-play still needs live
+  mixed-policy/exchange-completion evaluation.
+  See [`LLM_CONTROL.md`](LLM_CONTROL.md).
 
 ### Proven or Mostly Implemented
 
@@ -78,7 +93,9 @@ knowledge updates, and evaluator parameter contracts are already working.
 - Basic movement/probing modes exist: `idle`, `scout`, `probe_target`, and
   `probe_systematic`.
 - `in_whisper` is a real FSM with color exchange, role exchange, extraction,
-  stall, exit, forced-ejection, and entry-request handling.
+  stall, exit, forced-ejection, and entry-request handling. Its exchange trace
+  events now distinguish attempted menu sequences from server-confirmed
+  exchange completions with `server_confirmed`.
 - Advanced mode classes exist for leadership, hostage selection, summit,
   cross-room coordination, relay, time-waste, decoy, and info screen checks.
 - Exchange-related whisper activity schedules a brief info-screen pass;
@@ -117,22 +134,48 @@ knowledge updates, and evaluator parameter contracts are already working.
 - Evaluators emit typed params for core branches, but several advanced modes
   only store or lightly consume those params. They do not yet implement the
   full role-specific behaviors described in `DESIGN.md`.
-- Probe rendezvous is target-scoped now, but still lacks cooperative
-  meeting-point behavior and safe global announcements.
+- Probe rendezvous is target-scoped now, but live self-play still produces
+  mostly solo whispers. It lacks cooperative meeting-point behavior, reliable
+  entry-request/grant completion, and safe global announcements.
 - Advanced modes are intentionally shallow: hostage selection is mechanical,
   cross-room coordination only sends `SEND ME`, `hold_position` does not
   actively seek leadership, and `decoy` does not communicate a false identity.
 - Deception and Spy behavior are partially wired into whisper role-offer
   decisions, but broader cover management and outbound deception policy remain
   later-phase work.
-- LLM control has a stable context/output contract plus a deterministic
-  validator and shadow trace helper, but no provider adapter, saved-trace
-  runner, prompt templates, or runtime integration yet.
+- LLM control has a stable v2 context/output contract, deterministic validator,
+  prompt scaffolding, fake providers, saved-context shadow runner, semantic
+  executor, and optional runtime hooks. `all` now grants broad validated
+  semantic authority over target selection, movement/open-view actions, global
+  and leader-summit chat, leadership seeking, hostage selection, and the
+  whisper-local entry/first-message hook. It still lacks an external model
+  provider, rich saved-context export from live traces, deeper multi-turn
+  whisper exchange control, and mixed-policy evaluation.
 
 ### Latest Validation
 
 - `PYTHONPATH=. .venv/bin/python -m pytest tests -q`:
-  **556 passed, 5 skipped** on 2026-05-10.
+  **585 passed, 5 skipped** on 2026-05-11.
+- Focused post-change checks:
+  `PYTHONPATH=. .venv/bin/python -m pytest tests/test_eurydice_stages.py tests/test_orpheus_stage4.py -q`
+  passed with **175 passed** on 2026-05-11.
+- Live full-match validation, 10 Eurydice agents against a local default
+  Persephone server (`seed=4243`): server result was **Draw** with
+  `Hades/Cerberus shared: false`, `Persephone/Demeter shared: false`, and
+  `same room: true`. Trace analyzer scanned 10 logs, 166,300 events, 0
+  malformed lines, and no unknown event types. Agents selected 72 probe
+  targets, started 41 probe attempts (`30 whisper_created`, `11
+  entry_requested`), completed 6 probes, and logged 34 `initiate_timeout`
+  failures. The server `full.log` recorded no `joined`, `shared roles`,
+  `offered role exchange`, or `exchanged colors` events. This proves the
+  remaining blocker is not random inactivity; it is failed rendezvous and
+  server-confirmed interaction.
+- Live full-match diagnostic, 10 Eurydice agents against a local default
+  Persephone server (`seed=4242`): server result was **Draw** with no
+  server-confirmed exchanges. Traces contained 43 `whisper_created`, 9
+  `entry_requested`, 26 `probe_completed`, 47 `probe_failed`, and 11
+  `whisper_exchange_outcome` events, but those exchange events were menu
+  attempts and did not appear in the authoritative server log.
 - Live strategy check, 10 Eurydice agents against a local default Persephone
   server (`seed=306`, stopped after early round-1 interaction): trace analyzer
   scanned 10 logs, 5,294 events, 0 malformed lines, and no unknown event
@@ -468,6 +511,9 @@ protocols can matter.
   only when the selected target is currently in a whisper; otherwise create or
   approach the selected target.
 - [x] Track failed entry attempts per target and cap reattempts per round.
+- [x] Grant the first requester into a solo whisper, and grant the intended
+  target into a key-exchange whisper, even when the FSM is already in a
+  sensitive exchange state.
 - [ ] Add cooperative meeting-point behavior for Eurydice-vs-Eurydice games.
 - [ ] Optionally use short global announcements for whisper location when safe.
 - [x] Prevent probe modes from initiating new whisper actions outside Playing
@@ -491,6 +537,9 @@ protocols can matter.
 
 - In small 4-agent Eurydice-vs-Eurydice runs, at least 70% of probe attempts
   reach `View.WHISPER` within 15 seconds.
+- In full 10-agent self-play, the server log should show at least one `joined`
+  whisper event by round 1 and at least one server-confirmed role/color offer
+  or exchange by round 2. The current 2026-05-11 runs do not meet this bar.
 - Median time from target selection to whisper view is below one third of the
   current round duration.
 - Failed attempts switch target or strategy within 96 ticks after failure.
@@ -719,25 +768,48 @@ budgets and outbound channel constraints.
   action.
 - [x] Add shadow-mode trace event support: `llm_context`, `llm_decision`,
   `llm_decision_rejected`, and `llm_decision_accepted`.
-- [ ] Add a saved-trace runner that samples contexts from live logs/frame
-  recordings and stores aggregate model-vs-rule comparisons.
-- [ ] Add prompt templates for the first three surfaces: probe target choice,
-  whisper reveal/message choice, and global room message choice.
-- [ ] Only after shadow traces are sane, add a provider adapter behind an explicit
-  config flag. No provider should be imported or required by default.
+- [x] Add a saved-context runner that evaluates full context JSON/JSONL packets
+  and stores aggregate model-vs-rule comparisons.
+- [x] Add strategic prompt templates for probe target choice, whisper
+  reveal/message choice, global room message choice, leader-summit requests,
+  hostage selection, and broad semantic actions.
+- [x] Add deterministic `hold` and `heuristic` providers behind explicit
+  config flags.
+- [x] Add an opt-in standard-library AWS Bedrock Claude Haiku provider behind
+  `--llm-provider haiku|bedrock`, with SigV4 signing, AWS/container/CLI
+  credential resolution, JSON parsing, timeout fallback, and call cooldowns.
+- [x] Add a semantic executor and registered `llm_action` mode for accepted
+  decisions that map to existing Orpheus tasks.
+- [x] Add optional runtime target-selection control behind
+  `--llm-control targets` / `all`.
+- [x] Add the first mode-local whisper hook for pending-entry and first-message
+  decisions behind `--llm-control whispers` / `all`.
+- [x] Expand `--llm-control all` to every validated executor-backed semantic
+  action in the current view, including global chat, leader-summit chat,
+  movement/open-view actions, leadership seeking, and hostage selection.
+- [ ] Add richer live context export and model-vs-rule evaluation metrics.
 
 **Pytest contracts:**
 
 - `tests/test_eurydice_llm_context.py::test_llm_context_is_json_serializable_and_namespaced`
 - `tests/test_eurydice_llm_context.py::test_llm_context_whisper_actions_include_exchange_controls`
+- `tests/test_eurydice_llm_context.py::test_llm_context_exposes_hostage_options`
 - `tests/test_eurydice_llm_context.py::test_llm_decision_schema_is_closed_and_action_bounded`
 - `tests/test_eurydice_llm_validator.py::test_validator_rejects_action_illegal_for_current_view`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_hostage_targets_not_matching_grid`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_wrong_hostage_target_count`
+- `tests/test_eurydice_llm_validator.py::test_validator_accepts_hostage_option_even_when_player_not_visible`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_false_first_person_key_role_claim`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_false_implied_here_role_claim`
+- `tests/test_eurydice_llm_validator.py::test_validator_rejects_unsupported_role_possession_claim`
 - `tests/test_eurydice_llm_validator.py::test_validator_rejects_role_reveal_to_known_enemy`
 - `tests/test_eurydice_llm_validator.py::test_validator_allows_role_reveal_to_enemy_for_disruption_objective`
 - `tests/test_eurydice_llm_validator.py::test_validator_rejects_color_reveal_when_spy_risk_active`
 - `tests/test_eurydice_llm_validator.py::test_validate_and_trace_emits_shadow_events`
-- Future: shadow runner emits parseable LLM trace events without changing the
-  selected runtime directive.
+- `tests/test_eurydice_llm_shadow.py`
+- `tests/test_eurydice_llm_provider.py`
+- `tests/test_eurydice_llm_executor.py`
+- `tests/test_eurydice_llm_runtime.py`
 
 **Trace criteria:**
 

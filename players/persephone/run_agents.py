@@ -163,6 +163,8 @@ def launch_agents(
     quiet: bool,
     log_level: str | None,
     record_frames: Path | None,
+    llm_control: str | None,
+    llm_provider: str | None,
 ) -> int:
     """Launch all agent instances and wait for them to finish.
 
@@ -206,6 +208,10 @@ def launch_agents(
                 cmd.extend(["--log-level", log_level])
             if record_frames is not None and agent_id in _FRAME_RECORDING_AGENTS:
                 cmd.extend(["--record-frames", str(record_frames)])
+            if agent_id == "eurydice" and llm_control is not None:
+                cmd.extend(["--llm-control", llm_control])
+            if agent_id == "eurydice" and llm_provider is not None:
+                cmd.extend(["--llm-provider", llm_provider])
 
             use_pipe = not quiet or log_dir
 
@@ -351,6 +357,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Forward frame recording directory to agents that support it (eurydice).",
     )
     p.add_argument(
+        "--llm-control",
+        choices=("off", "shadow", "targets", "whispers", "all"),
+        default=None,
+        help="Forward Eurydice LLM control mode to eurydice agents.",
+    )
+    p.add_argument(
+        "--llm-provider",
+        choices=("hold", "heuristic", "haiku", "bedrock-haiku", "bedrock"),
+        default=None,
+        help="Forward Eurydice LLM provider to eurydice agents.",
+    )
+    p.add_argument(
         "--quiet", action="store_true",
         help="Suppress agent output on console (still logged if --log-dir)",
     )
@@ -410,6 +428,8 @@ def main() -> int:
         args.quiet,
         args.log_level,
         record_frames,
+        args.llm_control,
+        args.llm_provider,
     )
 
 

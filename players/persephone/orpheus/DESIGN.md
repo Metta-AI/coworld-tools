@@ -395,13 +395,13 @@ multi-press sequences.
 
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
-| `select_hostages` | `player_indices[]` | In global chat: navigate hostage grid, toggle each target, commit | View transitions / timer expires |
+| `select_hostages` | `player_indices[]` | In the hostage-selection UI (and legacy global-chat grid), navigate hostage grid, toggle each target, commit | View transitions / timer expires |
 
 #### Communication
 
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
-| `send_message` | `text, channel=auto` | Send a `PACKET_CHAT` with `buttons=0`; no button press is required. `channel` controls routing assertion: `auto` (default) sends regardless of state; `chatroom` and `global` assert that `in_chatroom` matches — no-op if mismatched. Respects chat cooldown internally | Message appears in chat history |
+| `send_message` | `text, channel=auto` | Send a `PACKET_CHAT` with `buttons=0`; no button press is required. `channel` controls routing assertion: `auto` (default) sends regardless of state; `chatroom`/`whisper` require whisper-like state (`in_whisper` or leader summit); `global` no-ops in whisper-like state. Respects chat cooldown internally | Message appears in chat history |
 
 #### View management
 
@@ -419,14 +419,13 @@ multi-press sequences.
 
 ### Implementation notes
 
-- All whisper menu tasks (information exchange, leadership, grant) share
+- Most whisper menu tasks (information exchange and leadership) share
   internal menu-navigation logic: open menu (B) → navigate category
   (left/right) → navigate item (up/down) → confirm (A) → optionally navigate
-  target picker (left/right) → confirm (A). Rising-edge button sequencing
-  (press/release alternation) is handled by shared infrastructure in
-  ActionMemory. Each step follows the rising-edge/falling-edge pattern:
-  press on tick N, perceive result on tick N+1 (release tick), press next
-  button on tick N+2.
+  target picker (left/right) → confirm (A). Because the live server samples
+  rising-edge inputs and menu OCR is partial, menu navigation holds each
+  button for two ticks and releases for two ticks before advancing. `GRANT`
+  currently uses a fixed robust sequence for the same reason.
 
 - `request_entry` bundles approach + button press into one task. The mode
   doesn't need to micromanage proximity — the task handles both pathfinding
@@ -552,7 +551,8 @@ Source: `~/coding/bitworld/persephones_escape/game/constants.ts`,
 
 **Hostage state (during HostageSelect):**
 - `hostage_selections` — current selections and cursor state if we are
-  leader. Parsed from `GlobalChatPerception.hostage_grid`.
+  leader. Parsed from the hostage-select view; legacy global-chat hostage-grid
+  parsing is still accepted.
 
 **Social / knowledge:**
 - `chat_history` — all messages observed (whisper + global + shouts),
@@ -852,7 +852,7 @@ All views that show the game world with minimap:
   message in the sender's player color.
 
 **HostageSelect-specific:**
-- `hostage_selections` — if leader, from hostage grid in global chat view.
+- `hostage_selections` — if leader, from the hostage-select grid.
 
 **WaitingEntry-specific:**
 - Overworld data is still extracted (minimap, position, etc.) alongside the
@@ -882,7 +882,7 @@ All views that show the game world with minimap:
   `perception.global_chat.messages`.
 - `leader_colors` — may be observable from usurp candidate display.
 - `hostage_selections` — from `perception.global_chat.hostage_grid` (if
-  leader during HostageSelect).
+  leader during HostageSelect in legacy/global-chat rendering).
 
 #### Info Screen
 

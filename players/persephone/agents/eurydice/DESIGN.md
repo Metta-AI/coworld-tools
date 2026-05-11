@@ -87,11 +87,15 @@ Current high-level status:
 - Leadership, hostage, cross-room, communication, deception, and Spy logic
   are still partial. Spy role-offer handling is wired, but broader cover
   management and outbound deception are not complete.
-- LLM runtime control is not implemented yet. `llm_context.py` now provides a
-  JSON-safe state packet and closed semantic decision schema, and
-  `llm_validator.py` provides the deterministic validation and shadow tracing
-  boundary for future model outputs. No provider, prompt templates, saved-trace
-  runner, or runtime handoff exists yet. See [`LLM_CONTROL.md`](LLM_CONTROL.md).
+- LLM runtime control is scaffolded but off by default. `llm_context.py` now
+  provides a JSON-safe v2 state packet and closed semantic decision schema,
+  `llm_validator.py` provides deterministic validation and shadow tracing,
+  and prompt/provider/shadow-runner/executor modules support deterministic
+  offline/runtime experiments plus an opt-in standard-library AWS Bedrock
+  Claude Haiku provider. Runtime flags can enable heuristic or Bedrock-backed
+  target selection, whisper decisions, global/summit chat, movement/open-view
+  actions, leadership seeking, and hostage selection. See
+  [`LLM_CONTROL.md`](LLM_CONTROL.md).
 - Structured exchange events, active offers, inbound chat parsing, unique
   leader-color observations, post-whisper info-screen reconciliation, and
   Spy-aware color-exchange confidence are wired into Eurydice's knowledge
@@ -128,8 +132,10 @@ The source contract lives in `agents/eurydice/llm_context.py`:
 - `llm_decision_schema()` defines the closed model response shape.
 - `agents/eurydice/llm_validator.py` rejects malformed, illegal, unsafe, or
   mechanically unsupported decisions and can trace shadow validation results.
-- No provider adapter is active yet; model decisions should first run in
-  shadow mode against saved contexts and traces.
+- `llm_provider.py` includes deterministic `hold`/`heuristic` providers and an
+  opt-in Bedrock Haiku provider behind `--llm-provider haiku|bedrock`. Model
+  decisions should still be evaluated in shadow mode and traces before broad
+  submission use.
 
 See [`LLM_CONTROL.md`](LLM_CONTROL.md) for rollout phases, validator
 requirements, and trace metrics.
@@ -3675,9 +3681,11 @@ uses a combination of automated trace analysis and live game validation.
 
 ### Why deterministic mechanics with LLM-assisted strategy?
 
-- **Latency:** button timing, menu navigation, entry grants, and phase
-  overrides must remain deterministic because 15-second rounds leave little
-  room for slow or retry-heavy control loops.
+- **Latency:** button timing, menu navigation, and low-level task execution
+  remain deterministic because 15-second rounds leave little room for slow or
+  retry-heavy control loops. In `--llm-control all`, the LLM may choose
+  semantic actions during eligible phase overrides, but deterministic tasks
+  still execute the mechanics.
 - **Determinism:** perception, belief updates, mechanical exchange truth, and
   safety guards need reproducible behavior for tests and trace review.
 - **Social complexity:** probe priority, reveal decisions, global/whisper
@@ -3821,8 +3829,14 @@ concrete logger at startup.
 | `probe_completed` | events | `pipeline.py` | target, started_tick, total_ticks |
 | `whisper_fsm_transition` | decisions | `whisper_mode.py` | old_state, new_state, protocol, target, tick_in_whisper |
 | `whisper_protocol_selected` | decisions | `whisper_mode.py` | protocol, reason, occupants, hostile_present |
-| `whisper_exchange_outcome` | decisions | `whisper_mode.py` | exchange_type, action, target, our_offer |
+| `whisper_exchange_outcome` | decisions | `whisper_mode.py` | exchange_type, action, target, our_offer, server_confirmed. `server_confirmed=false` means Eurydice completed or timed out an attempted menu sequence; only `server_confirmed=true` or the server `full.log` proves a win-relevant role/color exchange. |
 | `whisper_exit` | decisions | `whisper_mode.py` | reason, protocol, total_ticks |
+| `llm_context` | decisions | `llm_validator.py` | context_hash, source, view, phase, round_number, legal_actions, players_count, messages_count, objective |
+| `llm_decision` | decisions | `llm_validator.py` | context_hash, source, action, target, message, destination, hostage_targets, reveal_color, reveal_role, confidence, rationale |
+| `llm_decision_accepted` | decisions | `llm_validator.py` | context_hash, source, action, fallback_action |
+| `llm_decision_rejected` | decisions | `llm_validator.py` | context_hash, source, action, fallback_action, reasons |
+| `llm_directive_selected` | decisions | `llm_controller.py` | context_hash, fallback_mode, selected_mode, selected_params |
+| `llm_directive_ignored` | decisions | `llm_controller.py` | context_hash, fallback_mode, action, reason, validator_reasons |
 | `inference_fired` | decisions | `pipeline.py` | rule, player_id, inference_type, old_value, new_value, confidence, source |
 | `deception_decision` | decisions | `deception.py` | should_deceive, reason; emitted only when runtime code calls the deception helper |
 | `lie_recorded` | decisions | `deception.py` | target, lie_type, content, consistent |

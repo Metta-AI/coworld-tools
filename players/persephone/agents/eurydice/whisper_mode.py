@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from orpheus.idle import IdleTask
 from orpheus.logging import LogLevel
 from orpheus.mode import Mode, ModeDirective, ModeParams
@@ -50,8 +52,15 @@ EXTRACT_TIMEOUT_TICKS = 96
 STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
 WAIT_FOR_OCCUPANT_TIMEOUT_TICKS = 360
+LLM_WHISPER_DECISION_COOLDOWN_TICKS = 48
 _WHISPER_EXIT_LOGGED = "_eurydice_whisper_exit_logged"
 _WHISPER_ENTRY_GRANTED_LOGGED = "_eurydice_whisper_entry_granted_logged"
+_EXCHANGE_MENU_STEPS = {
+    "color_offer": 3,
+    "color_accept": 5,
+    "role_offer": 3,
+    "role_accept": 5,
+}
 
 SENSITIVE_ENTRY_STATES = frozenset({"COLOR_EXCHANGE", "ROLE_EXCHANGE", "EXTRACT", "EXIT"})
 VALID_FSM_STATES = frozenset(
@@ -69,14 +78,21 @@ VALID_FSM_STATES = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class InWhisperParams(ModeParams):
+    """Runtime configuration for optional mode-local LLM whisper control."""
+
+    llm_control: str = "off"
+    llm_provider: str = "hold"
+
+
 class InWhisperMode(Mode):
     """Run Eurydice's finite-state whisper interaction protocol."""
 
     params_type = ModeParams
+    params: InWhisperParams | ModeParams = InWhisperParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
-        del action_memory
-
         raw_state = belief_state.extra.get(WHISPER_MODE_STATE)
         old_fsm_state = (
             raw_state.fsm_state
@@ -88,7 +104,7 @@ class InWhisperMode(Mode):
         if old_fsm_state is None:
             old_fsm_state = state.fsm_state
 
-        task = self._select_task_impl(belief_state, state, tick)
+        task = self._select_task_impl(belief_state, state, tick, action_memory)
         _log_fsm_transition(belief_state, state, old_fsm_state)
         return task
 
@@ -97,6 +113,7 @@ class InWhisperMode(Mode):
         belief_state,
         state: WhisperModeState,
         tick: int,
+        action_memory,
     ) -> Task | None:
         if _forced_ejected(belief_state, state):
             _complete_mode(belief_state, "forced_ejection", state)
@@ -105,7 +122,7 @@ class InWhisperMode(Mode):
         if _protocol_timed_out(state, tick):
             _transition_to_exit(belief_state, state, "protocol_timeout")
 
-        entry_task = _entry_request_task(belief_state, state)
+        entry_task = _entry_request_task(belief_state, state, self.params)
         if entry_task is not None:
             return entry_task
 
@@ -119,11 +136,11 @@ class InWhisperMode(Mode):
         if state.fsm_state == "ASSESS":
             return self._assess_task(belief_state, state)
         if state.fsm_state == "COLOR_EXCHANGE":
-            return self._color_exchange_task(belief_state, state)
+            return self._color_exchange_task(belief_state, state, action_memory)
         if state.fsm_state == "EVALUATE":
             return self._evaluate_task(belief_state, state)
         if state.fsm_state == "ROLE_EXCHANGE":
-            return self._role_exchange_task(belief_state, state)
+            return self._role_exchange_task(belief_state, state, action_memory)
         if state.fsm_state == "EXTRACT":
             return self._extract_task(belief_state, state)
         if state.fsm_state == "STALL":
@@ -212,6 +229,16 @@ class InWhisperMode(Mode):
         my_role = _my_role(belief_state)
         occupants = _current_occupants(belief_state)
 
+        if state.messages_sent == 0:
+            llm_task = _llm_whisper_task(
+                belief_state,
+                state,
+                self.params,
+                {"send_whisper", "exit_whisper", "hold"},
+            )
+            if llm_task is not None:
+                return llm_task
+
         if (
             len(occupants) > 2
             and state.hostile_present
@@ -283,12 +310,37 @@ class InWhisperMode(Mode):
             state.fsm_state = "WAIT_FOR_OCCUPANT"
             return IdleTask()
 
+        if _is_key_role(my_role):
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                "key_role_unknown_target_role_probe",
+            )
+            state.fsm_state = "ROLE_EXCHANGE"
+            return IdleTask()
+
         _log_protocol_selected(belief_state, state, occupants, "unknown_target_color_exchange")
         state.fsm_state = "COLOR_EXCHANGE"
         return IdleTask()
 
-    def _color_exchange_task(self, belief_state, state: WhisperModeState) -> Task:
+    def _color_exchange_task(
+        self,
+        belief_state,
+        state: WhisperModeState,
+        action_memory,
+    ) -> Task:
         tick = _tick(belief_state)
+
+        active_task = _active_exchange_task_or_finalize(
+            belief_state,
+            state,
+            action_memory,
+            tick,
+            {"color_offer", "color_accept"},
+        )
+        if active_task is not None:
+            return active_task
 
         if _exchange_completed_since(
             belief_state,
@@ -296,6 +348,15 @@ class InWhisperMode(Mode):
             state.waiting_for_response_since,
         ):
             state.color_exchange_completed = True
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "color",
+                "complete",
+                state.target_occupant,
+                None,
+                server_confirmed=True,
+            )
             state.fsm_state = "EVALUATE"
             return IdleTask()
 
@@ -307,6 +368,7 @@ class InWhisperMode(Mode):
                 "timeout",
                 state.target_occupant,
                 None,
+                server_confirmed=False,
             )
             _transition_to_exit(belief_state, state, "color_exchange_timeout")
             return IdleTask()
@@ -317,32 +379,12 @@ class InWhisperMode(Mode):
                 return IdleTask()
             if _exchange_action_on_cooldown(state, tick):
                 return IdleTask()
-            state.color_exchange_initiated = True
-            state.waiting_for_response_since = tick
-            _log_exchange_outcome(
-                belief_state,
-                state,
-                "color",
-                "accept",
-                player_index_to_id(target_index, belief_state),
-                None,
-            )
-            return AcceptColorExchangeTask(player_index=target_index)
+            return _begin_exchange_menu_task(state, tick, "color_accept", target_index)
 
         if not state.color_exchange_initiated:
             if _exchange_action_on_cooldown(state, tick):
                 return IdleTask()
-            state.color_exchange_initiated = True
-            state.waiting_for_response_since = tick
-            _log_exchange_outcome(
-                belief_state,
-                state,
-                "color",
-                "offer",
-                state.target_occupant,
-                _offered_value("color", belief_state),
-            )
-            return OfferColorExchangeTask()
+            return _begin_exchange_menu_task(state, tick, "color_offer")
 
         return IdleTask()
 
@@ -369,8 +411,23 @@ class InWhisperMode(Mode):
         _transition_to_exit(belief_state, state, "evaluation_complete")
         return IdleTask()
 
-    def _role_exchange_task(self, belief_state, state: WhisperModeState) -> Task:
+    def _role_exchange_task(
+        self,
+        belief_state,
+        state: WhisperModeState,
+        action_memory,
+    ) -> Task:
         tick = _tick(belief_state)
+
+        active_task = _active_exchange_task_or_finalize(
+            belief_state,
+            state,
+            action_memory,
+            tick,
+            {"role_offer", "role_accept"},
+        )
+        if active_task is not None:
+            return active_task
 
         if _exchange_completed_since(
             belief_state,
@@ -378,6 +435,15 @@ class InWhisperMode(Mode):
             state.waiting_for_response_since,
         ):
             state.role_exchange_completed = True
+            _log_exchange_outcome(
+                belief_state,
+                state,
+                "role",
+                "complete",
+                state.target_occupant,
+                None,
+                server_confirmed=True,
+            )
             _transition_to_exit(belief_state, state, "role_exchange_complete")
             return IdleTask()
 
@@ -389,6 +455,7 @@ class InWhisperMode(Mode):
                 "timeout",
                 state.target_occupant,
                 None,
+                server_confirmed=False,
             )
             _transition_to_exit(belief_state, state, "role_exchange_timeout")
             return IdleTask()
@@ -408,6 +475,7 @@ class InWhisperMode(Mode):
                     "reject",
                     offerer_id,
                     None,
+                    server_confirmed=False,
                 )
                 _transition_to_exit(belief_state, state, "role_offer_rejected")
                 return IdleTask()
@@ -416,32 +484,12 @@ class InWhisperMode(Mode):
                 return IdleTask()
             if _exchange_action_on_cooldown(state, tick):
                 return IdleTask()
-            state.role_exchange_initiated = True
-            state.waiting_for_response_since = tick
-            _log_exchange_outcome(
-                belief_state,
-                state,
-                "role",
-                "accept",
-                player_index_to_id(target_index, belief_state),
-                None,
-            )
-            return AcceptRoleExchangeTask(player_index=target_index)
+            return _begin_exchange_menu_task(state, tick, "role_accept", target_index)
 
         if not state.role_exchange_initiated:
             if _exchange_action_on_cooldown(state, tick):
                 return IdleTask()
-            state.role_exchange_initiated = True
-            state.waiting_for_response_since = tick
-            _log_exchange_outcome(
-                belief_state,
-                state,
-                "role",
-                "offer",
-                state.target_occupant,
-                _offered_value("role", belief_state),
-            )
-            return OfferRoleExchangeTask()
+            return _begin_exchange_menu_task(state, tick, "role_offer")
 
         return IdleTask()
 
@@ -505,6 +553,98 @@ def _whisper_state(belief_state) -> WhisperModeState:
     return state
 
 
+def _begin_exchange_menu_task(
+    state: WhisperModeState,
+    tick: int,
+    kind: str,
+    target_index: int | None = None,
+) -> Task:
+    state.active_exchange_task = kind
+    state.active_exchange_target_index = target_index
+    state.active_exchange_started_tick = tick
+    return _exchange_menu_task(kind, target_index)
+
+
+def _active_exchange_task_or_finalize(
+    belief_state,
+    state: WhisperModeState,
+    action_memory,
+    tick: int,
+    active_kinds: set[str],
+) -> Task | None:
+    kind = state.active_exchange_task
+    if kind is None or kind not in active_kinds:
+        return None
+
+    task = _exchange_menu_task(kind, state.active_exchange_target_index)
+    if (
+        getattr(action_memory, "sequence_step", 0) < _EXCHANGE_MENU_STEPS[kind]
+        or getattr(action_memory, "menu_button_active", False)
+    ):
+        return task
+
+    _finalize_exchange_menu_task(belief_state, state, tick)
+    return None
+
+
+def _exchange_menu_task(kind: str, target_index: int | None) -> Task:
+    if kind == "color_offer":
+        return OfferColorExchangeTask()
+    if kind == "role_offer":
+        return OfferRoleExchangeTask()
+    if kind == "color_accept" and target_index is not None:
+        return AcceptColorExchangeTask(player_index=target_index)
+    if kind == "role_accept" and target_index is not None:
+        return AcceptRoleExchangeTask(player_index=target_index)
+    return IdleTask()
+
+
+def _finalize_exchange_menu_task(
+    belief_state,
+    state: WhisperModeState,
+    tick: int,
+) -> None:
+    kind = state.active_exchange_task
+    target_index = state.active_exchange_target_index
+    if kind is None:
+        return
+
+    # The final confirm happened on the previous act tick. Start the response
+    # window just before this belief tick so immediately observed completion
+    # events are not missed.
+    state.waiting_for_response_since = max(state.active_exchange_started_tick, tick - 1)
+    exchange_type = "role" if kind.startswith("role_") else "color"
+    action = "accept" if kind.endswith("_accept") else "offer"
+    target = (
+        player_index_to_id(target_index, belief_state)
+        if target_index is not None
+        else state.target_occupant
+    )
+    our_offer = None if action == "accept" else _offered_value(exchange_type, belief_state)
+
+    if exchange_type == "color":
+        state.color_exchange_initiated = True
+    else:
+        state.role_exchange_initiated = True
+
+    _log_exchange_outcome(
+        belief_state,
+        state,
+        exchange_type,
+        action,
+        target,
+        our_offer,
+        server_confirmed=False,
+    )
+    _clear_active_exchange_task(state)
+
+
+def _clear_active_exchange_task(state: WhisperModeState) -> None:
+    state.active_exchange_task = None
+    state.active_exchange_target_index = None
+    state.active_exchange_started_tick = 0
+
+
 def _protocol_from_context(
     belief_state,
     previous: WhisperModeState | None,
@@ -561,18 +701,43 @@ def _protocol_timed_out(state: WhisperModeState, tick: int) -> bool:
     return state.fsm_state != "EXIT" and tick - state.entered_tick > timeout
 
 
-def _entry_request_task(belief_state, state: WhisperModeState) -> Task | None:
-    if state.fsm_state in SENSITIVE_ENTRY_STATES:
-        return None
-    if state.protocol == "key_exchange":
-        return None
+def _entry_request_task(
+    belief_state,
+    state: WhisperModeState,
+    params: InWhisperParams | ModeParams,
+) -> Task | None:
     if getattr(belief_state, "view", None) is not View.WHISPER:
         return None
 
     pending_entry = getattr(belief_state, "pending_entry", None)
     if pending_entry is None:
         return None
+
+    llm_task = _llm_whisper_task(
+        belief_state,
+        state,
+        params,
+        {"grant_entry", "deny_entry", "hold"},
+    )
+    if llm_task is not None:
+        return llm_task
+
     player_id = player_index_to_id(pending_entry, belief_state)
+    my_id = _my_player_id(belief_state)
+    other_occupants = [
+        occupant
+        for occupant in _current_occupants(belief_state)
+        if occupant is not None and occupant != my_id
+    ]
+    if not other_occupants or player_id == state.target_occupant:
+        _log_entry_granted(belief_state, state, player_id)
+        return GrantEntryTask()
+
+    if state.fsm_state in SENSITIVE_ENTRY_STATES:
+        return None
+    if state.protocol == "key_exchange":
+        return None
+
     knowledge = _player_knowledge(belief_state)
     if _is_probable_ally(player_id, knowledge, _my_team(belief_state)):
         _log_entry_granted(belief_state, state, player_id)
@@ -582,6 +747,80 @@ def _entry_request_task(belief_state, state: WhisperModeState) -> Task | None:
         _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
     return None
+
+
+def _llm_whisper_task(
+    belief_state,
+    state: WhisperModeState,
+    params: InWhisperParams | ModeParams,
+    allowed_actions: set[str],
+) -> Task | None:
+    control = getattr(params, "llm_control", "off")
+    provider_name = getattr(params, "llm_provider", "hold")
+    if control not in {"shadow", "whispers", "all"}:
+        return None
+
+    from agents.eurydice.llm_provider import make_provider
+
+    provider = make_provider(provider_name)
+    try:
+        provider_cooldown = int(
+            getattr(provider, "decision_cooldown_ticks", 0) or 0
+        )
+    except (TypeError, ValueError):
+        provider_cooldown = 0
+    cooldown_ticks = max(LLM_WHISPER_DECISION_COOLDOWN_TICKS, provider_cooldown)
+
+    tick = _tick(belief_state)
+    if (
+        state.last_llm_action_tick
+        and tick - state.last_llm_action_tick < cooldown_ticks
+    ):
+        return None
+
+    from agents.eurydice.llm_context import build_llm_context
+    from agents.eurydice.llm_executor import task_for_whisper_decision
+    from agents.eurydice.llm_prompts import build_prompt
+    from agents.eurydice.llm_validator import validate_and_trace_llm_decision
+
+    context = build_llm_context(belief_state)
+    prompt = build_prompt(context, surface="whisper")
+    raw_decision = provider.decide(context, prompt)
+    result = validate_and_trace_llm_decision(
+        belief_state,
+        raw_decision,
+        context=context,
+        fallback_action="hold",
+        source=f"runtime:{control}:{provider.name}:whisper",
+    )
+    action = (
+        result.decision.get("action")
+        if result.accepted
+        else raw_decision.get("action")
+        if isinstance(raw_decision, dict)
+        else None
+    )
+    state.last_llm_action_tick = tick
+    state.last_llm_action = str(action) if action is not None else None
+
+    if control == "shadow" or not result.accepted:
+        return None
+    if result.decision.get("action") not in allowed_actions:
+        return None
+
+    task = task_for_whisper_decision(result.decision, belief_state)
+    if result.decision.get("action") == "send_whisper":
+        state.messages_sent += 1
+        state.waiting_for_response_since = tick
+    if result.decision.get("action") == "grant_entry":
+        _log_entry_granted(
+            belief_state,
+            state,
+            player_index_to_id(getattr(belief_state, "pending_entry", None), belief_state),
+        )
+    if result.decision.get("action") in {"deny_entry", "exit_whisper"}:
+        _transition_to_exit(belief_state, state, "llm_exit_or_deny")
+    return task
 
 
 def _abort_for_hostile_new_entrant(
@@ -706,7 +945,12 @@ def _should_accept_role_offer(
             _urgency(belief_state),
         )
 
-    return _is_probable_ally(offerer_id, knowledge, my_team)
+    if offerer_id is None:
+        return False
+    record = knowledge.get(offerer_id)
+    if record is not None and record.team is not None:
+        return my_team is not None and record.team is my_team
+    return True
 
 
 def _target_is_enemy(
@@ -772,7 +1016,10 @@ def _exchange_action_on_cooldown(state: WhisperModeState, tick: int) -> bool:
 
 def _pending_offer(belief_state, kind: str) -> bool:
     pending = getattr(belief_state, "pending_offers", {}) or {}
-    return bool(pending.get(kind, False))
+    if pending.get(kind, False):
+        return True
+    active_field = "active_color_offers" if kind == "color" else "active_role_offers"
+    return bool(getattr(belief_state, active_field, []) or [])
 
 
 def _target_knowledge(
@@ -896,6 +1143,7 @@ def _transition_to_exit(
     state: WhisperModeState,
     reason: str,
 ) -> None:
+    _clear_active_exchange_task(state)
     state.fsm_state = "EXIT"
     belief_state.extra[WHISPER_EXIT_REASON] = reason
     _log_whisper_exit(belief_state, state, reason)
@@ -948,6 +1196,8 @@ def _log_exchange_outcome(
     action: str,
     target: PlayerID | None,
     our_offer: object,
+    *,
+    server_confirmed: bool,
 ) -> None:
     del belief_state
     if logger:
@@ -960,6 +1210,7 @@ def _log_exchange_outcome(
                     target if target is not None else state.target_occupant
                 ),
                 "our_offer": _event_value(our_offer),
+                "server_confirmed": server_confirmed,
             },
             LogLevel.DECISIONS,
         )
@@ -1050,6 +1301,7 @@ def _tick(belief_state) -> int:
 
 
 __all__ = [
+    "InWhisperParams",
     "InWhisperMode",
     "_find_target_index",
     "_is_key_role",

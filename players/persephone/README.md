@@ -62,7 +62,9 @@ Output is prefixed with `[name]`. Use `--log-dir` to write per-agent
 logs and `--quiet` to suppress console output.
 
 `run_agents.py` forwards `--log-level` (off/events/decisions/verbose) to
-Orpheus/Eurydice agents and `--record-frames DIR` to Eurydice agents. At
+Orpheus/Eurydice agents, `--record-frames DIR` to Eurydice agents, and
+Eurydice-only `--llm-control off|shadow|targets|whispers|all` plus
+`--llm-provider hold|heuristic|haiku|bedrock`. At
 `decisions` level, all strategic choices, inference firings, whisper protocol
 FSM transitions, exchange-attribution ambiguity, and invoked deception-helper
 decisions are emitted as structured JSONL. Full advanced hostage,
@@ -70,9 +72,15 @@ communication, Spy/deception, and live-tuned coordination strategy is still
 partial; see `agents/eurydice/IMPLEMENTATION_PLAN.md` for the source-verified
 roadmap and `agents/eurydice/DESIGN.md` § Observability for the event catalog.
 The LLM-readiness boundary is documented in
-`agents/eurydice/LLM_CONTROL.md`; current code can build a JSON-safe LLM
-context, closed semantic decision schema, and deterministic validation trace
-records, but runtime control is still deterministic.
+`agents/eurydice/LLM_CONTROL.md`; current code has a JSON-safe v2 LLM context,
+closed semantic decision schema, deterministic validation, offline shadow
+runner, semantic executor, opt-in AWS Bedrock Haiku provider, and optional
+runtime control. `targets` is limited to probe-target overrides, `whispers` is
+limited to the in-whisper hook, and `all` can use every validated
+executor-backed semantic action in the current view, including global chat,
+leader-summit chat, movement/open-view actions,
+leadership seeking, and hostage selection. External calls are still opt-in;
+`hold` is the default provider.
 
 Use `scripts/analyze_eurydice_traces.py` to summarize JSONL traces and
 flag unknown event names before relying on phase-specific trace metrics.
@@ -256,14 +264,16 @@ the integration-test driver.
 perception, belief updates, role evaluators, probe modes, and a whisper FSM.
 It now learns its role/team/room during intro, parses match role-summary and
 round-schedule panels, selects probe targets, creates or joins whispers, and
-records event-level strategy traces. LLM runtime control is not active yet;
-`agents/eurydice/llm_context.py` defines the JSON-safe context and closed
-semantic decision schema for shadow evaluation, and
-`agents/eurydice/llm_validator.py` defines the deterministic acceptance gate
-for future model decisions.
+records event-level strategy traces. LLM runtime control is optional and off
+by default: `agents/eurydice/llm_context.py` defines the JSON-safe context and
+closed semantic decision schema, `agents/eurydice/llm_validator.py` defines
+the deterministic acceptance gate, and `--llm-control all --llm-provider
+haiku` can run the guarded Bedrock Haiku path locally.
 
-**Current bottleneck**: probe initiation reliability. Live traces show real
-role-driven behavior, but too many attempts still end with `initiate_timeout`.
+**Current bottleneck**: rendezvous reliability. Live traces show real
+role-driven behavior and legal Haiku-selected semantic actions, but full
+self-play still produces mostly solo whispers: the latest server logs show no
+server-confirmed role/color exchanges.
 
 ### [baseline](agents/baseline/)
 

@@ -22,11 +22,13 @@ HOSTAGE_GRID_COLS = 4
 
 @dataclass(frozen=True)
 class SelectHostagesTask(Task):
-    """Toggle the requested hostage indices in global chat."""
+    """Toggle the requested hostage indices in the hostage-selection UI."""
 
     player_indices: tuple[int, ...]
 
-    valid_views: ClassVar[frozenset[View]] = frozenset({View.GLOBAL_CHAT})
+    valid_views: ClassVar[frozenset[View]] = frozenset(
+        {View.HOSTAGE_SELECT, View.GLOBAL_CHAT}
+    )
 
     def select_action(self, belief_state, action_memory) -> ActCommand:
         if not hasattr(action_memory, "hostage_remaining"):

@@ -66,12 +66,16 @@ from orpheus.mode import ModeDirective, ModeParams
 from orpheus.perception._common import PLAYER_COLORS
 from orpheus.perception.types import Room, View
 from orpheus.tasks import (
+    AcceptColorExchangeTask,
     AcceptRoleExchangeTask,
     CancelEntryTask,
     CloseViewTask,
     CreateWhisperTask,
+    GrantEntryTask,
     InitiateWhisperTask,
     MoveToTask,
+    OfferColorExchangeTask,
+    OfferRoleExchangeTask,
     SendMessageTask,
 )
 from orpheus.types import BUTTON_A
@@ -343,6 +347,8 @@ def test_whisper_fsm_and_protocol_logging() -> None:
         view=View.WHISPER,
         in_whisper=True,
         whisper_occupants=[0, 1],
+        my_role="nymph",
+        my_team="nymphs",
     )
     mode = InWhisperMode()
     mode.mode_enter(belief_state, ActionMemory())
@@ -361,6 +367,175 @@ def test_whisper_fsm_and_protocol_logging() -> None:
     )
     assert protocol["protocol"] == "standard"
     assert protocol["reason"] == "unknown_target_color_exchange"
+
+
+def test_color_offer_menu_task_persists_until_sent() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        my_role="nymph",
+        my_team="nymphs",
+        tick=100,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    mode.select_task(belief_state, memory)
+
+    first = mode.select_task(belief_state, memory)
+    state = belief_state.extra[WHISPER_MODE_STATE]
+
+    assert isinstance(first, OfferColorExchangeTask)
+    assert state.active_exchange_task == "color_offer"
+    assert state.color_exchange_initiated is False
+
+    memory.sequence_step = 2
+    still_active = mode.select_task(belief_state, memory)
+    assert isinstance(still_active, OfferColorExchangeTask)
+    assert state.color_exchange_initiated is False
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        memory.sequence_step = 3
+        complete = mode.select_task(belief_state, memory)
+    finally:
+        set_logger(None)
+
+    assert isinstance(complete, IdleTask)
+    assert state.active_exchange_task is None
+    assert state.color_exchange_initiated is True
+    events = _json_events(lines)
+    exchange = next(event for event in events if event["type"] == "whisper_exchange_outcome")
+    assert exchange["exchange_type"] == "color"
+    assert exchange["action"] == "offer"
+    assert exchange["server_confirmed"] is False
+
+
+def test_role_accept_menu_task_persists_until_sent() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        pending_offers={"role": True, "color": False},
+        active_role_offers=[1],
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    _knowledge_for(belief_state, 1, team=Team.SHADES)
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    state.fsm_state = "ROLE_EXCHANGE"
+    state.target_occupant = target
+
+    first = mode.select_task(belief_state, memory)
+
+    assert isinstance(first, AcceptRoleExchangeTask)
+    assert first.player_index == 1
+    assert state.active_exchange_task == "role_accept"
+    assert state.role_exchange_initiated is False
+
+    memory.sequence_step = 4
+    still_active = mode.select_task(belief_state, memory)
+    assert isinstance(still_active, AcceptRoleExchangeTask)
+    assert state.role_exchange_initiated is False
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        memory.sequence_step = 5
+        complete = mode.select_task(belief_state, memory)
+    finally:
+        set_logger(None)
+
+    assert isinstance(complete, IdleTask)
+    assert state.active_exchange_task is None
+    assert state.role_exchange_initiated is True
+    events = _json_events(lines)
+    exchange = next(event for event in events if event["type"] == "whisper_exchange_outcome")
+    assert exchange["exchange_type"] == "role"
+    assert exchange["action"] == "accept"
+    assert exchange["target"] == [target[0], target[1]]
+    assert exchange["server_confirmed"] is False
+
+
+def test_active_color_offer_without_bottom_bar_indicator_is_accepted() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        pending_offers={"role": False, "color": False},
+        active_color_offers=[1],
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    state.fsm_state = "COLOR_EXCHANGE"
+    state.target_occupant = target
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, AcceptColorExchangeTask)
+    assert task.player_index == 1
+    assert state.active_exchange_task == "color_accept"
+    assert state.color_exchange_initiated is False
+
+
+def test_solo_sensitive_whisper_grants_first_entry_request() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        pending_entry=1,
+        my_role="nymph",
+        my_team="nymphs",
+        tick=100,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    state.fsm_state = "COLOR_EXCHANGE"
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, GrantEntryTask)
+
+
+def test_key_exchange_grants_target_entry_request() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 2],
+        pending_entry=1,
+        my_role="hades",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+        ),
+    )
+    mode.mode_enter(belief_state, memory)
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    state.fsm_state = "ROLE_EXCHANGE"
+    state.target_occupant = target
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, GrantEntryTask)
 
 
 def test_time_waste_directive_enters_stall_protocol() -> None:
@@ -402,6 +577,27 @@ def test_probe_key_partner_directive_enters_key_exchange_protocol() -> None:
 
     state = belief_state.extra[WHISPER_MODE_STATE]
     assert state.protocol == "key_exchange"
+
+
+def test_key_role_unknown_target_uses_direct_role_probe() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        my_role="hades",
+        my_team="shades",
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    mode.select_task(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    task = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.fsm_state == "ROLE_EXCHANGE"
+    assert isinstance(task, OfferRoleExchangeTask)
 
 
 def test_spy_rejects_enemy_role_offer() -> None:
@@ -448,6 +644,30 @@ def test_spy_accepts_verified_ally_role_offer() -> None:
         verified_ally=target,
         urgency=Urgency.CALM,
     )
+    mode = InWhisperMode()
+    mode.mode_enter(belief_state, ActionMemory())
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    state.fsm_state = "ROLE_EXCHANGE"
+    state.target_occupant = target
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, AcceptRoleExchangeTask)
+    assert task.player_index == 1
+
+
+def test_non_spy_accepts_unknown_role_offer() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        pending_offers={"role": False, "color": False},
+        active_role_offers=[1],
+        my_role="nymph",
+        my_team="nymphs",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
     mode = InWhisperMode()
     mode.mode_enter(belief_state, ActionMemory())
     state = belief_state.extra[WHISPER_MODE_STATE]

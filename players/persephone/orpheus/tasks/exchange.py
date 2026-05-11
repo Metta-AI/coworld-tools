@@ -43,7 +43,7 @@ class AcceptColorExchangeTask(Task):
             ("category", "COLOR"),
             ("item", "C.ACCPT"),
             ("confirm",),
-            ("target", self.player_index),
+            ("target", 0),
             ("confirm",),
         )
 
@@ -95,7 +95,7 @@ class AcceptRoleExchangeTask(Task):
             ("category", "ROLE"),
             ("item", "R.ACCPT"),
             ("confirm",),
-            ("target", self.player_index),
+            ("target", 0),
             ("confirm",),
         )
 

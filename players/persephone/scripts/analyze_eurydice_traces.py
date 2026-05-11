@@ -39,6 +39,8 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "llm_decision",
         "llm_decision_accepted",
         "llm_decision_rejected",
+        "llm_directive_ignored",
+        "llm_directive_selected",
         "meta_decide_bad_return",
         "meta_decide_input",
         "meta_decide_output",

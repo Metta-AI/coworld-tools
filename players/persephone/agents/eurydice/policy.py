@@ -38,6 +38,7 @@ from agents.eurydice.advanced_modes import (
     UsurpMode,
 )
 from agents.eurydice.modes import EurydiceIdleMode, ScoutMode, ProbeTargetMode, ProbeSystematicMode
+from agents.eurydice.llm_action_mode import LLMActionMode
 from agents.eurydice.whisper_mode import InWhisperMode
 from agents.eurydice.pipeline import eurydice_post_belief_update
 from orpheus.hooks import HookPoint
@@ -87,6 +88,7 @@ def build_registry() -> ModeRegistry:
     registry.register("decoy", DecoyMode)
     registry.register("usurp", UsurpMode)
     registry.register("check_info_screen", CheckInfoScreenMode)
+    registry.register("llm_action", LLMActionMode)
     return registry
 
 def run(
@@ -95,6 +97,8 @@ def run(
     name: str,
     log_level: str = "events",
     record_frames: str | None = None,
+    llm_control: str = "off",
+    llm_provider: str = "hold",
 ) -> int:
     stop_event = threading.Event()
     ws = None
@@ -144,7 +148,15 @@ def run(
         )
         pipeline.hook_registry.register_hook(HookPoint.POST_BELIEF_UPDATE, eurydice_post_belief_update)
 
-        outer_loop = OuterLoop(meta_decide, pipeline.belief_buffer, pipeline.mode_buffer, logger=logger, tick_provider=lambda: pipeline.belief_state.tick)
+        def decide_with_optional_llm(belief_state, action_memory):
+            return meta_decide(
+                belief_state,
+                action_memory,
+                llm_control=llm_control,
+                llm_provider=llm_provider,
+            )
+
+        outer_loop = OuterLoop(decide_with_optional_llm, pipeline.belief_buffer, pipeline.mode_buffer, logger=logger, tick_provider=lambda: pipeline.belief_state.tick)
         outer_loop.start()
 
         parts = urlsplit(url)
@@ -196,12 +208,20 @@ def main() -> int:
     parser.add_argument("--name", required=True)
     parser.add_argument("--log-level", default="events", choices=("off","events","decisions","verbose"))
     parser.add_argument("--record-frames", metavar="DIR", default=None)
+    parser.add_argument("--llm-control", default="off", choices=("off", "shadow", "targets", "whispers", "all"))
+    parser.add_argument(
+        "--llm-provider",
+        default="hold",
+        choices=("hold", "heuristic", "haiku", "bedrock-haiku", "bedrock"),
+    )
     args = parser.parse_args()
     return run(
         url=args.url,
         name=args.name,
         log_level=args.log_level,
         record_frames=args.record_frames,
+        llm_control=args.llm_control,
+        llm_provider=args.llm_provider,
     )
 
 if __name__ == "__main__":

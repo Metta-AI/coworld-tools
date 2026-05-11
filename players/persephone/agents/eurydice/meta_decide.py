@@ -42,6 +42,9 @@ _PREV_STRATEGIC_KEY = "_eurydice_prev_strategic"
 def meta_decide(
     belief_state: BeliefState,
     action_memory: ActionMemory,
+    *,
+    llm_control: str = "off",
+    llm_provider: str = "hold",
 ) -> tuple[ModeDirective, dict | None]:
     """Select the next mode directive from the current belief snapshot."""
     state = build_strategic_state(belief_state)
@@ -51,6 +54,16 @@ def meta_decide(
 
     override = _phase_override(belief_state)
     if override is not None:
+        if llm_control != "off":
+            from .llm_controller import maybe_override_directive
+
+            override = maybe_override_directive(
+                belief_state,
+                state,
+                override,
+                control_mode=llm_control,
+                provider_name=llm_provider,
+            )
         return _finish(
             override,
             state,
@@ -62,8 +75,21 @@ def meta_decide(
         )
 
     if belief_state.view is View.WHISPER:
+        if llm_control == "off":
+            whisper_directive = _directive("in_whisper")
+        else:
+            from .whisper_mode import InWhisperParams
+
+            whisper_directive = ModeDirective(
+                "in_whisper",
+                InWhisperParams(
+                    llm_control=llm_control,
+                    llm_provider=llm_provider,
+                ),
+            )
+
         return _finish(
-            _directive("in_whisper"),
+            whisper_directive,
             state,
             belief_state,
             reason="whisper_override",
@@ -117,6 +143,16 @@ def meta_decide(
         if evaluator
         else _directive("idle")
     )
+    if llm_control != "off":
+        from .llm_controller import maybe_override_directive
+
+        directive = maybe_override_directive(
+            belief_state,
+            state,
+            directive,
+            control_mode=llm_control,
+            provider_name=llm_provider,
+        )
     return _finish(
         directive,
         state,
@@ -204,7 +240,11 @@ def _phase_override(belief_state: BeliefState) -> ModeDirective | None:
     }:
         return _directive("idle")
     if belief_state.view is View.HOSTAGE_SELECT:
-        return _directive("hostage_select" if belief_state.is_leader else "hold_position")
+        if belief_state.is_leader:
+            from .advanced_modes import HostageSelectParams
+
+            return ModeDirective("hostage_select", HostageSelectParams())
+        return _directive("hold_position")
     if belief_state.view is View.LEADER_SUMMIT and belief_state.is_leader:
         return _directive("summit_interact")
     if belief_state.view is View.INFO_SCREEN:

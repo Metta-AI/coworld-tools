@@ -221,38 +221,57 @@ attributes outside the schema. Flexible per-game data should still live in
 
 ## Eurydice Agent — Whisper Interaction
 
-### LLM control is validator-ready but not runtime-ready
+### LLM control has broad semantic runtime authority and an opt-in Bedrock provider
 
-- **Status**: Context and validation foundation only
-- **What works**: `agents/eurydice/llm_context.py` builds a JSON-safe context
+- **Status**: Broad semantic runtime control is implemented, off by default;
+  AWS Bedrock Haiku provider is wired and has passed short live smoke
+  validation, but still needs strategic evaluation for exchange completion
+- **What works**: `agents/eurydice/llm_context.py` builds a JSON-safe v2 context
   packet for future model calls and exposes a closed semantic decision schema.
-  `agents/eurydice/llm_validator.py` validates future model decisions, returns
+  `agents/eurydice/llm_validator.py` validates model decisions, returns
   deterministic fallback metadata, and can emit compact shadow trace events.
-  `agents/eurydice/LLM_CONTROL.md` documents the intended staged rollout.
-- **Impact**: We can now shadow-test model choices for probe targeting,
-  whisper/global messages, and reveal decisions without changing live control.
-  Runtime Eurydice still uses deterministic evaluators and modes.
-- **Fix**: Add a saved-context shadow runner, prompt templates, evaluation
-  metrics, and finally a provider adapter behind an explicit feature flag.
+  `llm_prompts.py`, `llm_provider.py`, and `llm_shadow.py` support strategically
+  tuned prompts, deterministic offline shadow evaluation, and an opt-in
+  standard-library Bedrock Claude Haiku provider; `llm_executor.py` maps
+  accepted decisions to registered Orpheus modes/tasks. Runtime flags are
+  available:
+  `--llm-control shadow|targets|whispers|all` and
+  `--llm-provider hold|heuristic|haiku|bedrock`. `all` can drive every
+  validated executor-backed semantic action in the current view, including
+  global chat, leader-summit chat, movement/open-view actions, leadership
+  seeking, and hostage selection. Real-provider calls are throttled by
+  `EURYDICE_LLM_COOLDOWN_TICKS` and fall back to `hold` on transport or parse
+  failures.
+- **Impact**: We can shadow-test model choices and can optionally let the
+  deterministic heuristic provider or Bedrock Haiku exercise the full semantic
+  authority path. May 11, 2026 short Haiku smoke traces accepted hostage
+  selections, produced no provider errors, and produced no `valid_views_mismatch`
+  events after stale-action guards were added. Full/default live games still
+  drew because no key-pair role exchange completed.
+- **Fix**: Add richer saved context export, surface-specific prompt evals, and
+  live mixed-policy evaluation focused on join/whisper/exchange completion
+  before using model output broadly in submissions.
 
 ### Probe initiation reliability remains the next live bottleneck
 
-- **Status**: Partially fixed
+- **Status**: Still blocking wins
 - **What works**: Agents now learn roles, parse round schedules, enter
   role-driven objectives, select probe targets, and complete some probes in
   live traces.
-- **Impact**: A 10-agent live run on `seed=306` selected 39 targets across 9
-  unique player IDs and completed 3 probes, but logged 11
-  `initiate_timeout` failures. The issue is no longer basic strategy
-  activation; it is rendezvous/interaction reliability.
+- **Impact**: Full 10-agent live runs on `seed=4242` and `seed=4243` both
+  ended in draws. The latest clean run selected 72 probe targets, started 41
+  probe attempts, and completed 6 probes, but logged 34 `initiate_timeout`
+  failures. The server log showed no joined whispers and no server-confirmed
+  role/color exchanges. The issue is no longer basic strategy activation; it
+  is rendezvous/interaction reliability.
 - **Fix**: Improve approach positioning, bubble-visible-range behavior,
   meeting-point logic, global "come to me" announcements, and entry timeout
   handling before relying on richer LLM social strategy.
 
 ### Agents can't join each other's whispers (fog-of-war visibility)
 
-- **Status**: Partially fixed — all mechanical pieces work, spatial
-  coordination doesn't
+- **Status**: Partially fixed — mechanical tasks are implemented, live
+  self-play still does not produce joins
 - **Impact**: Agents create solo whispers and wait (up to 15s). Other
   agents try to join but can only see speech bubbles within fog-of-war
   range (~30-40px). By the time an agent walks close enough to see a
@@ -260,18 +279,21 @@ attributes outside the schema. Flexible per-game data should still live in
 - **What works**: Whisper creation (A-press), view detection (WHISP at
   42,2), speech bubble detection (100% shape accuracy), entry request
   (B-press → waiting_entry), pending entry detection (WANTS IN at y=111),
-  entry grant (GrantEntryTask fixed button sequence). Full chain proven
-  with recorded frames.
-- **What doesn't**: Spatial coordination. Agents approach via minimap
-  (which doesn't show whisper status), so they don't prioritize whisper
-  players until within visual range.
+  entry grant (`GrantEntryTask` fixed sequence), robust held button presses
+  for whisper menus, and a solo/key-exchange grant policy in
+  `InWhisperMode`.
+- **What doesn't**: Live spatial coordination. Agents approach via minimap
+  (which doesn't show whisper status), often create separate solo whispers,
+  and still fail to produce server-confirmed `joined` events in full
+  self-play. Current `whisper_exchange_outcome` events with
+  `server_confirmed=false` are menu attempts, not accepted exchanges.
 - **Fix options**:
   1. Have agents approach to ~30px before deciding create vs join (get
      within bubble-visible range first, then check for bubbles)
   2. Use global chat to announce "I have a whisper" with a position
   3. Designate a meeting point (e.g. room center) where agents cluster
      before initiating whispers
-  4. Increase whisper wait timeout further (30+ seconds)
+  4. Shorten solo-whisper waits and retry quickly unless a requester appears
   5. Track "last known whisper position" from minimap + timing heuristic
      (player stopped moving → likely in whisper)
 

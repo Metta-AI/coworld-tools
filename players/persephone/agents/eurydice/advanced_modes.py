@@ -115,6 +115,14 @@ class HoldPositionMode(Mode):
     def select_task(self, belief_state, action_memory) -> Task | None:
         del action_memory
 
+        if getattr(belief_state, "view", None) not in {
+            View.PLAYING,
+            View.WAITING_ENTRY,
+            View.HOSTAGE_SELECT,
+        }:
+            _complete_mode(belief_state)
+            return IdleTask()
+
         if getattr(belief_state, "pending_entry", None) is not None:
             return GrantEntryTask()
 
@@ -180,15 +188,27 @@ class SeekLeadershipMode(Mode):
 class HostageSelectMode(Mode):
     """As leader, choose available hostage slots and then let the UI finish."""
 
-    params_type = ModeParams
+    params_type = HostageSelectParams
+    params: HostageSelectParams | ModeParams = HostageSelectParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
+        if getattr(belief_state, "view", None) not in {
+            View.HOSTAGE_SELECT,
+            View.GLOBAL_CHAT,
+        }:
+            _complete_mode(belief_state)
+            return IdleTask()
+
         if getattr(action_memory, "ticks_active", 0) > HOSTAGE_SELECT_TIMEOUT_TICKS:
             _complete_mode(belief_state)
             return IdleTask()
 
         selections = getattr(belief_state, "hostage_selections", None)
-        targets = _hostage_target_indices(selections)
+        requested = tuple(getattr(self.params, "move", ()) or ())
+        if requested:
+            targets = _hostage_target_indices_for_player_ids(selections, requested)
+        else:
+            targets = _hostage_target_indices(selections)
         if selections is not None and targets is not None:
             return SelectHostagesTask(targets)
 
@@ -516,6 +536,42 @@ def _hostage_target_indices(selections) -> tuple[int, ...] | None:
     return tuple(targets)
 
 
+def _hostage_target_indices_for_player_ids(
+    selections,
+    requested: Sequence[PlayerID],
+) -> tuple[int, ...] | None:
+    if selections is None:
+        return None
+
+    selected_positions = set(_int_sequence(_state_value(selections, "selected_positions")))
+    options = _hostage_player_id_positions(selections)
+    if not options:
+        return None
+
+    targets: list[int] = []
+    for player_id in requested:
+        position = options.get((int(player_id[0]), int(player_id[1])))
+        if position is None:
+            return None
+        if position in selected_positions:
+            continue
+        targets.append(position)
+    return tuple(targets)
+
+
+def _hostage_player_id_positions(selections) -> dict[PlayerID, int]:
+    colors = list(_state_value(selections, "eligible_colors") or [])
+    shapes = list(_state_value(selections, "eligible_shapes") or [])
+    result: dict[PlayerID, int] = {}
+    for position, color in enumerate(colors):
+        shape = shapes[position] if position < len(shapes) else None
+        shape_value = _shape_value(shape)
+        if shape_value is None:
+            continue
+        result[(int(color), shape_value)] = position
+    return result
+
+
 def _eligible_count(selections) -> int:
     for name in ("eligible_colors", "candidates", "target_colors"):
         values = _state_value(selections, name)
@@ -565,6 +621,16 @@ def _int_sequence(value) -> tuple[int, ...]:
                 continue
         return tuple(result)
     return ()
+
+
+def _shape_value(shape) -> int | None:
+    if shape is None:
+        return None
+    value = getattr(shape, "value", shape)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _time_waste_target(belief_state) -> PlayerID | None:
