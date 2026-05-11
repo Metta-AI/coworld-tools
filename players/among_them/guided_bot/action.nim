@@ -571,12 +571,23 @@ proc applyIntent*(
 proc sanitizeChatText(text: string): string =
   ## Keep the protocol-facing chat packet short and printable ASCII.
   let stripped = text.strip()
+  var lastWasSpace = true
   for ch in stripped:
     let o = ord(ch)
     if o >= 32 and o <= 126:
-      result.add ch
+      if ch == ' ':
+        if result.len > 0 and not lastWasSpace:
+          result.add ch
+          lastWasSpace = true
+      else:
+        result.add ch
+        lastWasSpace = false
+    elif result.len > 0 and not lastWasSpace:
+      result.add ' '
+      lastWasSpace = true
     if result.len >= MeetingChatMaxLen:
       break
+  result = result.strip()
 
 proc emitChat*(state: var ActionState, tick: int, text: string): bool =
   ## Queue one outbound chat line for the Python/WebSocket bridge.

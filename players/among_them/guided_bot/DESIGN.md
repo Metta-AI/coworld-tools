@@ -831,11 +831,14 @@ If the meeting timer reaches a safety threshold (e.g. 100 ticks
 left) and **no vote has been confirmed**, the inner loop forces a
 safe default:
 
-- If the LLM has issued a `vote` but not `confirm_vote`, confirm it.
+- If the LLM has issued a legal `vote` but not `confirm_vote`, move to
+  that target and confirm it. The legality guard blocks self, dead
+  players, invalid slots, and known imposter teammates; it does not veto
+  low symbolic evidence scores.
 - Otherwise, move the cursor to the evidence/alibi fallback target and
   confirm. Crewmates require suspicion evidence and otherwise SKIP;
   imposters avoid self and known teammates while blending into existing
-  accusations when possible.
+  accusations when possible, or SKIP when no plausible accusation exists.
 
 This fallback is not configurable by the LLM — it is a structural
 backstop that ensures we always cast *some* vote. The bot logs
@@ -913,7 +916,12 @@ the belief state. Structure, not prose. Initial shape:
                    "last_seen_tick": int,
                    "last_seen_room": str | null,
                    "times_near_body": int,
+                   "near_body_evidence_score": int,
+                   "last_near_body_distance": int,
+                   "closest_near_body_distance": int,
                    "times_witnessed_kill": int,
+                   "solo_with_self_ticks": int,
+                   "current_solo_with_self_ticks": int,
                    "ejected": bool,
                    "votes_against_me": int,
                    "i_voted_for": [tick, ...] }

@@ -6,30 +6,29 @@ Organized by category, then by feature/mode. Priority in brackets.
 
 ## New Features
 
-### Meeting LLM tuning [MEDIUM]
+### Meeting LLM formatting [LOW]
 
 Meeting chat and vote plumbing is implemented and live-validated with
-Bedrock in a full 8-agent standard run. Without an available LLM
-provider, the guidance worker does not start; the bot uses evidence/alibi
-fallback strategy after `MeetingAutoVoteDelayTicks=360`.
+Bedrock in full 8-agent runs. LLM-directed votes are now hard-guarded
+only for legality, while symbolic evidence is exposed through
+`meeting.evidence_ledger`. Without an available LLM provider, the
+guidance worker does not start; the bot uses evidence/alibi fallback
+strategy after `MeetingAutoVoteDelayTicks=360`.
 
 **Current state:**
 - `modes/meeting.nim`: consumes `speak`, `vote`, `confirm_vote`, `unvote`, `wait`
 - `action.nim`: queues sanitized chat in `ActionState.pendingChat`
 - `ffi/lib.nim`: exports `guidedbot_take_chat`
 - `cogames/amongthem_policy.py`: exposes `bitworld_chat_messages(agent_ids)`
-- `snapshot.nim`: meeting context includes memory evidence, vote dots, chat,
-  selectable players, and alibi witnesses
+- `snapshot.nim`: meeting context includes a structured evidence ledger,
+  memory evidence, vote dots, chat, selectable players, and alibi witnesses
 - `llm.nim`: Bedrock provider is wired and smoke-tested; direct Anthropic
   remains a fallback
 
 **Needed:**
-1. Inspect whether `meeting_action_received`, `chat_sent`, and
-   `vote_attempted` sequencing is strategically useful before fallback.
-2. Tune `MeetingLlmActionPeriodTicks` / prompt if the LLM waits too long or
-   fails to confirm.
-3. Tighten chat formatting and evidence wording; current traces include
-   occasional rough generated text such as missing spaces.
+1. Reduce raw Markdown code fences in otherwise valid LLM JSON responses.
+   The parser tolerates fences, so this is operationally low risk.
+2. Continue tuning chat wording as more multi-meeting traces accumulate.
 
 **Key code:** `modes/meeting.nim`, `action.nim`, `ffi/lib.nim`,
 `cogames/amongthem_policy.py`, `tuning.nim`

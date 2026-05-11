@@ -113,17 +113,24 @@ action layer presses A within `ReportRange = 20` px.
 unvote, wait). Cursor-aware vote navigation, edge-triggered cursor
 pulses, self-vote prevention, 600-tick timer estimate, auto-vote
 delay, chat emission through FFI/Python WebSocket plumbing, and
-role-aware evidence/alibi fallback selection are implemented.
+role-aware evidence/alibi fallback selection are implemented. LLM votes
+are hard-guarded only for legality (self, dead players, invalid slots,
+and known imposter teammates); symbolic evidence is exposed as a
+structured `meeting.evidence_ledger` for the model to weigh instead of
+being used as a hard veto.
 Live verification on 2026-05-10 confirmed that living bots can vote for
 specific slots in 8-agent/2-imposter meetings and ghosts do not vote.
+The Bedrock prompt-tuning run on 2026-05-11 confirmed 8-agent meeting
+chat/vote sequencing with zero LLM failures and no non-ASCII chat. The
+follow-up evidence-ledger runs confirmed solo-survival trust is treated
+as exculpatory and missing trust is not used as incriminating evidence.
 
 **What's missing:**
 
-1. **LLM strategy tuning.** The plumbing is in place and full 8-agent
-   Bedrock validation confirms `meeting_action_received`, `chat_sent`,
-   and `vote_attempted` sequencing with zero LLM failures. Next pass:
-   tune speak→vote→confirm quality, chat wording, and vote rationale
-   under the meeting timer.
+1. **LLM response formatting.** The prompt now asks for bare JSON and
+   ASCII chat, but Claude still often wraps valid JSON in Markdown code
+   fences. The parser tolerates this; a future pass can try model/API
+   settings or post-processing if raw formatting matters.
 
 2. **Self vote memory.** Other players' vote dots are merged into
    `social.votesCast`; the bot's own confirmed target is not yet
@@ -283,7 +290,7 @@ For historical phase completion, see [`README.md`](README.md).
 |---|---|---|---|---|
 | 6.1 | `task_completing` lifecycle | P0 | Medium | **Done** |
 | 6.2 | `reporting` success detection | P1 | Small | **Done** |
-| 6.3 | `meeting` chat + cursor | P1 | Medium | **Done** (cursor parse/navigation/confirmation live-verified 2026-05-10; chat emission and evidence/alibi fallback strategy implemented; LLM quality validation remains) |
+| 6.3 | `meeting` chat + cursor | P1 | Medium | **Done** (cursor parse/navigation/confirmation live-verified 2026-05-10; chat emission, evidence/alibi fallback strategy, Bedrock meeting actions, and prompt-tuned vote guards live-verified) |
 | 6.4 | `hunting` cover + memory | P2 | Small-medium | **Done** (kill confirmation still affected by localization-drop bug; see TODO.md) |
 | 6.5 | `pretending` fake A-press | P2 | Small | **Done** |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** |

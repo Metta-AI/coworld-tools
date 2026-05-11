@@ -81,6 +81,9 @@ proc initMemoryState*(): MemoryState =
     result.perPlayer[i].alive = true
     result.perPlayer[i].role = RoleUnknown
     result.perPlayer[i].lastNearBodyTick = -1000000
+    result.perPlayer[i].lastNearBodyDistance = -1
+    result.perPlayer[i].closestNearBodyDistance = -1
+    result.perPlayer[i].lastSoloWithSelfTick = -1
 
 proc initTaskState*(): TaskState =
   TaskState(slots: @[],
@@ -148,6 +151,60 @@ proc updateBelief*(belief: var Belief, percept: Percept) =
   belief.tick = percept.tick
   mergePercept(belief, percept)
 
+proc nearBodyEvidenceStrength(dist: int): int =
+  ## Body proximity is ambiguous evidence, but closeness matters. A player
+  ## standing on the body is more suspicious than one near the edge of the
+  ## same screen.
+  if dist >= MeetingBodyEvidenceRadius:
+    return 1
+  1 + ((MeetingBodyEvidenceRadius - dist) *
+       (MeetingBodyEvidenceMaxStrength - 1)) div MeetingBodyEvidenceRadius
+
+proc updateSoloTrust(belief: var Belief, actors: ActorPercept) =
+  ## If a crewmate spends time alone with exactly one visible player and
+  ## survives, that becomes direct trust evidence for that player. The
+  ## current streak resets aggressively when the scene stops being a clean
+  ## one-on-one; the total remains as cross-meeting memory.
+  var soleOther = -1
+  var otherCount = 0
+  if belief.self.role != RoleImposter and
+     belief.self.alive and
+     not belief.self.isGhost and
+     belief.self.phase == PhaseGameplay and
+     belief.percep.localized and
+     actors.bodies.len == 0:
+    for cm in actors.crewmates:
+      let ci = cm.colorIndex
+      if ci < 0 or ci >= PlayerColorCount:
+        continue
+      if ci == belief.self.colorIndex:
+        continue
+      if not belief.memory.perPlayer[ci].alive:
+        continue
+      soleOther = ci
+      inc otherCount
+
+  if otherCount == 1 and soleOther >= 0:
+    for i in 0 ..< PlayerColorCount:
+      if i != soleOther:
+        belief.memory.perPlayer[i].currentSoloWithSelfTicks = 0
+    let gap =
+      if belief.memory.perPlayer[soleOther].lastSoloWithSelfTick >= 0:
+        belief.tick - belief.memory.perPlayer[soleOther].lastSoloWithSelfTick
+      else:
+        1
+    let delta = max(1, min(gap, 3))
+    if belief.memory.perPlayer[soleOther].lastSoloWithSelfTick >= 0 and
+       gap <= 3:
+      belief.memory.perPlayer[soleOther].currentSoloWithSelfTicks += delta
+    else:
+      belief.memory.perPlayer[soleOther].currentSoloWithSelfTicks = delta
+    belief.memory.perPlayer[soleOther].soloWithSelfTicks += delta
+    belief.memory.perPlayer[soleOther].lastSoloWithSelfTick = belief.tick
+  else:
+    for i in 0 ..< PlayerColorCount:
+      belief.memory.perPlayer[i].currentSoloWithSelfTicks = 0
+
 proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   ## Merge phase-1.3 actor-scan results into the long-lived belief.
   ## Called from `bot.decideNextMask` after the actor scan completes.
@@ -182,6 +239,8 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   if actors.selfColorUpdated and actors.newSelfColor >= 0:
     if belief.self.colorIndex < 0 or belief.self.colorIndex == actors.newSelfColor:
       belief.self.colorIndex = actors.newSelfColor
+
+  updateSoloTrust(belief, actors)
 
   # Wake-up flag for new bodies.
   if actors.bodies.len > 0:
@@ -230,6 +289,12 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
              MeetingBodyEvidenceCooldownTicks:
           inc belief.memory.perPlayer[ci].timesNearBody
           belief.memory.perPlayer[ci].lastNearBodyTick = belief.tick
+          belief.memory.perPlayer[ci].lastNearBodyDistance = dist
+          if belief.memory.perPlayer[ci].closestNearBodyDistance < 0 or
+             dist < belief.memory.perPlayer[ci].closestNearBodyDistance:
+            belief.memory.perPlayer[ci].closestNearBodyDistance = dist
+          belief.memory.perPlayer[ci].nearBodyEvidenceScore +=
+            nearBodyEvidenceStrength(dist)
 
 proc rememberKnownImposterColor*(belief: var Belief, color: int): bool =
   ## Add one imposter colour to long-lived belief and per-player memory.

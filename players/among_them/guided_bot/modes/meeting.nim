@@ -2,9 +2,10 @@
 ## `MeetingAction` values (see DESIGN.md §7).
 ##
 ## Phase 6.3 rewrite: cursor-aware vote navigation using the voting
-## parse's cursor position, timer fix (600 ticks default), and
-## auto-vote delay for the no-LLM path. Chat emission remains a stub
-## (deferred to FFI plumbing phase). See MEETING_DESIGN.md.
+## parse's cursor position, timer fix (600 ticks default), auto-vote
+## delay for the no-LLM path, chat emission, legality guards for
+## LLM-directed votes, and structured evidence in the LLM snapshot.
+## See MEETING_DESIGN.md.
 ##
 ## Safety-net fallback (DESIGN.md §7.7): if `MeetingFallbackTicksLeft`
 ## ticks remain and no vote has been confirmed, the mode navigates to
@@ -115,6 +116,17 @@ proc targetSlotForAction(belief: Belief, action: MeetingAction,
       isKnownImposterTeammate(belief, result)):
     result = skipSlot
 
+proc legalVoteSlotOrSkip(belief: Belief, slot, playerCount: int): int =
+  ## Hard legality guard. It does not judge evidence quality; it only
+  ## prevents mechanically invalid or strategically catastrophic targets.
+  let skipSlot = skipSlotFor(playerCount)
+  if slot < 0 or slot >= playerCount:
+    return skipSlot
+  if isSafeVoteSlot(belief, slot, playerCount):
+    slot
+  else:
+    skipSlot
+
 proc textNamesColor(text: string, color: int): bool =
   if color < 0 or color >= PlayerColorCount:
     return false
@@ -143,14 +155,40 @@ proc votesReceivedScore(belief: Belief, color: int): int =
     if belief.social.votesCast[voter] == color:
       result += 3
 
+proc bodyEvidenceScore(ps: PlayerSummary): int =
+  if ps.nearBodyEvidenceScore > 0:
+    ps.nearBodyEvidenceScore
+  else:
+    ps.timesNearBody * MeetingBodyEvidenceMaxStrength
+
+proc soloTrustScore(ps: PlayerSummary): int =
+  min(MeetingSoloTrustMaxScore,
+      ps.soloWithSelfTicks div MeetingSoloTrustTicksPerPoint)
+
 proc crewSuspicionScore(belief: Belief, slot: int): int =
   let ps = belief.memory.perPlayer[slot]
   if ps.role == RoleImposter:
     result += 100
   result += ps.timesWitnessedKill * 20
-  result += ps.timesNearBody * 8
+  result += ps.bodyEvidenceScore
   result += belief.chatSuspicionScore(slot)
   result += belief.votesReceivedScore(slot)
+  result -= ps.soloTrustScore
+
+proc imposterPlausibleVoteScore(belief: Belief, slot: int): int =
+  let ps = belief.memory.perPlayer[slot]
+  belief.chatSuspicionScore(slot) * 2 +
+    belief.votesReceivedScore(slot) +
+    ps.bodyEvidenceScore div 2 +
+    ps.timesWitnessedKill * 6 -
+    ps.soloTrustScore
+
+proc guardedTargetSlotForAction(belief: Belief, action: MeetingAction,
+                                playerCount: int): int =
+  ## Safety guard for LLM-directed votes. SKIP remains always legal; live
+  ## player targets are allowed even when the symbolic evidence score is
+  ## low, because the LLM can reason over structured evidence and alibis.
+  targetSlotForAction(belief, action, playerCount)
 
 proc pickCrewVoteSlot(belief: Belief, playerCount: int): int =
   var bestSlot = -1
@@ -169,8 +207,7 @@ proc pickCrewVoteSlot(belief: Belief, playerCount: int): int =
 
 proc pickImposterVoteSlot(belief: Belief, playerCount: int): int =
   ## Blend with plausible accusations. If the table has no evidence,
-  ## pick the next live non-teammate to the right to avoid wasting an
-  ## imposter vote.
+  ## skip rather than starting a baseless pile-on.
   if playerCount <= 1:
     return skipSlotFor(playerCount)
   var bestSlot = -1
@@ -178,26 +215,12 @@ proc pickImposterVoteSlot(belief: Belief, playerCount: int): int =
   for slot in 0 ..< playerCount:
     if not isSafeVoteSlot(belief, slot, playerCount):
       continue
-    let ps = belief.memory.perPlayer[slot]
-    var score = belief.chatSuspicionScore(slot) * 2 +
-      belief.votesReceivedScore(slot) +
-      ps.timesNearBody * 4 +
-      ps.timesWitnessedKill * 6
-    if ps.lastSeenTick > 0:
-      score += max(0, 4 - ((belief.tick - ps.lastSeenTick) div 120))
+    let score = imposterPlausibleVoteScore(belief, slot)
     if score > bestScore:
       bestScore = score
       bestSlot = slot
   if bestSlot >= 0 and bestScore > 0:
     return bestSlot
-
-  let selfSlot = selfVoteSlot(belief)
-  if selfSlot < 0 or selfSlot >= playerCount:
-    return skipSlotFor(playerCount)
-  for offset in 1 ..< playerCount:
-    let slot = (selfSlot + offset) mod playerCount
-    if isSafeVoteSlot(belief, slot, playerCount):
-      return slot
   skipSlotFor(playerCount)
 
 proc strategicFallbackVoteSlot(belief: Belief, playerCount: int): int =
@@ -339,7 +362,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
     of MeetingActVote:
       # Start navigating toward the target slot.
-      let targetSlot = targetSlotForAction(belief, action, pc)
+      let targetSlot = guardedTargetSlotForAction(belief, action, pc)
       scratch.meetVoteTarget = targetSlot
       # If already on target, just wait for confirm.
       if cursor >= 0 and cursor == targetSlot:
@@ -347,21 +370,15 @@ proc decide*(belief: Belief, params: ModeParams,
       return navigateToSlot(belief, scratch, targetSlot)
 
     of MeetingActConfirmVote:
-      let skipSlot = skipSlotFor(pc)
-      let cursorUnsafe = cursor >= 0 and cursor < pc and
-        (not belief.memory.perPlayer[cursor].alive or
-         isSelfVoteSlot(belief, cursor) or
-         isKnownImposterTeammate(belief, cursor))
-      let targetUnsafe = scratch.meetVoteTarget >= 0 and scratch.meetVoteTarget < pc and
-        (not belief.memory.perPlayer[scratch.meetVoteTarget].alive or
-         isSelfVoteSlot(belief, scratch.meetVoteTarget) or
-         isKnownImposterTeammate(belief, scratch.meetVoteTarget))
-      if cursorUnsafe or targetUnsafe:
-        scratch.meetVoteTarget = skipSlot
-        if cursor >= 0 and cursor == skipSlot:
-          scratch.meetVoteConfirmed = true
-          return confirmVoteIntent()
-        return navigateToSlot(belief, scratch, skipSlot)
+      let selected =
+        if scratch.meetVoteTarget >= 0:
+          scratch.meetVoteTarget
+        else:
+          cursor
+      let targetSlot = legalVoteSlotOrSkip(belief, selected, pc)
+      scratch.meetVoteTarget = targetSlot
+      if cursor < 0 or cursor != targetSlot:
+        return navigateToSlot(belief, scratch, targetSlot)
       scratch.meetVoteConfirmed = true
       return confirmVoteIntent()
 
@@ -383,8 +400,8 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- Continue cursor navigation if a vote target is pending ---
   if scratch.meetVoteTarget >= 0:
-    if isSelfVoteSlot(belief, scratch.meetVoteTarget):
-      scratch.meetVoteTarget = skipSlotFor(pc)
+    scratch.meetVoteTarget = legalVoteSlotOrSkip(
+      belief, scratch.meetVoteTarget, pc)
     if cursor >= 0 and cursor == scratch.meetVoteTarget:
       # Arrived at target. Wait for confirm action from LLM.
       return noOpIntent()

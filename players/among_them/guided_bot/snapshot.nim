@@ -13,7 +13,7 @@
 ## being submitted to the guidance worker. Rendering is O(belief
 ## fields), not O(map tile count) — no map-pixel iteration.
 
-import std/json
+import std/[json, strutils]
 import types
 import perception/data
 import perception/geometry
@@ -81,6 +81,21 @@ proc wakeReasonStr(w: WakeReason): string =
   of WakeRoleRevealed:          "role_revealed"
   of WakeReflexFired:           "reflex_fired"
   of WakeDirectiveExpiringSoon: "directive_expiring_soon"
+
+proc textNamesColor(text: string, color: int): bool =
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  let lower = text.toLowerAscii()
+  let name = PlayerColorNames[color].toLowerAscii()
+  name.len > 0 and lower.contains(name)
+
+proc voteChoiceName(target: int): string =
+  if target == -1:
+    "skip"
+  elif target == -2:
+    "abstain"
+  else:
+    colorName(target)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -191,7 +206,18 @@ proc renderSnapshot*(belief: Belief): string =
         if room != "unknown":
           pSummary["last_seen_room"] = newJString(room)
       pSummary["times_near_body"] = newJInt(ps.timesNearBody)
+      pSummary["near_body_evidence_score"] = newJInt(ps.nearBodyEvidenceScore)
+      if ps.lastNearBodyTick > -1000000:
+        pSummary["last_near_body_tick"] = newJInt(ps.lastNearBodyTick)
+      if ps.lastNearBodyDistance >= 0:
+        pSummary["last_near_body_distance"] = newJInt(ps.lastNearBodyDistance)
+      if ps.closestNearBodyDistance >= 0:
+        pSummary["closest_near_body_distance"] =
+          newJInt(ps.closestNearBodyDistance)
       pSummary["times_witnessed_kill"] = newJInt(ps.timesWitnessedKill)
+      pSummary["solo_with_self_ticks"] = newJInt(ps.soloWithSelfTicks)
+      pSummary["current_solo_with_self_ticks"] =
+        newJInt(ps.currentSoloWithSelfTicks)
       pSummary["ejected"] = newJBool(ps.ejected)
       ppObj[colorName(i)] = pSummary
   memObj["per_player"] = ppObj
@@ -237,6 +263,79 @@ proc renderSnapshot*(belief: Belief): string =
       elif target >= 0 and target < PlayerColorCount:
         votesObj[colorName(voter)] = newJString(colorName(target))
     meetingObj["votes_observed"] = votesObj
+
+    var ledgerObj = newJObject()
+    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
+      let ps = belief.memory.perPlayer[i]
+      var playerObj = newJObject()
+      playerObj["vote_legal"] = newJBool(
+        i != belief.percep.votingSelfSlot and
+        ps.alive and
+        not (belief.self.role == RoleImposter and
+             i in belief.self.knownImposterColors))
+      playerObj["current_vote"] = newJString(voteChoiceName(
+        belief.social.votesCast[i]))
+
+      var votesReceived = newJArray()
+      for voter in 0 ..< PlayerColorCount:
+        if belief.social.votesCast[voter] == i:
+          votesReceived.add newJString(colorName(voter))
+      playerObj["votes_received_from"] = votesReceived
+
+      var incriminating = newJArray()
+      if ps.role == RoleImposter:
+        var ev = newJObject()
+        ev["kind"] = newJString("known_imposter_role")
+        ev["note"] = newJString(
+          "Usually imposter-only teammate knowledge, not public crew proof.")
+        incriminating.add ev
+      if ps.timesWitnessedKill > 0:
+        var ev = newJObject()
+        ev["kind"] = newJString("witnessed_kill")
+        ev["count"] = newJInt(ps.timesWitnessedKill)
+        incriminating.add ev
+      if ps.timesNearBody > 0:
+        var ev = newJObject()
+        ev["kind"] = newJString("near_body")
+        ev["count"] = newJInt(ps.timesNearBody)
+        ev["score"] = newJInt(ps.nearBodyEvidenceScore)
+        ev["ambiguous"] = newJBool(true)
+        ev["note"] = newJString(
+          "Could be killer, reporter, or bystander; closer is stronger.")
+        if ps.lastNearBodyTick > -1000000:
+          ev["last_tick"] = newJInt(ps.lastNearBodyTick)
+        if ps.lastNearBodyDistance >= 0:
+          ev["last_distance"] = newJInt(ps.lastNearBodyDistance)
+        if ps.closestNearBodyDistance >= 0:
+          ev["closest_distance"] = newJInt(ps.closestNearBodyDistance)
+        incriminating.add ev
+      playerObj["incriminating"] = incriminating
+
+      var exculpatory = newJArray()
+      if ps.soloWithSelfTicks > 0:
+        var ev = newJObject()
+        ev["kind"] = newJString("solo_survival_trust")
+        ev["total_ticks"] = newJInt(ps.soloWithSelfTicks)
+        ev["current_streak_ticks"] = newJInt(ps.currentSoloWithSelfTicks)
+        ev["note"] = newJString(
+          "Direct trust: I spent time alone with this player and survived.")
+        exculpatory.add ev
+      playerObj["exculpatory"] = exculpatory
+
+      var chatMentions = newJArray()
+      for cl in belief.social.recentChat:
+        if cl.text.textNamesColor(i):
+          var ev = newJObject()
+          ev["tick"] = newJInt(cl.tick)
+          ev["speaker"] = newJString(colorName(cl.speakerColor))
+          ev["text"] = newJString(cl.text)
+          ev["interpretation"] = newJString(
+            "LLM must classify as accusation, defense, alibi, or noise.")
+          chatMentions.add ev
+      playerObj["chat_mentions"] = chatMentions
+
+      ledgerObj[colorName(i)] = playerObj
+    meetingObj["evidence_ledger"] = ledgerObj
 
     var alibiArr = newJArray()
     for i in 0 ..< PlayerColorCount:

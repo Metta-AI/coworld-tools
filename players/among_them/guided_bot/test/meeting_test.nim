@@ -5,11 +5,13 @@
 ##     nim c -r -d:release --threads:on --mm:orc \
 ##         among_them/guided_bot/test/meeting_test.nim
 
-import std/strformat
+import std/[json, strformat]
 import ../types
 import ../belief
 import ../tuning
 import ../action
+import ../snapshot
+import ../perception/actors
 import ../modes/meeting as meetingMode
 
 var failures = 0
@@ -57,6 +59,87 @@ proc testLlmSelfVoteRedirectsToSkip() =
   expect(not intent.pressA,
          "self-target vote does not confirm while cursor is on self")
 
+proc testCrewLlmVoteAllowsLlmJudgmentWithoutSymbolicEvidence() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    text: "",
+    target: 2)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "crew LLM vote without symbolic evidence keeps legal target")
+  expect(not intent.pressA,
+         "crew LLM vote navigates before confirming legal target")
+
+proc testCrewLlmVoteTargetsEvidence() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  belief.memory.perPlayer[2].timesNearBody = 1
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    text: "",
+    target: 2)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "crew LLM vote with concrete evidence keeps the target")
+  expect(not intent.pressA,
+         "crew LLM vote navigates before confirming evidence target")
+
+proc testImposterLlmVoteAllowsLlmJudgmentWithoutSymbolicSuspicion() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    text: "",
+    target: 2)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "imposter LLM vote without symbolic suspicion keeps legal target")
+  expect(not intent.pressA,
+         "imposter LLM vote navigates before confirming legal target")
+
+proc testImposterLlmVoteRedirectsKnownPartnerToSkip() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleImposter
+  belief.self.knownImposterColors = @[2]
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    text: "",
+    target: 2)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 4,
+           "imposter LLM vote for known partner is rewritten to SKIP")
+  expect(not intent.pressA,
+         "known-partner vote navigates instead of confirming")
+
+proc testImposterLlmVoteTargetsPlausibleSuspicion() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.memory.perPlayer[2].timesNearBody = 1
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    text: "",
+    target: 2)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "imposter LLM vote with plausible suspicion keeps the target")
+  expect(not intent.pressA,
+         "imposter LLM vote navigates before confirming plausible target")
+
 proc testConfirmOnSelfRedirectsToSkip() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
   var scratch = makeScratch(belief)
@@ -74,6 +157,42 @@ proc testConfirmOnSelfRedirectsToSkip() =
          "confirm-on-self does not press A")
   expect(not scratch.meetVoteConfirmed,
          "confirm-on-self is not marked confirmed before reaching SKIP")
+
+proc testConfirmCurrentLegalTargetWithoutSymbolicEvidence() =
+  var belief = makeVotingBelief(cursor = 2, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActConfirmVote,
+    text: "",
+    target: -1)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "confirm_vote on legal player keeps current cursor target")
+  expect(intent.pressA,
+         "confirm_vote on legal player presses A without symbolic veto")
+  expect(scratch.meetVoteConfirmed,
+         "confirm_vote on legal player is marked confirmed")
+
+proc testConfirmEvidenceTarget() =
+  var belief = makeVotingBelief(cursor = 2, selfSlot = 1)
+  belief.self.role = RoleCrewmate
+  belief.memory.perPlayer[2].timesNearBody = 1
+  var scratch = makeScratch(belief)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActConfirmVote,
+    text: "",
+    target: -1)
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
+  expectEq(scratch.meetVoteTarget, 2,
+           "confirm_vote on evidenced target preserves the target")
+  expect(intent.pressA, "confirm_vote on evidenced target presses A")
+  expect(scratch.meetVoteConfirmed,
+         "confirm_vote on evidenced target is marked confirmed")
 
 proc testConfirmOnSkipStillVotes() =
   var belief = makeVotingBelief(cursor = 4, selfSlot = 1)
@@ -113,6 +232,71 @@ proc testEmitChatQueuesSanitizedText() =
   let blocked = emitChat(state, 101, "second line")
   expect(not blocked, "emitChat does not overwrite pending chat")
 
+  var state2 = initActionState()
+  let emDash = chr(226) & chr(128) & chr(148)
+  let queued2 = emitChat(state2, 100, "yet" & emDash & "let's discuss")
+  expect(queued2, "emitChat queues text with non-ASCII separator")
+  expectEq(state2.pendingChat, "yet let's discuss",
+           "emitChat replaces non-ASCII punctuation with a space")
+
+proc testNearBodyEvidenceTracksDistanceStrength() =
+  var belief = initBelief()
+  belief.tick = 10
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  var actors = initActorPercept()
+  actors.crewmates = @[
+    CrewmateMatch(x: 40, y: 40, colorIndex: 1, flipH: false),
+    CrewmateMatch(x: 50, y: 40, colorIndex: 2, flipH: false)]
+  actors.bodies = @[
+    BodyMatch(x: 50, y: 42, colorIndex: 4)]
+
+  mergeActorPercept(belief, actors)
+
+  let ps = belief.memory.perPlayer[2]
+  expectEq(ps.timesNearBody, 1,
+           "near-body memory increments for player close to body")
+  expectEq(ps.lastNearBodyDistance, 2,
+           "near-body memory records body distance")
+  expect(ps.nearBodyEvidenceScore > 1,
+         "near-body evidence score grows when player is very close")
+
+proc testSoloTrustAppearsInMeetingEvidenceLedger() =
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.self.alive = true
+  belief.percep.localized = true
+  var actors = initActorPercept()
+  actors.crewmates = @[
+    CrewmateMatch(x: 40, y: 40, colorIndex: 1, flipH: false),
+    CrewmateMatch(x: 58, y: 40, colorIndex: 2, flipH: false)]
+
+  for tick in 1 .. 12:
+    belief.tick = tick
+    mergeActorPercept(belief, actors)
+
+  expectEq(belief.memory.perPlayer[2].soloWithSelfTicks, 12,
+           "solo survival trust accumulates while alone with one player")
+  expectEq(belief.memory.perPlayer[2].currentSoloWithSelfTicks, 12,
+           "solo survival trust records current streak")
+
+  belief.self.phase = PhaseVoting
+  belief.percep.votingPlayerCount = 4
+  belief.percep.votingSelfSlot = 1
+  belief.percep.votingCursor = 4
+  let snap = parseJson(renderSnapshot(belief))
+  let yellow = snap["meeting"]["evidence_ledger"]["yellow"]
+
+  expect(yellow["vote_legal"].getBool(),
+         "evidence ledger marks live non-self player as legal vote target")
+  expectEq(yellow["exculpatory"][0]["kind"].getStr(),
+           "solo_survival_trust",
+           "evidence ledger exposes solo survival trust as exculpatory")
+
 proc testCrewAutoVoteSkipsWithoutEvidence() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
   belief.self.role = RoleCrewmate
@@ -140,7 +324,7 @@ proc testCrewAutoVoteTargetsEvidence() =
   expect(not intent.pressA,
          "auto-vote navigates before confirming the evidence target")
 
-proc testImposterAutoVoteAvoidsKnownPartner() =
+proc testImposterAutoVoteSkipsWithoutPlausibleSuspicion() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
   belief.self.role = RoleImposter
   belief.self.knownImposterColors = @[2]
@@ -149,8 +333,23 @@ proc testImposterAutoVoteAvoidsKnownPartner() =
 
   let intent = meetingMode.decide(belief, meetingParams(), scratch)
 
+  expectEq(scratch.meetVoteTarget, 4,
+           "imposter auto-vote skips when there is no plausible suspicion")
+  expect(not intent.pressA,
+         "imposter auto-vote navigates before confirming")
+
+proc testImposterAutoVoteTargetsPlausibleSuspicion() =
+  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
+  belief.self.role = RoleImposter
+  belief.self.knownImposterColors = @[2]
+  belief.memory.perPlayer[3].timesNearBody = 1
+  var scratch = makeScratch(belief)
+  belief.tick = 100 + MeetingAutoVoteDelayTicks
+
+  let intent = meetingMode.decide(belief, meetingParams(), scratch)
+
   expectEq(scratch.meetVoteTarget, 3,
-           "imposter auto-vote skips known imposter partner")
+           "imposter auto-vote targets plausible non-partner suspicion")
   expect(not intent.pressA,
          "imposter auto-vote navigates before confirming")
 
@@ -206,13 +405,23 @@ proc testAutoVotePulsesThroughMultipleCursorSteps() =
 
 proc main() =
   testLlmSelfVoteRedirectsToSkip()
+  testCrewLlmVoteAllowsLlmJudgmentWithoutSymbolicEvidence()
+  testCrewLlmVoteTargetsEvidence()
+  testImposterLlmVoteAllowsLlmJudgmentWithoutSymbolicSuspicion()
+  testImposterLlmVoteRedirectsKnownPartnerToSkip()
+  testImposterLlmVoteTargetsPlausibleSuspicion()
   testConfirmOnSelfRedirectsToSkip()
+  testConfirmCurrentLegalTargetWithoutSymbolicEvidence()
+  testConfirmEvidenceTarget()
   testConfirmOnSkipStillVotes()
   testSpeakActionEmitsChatIntent()
   testEmitChatQueuesSanitizedText()
+  testNearBodyEvidenceTracksDistanceStrength()
+  testSoloTrustAppearsInMeetingEvidenceLedger()
   testCrewAutoVoteSkipsWithoutEvidence()
   testCrewAutoVoteTargetsEvidence()
-  testImposterAutoVoteAvoidsKnownPartner()
+  testImposterAutoVoteSkipsWithoutPlausibleSuspicion()
+  testImposterAutoVoteTargetsPlausibleSuspicion()
   testCrewAutoVoteConfirmsEvidenceTarget()
   testAutoVotePulsesThroughMultipleCursorSteps()
 

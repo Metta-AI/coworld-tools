@@ -121,8 +121,8 @@ together; the queue handles sequencing.
 | Kind | Effect |
 |---|---|
 | `MeetingActSpeak` | Sets `intent.chat = text`; `bot.nim` queues it through `action.emitChat`, `guidedbot_take_chat`, and the Python WebSocket chat hook. |
-| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets, dead targets, invalid targets, and known imposter teammates are rewritten to SKIP. |
-| `MeetingActConfirmVote` | Sets `meetVoteConfirmed = true` and emits A press. If the cursor or pending target is unsafe, redirects to SKIP instead of confirming. Locks the mode only once a safe target is confirmed. |
+| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets, dead targets, invalid targets, and known imposter teammates are rewritten to SKIP. Symbolic evidence score is not a hard veto for LLM votes. |
+| `MeetingActConfirmVote` | Runs the pending target or current cursor through the same legality guard, sets `meetVoteConfirmed = true`, and emits A only after the cursor is on that legal target. Illegal targets are redirected to SKIP. |
 | `MeetingActUnvote` | Emits B press (deselects). Clears `meetVoteTarget`. |
 | `MeetingActWait` | No-op for one tick. |
 | `MeetingActNone` | No-op (defensive — shouldn't appear in practice). |
@@ -197,13 +197,14 @@ then confirm. If the cursor is already on that target, immediately confirm.
 If cursor position is unknown, `navigateToSlot` falls back to CursorRight.
 
 Crewmate fallback requires evidence. It scores known-imposter role memory,
-near-body sightings, witnessed-kill counts, visible vote dots, and chat
-mentions; if no score reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
+distance-weighted near-body sightings, witnessed-kill counts, visible vote
+dots, and chat mentions, then subtracts solo-survival trust; if no score
+reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
 
 Imposter fallback avoids self and known imposter teammates. It prefers a
 live crewmate who already has chat/vote/body evidence against them; if the
-table has no usable accusation, it chooses the next live non-teammate to
-avoid wasting the imposter vote.
+table has no usable accusation, it votes SKIP rather than starting a
+baseless pile-on.
 
 **Timer:** uses `MeetingDurationEstimateTicks` (600 ticks, ~25s) as
 the meeting length estimate. The fallback fires at tick 500 into the
@@ -302,7 +303,10 @@ All live in `tuning.nim`:
 | `MeetingLlmActionPeriodTicks` | 48 | Faster meeting cadence for speak/vote/confirm LLM actions. |
 | `MeetingCrewEvidenceThreshold` | 5 | Minimum fallback score before crew votes a player instead of SKIP. |
 | `MeetingBodyEvidenceRadius` | 48 | World-pixel radius for counting a player near a body. |
+| `MeetingBodyEvidenceMaxStrength` | 8 | Per-sighting near-body score at body-contact distance. |
 | `MeetingBodyEvidenceCooldownTicks` | 72 | Cooldown before counting the same near-body evidence again. |
+| `MeetingSoloTrustTicksPerPoint` | 120 | Alone-together survival ticks that become one fallback trust point. |
+| `MeetingSoloTrustMaxScore` | 8 | Maximum fallback suspicion reduction from direct solo trust. |
 | `MeetingChatMaxLen` | 80 | Hard cap for outbound chat text. |
 
 ---
@@ -399,10 +403,15 @@ During meetings, the snapshot (`snapshot.nim`) includes:
 - `phase: "voting"` — signals the LLM that meeting mode is active.
 - `current_mode: { "name": "meeting", ... }` with `ticks_active`.
 - `meeting` — player count, self slot, cursor, selectable players,
-  observed votes, and recent alibi witnesses.
+  observed votes, per-player `evidence_ledger`, and recent alibi witnesses.
 - `memory.per_player` — alive/role status, last-seen room, near-body
-  counts, witnessed-kill counts, and ejection state for each voting
-  slot during meetings.
+  counts, distance-weighted near-body score, solo-survival trust,
+  witnessed-kill counts, and ejection state for each voting slot during
+  meetings.
+- `meeting.evidence_ledger` — for each player: legality, current vote,
+  voters targeting them, incriminating evidence, exculpatory evidence,
+  and chat mentions that the LLM must classify as accusation, defense,
+  alibi, or noise.
 - `visible_chat` and `recent_chat` — current OCR-visible chat plus the
   deduplicated recent transcript with speaker colours and text.
 - Standard fields: visible players, task state, self state.

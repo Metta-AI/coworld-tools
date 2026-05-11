@@ -377,7 +377,13 @@ type
     lastSeenX*, lastSeenY*: int
     timesNearBody*: int
     lastNearBodyTick*: int
+    lastNearBodyDistance*: int
+    closestNearBodyDistance*: int
+    nearBodyEvidenceScore*: int
     timesWitnessedKill*: int
+    soloWithSelfTicks*: int
+    currentSoloWithSelfTicks*: int
+    lastSoloWithSelfTick*: int
     ejected*: bool
 
   MemoryState* = object

@@ -33,7 +33,8 @@ own colour from the centered player sprite, parses voting screens, and
 executes cursor-aware votes in meetings. Meeting chat now flows through
 the Nim action buffer, C FFI, Python policy hook, and local WebSocket
 runner; LLM meeting snapshots include player memory, vote dots, recent
-chat, and alibi witnesses. Focused Nim/Python checks pass and the
+chat, solo-survival trust, distance-weighted body proximity, and a
+structured evidence ledger. Focused Nim/Python checks pass and the
 cogames shared library builds.
 
 Latest end-to-end voting check: an 8-agent, 2-imposter live match with
@@ -41,8 +42,9 @@ Latest end-to-end voting check: an 8-agent, 2-imposter live match with
 `--trace-level full` produced two meetings with frame traces. Every
 living bot cast the intended temporary mechanical vote; ghosts correctly
 did not vote. The post-2026-05-10 strategy path replaces that temporary
-target with evidence-gated crewmate votes, imposter partner/self guards,
-and SKIP when crew lacks evidence. Trace root:
+target with LLM-directed votes over a structured evidence ledger plus
+hard legality guards for self, dead players, invalid slots, and known
+imposter teammates. Trace root:
 `guided_bot/traces/voting_mechanics_20260510_8p2i_cd600_vote600_tasks16_livetarget_full`.
 
 Latest Bedrock meeting check: an 8-agent, 2-imposter live match with
@@ -52,6 +54,26 @@ all roles, produced two meetings per bot, 358 successful LLM responses,
 89 meeting actions, 6 chat lines, 12 vote attempts, and zero LLM
 failures. Trace root:
 `guided_bot/traces/meeting_bedrock_20260511_8p2i_standard`.
+
+Latest prompt-tuning check: an 8-agent, 2-imposter Bedrock run with
+seed 43 and `--trace-level decisions` produced 336 successful LLM
+responses, 108 meeting actions, 6 ASCII chat lines, 12 vote attempts,
+and zero LLM validation failures. This run predates the structured
+evidence-ledger pass, but validated Bedrock chat/vote sequencing and
+ASCII chat. Trace root:
+`guided_bot/traces/meeting_prompt_tune_20260511_8p2i_180s_seed43_guarded`.
+
+Latest evidence-ledger check: seed 44 was rerun after adding
+solo-survival trust, distance-weighted body proximity, and legality-only
+LLM vote guards. The 180-second run closed all manifests and showed the
+LLM treating solo time as trust; a targeted 120-second first-meeting
+rerun produced no "least trusted" votes, no solo-trust-as-suspicion
+reasoning, and crewmate player votes only when near-body evidence had a
+distance/score. There was one transient Bedrock startup call failure in
+the targeted run; later calls recovered. Trace roots:
+`guided_bot/traces/meeting_evidence_ledger_20260511_8p2i_180s_seed44_trustprompt`
+and
+`guided_bot/traces/meeting_evidence_ledger_20260511_8p2i_120s_seed44_notrustgap`.
 
 Phases 1–5 (perception, action, LLM guidance, tracing, fallback
 playability) remain intact underneath.
@@ -258,7 +280,7 @@ nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/voting_pipeline_test.nim
 
 # Meeting mode — cursor pulse/release navigation, evidence/alibi fallback
-# target selection, confirm behavior, chat intent, and self-vote prevention.
+# target selection, guarded confirm behavior, chat intent, and self-vote prevention.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/meeting_test.nim
 
@@ -568,15 +590,16 @@ The following blockers have been fixed:
 navigation, alive-slot merging, and vote confirmation are verified
 end-to-end from live traces. Chat emission and evidence-based fallback
 strategy are implemented. The Bedrock LLM provider is smoke-tested, and
-the full LLM chat/vote path is short-run live validated; longer runs
-should tune prompt quality and cadence.
+the full LLM chat/vote path is standard-run live validated. Current
+meeting votes use hard legality guards and give the LLM structured
+incriminating/exculpatory evidence instead of a symbolic evidence veto.
 
 ### Remaining implementation (IMPL_PLAN.md)
 
 - **6.7 Reflex scope** — body reflexes only fire from one mode each.
   Trivial.
-- **LLM meeting tuning** — review full Bedrock meeting traces and tune
-  speak→vote→confirm cadence, chat formatting, and vote rationale.
+- **LLM response formatting** — Claude still wraps otherwise valid JSON
+  in code fences despite prompt instructions; the parser tolerates it.
 - **Phase 7 stub modes** — `fear`, `investigating`, `alibi_building`.
   LLM-only, not on critical path.
 

@@ -28,7 +28,10 @@ const
   MeetingLlmActionPeriodTicks* = 48   ## During meetings, ask for the next LLM action more often than gameplay.
   MeetingCrewEvidenceThreshold* = 5   ## Minimum fallback suspicion score before crew votes a player.
   MeetingBodyEvidenceRadius*  = 48   ## World-px radius for "seen near a body" memory evidence.
+  MeetingBodyEvidenceMaxStrength* = 8 ## Per-sighting score at body-contact distance.
   MeetingBodyEvidenceCooldownTicks* = 72 ## Cooldown before counting the same near-body evidence again.
+  MeetingSoloTrustTicksPerPoint* = 120 ## Alone-together survival ticks that become one trust point.
+  MeetingSoloTrustMaxScore* = 8    ## Maximum fallback suspicion reduction from direct solo trust.
   MeetingChatMaxLen*          = 80   ## Hard cap for outbound chat text passed to the server.
 
   # --- Voting-screen detection fallback --------------------------------
