@@ -10,7 +10,9 @@ import ../types
 import ../belief
 import ../tuning
 import ../action
+import ../navigation
 import ../snapshot
+import ../perception/data
 import ../perception/actors
 import ../modes/meeting as meetingMode
 
@@ -239,6 +241,14 @@ proc testEmitChatQueuesSanitizedText() =
   expectEq(state2.pendingChat, "yet let's discuss",
            "emitChat replaces non-ASCII punctuation with a space")
 
+  var state3 = initActionState()
+  let longLine =
+    "No concrete evidence yet. Where was the body found exactly today?"
+  let queued3 = emitChat(state3, 100, longLine)
+  expect(queued3, "emitChat queues a long chat line")
+  expectEq(state3.pendingChat.len, MeetingChatMaxLen,
+           "emitChat truncates outbound chat to the configured cap")
+
 proc testNearBodyEvidenceTracksDistanceStrength() =
   var belief = initBelief()
   belief.tick = 10
@@ -262,6 +272,276 @@ proc testNearBodyEvidenceTracksDistanceStrength() =
            "near-body memory records body distance")
   expect(ps.nearBodyEvidenceScore > 1,
          "near-body evidence score grows when player is very close")
+
+proc firstVent(): Waypoint =
+  let graph = navGraph()[]
+  for wp in graph.waypoints:
+    if wp.kind == WpVent:
+      return wp
+  expect(false, "nav graph should contain a vent waypoint")
+  Waypoint()
+
+proc actorAtWorld(color, wx, wy, camX, camY: int): CrewmateMatch =
+  CrewmateMatch(
+    x: wx - camX - SpriteDrawOffX,
+    y: wy - camY - SpriteDrawOffY,
+    colorIndex: color,
+    flipH: false)
+
+proc testVentAppearanceMarksImposterEvidence() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = camX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = camX
+  belief.percep.lastCameraY = camY
+
+  belief.tick = 1
+  mergeActorPercept(belief, initActorPercept())
+
+  belief.tick = 2
+  var appeared = initActorPercept()
+  appeared.crewmates = @[actorAtWorld(2, vent.x, vent.y, camX, camY)]
+  mergeActorPercept(belief, appeared)
+
+  let ps = belief.memory.perPlayer[2]
+  expectEq(ps.role, RoleImposter,
+           "new appearance on a visible vent marks player as imposter")
+  expectEq(ps.timesWitnessedVent, 1,
+           "vent witness evidence count increments")
+  expectEq(ps.lastVentLabel, vent.label,
+           "vent witness records vent label")
+  expect(2 in belief.self.knownImposterColors,
+         "vent witness adds player to known imposters")
+
+  belief.self.phase = PhaseVoting
+  belief.percep.votingPlayerCount = 4
+  belief.percep.votingSelfSlot = 1
+  let snap = parseJson(renderSnapshot(belief))
+  let yellow = snap["meeting"]["evidence_ledger"]["yellow"]
+  expect(yellow["has_concrete_memory_evidence"].getBool(),
+         "vent witness is concrete meeting evidence")
+  expectEq(yellow["incriminating"][1]["kind"].getStr(), "witnessed_vent",
+           "meeting ledger exposes witnessed venting")
+
+proc testWalkingOntoVentDoesNotMarkImposter() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = camX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = camX
+  belief.percep.lastCameraY = camY
+
+  belief.tick = 1
+  var nearby = initActorPercept()
+  nearby.crewmates = @[actorAtWorld(2, vent.x + VentWitnessRadius + 6,
+                                    vent.y, camX, camY)]
+  mergeActorPercept(belief, nearby)
+
+  belief.tick = 2
+  var onVent = initActorPercept()
+  onVent.crewmates = @[actorAtWorld(2, vent.x, vent.y, camX, camY)]
+  mergeActorPercept(belief, onVent)
+
+  expectEq(belief.memory.perPlayer[2].timesWitnessedVent, 0,
+           "already-visible player walking onto vent is not vent evidence")
+  expectEq(belief.memory.perPlayer[2].role, RoleUnknown,
+           "walking onto vent does not mark player as imposter")
+
+proc testScannerDropoutNearVentDoesNotMarkImposter() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = camX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = camX
+  belief.percep.lastCameraY = camY
+
+  belief.tick = 10
+  var nearVent = initActorPercept()
+  nearVent.crewmates = @[actorAtWorld(2, vent.x + VentWitnessRadius + 8,
+                                      vent.y, camX, camY)]
+  mergeActorPercept(belief, nearVent)
+
+  for tick in 11 .. 15:
+    belief.tick = tick
+    mergeActorPercept(belief, initActorPercept())
+
+  belief.tick = 16
+  var redetected = initActorPercept()
+  redetected.crewmates = @[actorAtWorld(2, vent.x, vent.y, camX, camY)]
+  mergeActorPercept(belief, redetected)
+
+  expectEq(belief.memory.perPlayer[2].timesWitnessedVent, 0,
+           "scanner dropout near vent is not vent evidence")
+  expectEq(belief.memory.perPlayer[2].role, RoleUnknown,
+           "scanner dropout near vent does not mark player as imposter")
+
+proc testEdgeEntryNearVentDoesNotMarkImposter() =
+  let vent = firstVent()
+  let previousCamX = vent.x - SpriteDrawOffX -
+    (ScreenWidth - SpriteSize - VentWitnessViewMargin + 1)
+  let currentCamX = vent.x - SpriteDrawOffX -
+    (ScreenWidth - SpriteSize - VentWitnessViewMargin)
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = currentCamX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = previousCamX
+  belief.percep.lastCameraY = camY
+
+  belief.tick = 20
+  var appeared = initActorPercept()
+  appeared.crewmates = @[actorAtWorld(2, vent.x, vent.y, currentCamX, camY)]
+  mergeActorPercept(belief, appeared)
+
+  expectEq(belief.memory.perPlayer[2].timesWitnessedVent, 0,
+           "edge entry near vent is not vent evidence")
+  expectEq(belief.memory.perPlayer[2].role, RoleUnknown,
+           "edge entry near vent does not mark player as imposter")
+  expectEq(belief.memory.perPlayer[2].timesNearVentAppearance, 1,
+           "edge entry near vent becomes probabilistic suspicion")
+  expect(belief.memory.perPlayer[2].lastNearVentProbabilityPct > 0,
+         "edge entry near vent records non-zero probability")
+
+proc testNearVentAppearanceProbabilityScalesWithDistance() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+
+  var closeBelief = initBelief()
+  closeBelief.self.role = RoleCrewmate
+  closeBelief.self.phase = PhaseGameplay
+  closeBelief.self.colorIndex = 1
+  closeBelief.percep.localized = true
+  closeBelief.percep.cameraX = camX
+  closeBelief.percep.cameraY = camY
+  closeBelief.percep.lastCameraX = camX
+  closeBelief.percep.lastCameraY = camY
+  closeBelief.tick = 25
+  var closeActors = initActorPercept()
+  closeActors.crewmates = @[actorAtWorld(2, vent.x + VentWitnessRadius + 2,
+                                         vent.y, camX, camY)]
+  mergeActorPercept(closeBelief, closeActors)
+
+  var farBelief = initBelief()
+  farBelief.self.role = RoleCrewmate
+  farBelief.self.phase = PhaseGameplay
+  farBelief.self.colorIndex = 1
+  farBelief.percep.localized = true
+  farBelief.percep.cameraX = camX
+  farBelief.percep.cameraY = camY
+  farBelief.percep.lastCameraX = camX
+  farBelief.percep.lastCameraY = camY
+  farBelief.tick = 25
+  var farActors = initActorPercept()
+  farActors.crewmates = @[actorAtWorld(2, vent.x + VentSuspicionRadius - 2,
+                                       vent.y, camX, camY)]
+  mergeActorPercept(farBelief, farActors)
+
+  let closePs = closeBelief.memory.perPlayer[2]
+  let farPs = farBelief.memory.perPlayer[2]
+  expectEq(closePs.timesWitnessedVent, 0,
+           "near-vent appearance outside hard radius is not proof")
+  expectEq(farPs.timesWitnessedVent, 0,
+           "far near-vent appearance is not proof")
+  expect(closePs.lastNearVentProbabilityPct >
+         farPs.lastNearVentProbabilityPct,
+         "closer near-vent appearance has higher probability")
+  expect(closePs.nearVentEvidenceScore > farPs.nearVentEvidenceScore,
+         "closer near-vent appearance has higher suspicion score")
+
+  closeBelief.self.phase = PhaseVoting
+  closeBelief.percep.votingPlayerCount = 4
+  closeBelief.percep.votingSelfSlot = 1
+  let snap = parseJson(renderSnapshot(closeBelief))
+  let yellow = snap["meeting"]["evidence_ledger"]["yellow"]
+  expect(yellow["has_probabilistic_memory_evidence"].getBool(),
+         "near-vent appearance is exposed as probabilistic meeting evidence")
+  expectEq(yellow["incriminating"][0]["kind"].getStr(),
+           "near_vent_appearance",
+           "meeting ledger exposes near-vent appearance evidence")
+  expectEq(snap["meeting"]["players_with_probabilistic_memory_evidence"][0].getStr(),
+           "yellow",
+           "meeting snapshot lists probabilistic evidence players")
+
+proc testNearSelfVentAppearanceDoesNotMarkImposter() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleCrewmate
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = camX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = camX
+  belief.percep.lastCameraY = camY
+  belief.percep.selfX = vent.x + 6
+  belief.percep.selfY = vent.y
+
+  belief.tick = 30
+  var appeared = initActorPercept()
+  appeared.crewmates = @[actorAtWorld(2, vent.x, vent.y, camX, camY)]
+  mergeActorPercept(belief, appeared)
+
+  expectEq(belief.memory.perPlayer[2].timesWitnessedVent, 0,
+           "near-self appearance on vent is not reliable vent evidence")
+  expectEq(belief.memory.perPlayer[2].role, RoleUnknown,
+           "near-self appearance does not mark player as imposter")
+  expectEq(belief.memory.perPlayer[2].timesNearVentAppearance, 1,
+           "near-self appearance still records soft vent suspicion")
+  expect(belief.memory.perPlayer[2].lastNearVentProbabilityPct <
+         VentSuspicionMaxProbabilityPct,
+         "near-self soft suspicion is below max non-proof probability")
+
+proc testImposterObserverDoesNotRecordVentWitnessEvidence() =
+  let vent = firstVent()
+  let camX = vent.x - 64
+  let camY = vent.y - 64
+  var belief = initBelief()
+  belief.self.role = RoleImposter
+  belief.self.phase = PhaseGameplay
+  belief.self.colorIndex = 1
+  belief.percep.localized = true
+  belief.percep.cameraX = camX
+  belief.percep.cameraY = camY
+  belief.percep.lastCameraX = camX
+  belief.percep.lastCameraY = camY
+
+  belief.tick = 40
+  var appeared = initActorPercept()
+  appeared.crewmates = @[actorAtWorld(2, vent.x, vent.y, camX, camY)]
+  mergeActorPercept(belief, appeared)
+
+  expectEq(belief.memory.perPlayer[2].timesWitnessedVent, 0,
+           "imposter observers do not record public vent witness evidence")
+  expectEq(belief.memory.perPlayer[2].timesNearVentAppearance, 0,
+           "imposter observers do not record public near-vent suspicion")
+  expectEq(belief.memory.perPlayer[2].role, RoleUnknown,
+           "imposter observer vent sighting does not create meeting evidence")
 
 proc testSoloTrustAppearsInMeetingEvidenceLedger() =
   var belief = initBelief()
@@ -288,14 +568,23 @@ proc testSoloTrustAppearsInMeetingEvidenceLedger() =
   belief.percep.votingPlayerCount = 4
   belief.percep.votingSelfSlot = 1
   belief.percep.votingCursor = 4
+  belief.memory.perPlayer[3].alive = false
   let snap = parseJson(renderSnapshot(belief))
   let yellow = snap["meeting"]["evidence_ledger"]["yellow"]
 
   expect(yellow["vote_legal"].getBool(),
          "evidence ledger marks live non-self player as legal vote target")
+  expect(not yellow["has_concrete_memory_evidence"].getBool(),
+         "evidence ledger distinguishes trust from concrete suspicion")
   expectEq(yellow["exculpatory"][0]["kind"].getStr(),
            "solo_survival_trust",
            "evidence ledger exposes solo survival trust as exculpatory")
+  expect(snap["meeting"]["self_can_vote"].getBool(),
+         "meeting snapshot exposes self voting eligibility")
+  expectEq(snap["meeting"]["dead_players"][0].getStr(), "light blue",
+           "meeting snapshot exposes dead players explicitly")
+  expectEq(snap["meeting"]["players_with_concrete_memory_evidence"].len, 0,
+           "meeting snapshot exposes empty concrete-evidence set")
 
 proc testCrewAutoVoteSkipsWithoutEvidence() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
@@ -417,6 +706,13 @@ proc main() =
   testSpeakActionEmitsChatIntent()
   testEmitChatQueuesSanitizedText()
   testNearBodyEvidenceTracksDistanceStrength()
+  testVentAppearanceMarksImposterEvidence()
+  testWalkingOntoVentDoesNotMarkImposter()
+  testScannerDropoutNearVentDoesNotMarkImposter()
+  testEdgeEntryNearVentDoesNotMarkImposter()
+  testNearVentAppearanceProbabilityScalesWithDistance()
+  testNearSelfVentAppearanceDoesNotMarkImposter()
+  testImposterObserverDoesNotRecordVentWitnessEvidence()
   testSoloTrustAppearsInMeetingEvidenceLedger()
   testCrewAutoVoteSkipsWithoutEvidence()
   testCrewAutoVoteTargetsEvidence()

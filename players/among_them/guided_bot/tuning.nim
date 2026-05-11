@@ -32,7 +32,17 @@ const
   MeetingBodyEvidenceCooldownTicks* = 72 ## Cooldown before counting the same near-body evidence again.
   MeetingSoloTrustTicksPerPoint* = 120 ## Alone-together survival ticks that become one trust point.
   MeetingSoloTrustMaxScore* = 8    ## Maximum fallback suspicion reduction from direct solo trust.
-  MeetingChatMaxLen*          = 80   ## Hard cap for outbound chat text passed to the server.
+  MeetingChatMaxLen*          = 60   ## Hard cap for outbound chat text passed to the server.
+  VentWitnessRadius*          = 10   ## Max px from vent waypoint for observed vent appearance evidence.
+  VentSuspicionRadius*        = 48   ## Max px from vent waypoint for probabilistic near-vent appearance evidence.
+  VentSuspicionMinProbabilityPct* = 15 ## Probability assigned at the edge of the near-vent suspicion radius.
+  VentSuspicionMaxProbabilityPct* = 80 ## Max non-proof probability for newly appearing near/on a vent.
+  VentWitnessViewMargin*      = 8    ## Prior frame must contain the whole candidate sprite plus this margin.
+  VentWitnessMinSelfDistance* = 48   ## Self-sprite occlusion blocks hard proof near the observer.
+  VentWitnessRecentSeenTicks* = 72   ## Ignore re-detection if this player was recently near the same vent.
+  VentWitnessRecentSeenRadius* = 64  ## World-px radius for suppressing scanner-drop vent false positives.
+  VentWitnessRepeatCooldownTicks* = 240 ## Per-player/same-vent witness de-dup window.
+  VentSuspicionRepeatCooldownTicks* = 120 ## Per-player/same-vent soft evidence de-dup window.
 
   # --- Voting-screen detection fallback --------------------------------
   VotingProbeIntervalTicks*   = 12   ## Min ticks between voting-parse attempts on non-

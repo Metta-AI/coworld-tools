@@ -197,9 +197,16 @@ then confirm. If the cursor is already on that target, immediately confirm.
 If cursor position is unknown, `navigateToSlot` falls back to CursorRight.
 
 Crewmate fallback requires evidence. It scores known-imposter role memory,
-distance-weighted near-body sightings, witnessed-kill counts, visible vote
-dots, and chat mentions, then subtracts solo-survival trust; if no score
-reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
+hard witnessed venting, probabilistic near-vent appearances,
+distance-weighted near-body sightings, witnessed-kill counts, visible
+vote dots, and chat mentions, then subtracts solo-survival trust; if no
+score reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
+
+The LLM prompt uses the same weighting direction but keeps the uncertainty
+visible in chat. A repeated `near_vent_appearance`,
+`near_vent_evidence_score >= 8`, or `probability_pct >= 60` is actionable
+voting evidence unless stronger counterevidence exists, but the bot must
+describe it as "appeared near vent" rather than hard vent proof.
 
 Imposter fallback avoids self and known imposter teammates. It prefers a
 live crewmate who already has chat/vote/body evidence against them; if the
@@ -307,7 +314,7 @@ All live in `tuning.nim`:
 | `MeetingBodyEvidenceCooldownTicks` | 72 | Cooldown before counting the same near-body evidence again. |
 | `MeetingSoloTrustTicksPerPoint` | 120 | Alone-together survival ticks that become one fallback trust point. |
 | `MeetingSoloTrustMaxScore` | 8 | Maximum fallback suspicion reduction from direct solo trust. |
-| `MeetingChatMaxLen` | 80 | Hard cap for outbound chat text. |
+| `MeetingChatMaxLen` | 60 | Hard cap for outbound chat text. |
 
 ---
 
@@ -406,8 +413,9 @@ During meetings, the snapshot (`snapshot.nim`) includes:
   observed votes, per-player `evidence_ledger`, and recent alibi witnesses.
 - `memory.per_player` — alive/role status, last-seen room, near-body
   counts, distance-weighted near-body score, solo-survival trust,
-  witnessed-kill counts, and ejection state for each voting slot during
-  meetings.
+  witnessed-kill counts, hard witnessed-vent counts, probabilistic
+  near-vent appearance score/probability, and ejection state for each
+  voting slot during meetings.
 - `meeting.evidence_ledger` — for each player: legality, current vote,
   voters targeting them, incriminating evidence, exculpatory evidence,
   and chat mentions that the LLM must classify as accusation, defense,

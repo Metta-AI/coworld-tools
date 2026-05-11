@@ -215,6 +215,27 @@ proc renderSnapshot*(belief: Belief): string =
         pSummary["closest_near_body_distance"] =
           newJInt(ps.closestNearBodyDistance)
       pSummary["times_witnessed_kill"] = newJInt(ps.timesWitnessedKill)
+      pSummary["times_witnessed_vent"] = newJInt(ps.timesWitnessedVent)
+      if ps.lastVentTick > -1000000:
+        pSummary["last_vent_tick"] = newJInt(ps.lastVentTick)
+        pSummary["last_vent_position"] = %*[ps.lastVentX, ps.lastVentY]
+        if ps.lastVentLabel.len > 0:
+          pSummary["last_vent_label"] = newJString(ps.lastVentLabel)
+      pSummary["times_near_vent_appearance"] =
+        newJInt(ps.timesNearVentAppearance)
+      pSummary["near_vent_evidence_score"] =
+        newJInt(ps.nearVentEvidenceScore)
+      if ps.lastNearVentTick > -1000000:
+        pSummary["last_near_vent_tick"] = newJInt(ps.lastNearVentTick)
+        pSummary["last_near_vent_position"] =
+          %*[ps.lastNearVentX, ps.lastNearVentY]
+        pSummary["last_near_vent_distance"] =
+          newJInt(ps.lastNearVentDistance)
+        pSummary["last_near_vent_probability_pct"] =
+          newJInt(ps.lastNearVentProbabilityPct)
+        if ps.lastNearVentLabel.len > 0:
+          pSummary["last_near_vent_label"] =
+            newJString(ps.lastNearVentLabel)
       pSummary["solo_with_self_ticks"] = newJInt(ps.soloWithSelfTicks)
       pSummary["current_solo_with_self_ticks"] =
         newJInt(ps.currentSoloWithSelfTicks)
@@ -255,6 +276,18 @@ proc renderSnapshot*(belief: Belief): string =
       if i != belief.percep.votingSelfSlot and belief.memory.perPlayer[i].alive:
         selectable.add newJString(colorName(i))
     meetingObj["selectable_players"] = selectable
+    var alivePlayers = newJArray()
+    var deadPlayers = newJArray()
+    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
+      if belief.memory.perPlayer[i].alive:
+        alivePlayers.add newJString(colorName(i))
+      else:
+        deadPlayers.add newJString(colorName(i))
+    meetingObj["alive_players"] = alivePlayers
+    meetingObj["dead_players"] = deadPlayers
+    meetingObj["self_can_vote"] = newJBool(
+      belief.self.alive and not belief.self.isGhost and
+      belief.percep.votingSelfSlot >= 0)
     var votesObj = newJObject()
     for voter in 0 ..< PlayerColorCount:
       let target = belief.social.votesCast[voter]
@@ -265,6 +298,8 @@ proc renderSnapshot*(belief: Belief): string =
     meetingObj["votes_observed"] = votesObj
 
     var ledgerObj = newJObject()
+    var concreteMemoryEvidencePlayers = newJArray()
+    var probabilisticMemoryEvidencePlayers = newJArray()
     for i in 0 ..< max(0, belief.percep.votingPlayerCount):
       let ps = belief.memory.perPlayer[i]
       var playerObj = newJObject()
@@ -283,6 +318,8 @@ proc renderSnapshot*(belief: Belief): string =
       playerObj["votes_received_from"] = votesReceived
 
       var incriminating = newJArray()
+      var hasConcreteMemoryEvidence = false
+      var hasProbabilisticMemoryEvidence = false
       if ps.role == RoleImposter:
         var ev = newJObject()
         ev["kind"] = newJString("known_imposter_role")
@@ -290,11 +327,43 @@ proc renderSnapshot*(belief: Belief): string =
           "Usually imposter-only teammate knowledge, not public crew proof.")
         incriminating.add ev
       if ps.timesWitnessedKill > 0:
+        hasConcreteMemoryEvidence = true
         var ev = newJObject()
         ev["kind"] = newJString("witnessed_kill")
         ev["count"] = newJInt(ps.timesWitnessedKill)
         incriminating.add ev
+      if ps.timesWitnessedVent > 0:
+        hasConcreteMemoryEvidence = true
+        var ev = newJObject()
+        ev["kind"] = newJString("witnessed_vent")
+        ev["count"] = newJInt(ps.timesWitnessedVent)
+        ev["note"] = newJString(
+          "Hard evidence: only imposters can appear from vents.")
+        if ps.lastVentTick > -1000000:
+          ev["last_tick"] = newJInt(ps.lastVentTick)
+          ev["position"] = %*[ps.lastVentX, ps.lastVentY]
+          if ps.lastVentLabel.len > 0:
+            ev["vent_label"] = newJString(ps.lastVentLabel)
+        incriminating.add ev
+      if ps.timesNearVentAppearance > 0:
+        hasProbabilisticMemoryEvidence = true
+        var ev = newJObject()
+        ev["kind"] = newJString("near_vent_appearance")
+        ev["count"] = newJInt(ps.timesNearVentAppearance)
+        ev["score"] = newJInt(ps.nearVentEvidenceScore)
+        ev["ambiguous"] = newJBool(true)
+        ev["note"] = newJString(
+          "Probabilistic evidence: player newly appeared near a vent; closer is stronger, but this is not proof.")
+        if ps.lastNearVentTick > -1000000:
+          ev["last_tick"] = newJInt(ps.lastNearVentTick)
+          ev["position"] = %*[ps.lastNearVentX, ps.lastNearVentY]
+          ev["distance"] = newJInt(ps.lastNearVentDistance)
+          ev["probability_pct"] = newJInt(ps.lastNearVentProbabilityPct)
+          if ps.lastNearVentLabel.len > 0:
+            ev["vent_label"] = newJString(ps.lastNearVentLabel)
+        incriminating.add ev
       if ps.timesNearBody > 0:
+        hasConcreteMemoryEvidence = true
         var ev = newJObject()
         ev["kind"] = newJString("near_body")
         ev["count"] = newJInt(ps.timesNearBody)
@@ -309,6 +378,14 @@ proc renderSnapshot*(belief: Belief): string =
         if ps.closestNearBodyDistance >= 0:
           ev["closest_distance"] = newJInt(ps.closestNearBodyDistance)
         incriminating.add ev
+      playerObj["has_concrete_memory_evidence"] =
+        newJBool(hasConcreteMemoryEvidence)
+      playerObj["has_probabilistic_memory_evidence"] =
+        newJBool(hasProbabilisticMemoryEvidence)
+      if hasConcreteMemoryEvidence:
+        concreteMemoryEvidencePlayers.add newJString(colorName(i))
+      if hasProbabilisticMemoryEvidence:
+        probabilisticMemoryEvidencePlayers.add newJString(colorName(i))
       playerObj["incriminating"] = incriminating
 
       var exculpatory = newJArray()
@@ -336,6 +413,10 @@ proc renderSnapshot*(belief: Belief): string =
 
       ledgerObj[colorName(i)] = playerObj
     meetingObj["evidence_ledger"] = ledgerObj
+    meetingObj["players_with_concrete_memory_evidence"] =
+      concreteMemoryEvidencePlayers
+    meetingObj["players_with_probabilistic_memory_evidence"] =
+      probabilisticMemoryEvidencePlayers
 
     var alibiArr = newJArray()
     for i in 0 ..< PlayerColorCount:

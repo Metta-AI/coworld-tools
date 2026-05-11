@@ -28,7 +28,11 @@ strategy after `MeetingAutoVoteDelayTicks=360`.
 **Needed:**
 1. Reduce raw Markdown code fences in otherwise valid LLM JSON responses.
    The parser tolerates fences, so this is operationally low risk.
-2. Continue tuning chat wording as more multi-meeting traces accumulate.
+2. Continue tuning chat wording as more evidence-rich, multi-meeting
+   traces accumulate. The current prompt requires <=55 character
+   living-player opening lines and the action layer caps outbound chat
+   at 60 characters; next pass should improve variation and responses
+   to real accusations.
 
 **Key code:** `modes/meeting.nim`, `action.nim`, `ffi/lib.nim`,
 `cogames/amongthem_policy.py`, `tuning.nim`

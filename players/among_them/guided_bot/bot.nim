@@ -561,6 +561,27 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
           payload["position"] = %*[body.x, body.y]
         logGameEvent(bot.trace, "body_seen", tick, $payload)
 
+    # vent_witnessed: a player newly appeared on a previously-visible vent.
+    for ci in 0 ..< PlayerColorCount:
+      let ps = bot.belief.memory.perPlayer[ci]
+      if ps.lastVentTick == tick:
+        var payload = newJObject()
+        payload["color"] = newJInt(ci)
+        payload["position"] = %*[ps.lastVentX, ps.lastVentY]
+        if ps.lastVentLabel.len > 0:
+          payload["vent_label"] = newJString(ps.lastVentLabel)
+        logGameEvent(bot.trace, "vent_witnessed", tick, $payload)
+      if ps.lastNearVentTick == tick:
+        var payload = newJObject()
+        payload["color"] = newJInt(ci)
+        payload["position"] = %*[ps.lastNearVentX, ps.lastNearVentY]
+        payload["distance"] = newJInt(ps.lastNearVentDistance)
+        payload["probability_pct"] = newJInt(ps.lastNearVentProbabilityPct)
+        payload["score"] = newJInt(ps.nearVentEvidenceScore)
+        if ps.lastNearVentLabel.len > 0:
+          payload["vent_label"] = newJString(ps.lastNearVentLabel)
+        logGameEvent(bot.trace, "vent_suspected", tick, $payload)
+
     # meeting_started: transition into voting phase.
     if bot.belief.self.phase == PhaseVoting and
        bot.prevPhaseForTrace != PhaseVoting:

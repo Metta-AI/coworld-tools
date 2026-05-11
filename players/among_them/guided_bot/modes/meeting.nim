@@ -170,6 +170,8 @@ proc crewSuspicionScore(belief: Belief, slot: int): int =
   if ps.role == RoleImposter:
     result += 100
   result += ps.timesWitnessedKill * 20
+  result += ps.timesWitnessedVent * 50
+  result += ps.nearVentEvidenceScore
   result += ps.bodyEvidenceScore
   result += belief.chatSuspicionScore(slot)
   result += belief.votesReceivedScore(slot)
@@ -180,6 +182,7 @@ proc imposterPlausibleVoteScore(belief: Belief, slot: int): int =
   belief.chatSuspicionScore(slot) * 2 +
     belief.votesReceivedScore(slot) +
     ps.bodyEvidenceScore div 2 +
+    ps.nearVentEvidenceScore div 2 +
     ps.timesWitnessedKill * 6 -
     ps.soloTrustScore
 

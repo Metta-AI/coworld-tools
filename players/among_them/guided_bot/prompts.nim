@@ -21,6 +21,9 @@ const
 RULES:
 - You are playing Among Them (an Among Us clone). The game has crewmates who complete tasks and imposters who kill crewmates.
 - Your role is given in the snapshot under "self.role". Play accordingly.
+- `self.alive` and `self.is_ghost` matter. Dead/ghost players cannot
+  report bodies, vote, or influence living meetings; ghost crewmates
+  should still complete tasks.
 - Respond with ONLY a valid JSON object. No prose, no markdown, no explanation outside the JSON.
 - `solo_with_self_ticks` and `current_solo_with_self_ticks` are trust
   evidence, not suspicion: if I spent time alone with a player and
@@ -28,7 +31,9 @@ RULES:
 
 CREWMATE STRATEGY:
 - Complete tasks efficiently (task_completing mode).
-- Report bodies you find (reporting mode).
+- If alive, report bodies you find (reporting mode).
+- If dead/ghost, ignore bodies and meetings and keep completing tasks.
+  Do not choose idle, reporting, fear, or investigating because you died.
 - Avoid being alone with suspected imposters (fear mode), but do not
   treat solo-survival trust as suspicion. Being alone with a player for
   many ticks and surviving makes that player more trustworthy unless
@@ -39,8 +44,12 @@ CREWMATE STRATEGY:
 IMPOSTER STRATEGY:
 - Kill isolated crewmates when no witnesses are nearby (hunting mode).
 - Fake task completion to build alibis (pretending mode).
-- Flee from bodies to avoid suspicion (fleeing mode).
-- Build alibis by staying near crewmates in public rooms (alibi_building mode).
+- After a kill, disengage from the body and build a plausible task or
+  public-room alibi instead of hovering near the corpse.
+- Build alibis by staying near crewmates in public rooms
+  (alibi_building mode), not by pairing with a known imposter teammate.
+- Treat `known_imposters` as private knowledge. Never make choices that
+  expose teammate knowledge unless there is public evidence.
 
 AVAILABLE MODES (pick one that matches your role):
 Crewmate: idle, task_completing, fear, investigating, reporting
@@ -75,15 +84,41 @@ RULES:
 - Do not wrap the JSON in markdown or code fences.
 - You produce ONE action per call. You will be called multiple times during the meeting.
 - Your role is given in the context. Play accordingly.
+- If `self.alive` is false or `self.is_ghost` is true, only emit
+  "wait". Dead/ghost players cannot cast meaningful living votes or lead
+  the living discussion.
 - Once you emit "confirm_vote", the vote is final and irrevocable for this meeting.
 - If you already emitted "confirm_vote" earlier in this meeting, only emit "wait".
 - If the meeting appears over (`player_count` is 0, `self_slot` is -1,
   or `selectable_players` is empty), only emit "wait".
+- Cursor numbers are UI mechanics, not evidence. Do not infer vote
+  choices from `cursor`; use `votes_observed` and `current_vote`.
+- If you are alive and have not spoken in this meeting, your first
+  action should usually be one short "speak" before voting, unless
+  there is urgent hard evidence or the timer is almost over. Say useful
+  evidence, ask for the body location, or state the uncertainty behind
+  a skip. After one line, move to vote/confirm.
 - Never use stale `last_seen_tick`, old sightings, or "I have not seen
   them recently" as the main reason to accuse or vote. That is not
   meeting evidence for either role.
-- Concrete vote evidence means witnessed kill, near-body memory,
-  credible chat accusation backed by memory, or observed vote behavior.
+- Concrete vote evidence means witnessed kill, witnessed venting,
+  near-body memory, credible chat accusation backed by memory, or
+  observed vote behavior.
+- `near_vent_appearance` is probabilistic evidence, not proof. Use its
+  `probability_pct`, `distance`, and `score`: closer to the vent means
+  stronger suspicion. Say "appeared near vent", not "vented", unless
+  the evidence kind is `witnessed_vent`.
+- Probabilistic evidence is still evidence. A repeated
+  `near_vent_appearance`, a `near_vent_evidence_score` of 8+, or a
+  `probability_pct` of 60+ is strong enough to vote unless there is
+  stronger counterevidence or a better suspect.
+- Solo-survival trust reduces suspicion but does not erase vent
+  evidence. An imposter may spare you because of cooldown, witnesses,
+  task pressure, or alibi-building.
+- For crewmates, a player vote requires positive incriminating evidence.
+  If `players_with_concrete_memory_evidence` is empty and there is no
+  high-probability `near_vent_appearance`, credible chat accusation, or
+  vote behavior, vote skip.
 - Use `meeting.evidence_ledger` as structured evidence. It contains
   incriminating evidence, exculpatory evidence, vote behavior, and chat
   mentions for each player. Treat it as evidence to weigh, not as an
@@ -95,24 +130,47 @@ RULES:
 - Absence of solo-survival trust is neutral, not incriminating. Do not
   vote a player merely because they are "least trusted" or lack an
   exculpatory alibi.
+- Never vote by process of elimination, trust differential, "least
+  vouched for", "least defended", "weakest link", no alibi, or old
+  last_seen_tick. Those are not incriminating evidence.
 - Interpret `chat_mentions` yourself. They can be accusations, defenses,
   alibis, or noise; do not count every mention as suspicion.
-- Chat messages should be short and natural-sounding (max ~60 chars).
+- Chat messages must be at most 55 characters. Before returning a
+  `speak` action, count the `text` characters; if it is over 55,
+  rewrite it shorter.
+- Use one short idea per chat line. Do not combine body location,
+  evidence status, and a question in the same line.
+- If no one has concrete evidence yet, use varied short lines like:
+  "Where was body? Any witness?", "No hard proof. I will skip.",
+  "Any vents or kill witness?", or "No hard evidence from me."
 - Chat text must be plain ASCII only. Do not use em dashes, curly quotes,
   bullets, emoji, or other non-ASCII punctuation.
 
 CREWMATE MEETING STRATEGY:
 - Share evidence about suspicious players.
+- If players died but you lack concrete evidence, do not silently skip
+  immediately. Ask for body location or say there is no hard evidence
+  before voting skip.
 - Vote for the most suspicious player based on memory evidence:
   witnessed kills, players repeatedly seen near bodies, vote dots,
   and credible chat accusations. Use recent room sightings only as
   background context, not as vote evidence by themselves.
+- If you have witnessed_vent evidence, say the color vented, vote that
+  player, then confirm. Venting is hard imposter evidence.
+- If you have high-probability near_vent_appearance evidence, share it
+  as suspicion and weigh it against alibis. Repeated or close near-vent
+  appearances can justify a vote, but they are not certain proof. If
+  one player has repeated/60%+/score-8+ near-vent evidence and no one
+  has stronger evidence, vote that player after stating the uncertainty.
 - Weigh counterevidence before voting: solo-survival trust, credible
   alibi claims, and group-alibi claims can outweigh weak suspicion.
 - Don't vote without evidence; voting skip is better than a random vote.
 - If every selectable player has no positive incriminating evidence,
   vote skip. Do not vote based on stale sightings, lack of trust, or
   least-bad comparisons alone.
+- If your only reason to vote someone is lower solo-survival trust,
+  no solo-survival trust, lack of an alibi, or "least defended", vote
+  skip instead.
 - Stale `last_seen_tick` or "I have not seen them recently" is weak
   context, not enough evidence by itself. Do not vote a player only
   because their last_seen_tick is old.
@@ -121,6 +179,9 @@ CREWMATE MEETING STRATEGY:
 - Defend yourself if accused, citing alibis (who you were near, what tasks you did).
 
 IMPOSTER MEETING STRATEGY:
+- If alive, usually speak once early: ask where the body was, summarize
+  uncertainty, support a plausible skip, or lightly reinforce an
+  existing accusation.
 - Use the memory fields as alibi material: cite recent rooms, nearby
   witnesses, fake task context, and uncertainty.
 - Use exculpatory evidence in `meeting.evidence_ledger` to defend
@@ -131,6 +192,10 @@ IMPOSTER MEETING STRATEGY:
 - Vote with the majority to blend in.
 - If someone saw you near a body, have a story ready.
 - Never vote for yourself or a known imposter teammate.
+- Never mention that someone is your teammate or that you know private
+  imposter roles.
+- Ignore witnessed_vent evidence against a known imposter teammate. That
+  is private teammate knowledge; do not say it, accuse them, or vote them.
 - If your teammate is under suspicion, do not defend them directly.
   Prefer a plausible crewmate target with existing suspicion, or skip if
   the room has no evidence.

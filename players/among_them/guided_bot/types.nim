@@ -381,6 +381,17 @@ type
     closestNearBodyDistance*: int
     nearBodyEvidenceScore*: int
     timesWitnessedKill*: int
+    timesWitnessedVent*: int
+    lastVentTick*: int
+    lastVentX*, lastVentY*: int
+    lastVentLabel*: string
+    timesNearVentAppearance*: int
+    nearVentEvidenceScore*: int
+    lastNearVentTick*: int
+    lastNearVentX*, lastNearVentY*: int
+    lastNearVentDistance*: int
+    lastNearVentProbabilityPct*: int
+    lastNearVentLabel*: string
     soloWithSelfTicks*: int
     currentSoloWithSelfTicks*: int
     lastSoloWithSelfTick*: int

@@ -181,11 +181,13 @@ The belief state is the agent's working model of the world. It is:
    under `among_them/common/perception_kernels/`.
 3. **Memory.** Per-player summary (role [unknown / crewmate /
    imposter], alive flag, last seen tick/place, times near bodies,
-   times witnessing kills, alibi evidence, vote history, ejected
-   flag); per-body event; per-meeting event; sightings log. Role and
-   alive fields are populated during gameplay; imposter roles are
-   detected from the role-reveal interstitial via palette-colour
-   scanning.
+   hard witnessed vent appearances, probabilistic near-vent
+   appearances, times witnessing kills, alibi evidence, vote history,
+   ejected flag); per-body event; per-meeting event; sightings log.
+   Role and alive fields are populated during gameplay; imposter roles
+   are detected from the role-reveal interstitial via palette-colour
+   scanning and, for crewmate observers only, from direct hard
+   vent-witness evidence.
 4. **Tasks.** Per-task-station state: `not_doing` / `checkout`
    (radar-dot confirmed) / `confirmed` (icon visible) / `completed`
    (hold confirmed, icon disappeared). Plus `checkout` latch,
@@ -920,6 +922,17 @@ the belief state. Structure, not prose. Initial shape:
                    "last_near_body_distance": int,
                    "closest_near_body_distance": int,
                    "times_witnessed_kill": int,
+                   "times_witnessed_vent": int,
+                   "last_vent_tick": int,
+                   "last_vent_position": [int, int],
+                   "last_vent_label": str,
+                   "times_near_vent_appearance": int,
+                   "near_vent_evidence_score": int,
+                   "last_near_vent_tick": int,
+                   "last_near_vent_position": [int, int],
+                   "last_near_vent_distance": int,
+                   "last_near_vent_probability_pct": int,
+                   "last_near_vent_label": str,
                    "solo_with_self_ticks": int,
                    "current_solo_with_self_ticks": int,
                    "ejected": bool,
@@ -1191,6 +1204,10 @@ best-effort safety net only.
 { "t": tick, "kind": "body_reported",    "reporter": color }
 { "t": tick, "kind": "kill_witnessed",   "killer": color, "victim": color,
   "position": [x,y] }
+{ "t": tick, "kind": "vent_witnessed",   "color": color, "position": [x,y],
+  "vent_label": str }
+{ "t": tick, "kind": "vent_suspected",   "color": color, "position": [x,y],
+  "vent_label": str, "distance": int, "probability_pct": int, "score": int }
 { "t": tick, "kind": "kill_committed",   "victim": color, "position": [x,y] }
 { "t": tick, "kind": "kill_cooldown_ready" }
 { "t": tick, "kind": "task_started",     "task_index": int,

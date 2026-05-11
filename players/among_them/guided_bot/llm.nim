@@ -16,6 +16,7 @@ import crunchy/sha256
 import types
 import perception/data
 import prompts
+import tuning
 
 const
   AnthropicKeyEnv* = "ANTHROPIC_API_KEY"
@@ -767,8 +768,10 @@ proc parseMeetingActionFromJson(raw: string): (bool, MeetingAction) =
     let text = data.getOrDefault("text").getStr("")
     if text.len == 0:
       return (false, MeetingAction())
-    # Truncate chat to safe length.
-    let truncated = if text.len > 80: text[0 ..< 80] else: text
+    # Truncate chat to the same safe length enforced by the action layer.
+    let truncated =
+      if text.len > MeetingChatMaxLen: text[0 ..< MeetingChatMaxLen]
+      else: text
     (true, MeetingAction(kind: MeetingActSpeak, text: truncated))
   of "vote":
     let targetStr = data.getOrDefault("target").getStr("skip")

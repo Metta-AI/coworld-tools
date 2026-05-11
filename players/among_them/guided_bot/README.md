@@ -33,9 +33,13 @@ own colour from the centered player sprite, parses voting screens, and
 executes cursor-aware votes in meetings. Meeting chat now flows through
 the Nim action buffer, C FFI, Python policy hook, and local WebSocket
 runner; LLM meeting snapshots include player memory, vote dots, recent
-chat, solo-survival trust, distance-weighted body proximity, and a
-structured evidence ledger. Focused Nim/Python checks pass and the
-cogames shared library builds.
+chat, solo-survival trust, distance-weighted body proximity, explicit
+alive/dead voting status, witnessed venting, and a structured evidence
+ledger. The meeting prompt now prefers one short living-player chat line
+before voting, treats dead/ghost players as wait-only in meetings, and
+gates crewmate player votes on positive incriminating evidence rather
+than lack of trust. Focused Nim/Python checks pass and the cogames
+shared library builds.
 
 Latest end-to-end voting check: an 8-agent, 2-imposter live match with
 600-tick kill cooldown, 600-tick vote timer, 16 tasks per crewmate, and
@@ -56,12 +60,17 @@ failures. Trace root:
 `guided_bot/traces/meeting_bedrock_20260511_8p2i_standard`.
 
 Latest prompt-tuning check: an 8-agent, 2-imposter Bedrock run with
-seed 43 and `--trace-level decisions` produced 336 successful LLM
-responses, 108 meeting actions, 6 ASCII chat lines, 12 vote attempts,
-and zero LLM validation failures. This run predates the structured
-evidence-ledger pass, but validated Bedrock chat/vote sequencing and
-ASCII chat. Trace root:
-`guided_bot/traces/meeting_prompt_tune_20260511_8p2i_180s_seed43_guarded`.
+seed 42, 600-tick kill cooldown, 16 tasks per crewmate, 120 seconds,
+and `--trace-level decisions` was rerun after the living speak-first,
+dead/ghost wait-only, and concrete-evidence gate prompt changes. It
+closed all manifests, produced two `meeting_started` events per bot
+(the second at match cutoff), 254 successful LLM responses, 37 meeting
+actions, 7 living-player chat lines, 7 SKIP vote attempts, and zero LLM
+failures. The dead bot emitted wait-only actions, and no crewmate vote
+used "least vouched for" / no-alibi reasoning. One chat line clipped at
+the 80-character cap before the final 45-55 character prompt cleanup.
+Trace root:
+`guided_bot/traces/prompt_loop_20260511_seed42_evidence_gate_v2`.
 
 Latest evidence-ledger check: seed 44 was rerun after adding
 solo-survival trust, distance-weighted body proximity, and legality-only
@@ -74,6 +83,41 @@ the targeted run; later calls recovered. Trace roots:
 `guided_bot/traces/meeting_evidence_ledger_20260511_8p2i_180s_seed44_trustprompt`
 and
 `guided_bot/traces/meeting_evidence_ledger_20260511_8p2i_120s_seed44_notrustgap`.
+
+Latest vent-evidence checks: the detector now separates hard proof from
+probabilistic suspicion. `witnessed_vent` still marks a player as
+imposter only when a crewmate had a clear prior empty view, while
+`vent_suspected` / `near_vent_appearance` assigns distance-weighted
+probability for newly appearing near a vent. Hard proof remains
+crewmate-observer only and is blocked by self-sprite occlusion,
+recent-sighting suppression, and same-vent de-duplication.
+
+A 4-agent, 1-imposter seed-42 detector rerun with LLM disabled closed all
+manifests with zero hard `vent_witnessed` events and four soft
+`vent_suspected` events. Distances of 2, 10, 38, and 42 pixels produced
+77%, 66%, 28%, and 23% probabilities respectively, confirming that
+closer first sightings create stronger but still non-proof evidence.
+Trace root:
+`guided_bot/traces/vent_probability_20260511_4p_seed42`.
+
+A full 8-agent, 2-imposter seed-42 LLM rerun closed all manifests, sent
+short meeting chat, completed 51 crewmate tasks, confirmed two imposter
+kills, and produced 36 soft `vent_suspected` events with zero hard
+`vent_witnessed` events. The meeting prompt correctly surfaced a
+probabilistic accusation ("Yellow appeared near vent twice") without
+claiming hard vent proof. Follow-up prompt tuning now treats repeated
+near-vent evidence, score 8+, or probability 60%+ as actionable voting
+evidence unless stronger counterevidence exists. Trace root:
+`guided_bot/traces/llm_vent_probability_20260511_seed42`.
+
+Post-tuning reruns with the final prompt closed cleanly but did not
+produce meetings: full 8-agent trace
+`guided_bot/traces/llm_vent_probability_prompt2_20260511_seed42`
+emitted 33 soft `vent_suspected` events and zero hard vent proofs; the
+4-agent meeting-focused trace
+`guided_bot/traces/llm_vent_probability_prompt2_4p_seed42` emitted a
+62% / score-9 near-vent suspicion on the actual imposter color with zero
+hard vent proofs or LLM validation failures.
 
 Phases 1–5 (perception, action, LLM guidance, tracing, fallback
 playability) remain intact underneath.
@@ -461,7 +505,7 @@ with a known index (e.g. via the FFI `guidedbot_new_policy` call).
 | File | Level | Content |
 |---|---|---|
 | `manifest.json` | events | Round metadata, schema version, bot_index, role, start/end ticks, outcome |
-| `events.jsonl` | events | Game events: body_seen, meeting_started, role_revealed, chat_observed, game_over |
+| `events.jsonl` | events | Game events: body_seen, vent_witnessed, vent_suspected, meeting_started, role_revealed, chat_observed, game_over |
 | `decisions.jsonl` | decisions | Per-frame mode, directive source, params, intent, final button mask, self position, localized flag |
 | `perception.jsonl` | decisions | Per-frame perception: phase, interstitial flag/kind, black pixels, localization, visible actors, tasks, radar dots, voting parse |
 | `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |

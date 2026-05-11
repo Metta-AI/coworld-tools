@@ -12,6 +12,7 @@
 ## See DESIGN.md §4.2 and §15.
 
 import types
+import navigation
 import perception
 import perception/data
 import perception/geometry
@@ -80,9 +81,13 @@ proc initMemoryState*(): MemoryState =
   for i in 0 ..< PlayerColorCount:
     result.perPlayer[i].alive = true
     result.perPlayer[i].role = RoleUnknown
+    result.perPlayer[i].lastSeenTick = -1000000
     result.perPlayer[i].lastNearBodyTick = -1000000
     result.perPlayer[i].lastNearBodyDistance = -1
     result.perPlayer[i].closestNearBodyDistance = -1
+    result.perPlayer[i].lastVentTick = -1000000
+    result.perPlayer[i].lastNearVentTick = -1000000
+    result.perPlayer[i].lastNearVentDistance = -1
     result.perPlayer[i].lastSoloWithSelfTick = -1
 
 proc initTaskState*(): TaskState =
@@ -160,6 +165,159 @@ proc nearBodyEvidenceStrength(dist: int): int =
   1 + ((MeetingBodyEvidenceRadius - dist) *
        (MeetingBodyEvidenceMaxStrength - 1)) div MeetingBodyEvidenceRadius
 
+proc playerSpriteAtWorldFullyOnScreen(cameraX, cameraY, x, y: int): bool =
+  let sx = x - cameraX - SpriteDrawOffX
+  let sy = y - cameraY - SpriteDrawOffY
+  sx >= VentWitnessViewMargin and
+    sx <= ScreenWidth - SpriteSize - VentWitnessViewMargin and
+    sy >= VentWitnessViewMargin and
+    sy <= ScreenHeight - SpriteSize - VentWitnessViewMargin
+
+proc nearestVentAt(
+    x, y, maxRadius: int): tuple[found: bool, vent: Waypoint, dist: int] =
+  let graph = navGraph()[]
+  var bestDist = high(int)
+  var bestVent: Waypoint
+  for wp in graph.waypoints:
+    if wp.kind != WpVent:
+      continue
+    let dist = max(abs(x - wp.x), abs(y - wp.y))
+    if dist < bestDist:
+      bestDist = dist
+      bestVent = wp
+  if bestDist <= maxRadius:
+    (true, bestVent, bestDist)
+  else:
+    (false, bestVent, bestDist)
+
+proc previousFrameHadPlayerOnVent(belief: Belief, vent: Waypoint): bool =
+  for cm in belief.percep.visibleCrewmates:
+    let px = visibleCrewmateWorldX(belief.percep.lastCameraX, cm.x)
+    let py = visibleCrewmateWorldY(belief.percep.lastCameraY, cm.y)
+    if max(abs(px - vent.x), abs(py - vent.y)) <= VentWitnessRadius:
+      return true
+  false
+
+proc recentlySeenNearVent(belief: Belief, color: int, vent: Waypoint): bool =
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  let ps = belief.memory.perPlayer[color]
+  let age = belief.tick - ps.lastSeenTick
+  if age < 0 or age > VentWitnessRecentSeenTicks:
+    return false
+  max(abs(ps.lastSeenX - vent.x), abs(ps.lastSeenY - vent.y)) <=
+    VentWitnessRecentSeenRadius
+
+proc recentlyRecordedVentWitness(
+    belief: Belief, color: int, vent: Waypoint): bool =
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  let ps = belief.memory.perPlayer[color]
+  let age = belief.tick - ps.lastVentTick
+  if age < 0 or age > VentWitnessRepeatCooldownTicks:
+    return false
+  ps.lastVentLabel == vent.label
+
+proc recentlyRecordedVentSuspicion(
+    belief: Belief, color: int, vent: Waypoint): bool =
+  if color < 0 or color >= PlayerColorCount:
+    return false
+  let ps = belief.memory.perPlayer[color]
+  let age = belief.tick - ps.lastNearVentTick
+  if age < 0 or age > VentSuspicionRepeatCooldownTicks:
+    return false
+  ps.lastNearVentLabel == vent.label
+
+proc ventSuspicionProbabilityPct(dist: int, selfOccluded: bool): int =
+  let clampedDist = max(0, min(dist, VentSuspicionRadius))
+  result = VentSuspicionMinProbabilityPct +
+    ((VentSuspicionRadius - clampedDist) *
+     (VentSuspicionMaxProbabilityPct - VentSuspicionMinProbabilityPct)) div
+      VentSuspicionRadius
+  if selfOccluded:
+    result = max(VentSuspicionMinProbabilityPct, result div 2)
+
+proc rememberKnownImposterColor*(belief: var Belief, color: int): bool
+
+proc recordVentWitness(belief: var Belief, color: int, vent: Waypoint) =
+  if color < 0 or color >= PlayerColorCount:
+    return
+  if belief.self.colorIndex >= 0 and color == belief.self.colorIndex:
+    return
+  inc belief.memory.perPlayer[color].timesWitnessedVent
+  belief.memory.perPlayer[color].lastVentTick = belief.tick
+  belief.memory.perPlayer[color].lastVentX = vent.x
+  belief.memory.perPlayer[color].lastVentY = vent.y
+  belief.memory.perPlayer[color].lastVentLabel = vent.label
+  discard rememberKnownImposterColor(belief, color)
+
+proc recordVentSuspicion(
+    belief: var Belief, color: int, vent: Waypoint, dist: int,
+    probabilityPct: int) =
+  if color < 0 or color >= PlayerColorCount:
+    return
+  if belief.self.colorIndex >= 0 and color == belief.self.colorIndex:
+    return
+  inc belief.memory.perPlayer[color].timesNearVentAppearance
+  belief.memory.perPlayer[color].nearVentEvidenceScore +=
+    max(1, probabilityPct div 10)
+  belief.memory.perPlayer[color].lastNearVentTick = belief.tick
+  belief.memory.perPlayer[color].lastNearVentX = vent.x
+  belief.memory.perPlayer[color].lastNearVentY = vent.y
+  belief.memory.perPlayer[color].lastNearVentDistance = dist
+  belief.memory.perPlayer[color].lastNearVentProbabilityPct = probabilityPct
+  belief.memory.perPlayer[color].lastNearVentLabel = vent.label
+
+proc updateVentWitnessEvidence(belief: var Belief, actors: ActorPercept) =
+  ## Venting is hard role evidence only when the previous frame had a clear,
+  ## empty view and the current frame shows the player directly on the vent.
+  ## Looser first sightings near a vent become probabilistic suspicion.
+  if belief.self.role == RoleImposter:
+    return
+  if not belief.percep.localized:
+    return
+  let currentCamX = belief.percep.cameraX
+  let currentCamY = belief.percep.cameraY
+  let previousCamX = belief.percep.lastCameraX
+  let previousCamY = belief.percep.lastCameraY
+  for cm in actors.crewmates:
+    let ci = cm.colorIndex
+    if ci < 0 or ci >= PlayerColorCount:
+      continue
+    if ci == belief.self.colorIndex:
+      continue
+    if belief.memory.perPlayer[ci].lastSeenTick == belief.tick - 1:
+      continue
+    let px = visibleCrewmateWorldX(currentCamX, cm.x)
+    let py = visibleCrewmateWorldY(currentCamY, cm.y)
+    let ventHit = nearestVentAt(px, py, VentSuspicionRadius)
+    if not ventHit.found:
+      continue
+    if previousFrameHadPlayerOnVent(belief, ventHit.vent):
+      continue
+    if recentlySeenNearVent(belief, ci, ventHit.vent):
+      continue
+
+    let selfOccluded =
+      max(abs(px - belief.percep.selfX), abs(py - belief.percep.selfY)) <
+        VentWitnessMinSelfDistance
+    let previousClear =
+      playerSpriteAtWorldFullyOnScreen(previousCamX, previousCamY, px, py)
+    let currentClear =
+      playerSpriteAtWorldFullyOnScreen(currentCamX, currentCamY, px, py)
+    let hardWitness =
+      ventHit.dist <= VentWitnessRadius and previousClear and currentClear and
+      not selfOccluded and not recentlyRecordedVentWitness(belief, ci, ventHit.vent)
+    if hardWitness:
+      recordVentWitness(belief, ci, ventHit.vent)
+      continue
+
+    if recentlyRecordedVentSuspicion(belief, ci, ventHit.vent):
+      continue
+    recordVentSuspicion(
+      belief, ci, ventHit.vent, ventHit.dist,
+      ventSuspicionProbabilityPct(ventHit.dist, selfOccluded))
+
 proc updateSoloTrust(belief: var Belief, actors: ActorPercept) =
   ## If a crewmate spends time alone with exactly one visible player and
   ## survives, that becomes direct trust evidence for that player. The
@@ -220,11 +378,6 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   ## WakeReason flags: ``WakeBodySeen`` is set when newly-detected
   ## bodies appear (count increases compared to previous frame).
 
-  # Actor lists — replace wholesale each frame.
-  belief.percep.visibleCrewmates = actors.crewmates
-  belief.percep.visibleBodies = actors.bodies
-  belief.percep.visibleGhosts = actors.ghosts
-
   # Role / ghost detection.
   belief.percep.ghostIconFrames = actors.ghostIconFrames
   belief.percep.killIconFrames = actors.killIconFrames
@@ -239,6 +392,15 @@ proc mergeActorPercept*(belief: var Belief, actors: ActorPercept) =
   if actors.selfColorUpdated and actors.newSelfColor >= 0:
     if belief.self.colorIndex < 0 or belief.self.colorIndex == actors.newSelfColor:
       belief.self.colorIndex = actors.newSelfColor
+
+  # Must run before visibleCrewmates is replaced: it compares the current
+  # actor scan against the previous frame's visible actors.
+  updateVentWitnessEvidence(belief, actors)
+
+  # Actor lists — replace wholesale each frame.
+  belief.percep.visibleCrewmates = actors.crewmates
+  belief.percep.visibleBodies = actors.bodies
+  belief.percep.visibleGhosts = actors.ghosts
 
   updateSoloTrust(belief, actors)
 
