@@ -118,7 +118,7 @@ fi
 PYTHONPATH="${AGENTS_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" "${UV_PROJECT[@]}" python - "$TMPOUT" "$THRESHOLD" << 'PYEOF'
 import json, sys
 
-from cogames_agents.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
+from agent_policies.tools.eval.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
 
 tmpout = sys.argv[1]
 threshold = float(sys.argv[2])

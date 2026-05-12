@@ -17,7 +17,7 @@ from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any, Literal
 
-from cogames_agents.evals.planky_evals import (
+from agent_policies.tools.eval.cogsguard.evals.planky_evals import (
     PlankyAlignerFullCycle,
     PlankyMinerFullCycle,
     PlankyMultiRole,
@@ -1116,7 +1116,7 @@ def _parse_seeds(raw: str) -> list[int]:
 
 
 def run_report(*, seeds: list[int], output_dir: Path) -> dict[str, Any]:
-    discover_and_register_policies("cogames_agents.policy")
+    discover_and_register_policies("agent_policies.policies.scripted.cogsguard")
 
     targets = [_run_target(target, seeds) for target in TARGETS]
     stage_status = _compute_stage_status(targets)

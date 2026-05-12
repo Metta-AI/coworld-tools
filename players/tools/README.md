@@ -17,7 +17,8 @@ and max steps when applicable.
 ## Current Tool Sources
 
 - `eval/cogsguard/`: eval maps, metrics, and scripted baseline reports split out
-  of `cogames-agents`.
+  of `cogames-agents`; importable helpers live under
+  `src/agent_policies/tools/eval/cogsguard/`.
 - `benchmark/cogsguard/`: legacy CogsGuard benchmark entrypoints.
 - `compare/cogsguard/`: parity, regression, and policy comparison scripts.
 - `upload/cogsguard/`: legacy CoGames submission notes for CogsGuard policies.
@@ -27,5 +28,3 @@ and max steps when applicable.
 - `research/cogames-attempts/`: training, sweep, eval, and utility scripts from
   the research-attempts repo.
 - `research/cogames-rl-researcher/`: metta-local AI researcher workflow package.
-- `packaging/cogames-agents-legacy/`: old `cogames-agents` build scaffolding,
-  retained only until a new package boundary exists.

@@ -33,13 +33,13 @@ METRICS = [
 
 def extract_metrics(data: dict) -> dict[str, float | None]:
     """Extract key metrics from a single cogames scrimmage JSON result."""
-    derived = importlib.import_module("cogames_agents.eval_result_metrics").extract_cogsguard_eval_metrics(data)
+    derived = importlib.import_module("agent_policies.tools.eval.cogsguard.eval_result_metrics").extract_cogsguard_eval_metrics(data)
     return {display_name: derived.get(key) for display_name, key in METRICS}
 
 
 def load_results(results_dir: Path) -> dict[str, dict[str, float | None]]:
     """Load all agent JSON results from a directory."""
-    parse_eval_result_text = importlib.import_module("cogames_agents.eval_result_metrics").parse_eval_result_text
+    parse_eval_result_text = importlib.import_module("agent_policies.tools.eval.cogsguard.eval_result_metrics").parse_eval_result_text
 
     agents: dict[str, dict[str, float | None]] = {}
     for path in sorted(results_dir.glob("*.json")):

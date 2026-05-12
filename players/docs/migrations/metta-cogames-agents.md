@@ -1,22 +1,21 @@
 # Migration From Metta `cogames-agents`
 
-The initial `cogames-agents` source was copied from the Metta monorepo and then
-split by behavior. This repo is no longer organized as one `cogames-agents`
-package at the root.
+The initial `cogames-agents` source was copied from the Metta monorepo. It is
+now assimilated into the `agent_policies` package rather than kept as a
+standalone `cogames-agents` package.
 
 Current targets:
 
-- Symbolic CogsGuard/CvC policies:
-  `policies/symbolic/cogsguard/cogames-agents/`
+- CogsGuard/CvC scripted policies:
+  `src/agent_policies/policies/scripted/cogsguard/`
 - Coborg runtime and framework pieces:
-  `policies/cyborg/coborg/`
+  `src/agent_policies/frameworks/coborg/`
 - BitWorld Among Them cyborg policy code:
-  `policies/cyborg/bitworld/among-them/`
+  `src/agent_policies/policies/cyborg/bitworld/among_them/`
 - Evals, benchmarks, comparisons, upload notes, and research helpers:
   `tools/`
-- Legacy packaging scaffolding:
-  `tools/packaging/cogames-agents-legacy/`
+- Importable eval helpers and maps:
+  `src/agent_policies/tools/eval/cogsguard/`
 
-Import paths and package metadata still need a follow-up normalization pass.
-The first collation pass prioritizes taxonomy, provenance, and source
-ownership over preserving the old `src/cogames_agents` layout.
+Canonical imports use `agent_policies.*`. The `src/cogames_agents` tree is a
+compatibility shim only, not a package boundary to extend.
