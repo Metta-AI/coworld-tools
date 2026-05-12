@@ -6,9 +6,8 @@ The directory name `coborg_framework` preserves the requested spelling. The
 framework described here is called the Cyborg framework.
 
 The Python implementation lives in
-[`cogames_agents.cyborg`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg).
-For a shorter usage guide, see
-[`PYTHON_FRAMEWORK.md`](/Users/jamesboggs/coding/metta/cogames-agents/coborg_framework/PYTHON_FRAMEWORK.md).
+[`policies/cyborg/coborg/cogames_agents_runtime`](../cogames_agents_runtime).
+For a shorter usage guide, see [`PYTHON_FRAMEWORK.md`](PYTHON_FRAMEWORK.md).
 
 ## Executive Summary
 
@@ -118,8 +117,9 @@ Canonical sequence:
 
 ```text
 while running:
-  snapshot = belief_buffer.consume_blocking_or_poll()
-  context = summarize(snapshot)
+  snapshot = latest_snapshot_buffer.consume_blocking_or_poll()
+  with snapshot.read() as memory:
+    context = summarize(memory.belief)
   directive, inferences = strategy.decide(context)
   validate(directive)
   directive_buffer.publish_latest(directive, inferences)
@@ -136,21 +136,22 @@ framework.
 ### What The Package Provides
 
 The public package is
-[`cogames_agents.cyborg`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/__init__.py).
+[`policies/cyborg/coborg/cogames_agents_runtime`](../cogames_agents_runtime).
 It provides:
 
 - Typed mode directives and mode parameters.
+- Shared, lock-protected agent memory for inner/outer-loop access.
 - A mode base class and mode registry.
 - A generic per-tick runtime.
-- Synchronous, threaded, and manual strategy runners.
+- Synchronous, threaded, async, and manual strategy runners.
 - Latest-value buffers for async strategy communication.
-- Reflex hooks for urgent local overrides.
-- Trace events and trace sinks.
+- Priority-ordered reflex hooks for urgent local overrides.
+- Trace events, metrics sinks, logging adapters, and W&B metric adapter hooks.
 - Generic intent/command models for examples and simple agents.
 
 ### Core Runtime
 
-[`AgentRuntime`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/runtime.py)
+[`AgentRuntime`](../cogames_agents_runtime/runtime.py)
 is the inner-loop orchestrator. A game supplies:
 
 - `belief`: the live mutable belief object.
@@ -163,7 +164,7 @@ is the inner-loop orchestrator. A game supplies:
 - `default_directive`: a fallback `ModeDirective`, or a function that builds
   one from belief.
 - Optionally: `strategy_runner`, `reflexes`, `trace_sink`,
-  `copy_snapshot`, and `apply_inferences`.
+  `metrics_sink`, and `apply_inferences`.
 
 Each call to `step(observation)` performs:
 
@@ -171,14 +172,16 @@ Each call to `step(observation)` performs:
 tick += 1
 percept = perceive(observation, tick)
 update_belief(belief, percept)
-submit copied BeliefSnapshot to strategy
+submit BeliefSnapshot pointing at shared locked memory
 consume latest StrategyResult, if any
 apply strategy inferences, if any
 install validated strategy directive, if any
 run reflexes
 fall back on expired or illegal modes
-intent = active_mode.decide(belief, action_state)
+decision = active_mode.decide(belief, action_state)
+intent = decision.intent
 command = resolve_action(intent, belief, action_state)
+if decision marks complete/stalled, trace status, fall back, and wake strategy
 return command
 ```
 
@@ -188,7 +191,7 @@ perception, belief update, modes, reflexes, strategy, and action resolution.
 ### Typed Directives
 
 The strategy layer talks to the runtime through models in
-[`types.py`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/types.py):
+[`types.py`](../cogames_agents_runtime/types.py):
 
 - `ModeParams`: Pydantic base class for typed, frozen, extra-forbidden mode
   parameters.
@@ -196,7 +199,11 @@ The strategy layer talks to the runtime through models in
 - `ModeDirective`: mode name, typed params, source, issue tick, TTL, reason,
   and metadata.
 - `StrategyResult`: optional directive plus optional structured inferences.
-- `BeliefSnapshot`: immutable envelope handed to the strategy layer.
+- `SharedMemory`: lock-protected live belief/action-state handle.
+- `BeliefSnapshot`: immutable envelope with `read()` and `write()` accessors for
+  the shared memory.
+- `ModeDecision`: optional status envelope returned by modes to mark running,
+  complete, or stalled.
 - `ActionIntent` and `ActionCommand`: generic base shapes for small agents and
   examples.
 
@@ -206,7 +213,7 @@ chosen mode through deterministic action code.
 
 ### Modes
 
-[`Mode`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/modes.py)
+[`Mode`](../cogames_agents_runtime/modes.py)
 is the symbolic local-policy base class. Each mode defines:
 
 - `name`: stable directive name.
@@ -214,8 +221,8 @@ is the symbolic local-policy base class. Each mode defines:
 - `on_enter(belief, action_state)`: optional lifecycle hook.
 - `on_exit(belief, action_state, next_directive)`: optional cleanup hook.
 - `is_legal(belief) -> bool`: optional legality check.
-- `decide(belief, action_state) -> intent`: required per-tick symbolic
-  decision.
+- `decide(belief, action_state) -> intent | ModeDecision`: required per-tick
+  symbolic decision, optionally with completion or stalling status.
 
 `ModeRegistry` maps directive names to mode classes. It validates that a
 directive names a known mode and carries the correct params type before the
@@ -228,7 +235,7 @@ calls `on_enter`.
 
 ### Strategy Runners
 
-[`strategy.py`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/strategy.py)
+[`strategy.py`](../cogames_agents_runtime/strategy.py)
 defines the runtime-facing strategy contract:
 
 ```python
@@ -237,26 +244,34 @@ class Strategy:
         ...
 ```
 
-The package includes three runners:
+The package includes four runners:
 
 - `SynchronousStrategyRunner`: cadence-limited strategy evaluation on the
   inner-loop thread. Use it for deterministic strategies, tests, and simple
   adapters.
 - `ThreadedStrategyRunner`: background strategy evaluation connected by
-  latest-value buffers. Use it for slower LLM calls or expensive reasoning.
+  latest-value buffers. Use it for blocking clients or expensive reasoning.
+- `AsyncStrategyRunner`: event-loop strategy evaluation for `async def`
+  strategies. Use it for async-first LLM clients when the game/application
+  already owns the event loop. Construct it inside that running loop or pass the
+  loop explicitly; it does not create a private loop.
 - `ManualStrategyRunner`: test harness runner where callers publish directives
   manually.
 
-The threaded runner uses
-[`OverwriteBuffer`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/buffers.py),
+The threaded and async runners use newest-snapshot semantics. The threaded
+runner uses
+[`OverwriteBuffer`](../cogames_agents_runtime/buffers.py),
 which keeps only the newest unread value. That prevents old snapshots and stale
 directives from building up behind the live game state.
 
 ### Reflexes And Fallbacks
 
-Reflexes are urgent symbolic overrides. A reflex receives `RuntimeContext` and
-may return a `ModeDirective`. Use reflexes for phase transitions, hazards,
-deadlines, or other events that cannot wait for a slower strategy pass.
+Reflexes are urgent symbolic overrides. A `ReflexRule` has a `name`, numeric
+`priority`, and callback receiving `RuntimeContext`. Higher priority rules run
+first; equal priorities preserve registration order. The runtime traces which
+rules were checked, which rule won, and which lower-priority rules were skipped.
+Use reflexes for phase transitions, hazards, deadlines, or other events that
+cannot wait for a slower strategy pass.
 
 The runtime also has two built-in fallback paths:
 
@@ -267,22 +282,31 @@ The runtime also has two built-in fallback paths:
 Fallbacks should preserve liveness, but they should not hide design bugs. The
 runtime traces fallback reasons.
 
-### Tracing
+### Observability
 
-[`trace.py`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg/trace.py)
+[`trace.py`](../cogames_agents_runtime/trace.py)
 defines:
 
 - `TraceEvent`: one boundary event with tick, name, and data.
 - `TraceSink`: protocol for event consumers.
 - `NullTraceSink`: default sink that drops events.
 - `ListTraceSink`: in-memory sink for tests and small examples.
+- `LoggingTraceSink`: structured logging adapter.
+- `MetricsSink`: protocol for counters, histograms, and gauges.
+- `ListMetricsSink`: in-memory metric sink for tests.
+- `LoggingMetricsSink`: structured logging metric adapter.
+- `WandbMetricsSink`: W&B run adapter without adding a package dependency.
 
 The runtime emits events for mode entry and exit, perception, belief update,
 snapshot submission, directive rejection, directive reaffirmation, strategy
-inferences, reflexes, action intent, and concrete command emission.
+inferences, reflex evaluation, mode completion/stalling, action intent, and
+concrete command emission.
 
-These traces should let a developer answer whether bad behavior came from
-perception, belief update, strategy, mode logic, or action lowering.
+The runtime and strategy runners emit metrics for mode runs, mode duration,
+directive age, fallback rate, strategy observe/decide latency, and step latency.
+These traces and metrics should let a developer answer whether bad behavior came
+from perception, belief update, strategy, mode logic, action lowering, or slow
+outer-loop reasoning.
 
 ### Building A New Game Agent
 
@@ -302,7 +326,7 @@ A new game-specific agent should usually be assembled in this order:
 12. Enable LLM strategy only after deterministic replay and trace review.
 
 The runnable toy example is
-[`examples/toy_grid_agent.py`](/Users/jamesboggs/coding/metta/cogames-agents/coborg_framework/examples/toy_grid_agent.py).
+[`examples/toy_grid_agent.py`](examples/toy_grid_agent.py).
 
 ## Inner Loop Contract
 
@@ -314,12 +338,15 @@ Canonical sequence:
 ```text
 tick(raw_observation):
   percept = perceive(raw_observation)
-  belief.update(percept)
+  with shared_memory.write() as memory:
+    memory.belief.update(percept)
   latest_directive = directive_buffer.consume_if_present()
   reconcile_directive(latest_directive, belief)
   reflex_or_safety_override_if_needed(belief)
-  intent = active_mode.decide(belief, mode_scratch)
+  decision = active_mode.decide(belief, mode_scratch)
+  intent = decision.intent
   command = action_layer.resolve(intent, belief, action_state)
+  handle_mode_completion_or_stall(decision)
   emit(command)
   trace(percept, belief, directive, intent, command)
 ```
@@ -362,14 +389,17 @@ General pattern:
 
 ```text
 mode.decide(...)
-  -> can emit normal intent
-  -> can mark complete
-  -> can mark stalled with a reason
-  -> can request fallback by returning no useful intent plus status
+  -> can return a normal intent
+  -> can return ModeDecision.complete(intent, reason=...)
+  -> can return ModeDecision.stalled(intent, reason=...)
 ```
 
-Do not let a stalled mode spin indefinitely without making that state visible
-to tracing and strategy.
+When a mode returns `complete` or `stalled`, the runtime emits
+`mode_completed` or `mode_stalled`, installs the default directive after the
+current intent is lowered to an action, and submits a wake snapshot to the
+strategy runner with the mode status reason. Do not let a stalled mode spin
+indefinitely without making that state visible to metrics, tracing, and
+strategy.
 
 ## Action Layer Contract
 
@@ -447,15 +477,22 @@ The core concurrency rule is:
 
 Recommended patterns:
 
+- Share belief/action state through `SharedMemory`; read and write it only under
+  `snapshot.read()` or `snapshot.write()`.
+- Keep shared-memory lock scopes short. Build LLM context under `snapshot.read()`,
+  release the lock, then call the model.
 - Use size-one buffers or newest-wins channels to prevent backlog.
 - Poll directives non-blockingly from the inner loop.
-- Hand copied snapshots, not live mutable belief, to the strategy loop.
+- Hand lock-protected `BeliefSnapshot` handles, not deep-copied belief objects,
+  to the strategy loop.
 - Make strategy output idempotent and droppable.
 - Track liveness through tick counters, TTLs, and watchdogs.
 
 Avoid:
 
 - Blocking the inner loop on an LLM.
+- Holding the shared-memory lock across model calls, network calls, or slow
+  summarization.
 - Queueing old directives that will execute after the game phase has changed.
 - Sharing mutable belief objects across threads without a clear lock or copy
   discipline.
@@ -575,6 +612,12 @@ class Belief:
     inferences: dict
 
 
+class ModeDecision:
+    intent: ActionIntent
+    status: str = "running"  # running | complete | stalled
+    reason: str = ""
+
+
 class ActionIntent:
     target: tuple[int, int] | None = None
     semantic_action: str | None = None
@@ -592,7 +635,7 @@ class Mode:
     def on_exit(self, belief: Belief, action_state: object) -> None:
         ...
 
-    def decide(self, belief: Belief, action_state: object) -> ActionIntent:
+    def decide(self, belief: Belief, action_state: object) -> ActionIntent | ModeDecision:
         ...
 ```
 
@@ -607,8 +650,8 @@ These invariants should hold across implementations:
 2. Mode directives select modes and parameters. They are not raw controller
    input.
 3. The inner loop never waits for the outer loop.
-4. Belief snapshots, not raw frames or live mutable state, are the strategy
-   interface.
+4. Lock-protected `BeliefSnapshot` handles, not raw frames or unguarded mutable
+   state, are the strategy interface.
 5. Important decisions are backed by durable evidence fields.
 6. View legality, action legality, target legality, guards, resource
    constraints, and stale-response checks belong in code.
@@ -695,6 +738,8 @@ Validation should cover each boundary independently.
 - Full episode runs for behavior quality.
 - Trace review for mode transitions, directive age, fallback rate, and action
   legality.
+- Metrics review for mode counts, fallback rate, strategy latency, and current
+  mode duration.
 
 ## Trace Schema Recommendations
 
@@ -724,7 +769,9 @@ Recommended event names:
 - `mode_entered`
 - `mode_exited`
 - `mode_stalled`
+- `mode_completed`
 - `reflex_fired`
+- `reflex_evaluated`
 - `action_intent`
 - `act_command`
 - `fallback_activated`
@@ -741,6 +788,8 @@ These pieces are worth standardizing:
 - LLM decision schema: action/mode, params, confidence, rationale, schema
   version.
 - Trace event names for directive and mode lifecycle.
+- Metric names for mode counts, fallback rate, strategy latency, and directive
+  age.
 - Fallback semantics: TTL, default mode, watchdog, mode stalled.
 - Source-map documentation for each game-specific agent: framework, inner
   loop, belief, modes, strategy, LLM boundary, and tests.

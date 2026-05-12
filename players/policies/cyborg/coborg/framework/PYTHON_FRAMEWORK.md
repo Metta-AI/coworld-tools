@@ -1,7 +1,7 @@
 # Python Framework Quickstart
 
 The reusable implementation lives in
-[`cogames_agents.cyborg`](/Users/jamesboggs/coding/metta/cogames-agents/src/cogames_agents/cyborg).
+[`policies/cyborg/coborg/cogames_agents_runtime`](../cogames_agents_runtime).
 
 Use it when building a new game agent with the Cyborg pattern:
 
@@ -16,14 +16,21 @@ perceive -> update belief -> mode decide -> action resolve
 
 - `ModeParams`: Pydantic base class for typed mode parameters.
 - `ModeDirective`: mode name, typed params, source, TTL, reason, metadata.
+- `SharedMemory` and `BeliefSnapshot`: lock-protected live belief/action-state
+  access for strategy code.
 - `Mode`: deterministic symbolic local policy.
+- `ModeDecision`: optional mode return wrapper for completion or stalling.
 - `ModeRegistry`: validates directives and instantiates modes.
 - `AgentRuntime`: non-blocking per-tick inner-loop orchestrator.
 - `SynchronousStrategyRunner`: deterministic rule/LLM-adapter runner for tests
   and simple agents.
-- `ThreadedStrategyRunner`: background latest-snapshot strategy runner.
+- `ThreadedStrategyRunner`: background latest-snapshot strategy runner for
+  blocking strategy clients.
+- `AsyncStrategyRunner`: event-loop runner for async LLM clients; construct it
+  inside the running loop or pass the loop explicitly.
 - `ManualStrategyRunner`: test harness runner where callers publish directives.
 - `ListTraceSink`: in-memory trace sink for tests and examples.
+- `ListMetricsSink`: in-memory counter/histogram/gauge sink for tests.
 
 ## Minimal Agent Shape
 
@@ -87,23 +94,26 @@ The strategy supplies directives:
 ```python
 class Strategy:
     def decide(self, snapshot):
-        if snapshot.belief.position == snapshot.belief.target:
+        with snapshot.read() as memory:
+            position = memory.belief.position
+            target = memory.belief.target
+        if position == target:
             return ModeDirective(mode="idle")
         return ModeDirective(
             mode="move",
-            params=MoveParams(target=snapshot.belief.target),
+            params=MoveParams(target=target),
             ttl_ticks=120,
         )
 ```
 
 See
-[`examples/toy_grid_agent.py`](/Users/jamesboggs/coding/metta/cogames-agents/coborg_framework/examples/toy_grid_agent.py)
+[`examples/toy_grid_agent.py`](examples/toy_grid_agent.py)
 for a complete runnable example.
 
 For the full API-level breakdown of runtime, directives, modes, strategy
 runners, reflexes, fallbacks, and tracing, see the Framework Reference section
 in
-[`README.md`](/Users/jamesboggs/coding/metta/cogames-agents/coborg_framework/README.md).
+[`README.md`](README.md).
 
 ## Design Rules
 
@@ -113,7 +123,12 @@ in
 - Let modes emit symbolic intents, not transport actions.
 - Put movement, cursor timing, chat buffers, and UI mechanics in the action
   resolver.
+- Keep `snapshot.read()`/`snapshot.write()` scopes short; never hold the shared
+  memory lock across an LLM or network call.
 - Use reflexes for urgent events that cannot wait for the strategy loop.
 - Use TTLs and default directives so the agent stays live when strategy stalls.
+- Return `ModeDecision.complete(...)` or `ModeDecision.stalled(...)` when a mode
+  has finished or cannot make progress.
 - Validate directives in `ModeRegistry` before installing them.
-- Trace every boundary while developing a new game agent.
+- Trace every boundary and emit metrics for mode runs, fallbacks, strategy
+  latency, directive age, and step latency while developing a new game agent.

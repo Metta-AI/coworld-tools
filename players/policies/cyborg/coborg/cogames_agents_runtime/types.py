@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+import threading
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass, field
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
 BeliefT = TypeVar("BeliefT")
 ActionStateT = TypeVar("ActionStateT")
+IntentT = TypeVar("IntentT")
+ModeDecisionStatus = Literal["running", "complete", "stalled"]
 
 
 class ModeParams(BaseModel):
@@ -41,6 +46,59 @@ class ModeDirective(BaseModel):
         """Return whether this directive's TTL has elapsed at ``tick``."""
 
         return self.ttl_ticks > 0 and self.issued_at_tick > 0 and tick - self.issued_at_tick >= self.ttl_ticks
+
+
+@dataclass(frozen=True)
+class SharedMemoryView(Generic[BeliefT, ActionStateT]):
+    """Live memory objects exposed while the shared-memory lock is held."""
+
+    belief: BeliefT
+    action_state: ActionStateT
+    active_directive: ModeDirective
+
+
+class SharedMemory(Generic[BeliefT, ActionStateT]):
+    """Lock-protected live memory shared by the inner loop and strategy loop."""
+
+    def __init__(
+        self,
+        *,
+        belief: BeliefT,
+        action_state: ActionStateT,
+        active_directive: ModeDirective,
+    ) -> None:
+        self._lock = threading.RLock()
+        self._belief = belief
+        self._action_state = action_state
+        self._active_directive = active_directive
+
+    @contextmanager
+    def read(self) -> Iterator[SharedMemoryView[BeliefT, ActionStateT]]:
+        """Read live memory while holding the shared lock."""
+
+        with self._lock:
+            yield SharedMemoryView(
+                belief=self._belief,
+                action_state=self._action_state,
+                active_directive=self._active_directive,
+            )
+
+    @contextmanager
+    def write(self) -> Iterator[SharedMemoryView[BeliefT, ActionStateT]]:
+        """Mutate live memory while holding the shared lock."""
+
+        with self._lock:
+            yield SharedMemoryView(
+                belief=self._belief,
+                action_state=self._action_state,
+                active_directive=self._active_directive,
+            )
+
+    def set_active_directive(self, directive: ModeDirective) -> None:
+        """Update directive metadata visible through future memory views."""
+
+        with self._lock:
+            self._active_directive = directive
 
 
 class ActionIntent(BaseModel):
@@ -80,14 +138,61 @@ class StrategyResult(BaseModel):
 
 
 @dataclass(frozen=True)
-class BeliefSnapshot(Generic[BeliefT, ActionStateT]):
-    """Immutable envelope handed to strategy loops.
+class ModeDecision(Generic[IntentT]):
+    """Mode result with explicit completion/stalling status."""
 
-    The runtime owns how belief/action state are copied. By default it uses
-    ``copy.deepcopy`` before constructing this snapshot.
-    """
+    intent: IntentT
+    status: ModeDecisionStatus = "running"
+    reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def running(
+        cls,
+        intent: IntentT,
+        *,
+        reason: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ModeDecision[IntentT]:
+        return cls(intent=intent, status="running", reason=reason, metadata=dict(metadata or {}))
+
+    @classmethod
+    def complete(
+        cls,
+        intent: IntentT,
+        *,
+        reason: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ModeDecision[IntentT]:
+        return cls(intent=intent, status="complete", reason=reason, metadata=dict(metadata or {}))
+
+    @classmethod
+    def stalled(
+        cls,
+        intent: IntentT,
+        *,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> ModeDecision[IntentT]:
+        return cls(intent=intent, status="stalled", reason=reason, metadata=dict(metadata or {}))
+
+
+@dataclass(frozen=True)
+class BeliefSnapshot(Generic[BeliefT, ActionStateT]):
+    """Immutable envelope that points strategy loops at shared live memory."""
 
     tick: int
-    belief: BeliefT
-    action_state: ActionStateT
-    active_directive: ModeDirective
+    memory: SharedMemory[BeliefT, ActionStateT]
+    wake_reason: str = "tick"
+    mode_status: ModeDecisionStatus = "running"
+    mode_status_reason: str = ""
+
+    def read(self) -> AbstractContextManager[SharedMemoryView[BeliefT, ActionStateT]]:
+        """Read belief, action state, and directive under the shared lock."""
+
+        return self.memory.read()
+
+    def write(self) -> AbstractContextManager[SharedMemoryView[BeliefT, ActionStateT]]:
+        """Mutate belief, action state, or directive-scoped facts under the shared lock."""
+
+        return self.memory.write()

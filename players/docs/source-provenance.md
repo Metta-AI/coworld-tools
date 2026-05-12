@@ -22,6 +22,10 @@ preserved.
 | `Metta-AI/cogames-attempts` | `e80a0b67b0272c1c80206da3704dfd88a70162ea` | `policies/neural/cogames-attempts`, `tools/research/cogames-attempts`, `docs/experiments/cogames-attempts` | Copied trainable policy experiments, sweeps, eval scripts, and research notes. |
 | `Metta-AI/metta:cogames-rl-researcher` | `aa1d7c5b48c8548d29632562137e571d738d0650` | `tools/research/cogames-rl-researcher` | GitHub repo was not accessible under `Metta-AI/cogames-rl-researcher`; copied clean monorepo directory instead. |
 
+## Post-Collation Updates
+
+- 2026-05-12: copied uncommitted metta `cogames-agents` cyborg framework updates into `policies/cyborg/coborg/cogames_agents_runtime`, `policies/cyborg/coborg/framework`, and `validation/cogames-agents-tests/test_cyborg_framework.py` before deleting metta's copy. These source-preserving updates add shared locked memory snapshots, `ModeDecision`, `AsyncStrategyRunner`, metrics sinks, and priority `ReflexRule` support. They came from the metta worktree rather than from a committed metta revision.
+
 ## Submodules
 
 | Source | Commit | Target | Notes |

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import ClassVar, Generic, TypeVar
 
-from cogames_agents.cyborg.types import EmptyModeParams, ModeDirective, ModeParams
+from cogames_agents.cyborg.types import EmptyModeParams, ModeDecision, ModeDirective, ModeParams
 
 BeliefT = TypeVar("BeliefT")
 ActionStateT = TypeVar("ActionStateT")
@@ -60,8 +60,8 @@ class Mode(ABC, Generic[BeliefT, ActionStateT, IntentT]):
         return True
 
     @abstractmethod
-    def decide(self, belief: BeliefT, action_state: ActionStateT) -> IntentT:
-        """Return this tick's symbolic intent."""
+    def decide(self, belief: BeliefT, action_state: ActionStateT) -> IntentT | ModeDecision[IntentT]:
+        """Return this tick's symbolic intent or a status-bearing decision."""
 
 
 class ModeRegistry(Generic[BeliefT, ActionStateT, IntentT]):

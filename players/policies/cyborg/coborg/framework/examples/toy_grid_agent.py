@@ -84,12 +84,15 @@ class ToyStrategy:
     """Slow strategy: choose move mode until position reaches target."""
 
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> StrategyResult | ModeDirective | None:
-        belief = snapshot.belief
-        if belief.position == belief.target:
+        with snapshot.read() as memory:
+            belief = memory.belief
+            position = belief.position
+            target = belief.target
+        if position == target:
             return ModeDirective(mode="idle", source="strategy", reason="arrived")
         return ModeDirective(
             mode="move_to",
-            params=MoveParams(target=belief.target),
+            params=MoveParams(target=target),
             source="strategy",
             ttl_ticks=3,
             reason="target is not reached",

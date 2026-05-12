@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+
 from cogames_agents.cyborg import (
     ActionCommand,
     ActionIntent,
     AgentRuntime,
+    AsyncStrategyRunner,
     EmptyModeParams,
+    ListMetricsSink,
     ListTraceSink,
     ManualStrategyRunner,
     Mode,
+    ModeDecision,
     ModeDirective,
     ModeParams,
     ModeRegistry,
     OverwriteBuffer,
+    ReflexRule,
     RuntimeContext,
     StrategyResult,
     SynchronousStrategyRunner,
@@ -120,9 +126,11 @@ class FleeMode(Mode[Belief, ActionState, ActionIntent]):
 
 class MoveStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
+        with snapshot.read() as memory:
+            target = memory.belief.target
         return ModeDirective(
             mode="move",
-            params=MoveParams(target=snapshot.belief.target),
+            params=MoveParams(target=target),
             ttl_ticks=5,
             source="strategy",
         )
@@ -130,7 +138,46 @@ class MoveStrategy:
 
 class InferenceStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> StrategyResult:
-        return StrategyResult(inferences={"tick_seen": snapshot.tick})
+        with snapshot.read() as memory:
+            del memory
+            return StrategyResult(inferences={"tick_seen": snapshot.tick})
+
+
+class SharedMemoryStrategy:
+    def __init__(self) -> None:
+        self.seen_belief: Belief | None = None
+
+    def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> StrategyResult | None:
+        with snapshot.write() as memory:
+            self.seen_belief = memory.belief
+            memory.belief.inferences["outer_tick"] = snapshot.tick
+        return None
+
+
+class CompleteWhenArrivedMode(Mode[Belief, ActionState, ActionIntent]):
+    name = "complete_when_arrived"
+    params_type = MoveParams
+
+    def decide(self, belief: Belief, action_state: ActionState) -> ModeDecision[ActionIntent]:
+        del action_state
+        params = self.params
+        assert isinstance(params, MoveParams)
+        if belief.position == params.target:
+            return ModeDecision.complete(ActionIntent(reason="arrived"), reason="target reached")
+        return ModeDecision.running(ActionIntent(semantic="move", target=(params.target, 0)))
+
+
+class AsyncMoveStrategy:
+    async def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
+        await asyncio.sleep(0)
+        with snapshot.read() as memory:
+            target = memory.belief.target
+        return ModeDirective(
+            mode="move",
+            params=MoveParams(target=target),
+            ttl_ticks=5,
+            source="async",
+        )
 
 
 def perceive(observation: Observation, tick: int) -> Percept:
@@ -169,6 +216,7 @@ def registry() -> ModeRegistry[Belief, ActionState, ActionIntent]:
     result.register(IdleMode)
     result.register(MoveMode)
     result.register(FleeMode)
+    result.register(CompleteWhenArrivedMode)
     return result
 
 
@@ -177,6 +225,7 @@ def runtime(
     strategy_runner=None,
     reflexes=(),
     trace=None,
+    metrics=None,
     apply_inferences=None,
 ) -> AgentRuntime[Observation, Percept, Belief, ActionState, ActionIntent, ActionCommand]:
     return AgentRuntime(
@@ -190,6 +239,7 @@ def runtime(
         strategy_runner=strategy_runner,
         reflexes=reflexes,
         trace_sink=trace,
+        metrics_sink=metrics,
         apply_inferences=apply_inferences,
     )
 
@@ -250,7 +300,7 @@ def test_reflex_overrides_current_mode_for_urgent_state() -> None:
             return ModeDirective(mode="flee", source="reflex")
         return None
 
-    agent = runtime(reflexes=(danger_reflex,))
+    agent = runtime(reflexes=(ReflexRule(name="danger", priority=100, callback=danger_reflex),))
 
     command = agent.step(Observation(position=0, target=0, danger=True))
 
@@ -286,6 +336,105 @@ def test_strategy_inferences_can_be_applied_to_belief() -> None:
 
     assert agent.belief.inferences == {"tick_seen": 1}
     assert agent.latest_inferences == {"tick_seen": 1}
+
+
+def test_strategy_uses_shared_thread_safe_memory_without_copying() -> None:
+    strategy = SharedMemoryStrategy()
+    agent = runtime(strategy_runner=SynchronousStrategyRunner(strategy))
+
+    agent.step(Observation(position=0, target=2))
+
+    assert strategy.seen_belief is agent.belief
+    assert agent.belief.inferences == {"outer_tick": 1}
+
+
+def test_async_strategy_runner_uses_existing_event_loop() -> None:
+    async def scenario() -> None:
+        agent = runtime(strategy_runner=AsyncStrategyRunner(AsyncMoveStrategy()))
+
+        first = agent.step(Observation(position=0, target=2))
+        await asyncio.sleep(0.01)
+        second = agent.step(Observation(position=0, target=2))
+
+        assert first.action == "noop"
+        assert second.action == "right"
+        assert agent.active_mode_name == "move"
+        agent.close()
+
+    asyncio.run(scenario())
+
+
+def test_mode_decision_completion_traces_and_falls_back() -> None:
+    trace = ListTraceSink()
+    manual: ManualStrategyRunner[Belief, ActionState] = ManualStrategyRunner()
+    agent = runtime(strategy_runner=manual, trace=trace)
+    manual.publish(
+        ModeDirective(
+            mode="complete_when_arrived",
+            params=MoveParams(target=0),
+            source="manual",
+        )
+    )
+
+    command = agent.step(Observation(position=0, target=0))
+
+    assert command.action == "noop"
+    assert agent.active_mode_name == "idle"
+    completed = [event for event in trace.events if event.name == "mode_completed"]
+    assert completed
+    assert completed[0].data["reason"] == "target reached"
+
+
+def test_reflex_priority_wins_and_records_evaluation_order() -> None:
+    def low_priority_reflex(
+        context: RuntimeContext[Belief, ActionState],
+    ) -> ModeDirective | None:
+        if context.belief.danger:
+            return ModeDirective(mode="move", params=MoveParams(target=9), source="low")
+        return None
+
+    def high_priority_reflex(
+        context: RuntimeContext[Belief, ActionState],
+    ) -> ModeDirective | None:
+        if context.belief.danger:
+            return ModeDirective(mode="flee", source="high")
+        return None
+
+    trace = ListTraceSink()
+    agent = runtime(
+        reflexes=(
+            ReflexRule(name="low", priority=10, callback=low_priority_reflex),
+            ReflexRule(name="high", priority=100, callback=high_priority_reflex),
+        ),
+        trace=trace,
+    )
+
+    command = agent.step(Observation(position=0, target=0, danger=True))
+
+    assert command.action == "flee"
+    assert agent.active_mode_name == "flee"
+    evaluations = [event for event in trace.events if event.name == "reflex_evaluated"]
+    assert evaluations
+    checks = evaluations[0].data["checks"]
+    assert [check["name"] for check in checks] == ["high"]
+    assert evaluations[0].data["winner"] == "high"
+
+
+def test_runtime_emits_metrics_for_modes_strategy_and_steps() -> None:
+    metrics = ListMetricsSink()
+    agent = runtime(
+        strategy_runner=SynchronousStrategyRunner(MoveStrategy(), metrics_sink=metrics),
+        metrics=metrics,
+    )
+
+    agent.step(Observation(position=0, target=2))
+
+    names = [sample.name for sample in metrics.samples]
+    assert "cyborg.mode.ran" in names
+    assert "cyborg.step.latency_ms" in names
+    assert "cyborg.strategy.observe_ms" in names
+    assert "cyborg.strategy.decide_ms" in names
+    assert "cyborg.mode.duration_ticks" in names
 
 
 def test_overwrite_buffer_keeps_only_latest_value() -> None:
