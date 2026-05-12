@@ -940,6 +940,8 @@ the belief state. Structure, not prose. Initial shape:
     "in_progress": int | null
   },
   "wake_up_reasons": [str, ...],
+  "new_chat": [ {"tick": int, "speaker": color, "text": str} ],
+  "visible_chat": [ {"tick": int, "speaker": color, "text": str} ],
   "recent_chat": [ {"tick": int, "speaker": color, "text": str} ]
 }
 ```
@@ -1260,7 +1262,8 @@ CI.
 ```text
 { "t": tick, "kind": "snapshot_sent",
   "snapshot_id": str, "snapshot": {...},   // the JSON sent to LLM
-  "trigger": "periodic" | "wake_up:<reason>" }
+  "trigger": "periodic" | "meeting_action" | "directive_expiring_soon" | "wake_up:<reason>",
+  "request_kind": "gameplay" | "meeting" }
 { "t": tick, "kind": "llm_response",
   "snapshot_id": str,
   "latency_ms": int, "prompt_tokens": int, "response_tokens": int,
@@ -1275,8 +1278,9 @@ CI.
 { "t": tick, "kind": "directive_expired",
   "mode": str, "reason": "ttl" | "illegal" | "mode_switch" | "reflex" }
 { "t": tick, "kind": "meeting_action_received",
-  "action": {...} }
+  "snapshot_id": str, "action": {...} }
 { "t": tick, "kind": "llm_call_failed",
+  "snapshot_id": str,
   "reason": "http_error" | "timeout" | "rate_limit" | ...,
   "detail": str }
 ```
@@ -1517,6 +1521,7 @@ Further decisions get appended here as they're made.
 | D30 | Phase 3 LLM model | Bedrock default: `us.anthropic.claude-sonnet-4-5-20250929-v1:0`; direct Anthropic default: `claude-sonnet-4-20250514`. `GUIDED_BOT_LLM_MODEL` overrides either provider; provider-specific overrides are `GUIDED_BOT_BEDROCK_MODEL` and `GUIDED_BOT_ANTHROPIC_MODEL`. Max 1024 response tokens. | `llm.nim` |
 | D31 | Phase 3 meeting action queue | Actions pumped from `meetingActionChan` into `ModeScratch.meetPendingActions` in the bot pipeline, popped one-per-tick by meeting mode's `decide()`. | `bot.nim`, `modes/meeting.nim` |
 | D32 | Mode-param consumption and LLM summaries | Existing mode params are behavior-affecting, not just parsed: task/pretending directed targets, hunting cover mode, alibi room filtering, and task body-abandon control are consumed by mode/reflex logic. Each mode implements `summarizeForLlm`; snapshots include `current_mode.params` and `current_mode.summary`. | `mode_registry.nim`, `snapshot.nim`, `modes/*.nim` |
+| D33 | Meeting chat belief merge | OCR-visible chat replaces `currentMeetingChat` each valid voting frame, while new speaker+text pairs append to deduplicated `recentChat` and one-frame `pendingChatObserved`. `WakeChatObserved`, `chat_observed` trace events, and snapshot `new_chat` use only pending durable additions, so OCR flicker or same-row text changes cannot hide new messages. Wrapped chat attribution chooses the nearest speaker pip rather than the last pip above the text row. | `perception/voting.nim`, `belief.nim`, `bot.nim`, `snapshot.nim` |
 
 ---
 

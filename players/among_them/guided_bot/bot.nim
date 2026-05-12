@@ -55,7 +55,6 @@ type
     prevBodyCount*: int        ## For detecting new bodies (body_seen event).
     prevRole*: BotRole         ## For detecting role_revealed event.
     prevPhaseForTrace*: GamePhase ## For detecting meeting_started / game_over.
-    prevChatLen*: int          ## For detecting new chat lines.
     ## Phase 5 — interstitial OCR cache. classifyInterstitial is a
     ## full-frame OCR sweep (~22 ms). We cache the result across
     ## consecutive interstitial frames so the sweep runs at most once
@@ -86,7 +85,6 @@ proc initBot*(botIndex: int = -1): Bot =
   result.prevBodyCount = 0
   result.prevRole = RoleUnknown
   result.prevPhaseForTrace = PhaseUnknown
-  result.prevChatLen = 0
   result.interstitialClassified = false
   result.cachedInterstitialKind = InterstitialUnknown
 
@@ -176,17 +174,20 @@ proc ensureGuidanceStarted(bot: var Bot) =
     startGuidance(bot.guidance)
     bot.guidanceStarted = true
 
-proc shouldSubmitSnapshot(bot: Bot): bool =
-  ## Decide whether to submit a belief snapshot to the guidance worker
-  ## on this tick. Hybrid periodic + event-driven (DESIGN.md §8.2).
+proc snapshotTrigger(bot: Bot): string =
+  ## Human-readable reason recorded with guidance snapshot traces.
   if not bot.guidanceStarted:
-    return false
+    return ""
 
   let tick = bot.belief.tick
 
   # Always submit if wake-up reasons are pending.
   if bot.belief.flags.wakeReasons.len > 0:
-    return true
+    var reasons: seq[string] = @[]
+    for w in WakeReason:
+      if w in bot.belief.flags.wakeReasons:
+        reasons.add wakeReasonStr(w)
+    return "wake_up:" & reasons.join("+")
 
   # Meetings need several single-action LLM calls (speak -> vote ->
   # confirm) inside a short voting timer, so use a faster cadence than
@@ -197,24 +198,32 @@ proc shouldSubmitSnapshot(bot: Bot): bool =
      bot.modeScratch.meetPendingActions.len == 0 and
      (tick - bot.guidance.lastCallTick >= MeetingLlmActionPeriodTicks or
       bot.guidance.lastCallTick < 0):
-    return true
+    return "meeting_action"
 
   # Periodic submission every GuidancePeriodTicks.
   if tick - bot.guidance.lastCallTick >= GuidancePeriodTicks or
      bot.guidance.lastCallTick < 0:
-    return true
+    return "periodic"
 
   # Directive expiring soon.
   if bot.belief.directive.ttlTicks > 0:
     let remaining = bot.belief.directive.ttlTicks -
                     (tick - bot.belief.directive.issuedAtTick)
     if remaining > 0 and remaining <= DirectiveExpiringSoonTicks:
-      return true
+      return "directive_expiring_soon"
 
-  false
+  ""
+
+proc shouldSubmitSnapshot(bot: Bot): bool =
+  ## Decide whether to submit a belief snapshot to the guidance worker
+  ## on this tick. Hybrid periodic + event-driven (DESIGN.md §8.2).
+  snapshotTrigger(bot).len > 0
 
 proc submitGuidanceSnapshot(bot: var Bot) =
   ## Render and submit a belief snapshot to the guidance worker.
+  let trigger = snapshotTrigger(bot)
+  if trigger.len == 0:
+    return
   let modeSummary = summarizeForLlm(bot.belief.directive.mode,
                                     bot.belief,
                                     bot.belief.directive.params,
@@ -222,11 +231,13 @@ proc submitGuidanceSnapshot(bot: var Bot) =
   let payloadJson = renderSnapshot(bot.belief, modeSummary)
   let isMeeting = bot.belief.self.phase == PhaseVoting
   let snap = Snapshot(
+    id: &"t{bot.belief.tick}-c{bot.guidance.callsThisMatch + 1}",
     tick: bot.belief.tick,
     payloadJson: payloadJson,
-    isMeeting: isMeeting
+    isMeeting: isMeeting,
+    trigger: trigger
   )
-  submitSnapshot(bot.guidance, snap)
+  discard submitSnapshot(bot.guidance, snap)
 
 proc readGuidanceDirective(bot: var Bot) =
   ## Non-blocking read of the directive channel. If a fresh LLM
@@ -625,16 +636,16 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
                        bot.frameTick, $payload)
         bot.cachedImposterColors = @[]
 
-    # chat_observed: new chat lines appeared during voting.
-    if bot.belief.social.currentMeetingChat.len > bot.prevChatLen and
+    # chat_observed: OCR found durable new chat lines during voting.
+    if bot.belief.social.pendingChatObserved.len > 0 and
        bot.belief.self.phase == PhaseVoting:
-      for i in bot.prevChatLen ..< bot.belief.social.currentMeetingChat.len:
-        let cl = bot.belief.social.currentMeetingChat[i]
+      for cl in bot.belief.social.pendingChatObserved:
         var payload = newJObject()
         if cl.speakerColor >= 0:
           payload["speaker"] = newJInt(cl.speakerColor)
         payload["text"] = newJString(cl.text)
         logGameEvent(bot.trace, "chat_observed", tick, $payload)
+      bot.belief.social.pendingChatObserved.setLen(0)
 
     # game_over: transition to game-over phase.
     if bot.belief.self.phase == PhaseGameOver and
@@ -654,7 +665,6 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
     bot.prevBodyCount = bot.belief.percep.visibleBodies.len
     bot.prevRole = bot.belief.self.role
     bot.prevPhaseForTrace = bot.belief.self.phase
-    bot.prevChatLen = bot.belief.social.currentMeetingChat.len
 
     # Log raw frame if TraceFull.
     logFrame(bot.trace, bot.unpacked)

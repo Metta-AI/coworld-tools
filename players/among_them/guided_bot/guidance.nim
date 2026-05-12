@@ -30,9 +30,11 @@ type
   Snapshot* = object
     ## The curated JSON snapshot the LLM sees (DESIGN.md §8.3) plus a
     ## request kind and conversation handle.
+    id*: string
     tick*: int
     payloadJson*: string
     isMeeting*: bool
+    trigger*: string
 
   ## Sentinel value sent on snapshotChan to tell the worker to exit.
   ## When tick == -1, the worker breaks out of its loop.
@@ -58,6 +60,14 @@ type
     ## Whether we're currently in a meeting (for conversation mgmt).
     inMeeting*: bool
     runtime: ptr GuidanceRuntime
+
+proc meetingActionToJson(action: MeetingAction): JsonNode =
+  result = newJObject()
+  result["action_kind"] = newJString($action.kind)
+  if action.text.len > 0:
+    result["text"] = newJString(action.text)
+  if action.kind == MeetingActVote:
+    result["target"] = newJInt(action.target)
 
 # ---------------------------------------------------------------------------
 # Worker thread procedure
@@ -108,6 +118,24 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
         snapshotJson: snap.payloadJson
       )
 
+    # Trace the exact snapshot payload that is about to be sent to the
+    # provider. Logging from the worker avoids recording snapshots that
+    # were only queued and then replaced by the newest-wins channel.
+    block:
+      var ev = newJObject()
+      ev["t"] = newJInt(snap.tick)
+      ev["kind"] = newJString("snapshot_sent")
+      if snap.id.len > 0:
+        ev["snapshot_id"] = newJString(snap.id)
+      if snap.trigger.len > 0:
+        ev["trigger"] = newJString(snap.trigger)
+      ev["request_kind"] = newJString(if snap.isMeeting: "meeting" else: "gameplay")
+      try:
+        ev["snapshot"] = parseJson(snap.payloadJson)
+      except CatchableError:
+        ev["snapshot_raw"] = newJString(snap.payloadJson)
+      runtime[].traceEventChan.send($ev)
+
     # Call the LLM (synchronous, blocks this thread only).
     let result = callLlm(req)
 
@@ -117,6 +145,8 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
     block traceEvents:
       var ev = newJObject()
       ev["t"] = newJInt(snap.tick)
+      if snap.id.len > 0:
+        ev["snapshot_id"] = newJString(snap.id)
       if result.kind == LlmOk:
         ev["kind"] = newJString("llm_response")
         ev["latency_ms"] = newJInt(result.latencyMs)
@@ -124,6 +154,14 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
         ev["response_tokens"] = newJInt(result.responseTokens)
         if result.rawResponse.len > 0:
           ev["raw_response"] = newJString(result.rawResponse)
+        if snap.isMeeting:
+          ev["parsed"] = meetingActionToJson(result.meetingAction)
+        else:
+          var parsed = newJObject()
+          parsed["mode"] = newJString($result.directive.mode)
+          parsed["params"] = paramsToJson(result.directive.params)
+          parsed["ttl_ticks"] = newJInt(result.directive.ttlTicks)
+          ev["parsed"] = parsed
         ev["validation"] = newJString("ok")
       else:
         ev["kind"] = newJString("llm_call_failed")
@@ -158,13 +196,9 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
           var ev = newJObject()
           ev["t"] = newJInt(snap.tick)
           ev["kind"] = newJString("meeting_action_received")
-          var actObj = newJObject()
-          actObj["action_kind"] = newJString($result.meetingAction.kind)
-          if result.meetingAction.text.len > 0:
-            actObj["text"] = newJString(result.meetingAction.text)
-          if result.meetingAction.kind == MeetingActVote:
-            actObj["target"] = newJInt(result.meetingAction.target)
-          ev["action"] = actObj
+          if snap.id.len > 0:
+            ev["snapshot_id"] = newJString(snap.id)
+          ev["action"] = meetingActionToJson(result.meetingAction)
           runtime[].traceEventChan.send($ev)
       else:
         # Push the directive onto the channel. Fill in the tick.
@@ -176,7 +210,10 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
           var ev = newJObject()
           ev["t"] = newJInt(snap.tick)
           ev["kind"] = newJString("directive_published")
+          if snap.id.len > 0:
+            ev["snapshot_id"] = newJString(snap.id)
           ev["mode"] = newJString($directive.mode)
+          ev["params"] = paramsToJson(directive.params)
           ev["ttl_ticks"] = newJInt(directive.ttlTicks)
           runtime[].traceEventChan.send($ev)
 
@@ -233,20 +270,20 @@ proc stopGuidance*(state: var GuidanceState) =
   state.runtime = nil
   state.running = false
 
-proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
+proc submitSnapshot*(state: var GuidanceState, snap: Snapshot): bool {.discardable.} =
   ## Push a snapshot onto the channel for the worker. If the worker
   ## hasn't consumed the previous snapshot, the old one is replaced
   ## (newest wins — DESIGN.md §10.3).
   if not state.running or state.runtime.isNil:
-    return
+    return false
   let runtime = state.runtime
 
   # Rate limiting: enforce minimum interval and per-match cap.
   if snap.tick - state.lastCallTick < LlmMinIntervalTicks and
      state.lastCallTick >= 0:
-    return
+    return false
   if state.callsThisMatch >= LlmMaxCallsPerMatch:
-    return
+    return false
 
   # Drain any pending old snapshot (newest wins).
   while true:
@@ -259,6 +296,7 @@ proc submitSnapshot*(state: var GuidanceState, snap: Snapshot) =
 
   # Track meeting state for conversation flush.
   state.inMeeting = snap.isMeeting
+  result = true
 
 proc drainGuidanceTraceEvents*(state: GuidanceState,
                                 traceWriter: TraceWriter) =

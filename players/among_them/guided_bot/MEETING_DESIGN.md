@@ -353,7 +353,8 @@ matters — voting phases don't end and restart within 4 seconds.
 The standard trace captures:
 
 - `meeting_started` event in `bot.nim` (on PhaseVoting entry).
-- `chat_observed` events for incoming chat lines.
+- `chat_observed` events for newly observed, deduplicated incoming chat
+  lines, including OCR speaker attribution.
 - `chat_sent` events when outgoing chat enters the FFI buffer.
 - `vote_attempted` event when meeting mode emits A to confirm a vote.
 - Mode entry/exit via `modes.jsonl`.
@@ -424,6 +425,8 @@ During meetings, the snapshot (`snapshot.nim`) includes:
   voters targeting them, incriminating evidence, exculpatory evidence,
   and chat mentions that the LLM must classify as accusation, defense,
   alibi, or noise.
+- `new_chat` — newly observed transcript lines that triggered the current
+  chat wake-up, with speaker colours and text.
 - `visible_chat` and `recent_chat` — current OCR-visible chat plus the
   deduplicated recent transcript with speaker colours and text.
 - Standard fields: visible players, task state, self state.

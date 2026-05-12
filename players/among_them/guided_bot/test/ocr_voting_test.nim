@@ -18,7 +18,7 @@
 ##     nim c -r -d:release --threads:on --mm:orc \
 ##         among_them/guided_bot/test/ocr_voting_test.nim
 
-import std/[monotimes, os, strformat, times]
+import std/[monotimes, os, strformat, strutils, times]
 import ../constants
 import ../types
 import ../bot
@@ -102,6 +102,30 @@ proc renderTextOnFrame(frame: var seq[uint8], text: string, x, y: int) =
             frame[fy * ScreenWidth + fx] = 2'u8  # Non-black = foreground
     penX += w + pf.spacing
 
+proc drawTintedPlayer(frame: var seq[uint8], x, y, colorIndex: int) =
+  let sprite = referenceData.sprites.player
+  for sy in 0 ..< sprite.height:
+    for sx in 0 ..< sprite.width:
+      let src = sprite.pixels[sy * sprite.width + sx]
+      if src == TransparentIndex:
+        continue
+      var outPx = src
+      if src == TintColor:
+        outPx = PlayerColors[colorIndex]
+      elif src == ShadeTintColor:
+        outPx = ShadowMap[PlayerColors[colorIndex] and 0x0F'u8]
+      let fx = x + sx
+      let fy = y + sy
+      if fx >= 0 and fy >= 0 and fx < ScreenWidth and fy < ScreenHeight:
+        frame[fy * ScreenWidth + fx] = outPx
+
+proc clearVoteChatPanel(frame: var seq[uint8], count: int) =
+  let layout = voteGridLayout(count)
+  let chatY = layout.skipY + 10
+  for y in chatY ..< ScreenHeight:
+    for x in 0 ..< ScreenWidth:
+      frame[y * ScreenWidth + x] = 0'u8
+
 proc testTextMatches() =
   var frame = newSeq[uint8](FrameLen)
   renderTextOnFrame(frame, "SKIP", 50, 60)
@@ -146,6 +170,47 @@ proc testReadRun() =
   # Should contain "HI" (case may vary due to preference tie-breaks).
   let upper = text.toUpperAscii()
   expect(upper.len >= 2, &"readRun: got '{text}', len >= 2")
+
+# ---------------------------------------------------------------------------
+# 4b. Voting chat speaker attribution
+# ---------------------------------------------------------------------------
+
+proc testVotingChatSpeakerAttribution() =
+  var frame = loadFixture("voting_real_1432.bin")
+  clearVoteChatPanel(frame, 8)
+
+  let layout = voteGridLayout(8)
+  let rowGap = referenceData.font.height + 1
+  let prevY = layout.skipY + 11
+  let wrappedY = prevY + referenceData.sprites.player.height + 1
+
+  drawTintedPlayer(frame, VoteChatIconX, prevY, 5)
+  renderTextOnFrame(frame, "old chat", VoteChatTextX, prevY)
+
+  # Two-row chat centers the speaker icon one pixel below the first text row.
+  # The parser must choose that nearest lower icon, not the previous message's
+  # icon above the line.
+  drawTintedPlayer(frame, VoteChatIconX, wrappedY + 1, 0)
+  renderTextOnFrame(frame, "first row", VoteChatTextX, wrappedY)
+  renderTextOnFrame(frame, "second row", VoteChatTextX, wrappedY + rowGap)
+
+  let parsed = parseVotingScreen(frame, referenceData.sprites, -1)
+  expect(parsed.valid, "voting chat attribution fixture parses as voting")
+
+  var sawFirst = false
+  var sawSecond = false
+  for line in parsed.chatLines:
+    let upper = line.text.toUpperAscii()
+    if upper.startsWith("FIRST"):
+      sawFirst = true
+      expectEq(line.speakerColor, 0,
+               "wrapped chat first row attributed to nearest speaker")
+    if upper.startsWith("SECOND"):
+      sawSecond = true
+      expectEq(line.speakerColor, 0,
+               "wrapped chat second row attributed to same speaker")
+  expect(sawFirst, "wrapped chat first row parsed")
+  expect(sawSecond, "wrapped chat second row parsed")
 
 # ---------------------------------------------------------------------------
 # 5. findText on synthetic frame
@@ -284,6 +349,7 @@ proc main() =
   testTextMatches()
   testBestGlyph()
   testReadRun()
+  testVotingChatSpeakerAttribution()
   testFindText()
   testClassifyInterstitial()
   testGameOverPhaseUpdate()

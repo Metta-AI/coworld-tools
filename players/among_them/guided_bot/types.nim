@@ -404,6 +404,7 @@ type
   SocialState* = object
     recentChat*: seq[ChatLine]
     currentMeetingChat*: seq[ChatLine]
+    pendingChatObserved*: seq[ChatLine] ## New durable chat lines from this frame.
     votesCast*: array[PlayerColorCount, int]  ## -1 skip, -2 abstain, color otherwise.
 
   WakeReason* = enum

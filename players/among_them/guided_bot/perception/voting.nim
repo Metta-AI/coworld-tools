@@ -451,6 +451,16 @@ proc parseVotingCandidate(
     else:
       inc y
 
+  proc nearestSpeakerForLine(y: int): int =
+    var bestColor = VoteUnknown
+    var bestDist = VoteChatSpeakerSearch + 1
+    for s in speakers:
+      let dist = abs(s.y - y)
+      if dist <= VoteChatSpeakerSearch and dist < bestDist:
+        bestColor = s.color
+        bestDist = dist
+    bestColor
+
   # Read chat lines.
   var lastText = ""
   y = chatStartY
@@ -468,21 +478,8 @@ proc parseVotingCandidate(
     let text = readRun(frame, VoteChatTextX, y, VoteCharsPerLine,
                        maxErrors = 0, background = TextBackground)
     if text.len > 0 and usefulChatLine(text) and text != lastText:
-      # Find speaker for this line.
-      var speaker = VoteUnknown
-      # Prefer pip at or above the text line.
-      for s in countdown(speakers.len - 1, 0):
-        if speakers[s].y <= y:
-          speaker = speakers[s].color
-          break
-      # Fallback: nearest pip below within search distance.
-      if speaker == VoteUnknown:
-        for s in speakers:
-          if s.y > y and s.y - y <= VoteChatSpeakerSearch:
-            speaker = s.color
-            break
       result.chatLines.add VoteChatLine(
-        speakerColor: speaker, y: y, text: text)
+        speakerColor: nearestSpeakerForLine(y), y: y, text: text)
       lastText = text
     # Advance past the font height to avoid re-reading the same line.
     y += referenceData.font.height + 1

@@ -40,10 +40,11 @@ runner; LLM meeting snapshots include player memory, vote dots, recent
 chat, solo-survival trust, distance-weighted body proximity, explicit
 alive/dead voting status, witnessed venting, and a structured evidence
 ledger. The meeting prompt now prefers one short living-player chat line
-before voting, treats dead/ghost players as wait-only in meetings, and
-gates crewmate player votes on positive incriminating evidence rather
-than lack of trust. Focused Nim/Python checks pass and the cogames
-shared library builds.
+before voting, answers direct meeting chat when useful, confirms votes
+only when the parsed cursor is already on the intended target slot, treats
+dead/ghost players as wait-only in meetings, and gates crewmate player
+votes on positive incriminating evidence rather than lack of trust.
+Focused Nim/Python checks pass and the cogames shared library builds.
 
 Latest end-to-end voting check: an 8-agent, 2-imposter live match with
 600-tick kill cooldown, 600-tick vote timer, 16 tasks per crewmate, and
@@ -528,7 +529,7 @@ with a known index (e.g. via the FFI `guidedbot_new_policy` call).
 | `perception.jsonl` | decisions | Per-frame perception: phase, interstitial flag/kind, black pixels, localization, visible actors, tasks, radar dots, voting parse |
 | `modes.jsonl` | decisions | Mode transitions: entered/exited with duration |
 | `reflexes.jsonl` | decisions | Reflex firings with trigger details |
-| `guidance.jsonl` | decisions | LLM calls: snapshot_sent, llm_response, directive_published, llm_call_failed |
+| `guidance.jsonl` | decisions | LLM calls: exact snapshot_sent payloads, llm_response, directive_published, llm_call_failed |
 | `snapshots.jsonl` | full | Periodic full-belief JSON snapshots (~every 240 ticks) |
 | `frames.bin` | full | Raw 128x128 frame bytes for replay |
 

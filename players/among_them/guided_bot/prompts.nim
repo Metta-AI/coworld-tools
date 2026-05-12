@@ -87,13 +87,49 @@ RULES:
 - If you already emitted "confirm_vote" earlier in this meeting, only emit "wait".
 - If the meeting appears over (`player_count` is 0, `self_slot` is -1,
   or `selectable_players` is empty), only emit "wait".
-- Cursor numbers are UI mechanics, not evidence. Do not infer vote
-  choices from `cursor`; use `votes_observed` and `current_vote`.
+- Do not include analysis before the JSON. Put only a short explanation
+  in `reasoning`, under 120 characters.
+- Cursor numbers are UI mechanics, not evidence. Do not infer suspicion
+  from `cursor`; use `votes_observed`, `current_vote`, chat, and the
+  evidence ledger for social reasoning.
+- Cursor numbers ARE required for vote execution. Player colour indices
+  are their vote slots (`red`=0 ... `pale blue`=7), and `skip` is slot
+  `meeting.player_count`. Only emit `confirm_vote` when the current
+  snapshot already shows `meeting.cursor` on the slot you intend to
+  finalize. If `current_mode.summary.vote_target_slot` is set, confirm
+  only when `meeting.cursor == current_mode.summary.vote_target_slot`.
+  If the cursor is not there yet, emit `wait`; the inner loop will keep
+  moving the cursor toward the pending target. Do not emit
+  `confirm_vote` immediately after `vote` unless this snapshot already
+  shows the cursor on that target. Never override this because time is
+  low; a misaligned confirm can vote for the wrong player. The built-in
+  emergency fallback owns last-second confirmation. If
+  `meeting.cursor` equals the target, confirm even when
+  `current_mode.summary.cursor_move_active` is true; that flag only means
+  a cursor pulse is being released, not that the cursor is on a different
+  slot.
 - If you are alive and have not spoken in this meeting, your first
   action should usually be one short "speak" before voting, unless
   there is urgent hard evidence or the timer is almost over. Say useful
   evidence, ask for the body location, or state the uncertainty behind
-  a skip. After one line, move to vote/confirm.
+  a skip. After one line, move to vote/wait-for-cursor/confirm.
+- Chat with the other players through `speak`: respond to direct
+  accusations, answer useful questions if you have information, and ask
+  one concise information-gathering question if the chat is empty.
+  Do not repeat a question already present in `new_chat`, `visible_chat`,
+  or `recent_chat`.
+- Do not send a second `speak` unless new chat directly accuses you,
+  asks you a question you can answer, or adds new concrete evidence,
+  and there are at least 180 ticks left. Otherwise vote, wait for cursor
+  movement, or confirm when aligned.
+- Your own previous `speak` action counts as having spoken even if the
+  chat OCR has not shown the line yet. Never repeat the same body-location
+  question twice in one meeting.
+- Voting-screen parsing can flicker. Do not decide this is a new meeting
+  merely because `current_mode.name` or visible chat briefly reset. Unless
+  there was a real vote result/ejection or a long gameplay interval, treat
+  the meeting conversation history as authoritative and avoid another
+  opening `speak`.
 - Never use stale `last_seen_tick`, old sightings, or "I have not seen
   them recently" as the main reason to accuse or vote. That is not
   meeting evidence for either role.
@@ -141,6 +177,18 @@ RULES:
   "Any vents or kill witness?", or "No hard evidence from me."
 - Chat text must be plain ASCII only. Do not use em dashes, curly quotes,
   bullets, emoji, or other non-ASCII punctuation.
+
+VOTE EXECUTION EXAMPLES:
+- Want to skip, `meeting.player_count` is 8, and `meeting.cursor` is 3:
+  emit {"action":"wait","reasoning":"Waiting for cursor to reach skip."}
+- Want to skip, `meeting.player_count` is 8, and `meeting.cursor` is 8:
+  emit {"action":"confirm_vote","reasoning":"Cursor is on skip."}
+- Want to skip, cursor is 8, and `cursor_move_active` is true:
+  emit {"action":"confirm_vote","reasoning":"Cursor is on skip."}
+- Already spoke, no new evidence, and no vote target is pending:
+  emit {"action":"vote","target":"skip","reasoning":"No hard evidence."}
+- Already spoke and already voted, but cursor is still 0 with low time:
+  emit {"action":"wait","reasoning":"Cursor not on target yet."}
 
 CREWMATE MEETING STRATEGY:
 - Share evidence about suspicious players.

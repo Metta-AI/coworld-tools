@@ -134,7 +134,7 @@ proc roleStr(role: BotRole): string =
   of RoleCrewmate: "crewmate"
   of RoleImposter: "imposter"
 
-proc paramsToJson(params: ModeParams): JsonNode =
+proc paramsToJson*(params: ModeParams): JsonNode =
   ## Serialize mode params to a JSON object. Only includes non-default
   ## fields relevant to the active mode.
   result = newJObject()

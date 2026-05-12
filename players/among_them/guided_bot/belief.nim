@@ -100,6 +100,7 @@ proc initTaskState*(): TaskState =
 proc initSocialState*(): SocialState =
   result.recentChat = @[]
   result.currentMeetingChat = @[]
+  result.pendingChatObserved = @[]
   for i in 0 ..< PlayerColorCount:
     result.votesCast[i] = -2    ## -2 = abstain (no vote yet).
 
@@ -502,15 +503,18 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
   ## Called from `bot.decideNextMask` after the voting parse completes.
   ##
   ## Copies chat lines into ``social.currentMeetingChat`` (replacing
-  ## the previous frame's lines). Phase and interstitial-kind updates
-  ## are handled directly in the bot pipeline (they need to gate
-  ## voting vs. banner classification).
+  ## the previous frame's lines) and appends newly-observed lines to
+  ## ``social.recentChat`` / ``social.pendingChatObserved``. Phase and
+  ## interstitial-kind updates are handled directly in the bot pipeline
+  ## (they need to gate voting vs. banner classification).
+  belief.social.pendingChatObserved = @[]
   if not voting.valid:
     # Clear voting fields when parse fails (frame is not a voting screen).
     belief.percep.votingValid = false
     belief.percep.votingCursor = -1
     belief.percep.votingSelfSlot = -1
     belief.percep.votingPlayerCount = 0
+    belief.social.currentMeetingChat = @[]
     return
   # Copy voting parse results into perception state.
   belief.percep.votingValid = true
@@ -553,8 +557,9 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
       belief.social.recentChat.add line
       if belief.social.recentChat.len > RecentChatLimit:
         belief.social.recentChat.delete(0)
+      belief.social.pendingChatObserved.add line
   # Flag for the guidance loop.
-  if voting.chatLines.len > 0:
+  if belief.social.pendingChatObserved.len > 0:
     belief.flags.wakeReasons.incl WakeChatObserved
 
 # ---------------------------------------------------------------------------

@@ -59,11 +59,14 @@ proc main() =
     expect(states[i].running, &"bot {i}: guidance started")
 
   for i in 0 ..< BotCount:
-    submitSnapshot(states[i], Snapshot(
+    let submitted = submitSnapshot(states[i], Snapshot(
+      id: &"test-{i}",
       tick: 1000 + i,
       payloadJson: &"""{{"bot_index": {i}}}""",
-      isMeeting: false
+      isMeeting: false,
+      trigger: "test"
     ))
+    expect(submitted, &"bot {i}: snapshot submitted")
 
   # Give the no-provider workers time to emit their trace event, then
   # drain repeatedly to catch scheduling variation without blocking the
@@ -84,13 +87,25 @@ proc main() =
 
   for i in 0 ..< BotCount:
     let events = readGuidanceEvents(roots[i])
-    expectEq(events.len, 1, &"bot {i}: exactly one guidance event")
-    if events.len == 1:
+    expectEq(events.len, 2, &"bot {i}: exactly two guidance events")
+    if events.len == 2:
       expectEq(events[0]["t"].getInt(), 1000 + i,
-               &"bot {i}: guidance event tick isolated")
-      expectEq(events[0]["kind"].getStr(), "llm_call_failed",
+               &"bot {i}: snapshot event tick isolated")
+      expectEq(events[0]["kind"].getStr(), "snapshot_sent",
+               &"bot {i}: snapshot event kind")
+      expectEq(events[0]["snapshot_id"].getStr(), &"test-{i}",
+               &"bot {i}: snapshot id")
+      expectEq(events[0]["trigger"].getStr(), "test",
+               &"bot {i}: snapshot trigger")
+      expectEq(events[0]["snapshot"]["bot_index"].getInt(), i,
+               &"bot {i}: snapshot payload")
+      expectEq(events[1]["t"].getInt(), 1000 + i,
+               &"bot {i}: failure event tick isolated")
+      expectEq(events[1]["kind"].getStr(), "llm_call_failed",
                &"bot {i}: no-provider event kind")
-      expectEq(events[0]["reason"].getStr(), "no_key",
+      expectEq(events[1]["snapshot_id"].getStr(), &"test-{i}",
+               &"bot {i}: failure snapshot id")
+      expectEq(events[1]["reason"].getStr(), "no_key",
                &"bot {i}: no-provider reason")
 
   if failures == 0:

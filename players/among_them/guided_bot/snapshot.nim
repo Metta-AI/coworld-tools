@@ -115,7 +115,7 @@ proc taskStateStr(state: TaskSlotState): string =
   of TaskConfirmed: "confirmed"
   of TaskCompleted: "completed"
 
-proc wakeReasonStr(w: WakeReason): string =
+proc wakeReasonStr*(w: WakeReason): string =
   case w
   of WakePeriodic:              "periodic"
   of WakeBodySeen:              "body_seen"
@@ -481,6 +481,15 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
     root["meeting"] = meetingObj
 
   # --- chat ---
+  var newChatArr = newJArray()
+  for cl in belief.social.pendingChatObserved:
+    var clObj = newJObject()
+    clObj["tick"] = newJInt(cl.tick)
+    clObj["speaker"] = newJString(colorName(cl.speakerColor))
+    clObj["text"] = newJString(cl.text)
+    newChatArr.add clObj
+  root["new_chat"] = newChatArr
+
   var visibleChatArr = newJArray()
   for cl in belief.social.currentMeetingChat:
     var clObj = newJObject()

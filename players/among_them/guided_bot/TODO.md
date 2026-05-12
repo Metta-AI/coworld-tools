@@ -30,9 +30,14 @@ strategy after `MeetingAutoVoteDelayTicks=360`.
    The parser tolerates fences, so this is operationally low risk.
 2. Continue tuning chat wording as more evidence-rich, multi-meeting
    traces accumulate. The current prompt requires <=55 character
-   living-player opening lines and the action layer caps outbound chat
-   at 60 characters; next pass should improve variation and responses
-   to real accusations.
+   living-player opening lines, avoids repeated opening questions, and
+   tells the LLM to answer direct meeting chat when useful. The action
+   layer caps outbound chat at 60 characters; next passes should improve
+   variation and responses to real accusations.
+3. Continue validating vote cadence. The prompt now requires
+   cursor-aligned `confirm_vote` actions, but the action layer still
+   treats early confirms as navigation rather than latching the confirm
+   until cursor arrival.
 
 **Key code:** `modes/meeting.nim`, `action.nim`, `ffi/lib.nim`,
 `cogames/amongthem_policy.py`, `tuning.nim`

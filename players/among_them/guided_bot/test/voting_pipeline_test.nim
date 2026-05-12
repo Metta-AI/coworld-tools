@@ -7,6 +7,7 @@
 import std/[os, strformat]
 import ../constants
 import ../types
+import ../belief
 import ../bot
 import ../tuning
 import ../perception/voting
@@ -105,9 +106,61 @@ proc testRightNeighborAutoVoteConfirms() =
            "auto-vote replay self slot parsed")
   expect(sawA, "evidence-target auto-vote eventually presses A")
 
+proc syntheticVotingParse(chatText: string): VotingParse =
+  result = initVotingParse()
+  result.valid = true
+  result.playerCount = 2
+  result.cursor = 0
+  result.selfSlot = 0
+  result.slots[0] = VoteSlot(colorIndex: 0, alive: true)
+  result.slots[1] = VoteSlot(colorIndex: 1, alive: true)
+  result.chatLines = @[
+    VoteChatLine(speakerColor: 1, y: 31, text: chatText)
+  ]
+
+proc testVotingChatMergeTracksNewContent() =
+  var b = initBelief()
+  b.tick = 100
+
+  mergeVotingPercept(b, syntheticVotingParse("body nav"))
+  expectEq(b.social.currentMeetingChat.len, 1,
+           "chat merge: visible chat populated")
+  expectEq(b.social.recentChat.len, 1,
+           "chat merge: recent chat receives first line")
+  expectEq(b.social.pendingChatObserved.len, 1,
+           "chat merge: first line marked pending")
+  expect(WakeChatObserved in b.flags.wakeReasons,
+         "chat merge: first line raises wake reason")
+
+  b.flags.wakeReasons = {}
+  b.tick = 101
+  mergeVotingPercept(b, syntheticVotingParse("body nav"))
+  expectEq(b.social.currentMeetingChat.len, 1,
+           "chat merge: repeated visible line remains visible")
+  expectEq(b.social.recentChat.len, 1,
+           "chat merge: repeated line is deduplicated")
+  expectEq(b.social.pendingChatObserved.len, 0,
+           "chat merge: repeated line is not pending")
+  expect(not (WakeChatObserved in b.flags.wakeReasons),
+         "chat merge: repeated line does not raise wake reason")
+
+  b.tick = 102
+  mergeVotingPercept(b, syntheticVotingParse("vote red"))
+  expectEq(b.social.currentMeetingChat.len, 1,
+           "chat merge: one visible row can change text")
+  expectEq(b.social.recentChat.len, 2,
+           "chat merge: changed text appends to recent chat")
+  expectEq(b.social.pendingChatObserved.len, 1,
+           "chat merge: changed text marked pending despite same row count")
+  expectEq(b.social.pendingChatObserved[0].speakerColor, 1,
+           "chat merge: pending line preserves speaker attribution")
+  expectEq(b.social.pendingChatObserved[0].text, "vote red",
+           "chat merge: pending line preserves text")
+
 proc main() =
   testVotingCursorRefreshesAfterPhaseVoting()
   testRightNeighborAutoVoteConfirms()
+  testVotingChatMergeTracksNewContent()
 
   if failures == 0:
     echo "OK (voting pipeline checks passed)"
