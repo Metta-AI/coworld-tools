@@ -155,7 +155,7 @@ if [[ "$SKIP_LOG" != true ]]; then
 import json, sys
 from pathlib import Path
 
-from cogames_agents.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
+from agent_policies.tools.eval.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
 
 result_path, log_path, label, timestamp, policy_uri, params = sys.argv[1:7]
 

@@ -36,7 +36,7 @@
 # ## CogsGuard context
 #
 # The built-in CoGsGuard scripted baselines live at
-# `cogames-agents/src/cogames_agents/policy/scripted_agent/cogsguard/`. Use
+# `src/agent_policies/policies/scripted/cogsguard/scripted_agent/cogsguard/`. Use
 # them as references when you want richer role logic or navigation beyond the
 # template generated below.
 #

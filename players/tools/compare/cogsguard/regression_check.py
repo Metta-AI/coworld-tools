@@ -38,7 +38,7 @@ TRACKED_METRICS = [
 
 def extract_metrics(data: dict) -> dict[str, float | None]:
     """Extract tracked metrics from cogames scrimmage JSON output."""
-    derived = importlib.import_module("cogames_agents.eval_result_metrics").extract_cogsguard_eval_metrics(data)
+    derived = importlib.import_module("agent_policies.tools.eval.cogsguard.eval_result_metrics").extract_cogsguard_eval_metrics(data)
     return {key: derived.get(key) for key, _source, _hib, _tol in TRACKED_METRICS}
 
 
@@ -153,7 +153,7 @@ def main() -> int:
         print(f"ERROR: Result file not found: {result_path}")
         return 1
 
-    parse_eval_result_text = importlib.import_module("cogames_agents.eval_result_metrics").parse_eval_result_text
+    parse_eval_result_text = importlib.import_module("agent_policies.tools.eval.cogsguard.eval_result_metrics").parse_eval_result_text
     result_data = parse_eval_result_text(result_path.read_text())
 
     current = extract_metrics(result_data)

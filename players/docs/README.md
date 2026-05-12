@@ -9,6 +9,7 @@ Current workspace documentation:
 - `tutorials/`: tutorials copied into the new workspace layout.
 - `experiments/`: experiment logs and research records.
 - `bitworld/`: BitWorld player-policy notes copied from game repos.
+- `audits/`: repo-structure and documentation audits.
 
 Historical docs copied from the old `cogames-agents` package live under
 `legacy/cogames-agents/`. Those files are retained as source material and may
