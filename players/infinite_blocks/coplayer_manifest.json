@@ -1,0 +1,7 @@
+{
+  "author": "jamesboggs",
+  "name": "py-stacker",
+  "image_uri": "ghcr.io/jamesboggs/bitworld-py-stacker:latest",
+  "binary": "/usr/local/bin/stacker",
+  "games": ["infinite_blocks"]
+}
