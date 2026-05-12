@@ -41,14 +41,11 @@ proc modeStr(mode: ModeName): string =
   case mode
   of ModeIdle:             "idle"
   of ModeTaskCompleting:   "task_completing"
-  of ModeFear:             "fear"
-  of ModeInvestigating:    "investigating"
   of ModeReporting:        "reporting"
   of ModePretending:       "pretending"
   of ModeHunting:          "hunting"
   of ModeFleeing:          "fleeing"
   of ModeAlibiBuilding:    "alibi_building"
-  of ModeSabotageWatching: "sabotage_watching"
   of ModeMeeting:          "meeting"
 
 proc sourceStr(source: DirectiveSource): string =

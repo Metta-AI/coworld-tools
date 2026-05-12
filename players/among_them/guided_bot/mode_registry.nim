@@ -11,42 +11,33 @@
 import types
 import modes/idle
 import modes/task_completing
-import modes/fear
-import modes/investigating
 import modes/reporting
 import modes/pretending
 import modes/hunting
 import modes/fleeing
 import modes/alibi_building
-import modes/sabotage_watching
 import modes/meeting
 
 proc isLegalFor*(mode: ModeName, belief: Belief): bool =
   case mode
   of ModeIdle:             idle.isLegalFor(belief)
   of ModeTaskCompleting:   task_completing.isLegalFor(belief)
-  of ModeFear:             fear.isLegalFor(belief)
-  of ModeInvestigating:    investigating.isLegalFor(belief)
   of ModeReporting:        reporting.isLegalFor(belief)
   of ModePretending:       pretending.isLegalFor(belief)
   of ModeHunting:          hunting.isLegalFor(belief)
   of ModeFleeing:          fleeing.isLegalFor(belief)
   of ModeAlibiBuilding:    alibi_building.isLegalFor(belief)
-  of ModeSabotageWatching: sabotage_watching.isLegalFor(belief)
   of ModeMeeting:          meeting.isLegalFor(belief)
 
 proc defaultParamsFor*(mode: ModeName, belief: Belief): ModeParams =
   case mode
   of ModeIdle:             idle.defaultParamsFor(belief)
   of ModeTaskCompleting:   task_completing.defaultParamsFor(belief)
-  of ModeFear:             fear.defaultParamsFor(belief)
-  of ModeInvestigating:    investigating.defaultParamsFor(belief)
   of ModeReporting:        reporting.defaultParamsFor(belief)
   of ModePretending:       pretending.defaultParamsFor(belief)
   of ModeHunting:          hunting.defaultParamsFor(belief)
   of ModeFleeing:          fleeing.defaultParamsFor(belief)
   of ModeAlibiBuilding:    alibi_building.defaultParamsFor(belief)
-  of ModeSabotageWatching: sabotage_watching.defaultParamsFor(belief)
   of ModeMeeting:          meeting.defaultParamsFor(belief)
 
 proc onEnter*(mode: ModeName, belief: Belief, params: ModeParams,
@@ -54,28 +45,22 @@ proc onEnter*(mode: ModeName, belief: Belief, params: ModeParams,
   case mode
   of ModeIdle:             idle.onEnter(belief, params, scratch)
   of ModeTaskCompleting:   task_completing.onEnter(belief, params, scratch)
-  of ModeFear:             fear.onEnter(belief, params, scratch)
-  of ModeInvestigating:    investigating.onEnter(belief, params, scratch)
   of ModeReporting:        reporting.onEnter(belief, params, scratch)
   of ModePretending:       pretending.onEnter(belief, params, scratch)
   of ModeHunting:          hunting.onEnter(belief, params, scratch)
   of ModeFleeing:          fleeing.onEnter(belief, params, scratch)
   of ModeAlibiBuilding:    alibi_building.onEnter(belief, params, scratch)
-  of ModeSabotageWatching: sabotage_watching.onEnter(belief, params, scratch)
   of ModeMeeting:          meeting.onEnter(belief, params, scratch)
 
 proc onExit*(mode: ModeName, belief: Belief, scratch: var ModeScratch) =
   case mode
   of ModeIdle:             idle.onExit(belief, scratch)
   of ModeTaskCompleting:   task_completing.onExit(belief, scratch)
-  of ModeFear:             fear.onExit(belief, scratch)
-  of ModeInvestigating:    investigating.onExit(belief, scratch)
   of ModeReporting:        reporting.onExit(belief, scratch)
   of ModePretending:       pretending.onExit(belief, scratch)
   of ModeHunting:          hunting.onExit(belief, scratch)
   of ModeFleeing:          fleeing.onExit(belief, scratch)
   of ModeAlibiBuilding:    alibi_building.onExit(belief, scratch)
-  of ModeSabotageWatching: sabotage_watching.onExit(belief, scratch)
   of ModeMeeting:          meeting.onExit(belief, scratch)
 
 proc decide*(mode: ModeName, belief: Belief, params: ModeParams,
@@ -83,14 +68,11 @@ proc decide*(mode: ModeName, belief: Belief, params: ModeParams,
   case mode
   of ModeIdle:             idle.decide(belief, params, scratch)
   of ModeTaskCompleting:   task_completing.decide(belief, params, scratch)
-  of ModeFear:             fear.decide(belief, params, scratch)
-  of ModeInvestigating:    investigating.decide(belief, params, scratch)
   of ModeReporting:        reporting.decide(belief, params, scratch)
   of ModePretending:       pretending.decide(belief, params, scratch)
   of ModeHunting:          hunting.decide(belief, params, scratch)
   of ModeFleeing:          fleeing.decide(belief, params, scratch)
   of ModeAlibiBuilding:    alibi_building.decide(belief, params, scratch)
-  of ModeSabotageWatching: sabotage_watching.decide(belief, params, scratch)
   of ModeMeeting:          meeting.decide(belief, params, scratch)
 
 proc defaultDirectiveFor*(belief: Belief): Directive =

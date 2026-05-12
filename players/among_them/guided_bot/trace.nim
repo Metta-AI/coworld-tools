@@ -86,14 +86,11 @@ proc modeStr(mode: ModeName): string =
   case mode
   of ModeIdle:             "idle"
   of ModeTaskCompleting:   "task_completing"
-  of ModeFear:             "fear"
-  of ModeInvestigating:    "investigating"
   of ModeReporting:        "reporting"
   of ModePretending:       "pretending"
   of ModeHunting:          "hunting"
   of ModeFleeing:          "fleeing"
   of ModeAlibiBuilding:    "alibi_building"
-  of ModeSabotageWatching: "sabotage_watching"
   of ModeMeeting:          "meeting"
 
 proc sourceStr(source: DirectiveSource): string =
@@ -161,25 +158,6 @@ proc paramsToJson(params: ModeParams): JsonNode =
       tgt["room_id"] = newJInt(params.tcTarget.roomId)
     result["target"] = tgt
     result["abandon_on_nearby_body"] = newJBool(params.tcAbandonOnNearbyBody)
-  of ModeFear:
-    result["min_visible_others"] = newJInt(params.fearMinVisibleOthers)
-    result["prefer_room_id"] = newJInt(params.fearPreferRoomId)
-    result["max_distance"] = newJInt(params.fearMaxDistance)
-  of ModeInvestigating:
-    var tgt = newJObject()
-    case params.invTarget.kind
-    of InvestColor:
-      tgt["kind"] = newJString("color")
-      tgt["color_index"] = newJInt(params.invTarget.colorIndex)
-    of InvestLocation:
-      tgt["kind"] = newJString("location")
-      tgt["x"] = newJInt(params.invTarget.location.x)
-      tgt["y"] = newJInt(params.invTarget.location.y)
-    of InvestRoom:
-      tgt["kind"] = newJString("room")
-      tgt["room_id"] = newJInt(params.invTarget.roomId)
-    result["target"] = tgt
-    result["timeout_ticks"] = newJInt(params.invTimeoutTicks)
   of ModeReporting:
     result["body_location"] = %*[params.repBodyLocation.x,
                                   params.repBodyLocation.y]
@@ -212,8 +190,6 @@ proc paramsToJson(params: ModeParams): JsonNode =
     result["companion_color"] = newJInt(params.aliCompanionColor)
     result["room_id"] = newJInt(params.aliRoomId)
     result["min_duration_ticks"] = newJInt(params.aliMinDurationTicks)
-  of ModeSabotageWatching:
-    result["station_id"] = newJInt(params.sabStationId)
   of ModeMeeting:
     result["want_to_speak_first"] = newJBool(params.meetWantToSpeakFirst)
 

@@ -577,14 +577,11 @@ proc parseModeNameStr(name: string): (bool, ModeName) =
   case name.toLowerAscii()
   of "idle":              (true, ModeIdle)
   of "task_completing":   (true, ModeTaskCompleting)
-  of "fear":              (true, ModeFear)
-  of "investigating":     (true, ModeInvestigating)
   of "reporting":         (true, ModeReporting)
   of "pretending":        (true, ModePretending)
   of "hunting":           (true, ModeHunting)
   of "fleeing":           (true, ModeFleeing)
   of "alibi_building":    (true, ModeAlibiBuilding)
-  of "sabotage_watching": (true, ModeSabotageWatching)
   of "meeting":           (true, ModeMeeting)
   else:                   (false, ModeIdle)
 
@@ -694,41 +691,6 @@ proc parseDirectiveFromJson(raw: string): (bool, Directive) =
     params = ModeParams(mode: ModeReporting,
                        repBodyLocation: Point(x: bx, y: by))
 
-  of ModeInvestigating:
-    var invTarget = InvestigateTarget(kind: InvestColor, colorIndex: -1)
-    if pNode.hasKey("target"):
-      let tNode = pNode["target"]
-      let tKind = tNode.getOrDefault("kind").getStr("color")
-      case tKind
-      of "color":
-        invTarget = InvestigateTarget(kind: InvestColor,
-                                     colorIndex: tNode.getOrDefault("color_index").getInt(-1))
-      of "location":
-        invTarget = InvestigateTarget(kind: InvestLocation,
-                                     location: Point(
-                                       x: tNode.getOrDefault("x").getInt(0),
-                                       y: tNode.getOrDefault("y").getInt(0)))
-      of "room":
-        invTarget = InvestigateTarget(kind: InvestRoom,
-                                     roomId: tNode.getOrDefault("room_id").getInt(0))
-      else: discard
-    let timeout = if pNode.hasKey("timeout_ticks"):
-                    pNode["timeout_ticks"].getInt(240) else: 240
-    params = ModeParams(mode: ModeInvestigating,
-                       invTarget: invTarget, invTimeoutTicks: timeout)
-
-  of ModeFear:
-    let minVis = if pNode.hasKey("min_visible_others"):
-                   pNode["min_visible_others"].getInt(2) else: 2
-    let prefRoom = if pNode.hasKey("prefer_room"):
-                     pNode["prefer_room"].getInt(-1) else: -1
-    let maxDist = if pNode.hasKey("max_distance_from_group"):
-                    pNode["max_distance_from_group"].getInt(64) else: 64
-    params = ModeParams(mode: ModeFear,
-                       fearMinVisibleOthers: minVis,
-                       fearPreferRoomId: prefRoom,
-                       fearMaxDistance: maxDist)
-
   of ModeAlibiBuilding:
     let companion = if pNode.hasKey("companion_color"):
                       pNode["companion_color"].getInt(-1) else: -1
@@ -747,9 +709,6 @@ proc parseDirectiveFromJson(raw: string): (bool, Directive) =
 
   of ModeMeeting:
     params = ModeParams(mode: ModeMeeting, meetWantToSpeakFirst: false)
-
-  of ModeSabotageWatching:
-    params = ModeParams(mode: ModeSabotageWatching, sabStationId: 0)
 
   let directive = Directive(
     mode: modeName,

@@ -62,20 +62,16 @@ type
   ModeName* = enum
     ## The full mode enum. See DESIGN.md §5.4.
     ##
-    ## Ordering is stable: the integer value is logged in traces and
-    ## used to index static dispatch tables. Appending is fine; reordering
-    ## is a schema break.
-    ModeIdle
-    ModeTaskCompleting
-    ModeFear
-    ModeInvestigating
-    ModeReporting
-    ModePretending
-    ModeHunting
-    ModeFleeing
-    ModeAlibiBuilding
-    ModeSabotageWatching
-    ModeMeeting
+    ## Explicit values preserve the trace ordinals of the remaining modes
+    ## after removing placeholder modes.
+    ModeIdle = 0
+    ModeTaskCompleting = 1
+    ModeReporting = 4
+    ModePretending = 5
+    ModeHunting = 6
+    ModeFleeing = 7
+    ModeAlibiBuilding = 8
+    ModeMeeting = 10
 
   DirectiveSource* = enum
     SourceDefault
@@ -232,17 +228,6 @@ type
     taskIndex*: int        ## TgtIndex
     roomId*: int           ## TgtSpecificRoom
 
-  InvestigateKind* = enum
-    InvestColor
-    InvestLocation
-    InvestRoom
-
-  InvestigateTarget* = object
-    kind*: InvestigateKind
-    colorIndex*: int       ## InvestColor
-    location*: Point       ## InvestLocation
-    roomId*: int           ## InvestRoom
-
   ModeParams* = object
     ## Discriminated union keyed on the active mode name. Default-
     ## constructed instances of every variant are valid sentinels.
@@ -254,13 +239,6 @@ type
     of ModeTaskCompleting:
       tcTarget*: TaskTarget
       tcAbandonOnNearbyBody*: bool
-    of ModeFear:
-      fearMinVisibleOthers*: int
-      fearPreferRoomId*: int     ## -1 = no hint.
-      fearMaxDistance*: int
-    of ModeInvestigating:
-      invTarget*: InvestigateTarget
-      invTimeoutTicks*: int
     of ModeReporting:
       repBodyLocation*: Point
     of ModePretending:
@@ -280,8 +258,6 @@ type
       aliCompanionColor*: int
       aliRoomId*: int              ## -1 = any.
       aliMinDurationTicks*: int
-    of ModeSabotageWatching:
-      sabStationId*: int           ## Placeholder; depends on season.
     of ModeMeeting:
       meetWantToSpeakFirst*: bool
 
@@ -573,10 +549,6 @@ type
       tcLastReEvalTick*: int        ## Last periodic target re-evaluation tick.
       tcLockedTier*: TaskSelectionTier  ## Tier recorded when the current target was locked.
       tcSelectionTier*: TaskSelectionTier  ## Tier that selected the current target.
-    of ModeFear:
-      fearEnterTick*: int
-    of ModeInvestigating:
-      invDeadlineTick*: int
     of ModeReporting:
       repEnterTick*: int             ## Tick when mode was entered.
       repBodyMissCount*: int         ## Consecutive frames without body match.
@@ -624,8 +596,13 @@ type
       fleeCoverSet*: bool          ## Whether cover target has been picked.
     of ModeAlibiBuilding:
       aliEnterTick*: int
-    of ModeSabotageWatching:
-      sabEnterTick*: int
+      aliTargetColor*: int           ## Non-imposter crewmate target, -1 if unset.
+      aliLastSeenTick*: int
+      aliLastSeenX*: int
+      aliLastSeenY*: int
+      aliFakeTargetIndex*: int       ## Task station to fake near target, -1 if unset.
+      aliFakeHoldUntilTick*: int
+      aliLoiterUntilTick*: int
     of ModeMeeting:
       meetEnterTick*: int
       meetVoteConfirmed*: bool

@@ -240,9 +240,9 @@ if belief.self.role == RoleImposter and
    newBodySeen and ...
 ```
 
-**Rationale:** A crewmate doing anything (idle, investigating, fear)
-should report a body. An imposter doing anything (pretending, alibi
-building) should flee a body. The only modes excluded are the
+**Rationale:** A crewmate doing anything outside a meeting should report
+a body. An imposter doing anything outside a meeting should flee a body.
+The only modes excluded are the
 target mode itself (prevent self-trigger) and meetings (never
 interrupt voting).
 
@@ -250,35 +250,15 @@ interrupt voting).
 
 ---
 
-## Phase 7 — Stub modes (LLM-only, not on critical path)
+## Phase 7 — LLM-only imposter alibi
 
-These modes are only reachable if the LLM explicitly selects them.
-They're no-ops today, which means the LLM selecting them causes the
-bot to stand still. Lower priority than phase 6 because the fallback
-path never enters them.
-
-### 7.1 `fear` — group-following behavior
-
-Navigate toward visible crewmates, avoid being alone. Use
-`visibleCrewmates` to find the nearest group and steer toward them.
-Fall back to task-completing if no crewmates are visible.
-
-### 7.2 `investigating` — evidence gathering
-
-Navigate to a target (color, location, or room) and observe. Track
-whether the target is seen, log sightings to memory. Timeout after
-`invTimeoutTicks` and fall back to the default.
-
-### 7.3 `alibi_building` — companion tracking
-
-Navigate toward a specific crewmate color and stay near them. Use
-`visibleCrewmates` to find the companion and follow. Fall back if
-the companion is not visible after a timeout.
-
-### 7.4 `sabotage_watching` — season-dependent placeholder
-
-Only relevant if the season enables sabotage mechanics. Leave as
-stub until needed.
+Historical placeholder modes were removed instead of remaining
+LLM-selectable no-ops. `alibi_building` is the one retained Phase 7 mode
+because it has a concrete strategic purpose: an imposter follows a
+specific non-imposter companion color, keeps that player visible, and
+fake-holds nearby task stations only while the companion remains in
+sight and range. If the companion is lost, fake-task behavior stops and
+the mode chases the last-seen position for a short grace window.
 
 ---
 
@@ -295,10 +275,7 @@ For historical phase completion, see [`README.md`](README.md).
 | 6.5 | `pretending` fake A-press | P2 | Small | **Done** |
 | 6.6 | `fleeing` cleanup | P3 | Trivial | **Done** |
 | 6.7 | Reflex scope widening | P3 | Trivial | Open |
-| 7.1 | `fear` implementation | P3 | Medium | Open |
-| 7.2 | `investigating` implementation | P3 | Medium | Open |
-| 7.3 | `alibi_building` implementation | P3 | Medium | Open |
-| 7.4 | `sabotage_watching` | P3 | — | Deferred |
+| 7.1 | `alibi_building` implementation | P3 | Medium | **Done** |
 
 ---
 

@@ -33,26 +33,24 @@ CREWMATE STRATEGY:
 - Complete tasks efficiently (task_completing mode).
 - If alive, report bodies you find (reporting mode).
 - If dead/ghost, ignore bodies and meetings and keep completing tasks.
-  Do not choose idle, reporting, fear, or investigating because you died.
-- Avoid being alone with suspected imposters (fear mode), but do not
-  treat solo-survival trust as suspicion. Being alone with a player for
-  many ticks and surviving makes that player more trustworthy unless
-  there is stronger contrary evidence.
-- Investigate suspicious players (investigating mode).
-- Pay attention to who you see where and when.
+  Do not choose idle or reporting because you died.
+- Pay attention to who you see where and when. Current gameplay control
+  cannot follow or investigate suspects outside meetings yet, so use
+  meetings to act on social evidence.
 
 IMPOSTER STRATEGY:
 - Kill isolated crewmates when no witnesses are nearby (hunting mode).
 - Fake task completion to build alibis (pretending mode).
 - After a kill, disengage from the body and build a plausible task or
   public-room alibi instead of hovering near the corpse.
-- Build alibis by staying near crewmates in public rooms
-  (alibi_building mode), not by pairing with a known imposter teammate.
+- Build alibis by staying near a non-imposter crewmate and fake tasks
+  while keeping that crewmate visible (alibi_building mode). Do not
+  choose a known imposter teammate as the alibi companion.
 - Treat `known_imposters` as private knowledge. Never make choices that
   expose teammate knowledge unless there is public evidence.
 
 AVAILABLE MODES (pick one that matches your role):
-Crewmate: idle, task_completing, fear, investigating, reporting
+Crewmate: idle, task_completing, reporting
 Imposter: pretending, hunting, fleeing, alibi_building
 Either: meeting (only during voting phase)
 
@@ -70,9 +68,7 @@ MODE PARAMETERS:
 - pretending: {"target": {"kind": "nearest_mandatory"}, "loiter_ticks": 60}
 - fleeing: {"away_from": [x, y], "min_distance": 48, "duration_ticks": 240}
 - reporting: {"body_location": [x, y]}
-- investigating: {"target": {"kind": "color", "color_index": N}, "timeout_ticks": 240}
-- fear: {"min_visible_others": 2, "max_distance_from_group": 64}
-- alibi_building: {"companion_color": <color_index>, "min_duration_ticks": 120}
+- alibi_building: {"companion_color": <non-imposter color_index>, "min_duration_ticks": 120}
 - idle: {}
 
 COLOR INDICES: 0=red, 1=orange, 2=yellow, 3=light blue, 4=pink, 5=lime, 6=blue, 7=pale blue"""

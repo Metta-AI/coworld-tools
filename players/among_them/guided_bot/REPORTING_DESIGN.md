@@ -220,9 +220,9 @@ computed from `visibleBodies[0]` screen coords + camera offset at the
 moment of detection (`reflex.nim:99-101`).
 
 The reflex only fires from `task_completing` — if the crewmate is in
-another mode (e.g. `meeting`, `investigating`), bodies don't trigger
-reporting. This is intentional: meeting mode can't be interrupted, and
-other modes may have higher-priority goals.
+another mode (for example `meeting`), bodies don't trigger reporting.
+This is intentional: meeting mode can't be interrupted, and other modes
+may have higher-priority goals.
 
 ### 10.2 Outgoing reflexes (reporting → other modes)
 

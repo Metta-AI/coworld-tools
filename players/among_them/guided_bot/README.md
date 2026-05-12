@@ -173,6 +173,7 @@ Voting parse: variable, dominated by chat OCR line count.
 | 6.4 | `hunting` cover patrol + target memory + kill confirmation + KillStrikeRange bump | done |
 | 6.5 | `pretending` fake A-press during loiter + witness swap | done |
 | 6.6 | `fleeing` post-flee cover navigation + flee target snap-to-passable | done |
+| 7.1 | `alibi_building` mode — follow a non-imposter companion and fake nearby tasks without losing sight | done |
 
 ## Strategy
 
@@ -226,10 +227,9 @@ guided_bot/
     policy_player.py        # /bin/guided_bot BitWorld + Coworld websocket bridge
     README.md               # image build, upload, and runtime notes
   modes/
-    idle.nim               task_completing.nim      fear.nim
-    investigating.nim      reporting.nim            pretending.nim
-    hunting.nim            fleeing.nim              alibi_building.nim
-    sabotage_watching.nim  meeting.nim
+    idle.nim               task_completing.nim      reporting.nim
+    pretending.nim         hunting.nim              fleeing.nim
+    alibi_building.nim     meeting.nim
   ffi/lib.nim               # FFI exports (gated by -d:guidedBotLibrary)
   build_guided_bot.py       # on-demand Nim build helper
   tools/
@@ -650,8 +650,9 @@ incriminating/exculpatory evidence instead of a symbolic evidence veto.
   Trivial.
 - **LLM response formatting** — Claude still wraps otherwise valid JSON
   in code fences despite prompt instructions; the parser tolerates it.
-- **Phase 7 stub modes** — `fear`, `investigating`, `alibi_building`.
-  LLM-only, not on critical path.
+- **LLM strategy authority outside meetings** — `alibi_building` is now a
+  real imposter mode, but most non-meeting mode selection still falls back
+  to deterministic defaults when the LLM is slow or unavailable.
 
 ### Lower-priority gaps (carried forward)
 

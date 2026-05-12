@@ -384,23 +384,6 @@ task_completing {
 #   { kind: "nearest_any" }
 #   { kind: "specific_room",     room_id: int }
 
-fear {
-  # Stay near others, avoid empty rooms.
-  min_visible_others: int     # default 2
-  prefer_room?: room_id       # optional safe-zone hint
-  max_distance_from_group: int
-}
-
-investigating {
-  # Go gather evidence on someone or something.
-  target: InvestigateTarget
-  timeout_ticks: int          # bail if nothing new observed
-}
-# InvestigateTarget is one of:
-#   { kind: "color",    color_index: int }
-#   { kind: "location", x: int, y: int }     # e.g. last-known body spot
-#   { kind: "room",     room_id: int }
-
 reporting {
   # A body is known; navigate to report range, press A.
   body_location: point
@@ -429,7 +412,8 @@ fleeing {
 }
 
 alibi_building {
-  # Imposter: loiter visibly near a specific crew in a public room.
+  # Imposter: stay near a specific non-imposter companion and fake tasks.
+  # Fake-task holds are interrupted if the companion leaves sight or range.
   companion_color: int
   room?: room_id
   min_duration_ticks: int
@@ -439,11 +423,6 @@ meeting {
   # Special. LLM is in direct control during this mode (§7).
   # Params are set once at meeting start; LLM drives from there.
   want_to_speak_first: bool
-}
-
-sabotage_watching {
-  # Placeholder — activate only if the season enables sabotage tasks.
-  station: enum              # vent, lights, comms, ...
 }
 ```
 
@@ -457,15 +436,15 @@ tuples of ints; the exact enumerations come from the game constants
 
 ### 5.4 Mode enumeration
 
-Same list as v0.1. The `ghost_observing` mode is dropped — ghosts use
-`task_completing` (§5.7).
+Only implemented modes are enumerated. Historical placeholder modes were
+removed instead of being left as LLM-selectable no-ops. The
+`ghost_observing` mode is dropped — ghosts use `task_completing` (§5.7).
 
 **Crewmate modes** (also used by imposters pretending to be crew):
-`idle`, `task_completing`, `fear`, `investigating`, `reporting`.
+`idle`, `task_completing`, `reporting`.
 
 **Imposter modes** (alive, non-ghost):
-`pretending`, `hunting`, `fleeing`, `alibi_building`,
-`sabotage_watching`.
+`pretending`, `hunting`, `fleeing`, `alibi_building`.
 
 **Shared:** `meeting`.
 
@@ -505,11 +484,12 @@ Each mode has its own scratch slot. Lifecycle:
 
 Scratch state examples:
 
-- `investigating.scratch` — deadline tick, points-of-interest list.
 - `hunting.scratch` — target color, last-seen position, cover patrol
   station, kill-confirmation state. See `HUNTING_DESIGN.md` §8.
 - `pretending.scratch` — current fake target, loiter timer,
   fake-hold deadline, witness-swap flag.
+- `alibi_building.scratch` — companion color, last-seen position,
+  fake-task target, fake-hold deadline, and loiter deadline.
 
 ### 5.7 Ghosts
 
@@ -1462,7 +1442,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 
 | Item | Decision |
 |---|---|
-| Starting mode enum | §5.4: `idle`, `task_completing`, `fear`, `investigating`, `reporting`, `pretending`, `hunting`, `fleeing`, `alibi_building`, `sabotage_watching`, `meeting`. Ghost merges into `task_completing`. |
+| Starting mode enum | §5.4: `idle`, `task_completing`, `reporting`, `pretending`, `hunting`, `fleeing`, `alibi_building`, `meeting`. Ghost merges into `task_completing`; placeholder no-op modes are removed. |
 | Mode-params schemas | First pass in §5.3. Expect iteration. |
 | Belief-state layout | §3. Start simple: self, perception, memory, tasks, social, directive, flags. Extend when a mode needs something. |
 | Snapshot format | §8.3. JSON dump of curated subset. Not token-bounded yet. |
