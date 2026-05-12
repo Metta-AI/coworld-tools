@@ -1,3 +1,11 @@
 *.egg-info/
 __pycache__/
 .eval_results/
+.pytest_cache/
+.venv/
+.nimcache/
+nimcache/
+*.pyc
+*.dylib
+*.so
+*.o

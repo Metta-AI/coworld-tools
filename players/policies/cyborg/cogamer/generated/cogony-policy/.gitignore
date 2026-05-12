@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+cogamer/analysis.md
+cogamer/state.json
+cogamer/todos.md
+.setup-*.done
+.setup-*.lock
+runs/
+.coverage
+coverage.xml
+.hypothesis/
+.logs/
+.env

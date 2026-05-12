@@ -2,90 +2,37 @@
 
 Policy experimentation workspace for Metta-AI projects.
 
-This repo contains the externalized `cogames-agents` package plus the workspace
-structure for symbolic, cyborg, neural, and contributor-owned policy projects.
-The `cogames-agents` distribution name and `cogames_agents` import path are
-preserved so existing class paths and `metta://policy/...` URIs continue to
-work.
+This repo is organized by policy behavior rather than by the historical repo or
+package that first produced the code:
 
-## Workspace layout
+- `policies/symbolic/`: deterministic scripted policies and player projects.
+- `policies/cyborg/`: fast symbolic loops combined with slower LLM, memory,
+  coaching, or self-improvement loops.
+- `policies/neural/`: trainable policy experiments, checkpoint wrappers,
+  recipes, and teacher-policy research.
+- `tools/`: eval, upload, benchmark, compare, packaging, and research tooling.
+- `users/`: contributor-owned active repos mounted as submodules.
+- `docs/`: policy catalog, provenance, migrations, tutorials, and experiment
+  records.
 
-- `src/cogames_agents/`: externalized package source from the Metta monorepo.
-- `policies/`: curated shared policy library, grouped by symbolic, cyborg, and
-  neural behavior.
-- `users/`: contributor-owned policy repos mounted as submodules.
-- `tools/`: shared eval, upload, benchmark, compare, and research tools.
-- `docs/`: policy catalog, migration notes, and experiment records.
+## Current State
 
-## cogames-agents package
+This is a source collation, not a finished package-normalization pass. The old
+`cogames-agents` root package was split across `policies/` and `tools/`; its
+legacy build files are preserved under `tools/packaging/cogames-agents-legacy/`
+until a new package boundary is designed.
 
-Optional scripted policies for CoGames. Use them for quick baselines, play/eval smoke tests, or as teacher policies.
+The repo now contains copied source snapshots from the high-signal policy
+sources identified in the consolidation plan, plus `users/relh/co-gas` as a
+submodule. See `docs/source-provenance.md` for source commits and copy targets.
 
-## Scripted policy registry
+## Working Rules
 
-The registry at `cogames_agents.policy.scripted_registry` maps policy `short_names` to `metta://policy/...` URIs.
-Scripted agents and teachers share these identifiers, so the same name works for evaluation, play, and
-`TeacherConfig.policy_uri`.
-
-To list the current names:
-
-```
-python -c "from cogames_agents.policy.scripted_registry import list_scripted_agent_names; print(list_scripted_agent_names())"
-```
-
-Common scripted policy names include:
-
-- Baselines: `baseline`, `tiny_baseline`, `ladybug_py`
-- Nim baselines: `thinky`, `race_car`, `ladybug`, `nim_random`
-- CogsGuard core: `role`, `role_nim`, `wombo`
-- CogsGuard variants: `alignall`, `cogsguard_control`, `cogsguard_targeted`, `cogsguard_v2`
-- Teacher: `teacher`
-
-For the full registry snapshot, see `docs/scripted-agent-registry.md`.
-
-Tutorial role specialists (`miner`, `scout`, `aligner`, `scrambler`) are canonical in `cogames`, not this package. For
-the teacher policy, you can pass `role_vibes` as a comma-separated list:
-
-```
-metta://policy/teacher?role_vibes=miner,scout
-```
-
-Fixed-role mixes and explicit orderings are configured via `role` parameters:
-
-Examples:
-
-```
-metta://policy/role?role_cycle=aligner,miner,scrambler,scout
-metta://policy/role?role_order=aligner,miner,aligner,miner,scout
-```
-
-## Recipe usage
-
-The `recipes.experiment.scripted_agents` recipe accepts the same scripted policy names:
-
-```
-./tools/run.py recipes.experiment.scripted_agents.play agent=thinky suite=cvc_arena
-./tools/run.py recipes.experiment.scripted_agents.play agent=role suite=cogsguard
-```
-
-## Included policies
-
-- Short names map to the fastest implementation (Nim when available, otherwise Python).
-- `_nim` aliases exist when there is a Nim implementation alongside Python.
-- See `docs/scripted-agent-registry.md` for the canonical short-name list.
-- Teacher wrapper: `teacher` (`teacher_nim`) forces an initial role/vibe, then delegates to the Nim policy.
-
-## Supervisor action contract
-
-When used as supervisors, `cogames-agents` policies emit split-action labels in one canonical space:
-
-- Primary actions: `[0, len(action_names))`
-- Vibe actions: `[len(action_names), len(action_names) + len(vibe_action_names))`
-
-This matches `PolicyEnvInterface` action ordering (`[*action_names, *vibe_action_names]`) and the `MettaGridPufferEnv`
-split-action supervisor path.
-
-## Docs
-
-- `docs/mettaboxes.md` (mettabox usage guide)
-- `docs/aws-sso-on-mettabox.md` (AWS SSO login from inside mettabox containers)
+- Put runnable policy source under `policies/<family>/<game-or-system>/`.
+- Put shared execution or analysis workflows under `tools/`.
+- Keep active personal projects under `users/<handle>/<project>` as submodules
+  until code is intentionally promoted into the shared policy tree.
+- Keep language next to the policy it implements. Nim, Python, Go, CUDA, and
+  container files should not get top-level language buckets.
+- Keep game/runtime package code in its owning repo unless the file is
+  genuinely policy source.
