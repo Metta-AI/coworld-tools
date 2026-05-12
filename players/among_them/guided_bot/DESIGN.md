@@ -344,6 +344,9 @@ Every mode implements:
 - `on_exit(belief, scratch)` — clean up (usually a no-op).
 - `default_params_for(belief) -> params` — used when the mode is
   selected as a fallback default and no LLM params are available.
+- `summarize_for_llm(belief, params, scratch) -> json` — compact
+  mode-private state included in `current_mode.summary` in LLM
+  snapshots.
 
 ### 5.2 Mode registry
 
@@ -477,10 +480,10 @@ Each mode has its own scratch slot. Lifecycle:
   caches).
 - **Never read by another mode.** Private by convention; the registry
   only gives each mode access to its own slot.
-- **Not included in snapshots to the LLM.** The LLM sees the belief
-  state; it does not see the currently-active mode's internal
-  planning state. (If we later find it helpful, we add an opt-in
-  `summarize_for_llm(scratch) -> json` hook per mode — see §12.6.)
+- **Summarized for the LLM, not shared raw.** The LLM sees a compact
+  `current_mode.summary` produced by the active mode's
+  `summarize_for_llm` hook. Other modes still never read another mode's
+  scratch directly.
 
 Scratch state examples:
 
@@ -551,6 +554,12 @@ Reflex conditions fire on **transitions**, not persistent state:
 
 - `body_newly_in_view` fires on the tick a new body first enters
   perception, not every tick while it remains visible.
+- The imposter flee body reflex also de-duplicates remembered body
+  world positions within a 30 px Manhattan radius. Bodies seen while
+  `hunting` is already in strike/post-kill handling are remembered
+  without firing, so the bot does not repeatedly flee from the same
+  corpse when it leaves and re-enters the viewport. Known body
+  positions clear across meetings, game-over, and round resets.
 - `kill_cooldown_just_elapsed` fires on the tick the timer reaches
   zero, not every tick after.
 - `voting_screen_appeared` fires on the tick the interstitial
@@ -584,7 +593,7 @@ they add up to a shadow policy if we aren't careful.
 | Mode | Condition | Switch to | Reason |
 |---|---|---|---|
 | `task_completing` (crew, alive, not ghost) | `body_newly_in_view` | `reporting { body_location: <body.position> }` | Let the dedicated reporting mode handle navigation + A press. Crewmate gets a fresh body → go report it, regardless of current task. |
-| `hunting` (imposter, alive) | `body_newly_in_view` | `fleeing { away_from: <body.position>, min_distance: 48, duration_ticks: 240 }` | Don't hang around a corpse. See `HUNTING_DESIGN.md` §10.2 for details. |
+| `hunting` (imposter, alive) | unknown `body_newly_in_view` | `fleeing { away_from: <body.position>, min_distance: 48, duration_ticks: 240 }` | Don't hang around a fresh corpse, but do not repeatedly flee from a known body. See `HUNTING_DESIGN.md` §10.2 for details. |
 | `pretending` (imposter, alive, not ghost) | `kill_ready AND visible_crewmates == 1` | `hunting { preferred_target: <color>, max_witnesses: 0, opportunistic: false, cover_mode: pretending }` | Route a kill opportunity into hunting mode. See `HUNTING_DESIGN.md` §10.1 for details and watchpoints. |
 | any mode | `voting_screen_appeared` (edge: `prevPhase != PhaseVoting`) | `meeting { want_to_speak_first: false }` | Meetings are an LLM-driven mode; switch immediately and let meeting's decide handle it. |
 
@@ -882,8 +891,9 @@ the belief state. Structure, not prose. Initial shape:
             "known_imposters": [color, ...] },
   "phase": "gameplay" | "voting" | "interstitial" | "game_over",
   "current_mode": { "name": str, "params": {...},
-                    "source": "llm" | "default",
-                    "ticks_active": int },
+                    "source": "llm" | "default" | "reflex",
+                    "ticks_active": int,
+                    "summary": { mode-specific scratch summary } },
   "visible_now": {
     "players":  [ {"color": str, "position": [int, int],
                    "room": str | null} ],
@@ -1402,13 +1412,14 @@ decision. We keep the list at 4 and grow it only with measurement.
 A reflex that fires more than a couple of times per match without
 improving outcomes is a bug, not a feature.
 
-### 12.6 `summarize_for_llm` per mode (future)
+### 12.6 `summarize_for_llm` per mode
 
-§5.6 notes that mode scratch state isn't exposed to the LLM. If it
-turns out a mode's internal reasoning is useful context for the LLM,
-we add an optional `summarize_for_llm(scratch) -> json` hook on the
-mode interface and include its output in the snapshot. Not in v0.
-See `HUNTING_DESIGN.md` §14 for the hunting-specific case.
+Implemented. Every mode exposes a compact scratch summary through the
+mode registry, and `snapshot.nim` includes it as
+`current_mode.summary`. The hook is intentionally lossy: it gives the
+LLM tactical context such as locked task, hunting phase, fake-task
+target, pending meeting action count, and post-kill plan without making
+scratch state a cross-mode API.
 
 ### 12.7 Non-meeting chat?
 
@@ -1501,10 +1512,11 @@ Further decisions get appended here as they're made.
 
 | D26 | Phase 3 LLM client | Adapted bitworld's `claude.nim`. Uses `curly` + `jsony` via nimby. Prefers AWS Bedrock (`CLAUDE_CODE_USE_BEDROCK=1` / `USE_BEDROCK=true`) with SigV4 signing and AWS credentials from env, ECS metadata, or local AWS CLI export; direct Anthropic is fallback. Fresh `CurlPool` per call, closed after each request, avoids GC-safety issues with globals and descriptor leaks. | `llm.nim` |
 | D27 | Phase 3 threading | `system.Channel[T]` (Nim 2.2.4), owned per `GuidanceState` through a heap-stable `GuidanceRuntime` pointer. Worker thread holds meeting conversation history as thread-local state. Main thread: non-blocking `tryRecv`. No module-global guidance channels or worker handles. | `guidance.nim` |
-| D28 | Phase 3 snapshot rendering | `std/json` (not jsony) for structured, readable output. Room name lookups via `geometry.roomNameAt`. Screen→world via `visibleCrewmateWorldX/Y`. | `snapshot.nim` |
+| D28 | Phase 3 snapshot rendering | `std/json` (not jsony) for structured, readable output. Room name lookups via `geometry.roomNameAt`. Screen→world via `visibleCrewmateWorldX/Y`. Current mode params and compact per-mode summaries are included under `current_mode`. | `snapshot.nim` |
 | D29 | Phase 3 wake-flag lifecycle | Flags raised during update-belief, consumed (snapshot submitted) and cleared at end of `decideNextMask`. External code (tests) cannot observe flags after `stepUnpackedFrame`. | `bot.nim` |
 | D30 | Phase 3 LLM model | Bedrock default: `us.anthropic.claude-sonnet-4-5-20250929-v1:0`; direct Anthropic default: `claude-sonnet-4-20250514`. `GUIDED_BOT_LLM_MODEL` overrides either provider; provider-specific overrides are `GUIDED_BOT_BEDROCK_MODEL` and `GUIDED_BOT_ANTHROPIC_MODEL`. Max 1024 response tokens. | `llm.nim` |
 | D31 | Phase 3 meeting action queue | Actions pumped from `meetingActionChan` into `ModeScratch.meetPendingActions` in the bot pipeline, popped one-per-tick by meeting mode's `decide()`. | `bot.nim`, `modes/meeting.nim` |
+| D32 | Mode-param consumption and LLM summaries | Existing mode params are behavior-affecting, not just parsed: task/pretending directed targets, hunting cover mode, alibi room filtering, and task body-abandon control are consumed by mode/reflex logic. Each mode implements `summarizeForLlm`; snapshots include `current_mode.params` and `current_mode.summary`. | `mode_registry.nim`, `snapshot.nim`, `modes/*.nim` |
 
 ---
 

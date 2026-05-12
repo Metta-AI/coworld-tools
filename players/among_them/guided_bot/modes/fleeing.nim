@@ -10,6 +10,7 @@
 ##     cover behavior: navigate to a nearby task station (away from body)
 ##     to look like a crewmate working.
 
+import std/json
 import ../types
 import ../action
 import ../perception/data
@@ -142,3 +143,18 @@ proc decide*(belief: Belief, params: ModeParams,
     chat: "",
     discipline: DisciplineNormal
   )
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("fleeing_from_body")
+  result["away_from"] = %*[params.fleeAwayFrom.x, params.fleeAwayFrom.y]
+  result["min_distance"] = newJInt(params.fleeMinDistance)
+  result["ticks_remaining"] = newJInt(max(0, scratch.fleeUntilTick - belief.tick))
+  result["cover_target_set"] = newJBool(scratch.fleeCoverSet)
+  if scratch.fleeCoverSet:
+    result["cover_target"] = %*[scratch.fleeCoverTargetX, scratch.fleeCoverTargetY]
+  if belief.percep.localized:
+    result["distance_from_body"] = newJInt(
+      heuristic(belief.percep.selfX, belief.percep.selfY,
+                params.fleeAwayFrom.x, params.fleeAwayFrom.y))

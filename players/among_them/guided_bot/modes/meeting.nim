@@ -12,7 +12,7 @@
 ## a role-aware evidence target and confirms. This is a structural
 ## backstop; the LLM cannot override it.
 
-import std/strutils
+import std/[json, strutils]
 import ../types
 import ../action
 import ../tuning
@@ -412,3 +412,30 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- No pending actions, no fallback needed yet ---
   noOpIntent()
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  discard params
+  result = newJObject()
+  result["status"] = newJString("meeting_llm_action_queue")
+  result["ticks_in_meeting"] =
+    newJInt(max(0, belief.tick - scratch.meetEnterTick))
+  result["vote_confirmed"] = newJBool(scratch.meetVoteConfirmed)
+  result["pending_action_count"] = newJInt(scratch.meetPendingActions.len)
+  result["vote_target_slot"] = newJInt(scratch.meetVoteTarget)
+  result["cursor"] = newJInt(belief.percep.votingCursor)
+  result["player_count"] = newJInt(belief.percep.votingPlayerCount)
+  result["estimated_ticks_left"] = newJInt(max(
+    0, MeetingDurationEstimateTicks - (belief.tick - scratch.meetEnterTick)))
+  result["last_llm_action_age_ticks"] =
+    if scratch.meetLastLlmActionTick >= 0:
+      newJInt(max(0, belief.tick - scratch.meetLastLlmActionTick))
+    else:
+      newJNull()
+  if scratch.meetCursorDir != CursorNone:
+    result["cursor_move_active"] = newJBool(true)
+    result["cursor_move_ticks_remaining"] = newJInt(scratch.meetCursorMoveTicks)
+    result["cursor_move_direction"] =
+      newJString(if scratch.meetCursorDir == CursorLeft: "left" else: "right")
+  else:
+    result["cursor_move_active"] = newJBool(false)

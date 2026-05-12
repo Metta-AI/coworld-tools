@@ -4,9 +4,9 @@
 > mode design details live here; `DESIGN.md` contains only a brief
 > overview and cross-reference.
 >
-> **Implementation:** `modes/meeting.nim` (395 LOC)
+> **Implementation:** `modes/meeting.nim`
 >
-> Last updated: 2026-05-11
+> Last updated: 2026-05-12
 
 ---
 
@@ -408,7 +408,11 @@ for the next meeting.
 During meetings, the snapshot (`snapshot.nim`) includes:
 
 - `phase: "voting"` — signals the LLM that meeting mode is active.
-- `current_mode: { "name": "meeting", ... }` with `ticks_active`.
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including `want_to_speak_first`.
+- `current_mode.summary`, including pending action count, vote target
+  slot, cursor, player count, estimated ticks left, last LLM action age,
+  and active cursor movement.
 - `meeting` — player count, self slot, cursor, selectable players,
   observed votes, per-player `evidence_ledger`, and recent alibi witnesses.
 - `memory.per_player` — alive/role status, last-seen room, near-body
@@ -425,9 +429,9 @@ During meetings, the snapshot (`snapshot.nim`) includes:
 - Standard fields: visible players, task state, self state.
 
 The LLM uses this to decide what to say (chat) and who to vote for.
-The mode's scratch state (cursor position, pending actions, vote
-status) is not exposed — the LLM generates actions based on game
-state, not cursor mechanics.
+The LLM still does not receive raw scratch state, but it does receive
+the compact `current_mode.summary` so it can see whether a vote is
+already pending or confirmed and whether cursor movement is underway.
 
 ---
 

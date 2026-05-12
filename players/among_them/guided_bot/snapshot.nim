@@ -54,6 +54,53 @@ proc sourceStr(source: DirectiveSource): string =
   of SourceLlm:     "llm"
   of SourceReflex:  "reflex"
 
+proc taskTargetToJson(target: TaskTarget): JsonNode =
+  result = newJObject()
+  case target.kind
+  of TgtIndex:
+    result["kind"] = newJString("index")
+    result["task_index"] = newJInt(target.taskIndex)
+  of TgtNearestMandatory:
+    result["kind"] = newJString("nearest_mandatory")
+  of TgtNearestAny:
+    result["kind"] = newJString("nearest_any")
+  of TgtSpecificRoom:
+    result["kind"] = newJString("specific_room")
+    result["room_id"] = newJInt(target.roomId)
+
+proc paramsToJson(params: ModeParams): JsonNode =
+  result = newJObject()
+  case params.mode
+  of ModeIdle:
+    result["near_group"] = newJBool(params.idleNearGroup)
+    if params.idleLingerValid:
+      result["linger_at"] = %*[params.idleLingerAt.x, params.idleLingerAt.y]
+  of ModeTaskCompleting:
+    result["target"] = taskTargetToJson(params.tcTarget)
+    result["abandon_on_nearby_body"] = newJBool(params.tcAbandonOnNearbyBody)
+  of ModeReporting:
+    result["body_location"] = %*[params.repBodyLocation.x,
+                                  params.repBodyLocation.y]
+  of ModePretending:
+    result["target"] = taskTargetToJson(params.preTarget)
+    result["loiter_ticks"] = newJInt(params.preLoiterTicks)
+    result["may_swap_on_witness"] = newJBool(params.preMaySwapOnWitness)
+  of ModeHunting:
+    result["preferred_target"] = newJInt(params.huntPreferredTarget)
+    result["max_witnesses"] = newJInt(params.huntMaxWitnesses)
+    result["opportunistic"] = newJBool(params.huntOpportunistic)
+    result["cover_mode"] = newJString(modeStr(params.huntCoverMode))
+  of ModeFleeing:
+    result["away_from"] = %*[params.fleeAwayFrom.x, params.fleeAwayFrom.y]
+    result["min_distance"] = newJInt(params.fleeMinDistance)
+    result["duration_ticks"] = newJInt(params.fleeDurationTicks)
+  of ModeAlibiBuilding:
+    result["companion_color"] = newJInt(params.aliCompanionColor)
+    result["room_id"] = newJInt(params.aliRoomId)
+    result["min_duration_ticks"] = newJInt(params.aliMinDurationTicks)
+  of ModeMeeting:
+    result["want_to_speak_first"] = newJBool(params.meetWantToSpeakFirst)
+
 proc colorName(idx: int): string =
   ## Safe colour-name lookup; returns "unknown" for out-of-range indices.
   if idx >= 0 and idx < PaletteColorTableSize:
@@ -98,7 +145,7 @@ proc voteChoiceName(target: int): string =
 # Public API
 # ---------------------------------------------------------------------------
 
-proc renderSnapshot*(belief: Belief): string =
+proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
   ## Render the curated belief snapshot as JSON per DESIGN.md §8.3.
   ## Returns a compact JSON string.
   var root = newJObject()
@@ -136,6 +183,9 @@ proc renderSnapshot*(belief: Belief): string =
     else:
       0
   )
+  modeObj["params"] = paramsToJson(belief.directive.params)
+  if modeSummary != nil:
+    modeObj["summary"] = modeSummary
   root["current_mode"] = modeObj
 
   # --- visible_now ---

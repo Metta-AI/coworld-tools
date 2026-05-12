@@ -5,7 +5,7 @@
 > 2026-05-01. Update this file as items are completed or priorities
 > shift.
 >
-> Last reviewed: 2026-05-10
+> Last reviewed: 2026-05-12
 
 ---
 
@@ -21,10 +21,10 @@ implementation guidance.
 
 ## Context
 
-Phases 1–5 built the full perception pipeline, action layer, 6 mode
-handlers + 4 reflexes, LLM guidance loop, trace writer, and fallback
-playability. The bot navigates to a task station and holds A — but
-never detects completion and never moves on.
+Phases 1–6 built the full perception pipeline, action layer, gameplay
+and meeting mode handlers, reflex system, LLM guidance loop, trace
+writer, task lifecycle, meeting chat/vote control, and fallback
+playability.
 
 A deep audit of all 11 mode handlers revealed that several are
 incomplete or stubs. This plan organises the remaining work by
@@ -39,19 +39,10 @@ path produce correct behavior end-to-end.
 
 ### 6.1 `task_completing` — hold lifecycle + completion detection (P0)
 
-The single biggest gameplay improvement. The bot currently spends 75%
-of a match holding A at one station.
+**Status:** Done. See [`TASK_COMPLETING_DESIGN.md`](TASK_COMPLETING_DESIGN.md)
+for the current behavior.
 
-**What exists:** target selection (icon-based + nearest fallback),
-waypoint navigation to station, enter `DisciplineTaskHold` on
-arrival.
-
-**What's missing:** The mode has no lifecycle after arriving at the
-station. It holds A forever — no hold-duration cap, no
-icon-disappearance detection, no target unlock/re-selection.
-
-**Proposed fix — 3-phase lifecycle (from the legacy bot's historical
-pattern):**
+The mode uses a 3-phase lifecycle:
 
 | Sub-phase | Duration | Behavior | Exit condition |
 |---|---|---|---|
@@ -74,11 +65,10 @@ New tuning constants:
 - `TaskConfirmWindowTicks = 48`
 - `TaskIconMissCompleteTicks = 4`
 
-**Selection quality improvements (same change):**
-- Only lock targets where icon or radar evidence exists.
-- Add radar-dot → task station mapping as second-tier selection
-  between icon-visible and pure-nearest fallback.
-- Hold timeout as backstop for unassigned stations.
+Selection uses icon evidence, checkout evidence, geometry fallback, and
+LLM-directed targets (`TgtIndex`, `TgtNearestAny`, `TgtSpecificRoom`,
+or default `TgtNearestMandatory`). `tcAbandonOnNearbyBody` now gates the
+body-report reflex.
 
 **Diagnostic note:** The original root-cause analysis and hypothesis
 set was in the former `FIX_PLAN.md` (removed). The task-completion
@@ -141,67 +131,29 @@ strategy are implemented; LLM-quality iteration remains.
 
 ### 6.4 `hunting` — cover rotation + target memory (P2)
 
-**What exists:** preferred-target pursuit, opportunistic lone-crew
-kill, `DisciplineKillStrike`.
+**Status:** Done. See [`HUNTING_DESIGN.md`](HUNTING_DESIGN.md) for the
+current behavior.
 
-**What's missing:**
-- Cover behavior always walks to the nearest task station and stands
-  there (no rotation, no loiter, no fake A-press). Visually
-  suspicious.
-- `hunLastSightingTick` is set but never read — no "last seen at X,
-  go check" behavior. Once a target leaves the screen, pursuit drops
-  immediately.
-- No kill confirmation after pressing A.
-
-**Fix:**
-- Delegate cover behavior to `pretending`'s station-rotation logic
-  (or inline a similar pattern with loiter + rotation).
-- Add short-term target memory: if the preferred target was visible
-  N ticks ago, steer toward its last-known position before dropping
-  to cover.
-- After a kill-strike attempt, check whether visible crewmate count
-  decreased (kill landed) or whether kill cooldown reset. If missed,
-  re-attempt if still in range.
+Hunting now has preferred-target pursuit, opportunistic lone-crew kills,
+last-seen target memory, kill confirmation, post-kill state, and
+task-station cover behavior. `cover_mode: pretending` keeps the built-in
+cover patrol active; `cover_mode: idle` suppresses cover movement.
 
 ### 6.5 `pretending` — fake A-press + witness swap (P2)
 
-**Design doc:** [`PRETENDING_DESIGN.md`](PRETENDING_DESIGN.md).
+**Status:** Done. See [`PRETENDING_DESIGN.md`](PRETENDING_DESIGN.md) for
+the current behavior.
 
-**What exists:** Station-to-station rotation with loiter timer.
-
-**What's missing:**
-- Never presses A during loiter — a crewmate would be visibly
-  interacting with the station. Behavioral tell.
-- `preMaySwapOnWitness` param exists but is never checked.
-
-**Fix (see design doc for full spec):**
-- Split loiter into fake-hold sub-phase (`PreFakeHoldTicks` = 60,
-  `DisciplineTaskHold`) followed by a linger sub-phase (`noOpIntent`).
-- Check `visibleCrewmates.len` during loiter. If a new crewmate
-  appears and `preMaySwapOnWitness` is true, end loiter early and
-  re-select a new station.
-- New scratch fields: `preFakeHoldUntilTick`, `preWitnessSwapped`.
-- New tuning constant: `PreFakeHoldTicks = 60`.
+Pretending now supports LLM-directed fake-task targets, fake A-hold,
+linger, and `preMaySwapOnWitness` witness-swap behavior.
 
 ### 6.6 `fleeing` — minor cleanup (P3)
 
-**Design doc:** [`FLEEING_DESIGN.md`](FLEEING_DESIGN.md).
+**Status:** Done. See [`FLEEING_DESIGN.md`](FLEEING_DESIGN.md) for the
+current behavior.
 
-**What exists:** Steers away from body for duration/distance.
-
-**Issues:**
-- Returns `noOpIntent()` when done (stands still until TTL expires).
-- Flee target can land in a wall.
-
-**Fix (see design doc for full spec):**
-- When flee timer expires or distance reached, pick a cover station
-  (away from the body) and navigate there via `DisciplineNormal`.
-  Eliminates idle gap.
-- Snap the flee target to passable terrain via `snapToPassable`
-  before feeding it to the action layer, giving navigation a valid
-  goal.
-- New scratch fields: `fleeCoverTargetX`, `fleeCoverTargetY`,
-  `fleeCoverSet`.
+Fleeing snaps flee targets to passable terrain, then transitions to a
+cover station after duration or distance requirements are met.
 
 ### 6.7 Reflex scope — widen body reflexes (P3)
 

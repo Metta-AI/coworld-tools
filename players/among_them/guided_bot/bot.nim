@@ -215,7 +215,11 @@ proc shouldSubmitSnapshot(bot: Bot): bool =
 
 proc submitGuidanceSnapshot(bot: var Bot) =
   ## Render and submit a belief snapshot to the guidance worker.
-  let payloadJson = renderSnapshot(bot.belief)
+  let modeSummary = summarizeForLlm(bot.belief.directive.mode,
+                                    bot.belief,
+                                    bot.belief.directive.params,
+                                    bot.modeScratch)
+  let payloadJson = renderSnapshot(bot.belief, modeSummary)
   let isMeeting = bot.belief.self.phase == PhaseVoting
   let snap = Snapshot(
     tick: bot.belief.tick,
@@ -820,7 +824,11 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
   # applyIntent so the final button mask is included in the trace.
   if bot.trace != nil:
     logDecision(bot.trace, bot.belief, intent, "", bot.actionState, mask)
-    logSnapshot(bot.trace, bot.belief.tick, bot.belief)
+    let modeSummary = summarizeForLlm(bot.belief.directive.mode,
+                                      bot.belief,
+                                      bot.belief.directive.params,
+                                      bot.modeScratch)
+    logSnapshot(bot.trace, bot.belief.tick, bot.belief, modeSummary)
 
   bot.lastMask = mask
   mask

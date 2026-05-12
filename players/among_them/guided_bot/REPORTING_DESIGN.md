@@ -4,9 +4,9 @@
 > reporting-mode design details live here; `DESIGN.md` contains only a
 > brief overview and cross-reference.
 >
-> **Implementation:** `modes/reporting.nim` (136 LOC)
+> **Implementation:** `modes/reporting.nim`
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-12
 
 ---
 
@@ -293,17 +293,15 @@ the action layer emits no buttons.
 
 ## 13. LLM snapshot context
 
-The reporting mode's internal scratch state is **not** directly
-included in LLM snapshots. The LLM sees:
+Reporting exposes a compact mode summary in LLM snapshots. The LLM sees:
 
-- `current_mode: { "name": "reporting", "source": "reflex", "ticks_active": <int> }`
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including the body location.
+- `current_mode.summary`, including report target, ticks in mode,
+  A-press range status, miss count, give-up state, and current distance
+  from the body.
 - Perception data (visible bodies, crewmates).
 - Memory (per-player summaries).
-
-The LLM knows the bot is in reporting mode and for how long, but
-doesn't see the give-up counters or range-reached flag. A future
-`summarize_for_llm` hook could expose "I've been trying to report for
-N ticks without success" — deferred.
 
 ---
 

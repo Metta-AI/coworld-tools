@@ -641,7 +641,10 @@ proc parseDirectiveFromJson(raw: string): (bool, Directive) =
                 pNode["opportunistic"].getBool(true) else: true
     let cover = if pNode.hasKey("cover_mode"):
                   let (ok, m) = parseModeNameStr(pNode["cover_mode"].getStr("pretending"))
-                  if ok: m else: ModePretending
+                  if ok and (m == ModePretending or m == ModeIdle):
+                    m
+                  else:
+                    ModePretending
                 else: ModePretending
     params = ModeParams(mode: ModeHunting,
                        huntPreferredTarget: pref, huntMaxWitnesses: maxW,

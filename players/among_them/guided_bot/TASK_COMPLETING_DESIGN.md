@@ -50,8 +50,8 @@ task_completing {
 TaskTargetKind = enum
   TgtIndex              # Go to a specific station index.
   TgtNearestMandatory   # Tiered selection (default path).
-  TgtNearestAny         # Same as NearestMandatory (reserved for future use).
-  TgtSpecificRoom       # Go to a task in a specific room (reserved).
+  TgtNearestAny         # Nearest available unfinished station.
+  TgtSpecificRoom       # Nearest available unfinished station in a room.
 
 TaskTarget = object
   kind: TaskTargetKind
@@ -353,10 +353,13 @@ the lock is broken immediately regardless of the commit window.
 
 ### 6.3 LLM-directed targets
 
-When the LLM provides `tcTarget.kind == TgtIndex`, the mode locks
-that station directly (skipping tier selection). The tier system is
-the fallback path, used by the default directive
-(`TgtNearestMandatory`) and when the LLM-specified target is invalid.
+When the LLM provides `tcTarget.kind == TgtIndex`, the mode locks that
+station directly (skipping tier selection) if the station is available.
+`TgtNearestAny` chooses the nearest available unfinished station.
+`TgtSpecificRoom` chooses the nearest available unfinished station whose
+passable centre is inside the requested room. The tier system is the
+fallback path, used by the default directive (`TgtNearestMandatory`) and
+when the LLM-specified target is invalid.
 
 ---
 
@@ -500,12 +503,10 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 | `body_newly_in_view` (body count increased) AND crewmate, alive, not ghost | `reporting` | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
 
 This reflex fires when a new body appears in the field of view
-(`reflex.nim`). It computes the body's world position from
-screen coords + camera offset and creates a reporting directive. The
-mode's `tcAbandonOnNearbyBody` param doesn't gate the reflex directly
-— the reflex checks `belief.self.role == RoleCrewmate and alive and
-not isGhost` independently. The param exists for future LLM-level
-control.
+(`reflex.nim`). It computes the body's world position from screen coords
++ camera offset and creates a reporting directive. The mode's
+`tcAbandonOnNearbyBody` param gates this reflex, alongside the structural
+checks that the bot is a living non-ghost crewmate.
 
 ### 12.2 Incoming reflexes (other modes → task_completing)
 
@@ -625,10 +626,12 @@ The task state is included in LLM snapshots via `snapshot.nim`:
 }
 ```
 
-The LLM sees per-station evidence state but not the mode's internal
-scratch (phase, hold remaining, confirm countdown). It sees:
+The LLM sees per-station evidence state plus the active mode params and
+summary. For `task_completing`, `current_mode.summary` includes phase,
+directed target kind/index or room, locked task, selection tier, hold
+remaining, and confirm countdown where applicable. It also sees:
 
-- `current_mode: { "name": "task_completing", "source": "default" | "llm" | "reflex", "ticks_active": <int> }`
+- `current_mode: { "name": "task_completing", "params": {...}, "summary": {...}, "source": "default" | "llm" | "reflex", "ticks_active": <int> }`
 - The full perception data (visible crewmates, bodies, task icons).
 - Memory (per-player summaries).
 
@@ -658,12 +661,7 @@ the server's check — no margin).
    is traced). Adding a `"reason": "confirm_timeout"` event would aid
    offline analysis of false-positive task assignments.
 
-2. **LLM-directed target implementation.** The `TgtIndex` path exists
-   in the parameter schema but the mode's `selectTarget` always runs
-   the tier system. A future version should check `params.tcTarget.kind`
-   before falling through to tier selection.
-
-3. **Task icon count in snapshots.** The snapshot currently renders an
+2. **Task icon count in snapshots.** The snapshot currently renders an
    empty `task_icons_on_screen` array (the icon-to-task-index mapping
    is not carried on `IconMatch`). Enriching this would give the LLM
    direct visibility into which icons are currently on screen.

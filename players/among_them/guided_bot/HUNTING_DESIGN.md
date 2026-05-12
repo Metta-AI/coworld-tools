@@ -6,7 +6,7 @@
 >
 > **Implementation:** `modes/hunting.nim`
 >
-> Last updated: 2026-05-08
+> Last updated: 2026-05-12
 
 ---
 
@@ -42,9 +42,8 @@ hunting {
   preferred_target: color_index | -1   # -1 = no specific target
   max_witnesses: int                   # refuse kill if > N non-target crewmates visible
   opportunistic: bool                  # if no preferred target, take any isolated crew
-  cover_mode: "pretending" | "idle"    # behavior while patrolling (currently unused
-                                       #   by the mode — reserved for future cover
-                                       #   behavior that delegates to another mode)
+  cover_mode: "pretending" | "idle"    # pretending = task-station cover patrol;
+                                       # idle = suppress cover movement
 }
 ```
 
@@ -81,14 +80,17 @@ of ModeHunting:
 4. **Target memory** — if a target was recently visible (within
    `HuntMemoryTicks`), steer toward their last-known position with
    `DisciplineNormal`.
-5. **Cover patrol** — patrol between task stations, loitering briefly
-   at each, to encounter isolated crewmates.
+5. **Cover behavior** — if `cover_mode: pretending`, patrol between
+   task stations and loiter briefly at each to encounter isolated
+   crewmates. If `cover_mode: idle`, emit `noOpIntent()` instead of
+   selecting a cover station.
 
 Steps 2–3 also record the strike state when the bot enters kill range,
 starting the confirmation timer.
 
-The mode emits `noOpIntent()` when not localized (no camera lock) or
-when loitering at a cover station.
+The mode emits `noOpIntent()` when not localized (no camera lock), when
+loitering at a cover station, or when `cover_mode: idle` reaches the
+cover phase.
 
 ---
 
@@ -231,12 +233,17 @@ Using body-appearance and cooldown-reset avoids false positives:
 
 ---
 
-## 7. Cover patrol
+## 7. Cover behavior
 
 When no kill target is available and no memory pursuit is active, the
-mode patrols between task stations:
+mode follows `params.huntCoverMode`:
+
+- `ModePretending` (default): patrol between task stations.
+- `ModeIdle`: clear any cover target and emit `noOpIntent()`.
 
 ### 7.1 Station selection (`pickCoverStation`)
+
+Runs only when `huntCoverMode == ModePretending`.
 
 Picks a station that is:
 - Not the current station (`idx != currentIdx`).
@@ -445,34 +452,33 @@ layer's responsibility based on the discipline hint.
 
 ## 14. LLM snapshot context
 
-The hunting mode's internal scratch state is **not** included in LLM
-snapshots (per `DESIGN.md` §5.6). The LLM sees:
+Hunting exposes a compact mode summary in LLM snapshots:
 
-- `current_mode: "hunting"` with the active params.
-- `ticks_active`: how long hunting has been running.
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including preferred target, witness limit,
+  opportunistic flag, and cover mode.
+- `current_mode.summary`, including phase, reason, active/preferred
+  target, last sighting, cover target/index/name/room, cover loiter
+  remaining, strike state, and kill-confirmation state.
 - Perception data (visible crewmates, bodies, kill cooldown).
 - Memory (per-player summaries, body events).
 
-A future `summarize_for_llm` hook could expose information like "I've
-been stalking red for 200 ticks without a kill" — deferred.
+The LLM uses this to distinguish "I am closing on a target", "I am
+patrolling cover", "I am idling because cover_mode is idle", and "I am
+waiting for kill confirmation" without reading raw mode scratch.
 
 ---
 
 ## 15. Open questions
 
-1. **Self-kill fleeing.** The `hunting → fleeing` reflex fires on any
-   new body, including ones the imposter just created. A refinement
-   could suppress the reflex for ~1s after a `kill_confirmed` event.
-   Low priority — fleeing after a kill is actually reasonable behavior
-   (don't linger at the scene).
+1. **Self-kill fleeing.** `reflex.nim` now remembers known body world
+   positions and suppresses repeated fleeing from the same corpse,
+   including bodies observed during hunting strike/post-kill handling.
+   First-time fleeing from an ambiguous corpse can still be acceptable
+   cover behavior. If traces show post-kill time loss, tune hunting's
+   post-kill plan before weakening the general body reflex.
 
-2. **Cover mode delegation.** The `cover_mode` parameter exists but is
-   currently unused — the cover behavior is always the built-in
-   station-to-station patrol. A future version could delegate to
-   `pretending.decide()` or `idle.decide()` during the cover phase,
-   selected by this param. Deferred.
-
-3. **Kill confirmation trace richness.** The `kill_confirmed` trace
+2. **Kill confirmation trace richness.** The `kill_confirmed` trace
    event currently only emits `target_color`. Adding
    `ticks_since_strike` and `body_distance` would aid offline analysis.
    Low priority.

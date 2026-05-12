@@ -4,9 +4,9 @@
 > design details live here; `DESIGN.md` contains only a brief overview
 > and cross-reference.
 >
-> **Implementation:** `modes/idle.nim` (77 LOC)
+> **Implementation:** `modes/idle.nim`
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-12
 
 ---
 
@@ -41,9 +41,9 @@ unconditionally (`modes/idle.nim:17-19`). Any role, any phase.
 
 ```text
 idle {
-  idleLingerAt: Point     # Reserved for future "linger at a spot" behavior.
+  idleLingerAt: Point     # Optional localized linger point.
   idleLingerValid: bool   # Whether idleLingerAt is meaningful.
-  idleNearGroup: bool     # Hint: prefer moving toward visible players.
+  idleNearGroup: bool     # Prefer moving toward visible players.
 }
 ```
 
@@ -59,9 +59,11 @@ of ModeIdle:
 - `idleLingerValid: false` (no linger point)
 - `idleNearGroup: true`
 
-**Note:** `decide()` currently ignores all params — behavior is
-purely tick-based wandering. The params exist for future LLM-directed
-idle behavior (e.g. "stay near this group" or "wait at this location").
+When localized, `decide()` consumes these params: `idleNearGroup` steers
+toward the first visible crewmate, and `idleLingerValid` steers toward
+`idleLingerAt` when no group target is selected. Before localization,
+the mode still uses tick-based wandering because world-space targets are
+not yet meaningful.
 
 ---
 
@@ -71,8 +73,9 @@ idle behavior (e.g. "stay near this group" or "wait at this location").
 
 1. **Interstitial** — during voting screens, role reveals, or
    game-over: emit `noOpIntent()`. No useful movement is possible.
-2. **Localized** — steer toward map centre (`MapWidth/2, MapHeight/2`)
-   with `DisciplineWander`.
+2. **Localized** — steer toward a visible crewmate when `idleNearGroup`
+   is true and one is visible; otherwise steer to `idleLingerAt` when
+   valid; otherwise steer toward map centre (`MapWidth/2, MapHeight/2`).
 3. **Not localized** — cycle through cardinal directions (up, right,
    down, left) every `IdleWanderPeriod` (36) ticks, with
    `DisciplineWander` and `steerValid: false`.
@@ -185,15 +188,20 @@ uses it.
 
 ---
 
-## 10. Open questions
+## 10. LLM snapshot context
 
-1. **Parameter utilization.** `idleLingerAt`, `idleLingerValid`, and
-   `idleNearGroup` are declared but never read by `decide()`. If
-   these are never implemented, they should be removed to reduce dead
-   surface area. If they're planned for LLM-directed idle behavior,
-   the implementation is deferred.
+Idle exposes a compact mode summary in LLM snapshots:
 
-2. **Post-localization discipline choice.** Once localized, the mode
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including linger point and near-group flag.
+- `current_mode.summary`, including localization/interstitial status,
+  linger validity, near-group flag, and ticks in mode.
+
+---
+
+## 11. Open questions
+
+1. **Post-localization discipline choice.** Once localized, the mode
    could use `DisciplineNormal` (waypoint-backed) instead of
    `DisciplineWander` for more reliable navigation. However, idle
    only runs for a few frames post-localization before the role

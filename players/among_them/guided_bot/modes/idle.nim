@@ -7,10 +7,12 @@
 ## (imposter), so this mode only runs for the first few frames.
 ## See DESIGN.md §5.4.
 
+import std/json
 import ../types
 import ../action
 import ../tuning
 import ../perception/data
+import ../perception/geometry
 
 const Name* = ModeIdle
 
@@ -35,8 +37,6 @@ proc onExit*(belief: Belief, scratch: var ModeScratch) =
 
 proc decide*(belief: Belief, params: ModeParams,
              scratch: var ModeScratch): ActionIntent =
-  discard params
-
   # During interstitials (voting screens, role reveals, game-over),
   # there's nothing to move toward — emit noop.
   if belief.percep.interstitial:
@@ -50,9 +50,15 @@ proc decide*(belief: Belief, params: ModeParams,
   let dirPhase = (elapsed div IdleWanderPeriod) mod 4
 
   if belief.percep.localized:
-    # Steer toward the map centre.
-    let goalX = MapWidth div 2
-    let goalY = MapHeight div 2
+    var goalX = MapWidth div 2
+    var goalY = MapHeight div 2
+    if params.idleNearGroup and belief.percep.visibleCrewmates.len > 0:
+      let cm = belief.percep.visibleCrewmates[0]
+      goalX = visibleCrewmateWorldX(belief.percep.cameraX, cm.x)
+      goalY = visibleCrewmateWorldY(belief.percep.cameraY, cm.y)
+    elif params.idleLingerValid:
+      goalX = params.idleLingerAt.x
+      goalY = params.idleLingerAt.y
     return ActionIntent(
       steerTo: Point(x: goalX, y: goalY),
       steerValid: true,
@@ -75,3 +81,15 @@ proc decide*(belief: Belief, params: ModeParams,
     chat: "",
     discipline: DisciplineWander
   )
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("idle_or_pre_role_wander")
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.idleEnterTick))
+  result["localized"] = newJBool(belief.percep.localized)
+  result["interstitial"] = newJBool(belief.percep.interstitial)
+  result["linger_valid"] = newJBool(params.idleLingerValid)
+  if params.idleLingerValid:
+    result["linger_at"] = %*[params.idleLingerAt.x, params.idleLingerAt.y]
+  result["near_group"] = newJBool(params.idleNearGroup)

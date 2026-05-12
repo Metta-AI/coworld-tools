@@ -2,12 +2,14 @@
 ##
 ## The single extension point for behavior. Adding a new mode is:
 ##   1. Add a variant to `ModeName` in `types.nim` (append; don't reorder).
-##   2. Add a `modes/<name>.nim` file implementing the five-proc interface
-##      (`isLegalFor`, `defaultParamsFor`, `onEnter`, `onExit`, `decide`).
+##   2. Add a `modes/<name>.nim` file implementing the six-proc interface
+##      (`isLegalFor`, `defaultParamsFor`, `onEnter`, `onExit`, `decide`,
+##      `summarizeForLlm`).
 ##   3. Add one import + one `case` arm below.
 ##
 ## No other file needs to change. Per DESIGN.md §5.2.
 
+import std/json
 import types
 import modes/idle
 import modes/task_completing
@@ -74,6 +76,18 @@ proc decide*(mode: ModeName, belief: Belief, params: ModeParams,
   of ModeFleeing:          fleeing.decide(belief, params, scratch)
   of ModeAlibiBuilding:    alibi_building.decide(belief, params, scratch)
   of ModeMeeting:          meeting.decide(belief, params, scratch)
+
+proc summarizeForLlm*(mode: ModeName, belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  case mode
+  of ModeIdle:             idle.summarizeForLlm(belief, params, scratch)
+  of ModeTaskCompleting:   task_completing.summarizeForLlm(belief, params, scratch)
+  of ModeReporting:        reporting.summarizeForLlm(belief, params, scratch)
+  of ModePretending:       pretending.summarizeForLlm(belief, params, scratch)
+  of ModeHunting:          hunting.summarizeForLlm(belief, params, scratch)
+  of ModeFleeing:          fleeing.summarizeForLlm(belief, params, scratch)
+  of ModeAlibiBuilding:    alibi_building.summarizeForLlm(belief, params, scratch)
+  of ModeMeeting:          meeting.summarizeForLlm(belief, params, scratch)
 
 proc defaultDirectiveFor*(belief: Belief): Directive =
   ## Per-role default used when no LLM directive is available (see

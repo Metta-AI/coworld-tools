@@ -35,15 +35,18 @@ Upload the image-backed policy without submitting it to a season:
 ```sh
 export POLICY_NAME=$USER-guided-bot-coworld-$(date +%Y%m%d-%H%M%S)
 
-../.venv/bin/cogames coworld upload-policy "$IMAGE" \
-  --name "$POLICY_NAME" \
-  --use-bedrock \
-  --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0
+PYTHONPATH=/Users/jamesboggs/coding/metta/packages/coworld/src:/Users/jamesboggs/coding/metta/packages/softmax-cli/src \
+  /Users/jamesboggs/coding/metta/.venv/bin/python -m coworld upload-policy "$IMAGE" \
+  --name "$POLICY_NAME"
 ```
 
 Then submit that uploaded policy version through the private Softmax website. To
 verify a policy upload, query the policy name you passed to `--name`; the latest
 version must have a non-null `container_image_id`.
+
+The Coworld policy upload API currently does not expose the older cogames
+`--use-bedrock` / `--secret-env` flags. Without runtime credentials, guided_bot
+falls back to non-LLM behavior instead of failing startup.
 
 On 2026-05-11, Docker 29 on macOS pushed the ECR layers but failed the
 standard `cogames coworld upload-policy` path with a registry `HEAD` 403
@@ -51,9 +54,16 @@ when writing the final manifest. The accepted workaround was to push the
 `docker image save` tarball with `gcr.io/go-containerregistry/crane:debug`
 using the same temporary ECR credentials from `/v2/container_images/upload`,
 then call `/v2/container_images/upload/complete` and
-`/stats/policies/docker-img/complete`. The completed policy was
-`jamesboggs-guided-bot-coworld-20260511-120701:v1` with
-`container_image_id=img_3e711452-85e4-4679-9df2-98c387ca7105`.
+`/stats/policies/docker-img/complete`.
+
+Do not reuse the earlier `jamesboggs-guided-bot-coworld-20260511-120701`
+ECR/local tags; later smoke checks found those image tags lacked
+`/bin/guided_bot`. The verified 2026-05-11 upload was
+`jamesboggs-guided-bot-coworld-20260511-142920:v1`, with
+`container_image_id=img_e621b15a-84f0-4230-8a3c-37990afd7a35`,
+policy version `29c89f00-03c2-4a04-aa87-35f1b56a40a2`, and Among Them Daily
+submission `sub_3cc0fa25-c436-4b46-a4a3-f2b1a06ebad1` placed as
+`lpm_ed695228-4241-4c28-b16c-c9372462b133`.
 
 ## Runtime
 

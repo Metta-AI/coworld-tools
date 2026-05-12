@@ -17,6 +17,7 @@
 ##   - Success is detected by reflex 4 (voting_screen_appeared), which
 ##     fires automatically when the server starts a meeting.
 
+import std/json
 import ../types
 import ../action
 import ../tuning
@@ -134,3 +135,20 @@ proc decide*(belief: Belief, params: ModeParams,
     chat: "",
     discipline: DisciplineReport
   )
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("reporting_body")
+  result["body_location"] = %*[params.repBodyLocation.x, params.repBodyLocation.y]
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.repEnterTick))
+  result["body_miss_count"] = newJInt(scratch.repBodyMissCount)
+  result["reached_range"] = newJBool(scratch.repReachedRange)
+  result["in_range_ticks"] = newJInt(scratch.repInRangeTicks)
+  result["gave_up"] = newJBool(scratch.repGaveUp)
+  if scratch.repGaveUpReason.len > 0:
+    result["gave_up_reason"] = newJString(scratch.repGaveUpReason)
+  if belief.percep.localized:
+    result["distance_to_body"] = newJInt(
+      heuristic(belief.percep.selfX, belief.percep.selfY,
+                params.repBodyLocation.x, params.repBodyLocation.y))

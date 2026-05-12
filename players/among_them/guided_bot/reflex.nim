@@ -16,6 +16,8 @@ import types
 import tuning
 import perception/geometry
 
+const KnownBodyMatchRadius = 30
+
 # ---------------------------------------------------------------------------
 # Reflex state — tracks cooldowns and edge-trigger memory
 # ---------------------------------------------------------------------------
@@ -27,6 +29,7 @@ type
     lastBodyFleeTick*: int
     lastOpportunisticKillTick*: int
     lastVotingTick*: int
+    knownBodyPositions*: seq[Point]
     ## Edge-trigger memory: previous frame's values.
     prevBodyCount*: int
     prevPhase*: GamePhase
@@ -37,6 +40,7 @@ proc initReflexState*(): ReflexState =
     lastBodyFleeTick: -1000,
     lastOpportunisticKillTick: -1000,
     lastVotingTick: -1000,
+    knownBodyPositions: @[],
     prevBodyCount: 0,
     prevPhase: PhaseUnknown
   )
@@ -53,6 +57,42 @@ type
     newDirective*: Directive
     reflexName*: string
 
+proc bodyWorldPosition(belief: Belief, body: BodyMatch): Point =
+  Point(
+    x: visibleCrewmateWorldX(belief.percep.cameraX, body.x),
+    y: visibleCrewmateWorldY(belief.percep.cameraY, body.y))
+
+proc isKnownBody(reflexState: ReflexState, pos: Point): bool =
+  for known in reflexState.knownBodyPositions:
+    if heuristic(known.x, known.y, pos.x, pos.y) <= KnownBodyMatchRadius:
+      return true
+  false
+
+proc rememberBody(reflexState: var ReflexState, pos: Point) =
+  if reflexState.isKnownBody(pos):
+    return
+  reflexState.knownBodyPositions.add pos
+
+proc rememberVisibleBodies(reflexState: var ReflexState, belief: Belief) =
+  for body in belief.percep.visibleBodies:
+    reflexState.rememberBody(belief.bodyWorldPosition(body))
+
+proc firstUnknownVisibleBody(
+    belief: Belief,
+    reflexState: ReflexState): tuple[found: bool, pos: Point] =
+  for body in belief.percep.visibleBodies:
+    let pos = belief.bodyWorldPosition(body)
+    if not reflexState.isKnownBody(pos):
+      return (true, pos)
+  (false, Point(x: 0, y: 0))
+
+proc shouldClearKnownBodies(prevPhase, phase: GamePhase): bool =
+  if phase == PhaseVoting or phase == PhaseGameOver:
+    return true
+  phase == PhaseGameplay and
+    (prevPhase == PhaseVoting or prevPhase == PhaseGameOver or
+     prevPhase == PhaseLobby)
+
 proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
                        scratch: ModeScratch): ReflexResult =
   ## Check all reflex conditions against the current belief. Returns
@@ -62,6 +102,9 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
   let tick = belief.tick
   let mode = belief.directive.mode
   result.fired = false
+
+  if shouldClearKnownBodies(reflexState.prevPhase, belief.self.phase):
+    reflexState.knownBodyPositions.setLen(0)
 
   # --- Reflex 4: voting_screen_appeared → meeting ---
   # Highest priority — always fires regardless of current mode.
@@ -94,6 +137,7 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
      belief.self.role == RoleCrewmate and
      belief.self.alive and
      not belief.self.isGhost and
+     belief.directive.params.tcAbandonOnNearbyBody and
      newBodySeen and
      tick - reflexState.lastBodyReportTick > ReflexCooldownTicks:
     # Compute body world position for the reporting mode's target.
@@ -125,20 +169,24 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
 
   if mode == ModeHunting and
      belief.self.role == RoleImposter and
+     huntingAlreadyHandlingBody:
+    reflexState.rememberVisibleBodies(belief)
+
+  let unknownBody = firstUnknownVisibleBody(belief, reflexState)
+  if mode == ModeHunting and
+     belief.self.role == RoleImposter and
      belief.self.alive and
      not huntingAlreadyHandlingBody and
-     newBodySeen and
+     unknownBody.found and
      tick - reflexState.lastBodyFleeTick > ReflexCooldownTicks:
-    let body = belief.percep.visibleBodies[0]
-    let bodyWX = visibleCrewmateWorldX(belief.percep.cameraX, body.x)
-    let bodyWY = visibleCrewmateWorldY(belief.percep.cameraY, body.y)
+    reflexState.rememberVisibleBodies(belief)
     reflexState.lastBodyFleeTick = tick
     result.fired = true
     result.reflexName = "body_newly_in_view_flee"
     result.newDirective = Directive(
       mode: ModeFleeing,
       params: ModeParams(mode: ModeFleeing,
-                         fleeAwayFrom: Point(x: bodyWX, y: bodyWY),
+                         fleeAwayFrom: unknownBody.pos,
                          fleeMinDistance: 48,
                          fleeDurationTicks: 240),
       source: SourceReflex,

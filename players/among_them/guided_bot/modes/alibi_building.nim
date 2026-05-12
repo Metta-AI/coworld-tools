@@ -2,6 +2,7 @@
 ## crewmate and fakes tasks near them without losing sight of the
 ## companion.
 
+import std/json
 import ../types
 import ../action
 import ../tuning
@@ -115,12 +116,22 @@ proc stationNearTarget(stationIdx: int, target: Point): bool =
   heuristic(ts.passableCX, ts.passableCY, target.x, target.y) <=
     AlibiTaskNearTargetRadius
 
+proc stationInRoom(stationIdx, roomId: int): bool =
+  let map = referenceData.map
+  if stationIdx < 0 or stationIdx >= map.tasks.len or
+     roomId < 0 or roomId >= map.rooms.len:
+    return false
+  let ts = map.tasks[stationIdx]
+  roomNameAt(map, ts.passableCX, ts.passableCY) == map.rooms[roomId].name
+
 proc pickTaskNearCompanion(belief: Belief, selfX, selfY: int,
-                           target: Point): int =
+                           target: Point, roomId: int): int =
   let tasks = referenceData.map.tasks
   var bestScore = high(int)
   result = -1
   for i, ts in tasks:
+    if roomId >= 0 and not stationInRoom(i, roomId):
+      continue
     let targetDist = heuristic(ts.passableCX, ts.passableCY,
                                target.x, target.y)
     if targetDist > AlibiTaskNearTargetRadius:
@@ -190,7 +201,9 @@ proc decide*(belief: Belief, params: ModeParams,
     return moveIntent(target.x, target.y)
 
   if scratch.aliFakeTargetIndex >= 0 and
-     not stationNearTarget(scratch.aliFakeTargetIndex, target):
+     (not stationNearTarget(scratch.aliFakeTargetIndex, target) or
+      (params.aliRoomId >= 0 and
+       not stationInRoom(scratch.aliFakeTargetIndex, params.aliRoomId))):
     scratch.resetFakeTask()
 
   if scratch.aliFakeHoldUntilTick > 0 and
@@ -208,7 +221,7 @@ proc decide*(belief: Belief, params: ModeParams,
 
   if scratch.aliFakeTargetIndex < 0:
     scratch.aliFakeTargetIndex = pickTaskNearCompanion(
-      belief, selfX, selfY, target)
+      belief, selfX, selfY, target, params.aliRoomId)
 
   if scratch.aliFakeTargetIndex < 0:
     if distToTarget > AlibiFollowMaxDistance:
@@ -229,3 +242,31 @@ proc decide*(belief: Belief, params: ModeParams,
     return moveIntent(target.x, target.y)
 
   moveIntent(ts.passableCX, ts.passableCY)
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("building_alibi_with_companion")
+  result["directive_companion_color"] = newJInt(params.aliCompanionColor)
+  result["active_companion_color"] = newJInt(scratch.aliTargetColor)
+  result["requested_room_id"] = newJInt(params.aliRoomId)
+  if params.aliRoomId >= 0 and params.aliRoomId < referenceData.map.rooms.len:
+    result["requested_room"] =
+      newJString(referenceData.map.rooms[params.aliRoomId].name)
+  result["min_duration_ticks"] = newJInt(params.aliMinDurationTicks)
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.aliEnterTick))
+  if scratch.aliLastSeenTick >= 0:
+    result["last_seen_age_ticks"] =
+      newJInt(max(0, belief.tick - scratch.aliLastSeenTick))
+    result["last_seen_position"] = %*[scratch.aliLastSeenX, scratch.aliLastSeenY]
+  result["fake_target_index"] = newJInt(scratch.aliFakeTargetIndex)
+  if scratch.aliFakeTargetIndex >= 0 and
+     scratch.aliFakeTargetIndex < referenceData.map.tasks.len:
+    let ts = referenceData.map.tasks[scratch.aliFakeTargetIndex]
+    result["fake_target_name"] = newJString(ts.name)
+    result["fake_target_room"] =
+      newJString(roomNameAt(referenceData.map, ts.passableCX, ts.passableCY))
+  result["fake_hold_ticks_remaining"] =
+    newJInt(max(0, scratch.aliFakeHoldUntilTick - belief.tick))
+  result["loiter_ticks_remaining"] =
+    newJInt(max(0, scratch.aliLoiterUntilTick - belief.tick))

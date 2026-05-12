@@ -3,8 +3,12 @@
 Modular hybrid agent for Among Them with a fast scripted inner loop
 (per-tick perceive → update → decide → act) and a slower asynchronous
 LLM guidance loop that sets the active **mode** and its structured
-parameters. Modes are the primary extensibility surface; adding one
-is a new file plus one registry entry.
+parameters. Meeting chat and vote choice are LLM-controlled through a
+guarded action queue, while gameplay modes consume LLM params through
+their mode handlers. Per-mode scratch summaries are included in LLM
+snapshots so the model can see what the current mode is doing. Modes are
+the primary extensibility surface; adding one is a new file plus one
+registry entry.
 
 **Design doc:** [`DESIGN.md`](DESIGN.md). Load-bearing — read it before
 editing.
@@ -179,7 +183,9 @@ Voting parse: variable, dominated by chat OCR line count.
 
 In one sentence: an LLM sets strategic intent (mode + params) on a slow
 outer loop; a scripted inner loop runs modes whose decisions are a pure
-function of the shared belief state and their own scratch state.
+function of the shared belief state, current directive params, and their
+own scratch state. During meetings, the LLM gets a direct guarded action
+queue for one chat/vote action at a time.
 
 See DESIGN.md §5 (modes), §7 (meetings), §9 (fallback), §5.8 (reflexes).
 
@@ -255,6 +261,7 @@ guided_bot/
     fallback_test.nim       # phase-5 fallback-only playability
     navigation_test.nim     # waypoint graph/path loading and action wiring
     guidance_lifecycle_test.nim # guidance wake/reset lifecycle
+    mode_params_snapshot_test.nim # LLM mode params + current_mode.summary
     radar_exclusion_test.nim # radar/task exclusion interactions
     test_action_table.py    # Python: BITWORLD_ACTION_MASKS ordering guard
     fixtures/               # raw frame dumps for the fixture tests
@@ -344,6 +351,11 @@ nim c -r -d:release --threads:on --mm:orc \
 # reverse edge following, and ActionIntent wiring.
 nim c -r -d:release --threads:on --mm:orc \
     among_them/guided_bot/test/navigation_test.nim
+
+# Mode params + snapshots — LLM-selected mode params affect behavior and
+# current_mode.summary is exported for guidance.
+nim c -r -d:release --threads:on --mm:orc \
+    among_them/guided_bot/test/mode_params_snapshot_test.nim
 
 # Python — action-table ordering guard. Verifies BITWORLD_ACTION_MASKS
 # matches the canonical direction×modifier formula that ffi/lib.nim's
@@ -542,6 +554,7 @@ only ship `mettagrid` without the `bitworld` extra.
 | 2026-05-01 | jamesboggs-guided-bot-dryrun | beta-cvc (fallback) | import fixed, Nim build attempted | — |
 | 2026-05-11 | jamesboggs-guided-bot-20260511-115205:v1 | among-them | Docker dry-run built library, connected 8 players, completed 10-step episode; failed only known no-op gate, shipped with `--skip-validation` | pending |
 | 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-120701:v1 | none — Coworld image upload for private daily website | linux/amd64 Docker build passed; container smoke loaded `AmongThemPolicy` and stepped slot 3; image upload completed via `crane` after Docker 29 ECR `HEAD` failure | website submission pending |
+| 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-142920:v1 | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | linux/amd64 Docker build passed; smoke verified `/bin/guided_bot` and `(4, 128, 128)` pixel policy env; standard upload hit Docker 29 ECR `HEAD` 403 and completed via `crane` | placed (`lpm_ed695228-4241-4c28-b16c-c9372462b133`); score pending |
 
 ## Change log (recent)
 
@@ -650,9 +663,11 @@ incriminating/exculpatory evidence instead of a symbolic evidence veto.
   Trivial.
 - **LLM response formatting** — Claude still wraps otherwise valid JSON
   in code fences despite prompt instructions; the parser tolerates it.
-- **LLM strategy authority outside meetings** — `alibi_building` is now a
-  real imposter mode, but most non-meeting mode selection still falls back
-  to deterministic defaults when the LLM is slow or unavailable.
+- **LLM strategy authority outside meetings** — gameplay modes now consume
+  their existing directive params and expose per-mode scratch summaries in
+  snapshots. The remaining limitation is strategy quality: the inner loop
+  still uses deterministic handlers for tactical movement, timing, and
+  safety backstops.
 
 ### Lower-priority gaps (carried forward)
 

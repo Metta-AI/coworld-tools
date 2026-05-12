@@ -101,52 +101,7 @@ loop for hunting case.
 **Key code:** `reflex.nim` `body_newly_in_view_flee` branch,
 `modes/hunting.nim` kill-confirmation branch in `decide`
 
-#### 6. Expose mode scratches to LLM
-
-Per HUNTING_DESIGN.md §14, LLM can't see hunting scratch state (target color,
-ticks active, pursuit status, kill attempts).
-
-**Fix:** Add `summarize_for_llm` hook exposing key scratch state in LLM snapshot.
-E.g.: "stalking red for 200 ticks, 1 kill attempt failed, currently in cover patrol."
-
-**Key code:** `HUNTING_DESIGN.md` §14, LLM snapshot rendering in
-`snapshot.nim` / guidance worker
-
----
-
 ## Bugs (Open)
-
-### Self-body flee loop — imposter flees from own kills [HIGH]
-
-`body_newly_in_view_flee` reflex fires on bodies bot created, re-fires on same
-body when it re-enters viewport. 24-36% of imposter time wasted fleeing known
-bodies.
-
-**Evidence (2 runs, seed 100):**
-- Run 1: 3 flee episodes (t=311,614,885), all own kills. 720 ticks (36%) fleeing.
-  Third flee same body pos (741,103) as first — re-encounter.
-- Run 2: 2 episodes (t=429,682). Second same body (178,89), 13 ticks after
-  previous flee ended — immediate re-fire.
-
-**Root cause:** Reflex edge-trigger (`reflex.nim`) uses raw frame-count
-comparison `visibleBodies.len > prevBodyCount`. Viewport-level, not identity-based.
-- `visibleBodies` replaced each frame (`belief.nim`)
-- Body exits viewport → count drops to 0 → re-enters → 0→1 passes check
-- No memory of WHICH bodies already reacted to
-- `ReflexCooldownTicks`(96) < `fleeDurationTicks`(240): cooldown expires before
-  flee ends, same body re-triggers
-
-**Fix plan:** Add `knownBodyPositions: seq[Point]` to `ReflexState`:
-1. Before firing, check if ALL newly-visible bodies within 30px (manhattan) of
-   known set — suppress if so
-2. On every flee trigger, add body world-pos to set
-3. Add body pos on post-kill flee (from post-kill pursuit fix)
-4. Clear on meeting end / round start
-
-**Key code:** `reflex.nim`, `belief.nim`, `perception/actors.nim`,
-`tuning.nim`
-
----
 
 ### Post-kill pursuit — bot chases new targets after kill [HIGH]
 
@@ -170,7 +125,9 @@ On window expiry, `huntStrikeTick` resets, falls through to
 target-search, new crewmate satisfies opportunistic-kill → new pursuit begins.
 
 **Compound interaction:** kill → failed confirm → re-pursuit → body enters view
-→ flee 240t (self-body bug) → return → re-trigger → flee again
+→ flee 240t → return → re-trigger. Known-body de-dupe now suppresses repeated
+same-body flee episodes; the remaining risk is unnecessary pursuit or delayed
+post-kill alibi before the body is remembered.
 
 **Fix plan:** After `huntStrikeTick` set, ALWAYS transition to flee/cover on
 window expiry regardless of outcome:
@@ -178,7 +135,9 @@ window expiry regardless of outcome:
 2. Set flag on window expiry or confirm success
 3. In `bot.nim`, check flag after `decide()` — force mode switch to fleeing
    (72 ticks, away from strike pos)
-4. Add strike pos to `knownBodyPositions` (self-body fix)
+4. Known-body de-dupe is implemented in `reflex.nim`; if this bug reappears
+   without a visible body, consider also recording strike positions as body
+   hints.
 
 Alt: Return special `DisciplinePostKillFlee` ActionIntent from `hunting.decide()`
 for `bot.nim` to intercept.
@@ -278,8 +237,8 @@ self/known teammates and blend into existing accusations when possible.
 Living bots reached intentional targets and emitted `vote_attempted`; ghost bots
 did not vote.
 
-**Next step:** run the LLM-enabled path live and inspect whether generated
-vote targets improve on fallback decisions.
+**Next step:** continue prompt-tuning against evidence-rich traces and compare
+LLM-directed meeting choices against the role-aware no-LLM fallback.
 
 **Key code:** `modes/meeting.nim`, `snapshot.nim`, `prompts.nim`
 
@@ -304,6 +263,35 @@ verification at realistic settings.
 ---
 
 ## Fixed (historical)
+
+### Mode-param consumption and LLM mode summaries — FIXED 2026-05-12
+
+Gameplay mode params are now consumed by the mode handlers instead of merely
+being parsed/traced: `task_completing` honors directed task targets,
+`pretending` honors directed fake-task targets, `hunting` honors idle cover
+mode, `alibi_building` filters fake-task choices by requested room, and
+`tcAbandonOnNearbyBody` gates the body-report reflex. Each mode also exports a
+`summarizeForLlm` hook, and `current_mode.summary` is included in LLM snapshots.
+
+**Key code:** `mode_registry.nim`, `snapshot.nim`, `modes/*.nim`,
+`test/mode_params_snapshot_test.nim`
+
+### Self-body flee loop — FIXED 2026-05-11
+
+`body_newly_in_view_flee` used to fire repeatedly on the same body when it
+left and re-entered the viewport after `ReflexCooldownTicks`, wasting imposter
+time fleeing known corpses.
+
+**Fix:**
+1. `ReflexState` now remembers body world positions that already caused a
+   flee, de-duplicated within 30 px Manhattan distance.
+2. Bodies seen while `hunting` is already in strike/post-kill handling are
+   remembered without firing the flee reflex, covering own-kill corpses.
+3. Known body positions clear across meetings, game-over, and round resets.
+4. `test/reflex_test.nim` pins repeated-known-body suppression and far-new-body
+   firing.
+
+**Key code:** `reflex.nim`, `test/reflex_test.nim`
 
 ### Seed-100 "meeting" interval was game-over, not voting — FIXED 2026-05-10
 

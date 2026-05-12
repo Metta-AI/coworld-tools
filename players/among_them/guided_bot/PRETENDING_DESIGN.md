@@ -4,9 +4,9 @@
 > pretending-mode design details live here; `DESIGN.md` contains only
 > a brief overview and cross-reference.
 >
-> **Implementation:** `modes/pretending.nim` (140 LOC)
+> **Implementation:** `modes/pretending.nim`
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-12
 
 ---
 
@@ -18,8 +18,9 @@ crewmate. It is:
 
 - **The imposter's cover mode.** Used between kills to blend in. The
   `hunting` mode's `cover_mode` parameter references this mode
-  (currently unused for delegation, but semantically this is what
-  the imposter does when not actively killing).
+  semantically: `cover_mode: pretending` means active task-station
+  cover behavior, while `cover_mode: idle` suppresses hunting's cover
+  patrol.
 - **The source of the `pretending → hunting` reflex**
   (`reflex.nim:147-176`). When a lone crewmate is in kill range with
   kill ready, the reflex fires and switches to `hunting` for the
@@ -42,9 +43,8 @@ directive:
 
 ```text
 pretending {
-  preTarget: TaskTarget           # Which station to visit (currently unused
-                                  #   by decide() — reserved for LLM-directed
-                                  #   station targeting)
+  preTarget: TaskTarget           # Which station to visit:
+                                  #   TgtIndex, TgtSpecificRoom, or nearest
   preLoiterTicks: int             # Total loiter duration at each station
   preMaySwapOnWitness: bool       # End loiter early if a crewmate appears
 }
@@ -75,8 +75,9 @@ of ModePretending:
    - Check witness-swap condition.
    - Otherwise, sub-phase dispatch: fake-hold or linger.
 3. **Loiter expired** — clear state, fall through to target selection.
-4. **Target selection** — pick the nearest station that's >30 px away,
-   using a tick-based rotation offset.
+4. **Target selection** — honor `preTarget` if it names an available
+   station or room; otherwise pick the nearest station that's >30 px
+   away.
 5. **Arrival check** — if inside the station rect (8 px margin), start
    loiter with fake-hold.
 6. **Navigation** — steer toward station with `DisciplineNormal`.
@@ -98,16 +99,16 @@ of ModePretending:
 
 Runs when `preFakeTargetIndex < 0` (no target locked).
 
-**Algorithm** (`modes/pretending.nim:92-105`):
-1. Compute a rotation offset: `(belief.tick div 100) mod tasks.len`.
-   This slowly rotates the search start across the station list over
-   time, preventing the imposter from always visiting the same subset.
-2. Starting from the offset, iterate through all stations. Pick the
-   one that:
-   - Is more than 30 px away from the bot's current position.
-   - Is the nearest qualifying station (minimum Manhattan distance).
-3. Fallback: if no station is >30 px away, picks the station at the
-   rotation offset index (degenerate case on very small maps).
+**Algorithm** (`modes/pretending.nim`):
+1. If `preTarget.kind == TgtIndex`, lock that station when the index is
+   in range and the station is available.
+2. If `preTarget.kind == TgtSpecificRoom`, pick the nearest available
+   station whose passable centre is in `preTarget.roomId`.
+3. If `preTarget.kind` is `TgtNearestAny` or `TgtNearestMandatory`, or
+   if the directed target is unavailable, pick the nearest available
+   station more than 30 px away.
+4. Fallback: if all available stations are within 30 px, pick the
+   nearest available station.
 
 Uses `passableCX/CY` (walk-mask-snapped centre) as the navigation
 goal for each candidate.
@@ -177,8 +178,9 @@ loiter:
 2. **Action:** end loiter early — clear `preLoiterUntilTick`,
    `preFakeHoldUntilTick`, and `preFakeTargetIndex`.
 3. **Effect:** falls through to target selection on the same tick.
-   The rotation-offset logic avoids re-picking a station within 30 px
-   (typically the same one), so the bot immediately walks away.
+   The nearest-station logic avoids re-picking a station within 30 px
+   (typically the same one), so the bot immediately walks away unless
+   the LLM has pinned `preTarget` to the same station.
 
 **Rationale:** if a crewmate sees the imposter at a station for a
 long time without the task completing, that's suspicious. Leaving
@@ -294,18 +296,21 @@ movement.
 
 ## 13. LLM snapshot context
 
-The pretending mode's internal scratch state is **not** included in
-LLM snapshots. The LLM sees:
+Pretending exposes a compact mode summary in LLM snapshots:
 
-- `current_mode: { "name": "pretending", "source": "llm" | "default", "ticks_active": <int> }`
-- Perception data (visible crewmates — relevant for the LLM to know
-  who's watching).
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including `preTarget`, `preLoiterTicks`, and
+  `preMaySwapOnWitness`.
+- `current_mode.summary`, including the directive target, locked fake
+  task index/name/room, remaining loiter ticks, remaining fake-hold
+  ticks, and whether witness-swap has already fired.
+- Perception data (visible crewmates, relevant for who is watching).
 - Memory (per-player summaries).
 
-The LLM can influence behavior by adjusting `preLoiterTicks` (shorter
-loiters = more movement = less risk of being caught idle) or
-`preMaySwapOnWitness` (false = hold position even when observed,
-useful if the imposter wants to be seen "doing tasks").
+The LLM can steer behavior by selecting a station or room through
+`preTarget`, adjusting `preLoiterTicks` (shorter loiters = more movement
+= less risk of being caught idle), or setting `preMaySwapOnWitness`
+false when the imposter should hold position even while observed.
 
 ---
 
@@ -320,32 +325,22 @@ loitering. The differences:
 | Fake A-press | Yes (`DisciplineTaskHold`) | No (`noOpIntent()` during loiter) |
 | Witness swap | Yes (ends loiter on crewmate appearance) | No |
 | Kill-seeking | Via reflex only (opportunistic trigger) | Active (priority cascade checks kill opportunity every tick) |
-| Station selection | Tick-modulo rotation, nearest >30 px | Linear rotation from current index, nearest >30 px |
+| Station selection | LLM-directed target/room, else nearest >30 px | Linear rotation from current index, nearest >30 px when `cover_mode: pretending`; no cover patrol when `cover_mode: idle` |
 | Loiter duration | 96 ticks (param) | 72 ticks (`HuntCoverLoiterTicks`) |
 
-The `hunting` mode's `huntCoverMode` parameter exists to delegate
-cover behavior to this mode in a future version — currently unused.
+`hunting` does not literally call `pretending.decide()`, but
+`huntCoverMode` now controls whether hunting performs its built-in
+task-station cover patrol (`ModePretending`) or suppresses cover
+movement (`ModeIdle`).
 
 ---
 
 ## 15. Open questions
 
-1. **Station selection determinism.** The tick-modulo offset
-   (`belief.tick div 100 mod tasks.len`) makes station choice
-   somewhat predictable to an observer who knows the tick count.
-   A randomized selection (using a seeded PRNG) would be less
-   predictable. Low priority — human observers can't see tick counts.
-
-2. **Witness swap re-triggering.** After a swap, the bot picks a new
+1. **Witness swap re-triggering.** After a swap, the bot picks a new
    station and walks there. If another crewmate is visible during
    navigation, nothing special happens (the swap only fires during
    loiter). If the same crewmate follows and is visible when the bot
    arrives at the new station and starts loitering, the swap fires
    again immediately. This could look erratic. A cooldown on witness
    swaps (per-mode-entry or timed) could help. Low priority.
-
-3. **preTarget parameter.** The `preTarget: TaskTarget` param exists
-   but `decide()` never reads it — station selection always uses the
-   built-in rotation logic. A future LLM-directed path could use
-   `TgtIndex` or `TgtSpecificRoom` to send the imposter to a
-   specific station for strategic cover.

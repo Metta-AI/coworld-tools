@@ -20,7 +20,7 @@ the current prompt.
 | Agent | Status | Strategy |
 |---|---|---|
 | [`modulabot/`](modulabot/README.md) | **deprecated / historical only** | Former Python port of the Nim modulabot architecture. Keep the code for future reference, but do not read, modify, test, run, or submit it unless explicitly asked. |
-| [`guided_bot/`](guided_bot/README.md) | phase 6 core behavior live-verified — full perception pipeline, hierarchical waypoint navigation, 6 complete gameplay/meeting mode handlers, 4-reflex system, LLM guidance loop, structured trace writer with optional frame capture, focused Nim/Python checks passing | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slower asynchronous LLM guidance loop that sets active `mode` + structured params. Meeting mechanics are cursor-aware and live-verified; chat emission and strategy-level vote choice are still pending. See [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md). |
+| [`guided_bot/`](guided_bot/README.md) | phase 6 core behavior live-verified — full perception pipeline, hierarchical waypoint navigation, 6 complete gameplay/meeting mode handlers, 4-reflex system, LLM guidance loop, structured trace writer with optional frame capture, focused Nim/Python checks passing | Modular Nim hybrid: fast scripted inner loop (perceive/update/decide/act) driven by a slower asynchronous LLM guidance loop that sets active `mode` + structured params. Meeting chat and vote choice are LLM-controlled through a guarded action queue; gameplay mode params and per-mode scratch summaries are included in LLM snapshots. See [`guided_bot/DESIGN.md`](guided_bot/DESIGN.md). |
 
 ## Shared code
 

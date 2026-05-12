@@ -21,6 +21,7 @@
 ## `reporting` mode. This mode doesn't check bodies itself; it relies
 ## on the reflex.
 
+import std/json
 import ../types
 import ../action
 import ../tuning
@@ -140,6 +141,53 @@ proc selectTarget(belief: Belief,
 
   -1
 
+proc stationAvailable(belief: Belief, idx: int): bool =
+  let tasks = referenceData.map.tasks
+  if idx < 0 or idx >= tasks.len or idx >= belief.tasks.slots.len:
+    return false
+  let slot = belief.tasks.slots[idx]
+  slot.state != TaskCompleted and not slot.resolvedNotMine
+
+proc taskInRoom(idx, roomId: int): bool =
+  let map = referenceData.map
+  if idx < 0 or idx >= map.tasks.len or roomId < 0 or roomId >= map.rooms.len:
+    return false
+  let ts = map.tasks[idx]
+  roomNameAt(map, ts.passableCX, ts.passableCY) == map.rooms[roomId].name
+
+proc nearestAvailableTask(belief: Belief, roomId: int = -1): int =
+  let tasks = referenceData.map.tasks
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  var bestDist = high(int)
+  result = -1
+  for i, ts in tasks:
+    if not belief.stationAvailable(i):
+      continue
+    if roomId >= 0 and not taskInRoom(i, roomId):
+      continue
+    let d = heuristic(selfX, selfY, ts.passableCX, ts.passableCY)
+    if d < bestDist:
+      bestDist = d
+      result = i
+
+proc directiveTargetIndex(belief: Belief, params: ModeParams): int =
+  ## Return an LLM-directed target station, or -1 to use the local tiered
+  ## selector. `nearest_mandatory` deliberately keeps the existing task
+  ## evidence tiers as the mandatory-task policy.
+  case params.tcTarget.kind
+  of TgtIndex:
+    if belief.stationAvailable(params.tcTarget.taskIndex):
+      params.tcTarget.taskIndex
+    else:
+      -1
+  of TgtSpecificRoom:
+    belief.nearestAvailableTask(params.tcTarget.roomId)
+  of TgtNearestAny:
+    belief.nearestAvailableTask()
+  of TgtNearestMandatory:
+    -1
+
 proc shouldSwitch(belief: Belief,
                   currentIdx: int,
                   currentTier: TaskSelectionTier,
@@ -208,6 +256,8 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- Target selection / hysteresis ---
   var targetIdx = scratch.tcLockedTaskIndex
+  let directiveTarget = directiveTargetIndex(belief, params)
+  let hasDirectiveTarget = directiveTarget >= 0
 
   # Check if locked target is still valid.
   if targetIdx >= 0 and targetIdx < belief.tasks.slots.len:
@@ -220,17 +270,28 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # Commit hysteresis: keep current target for at least TaskCommitTicks
   # after locking. Prevents target oscillation from small position changes.
-  if targetIdx >= 0 and
-     belief.tick - scratch.tcLockTick < TaskCommitTicks:
+  if hasDirectiveTarget and targetIdx != directiveTarget:
+    targetIdx = directiveTarget
+    scratch.tcLockedTaskIndex = targetIdx
+    scratch.tcLockTick = belief.tick
+    scratch.tcLockedTier = TierGeometry
+    scratch.tcSelectionTier = TierGeometry
+    scratch.tcPhase = TpNavigate
+  elif targetIdx >= 0 and
+       belief.tick - scratch.tcLockTick < TaskCommitTicks:
     discard  # Hold current target; skip re-selection.
   elif targetIdx < 0:
     scratch.tcPhase = TpNavigate
-    targetIdx = selectTarget(belief, scratch)
+    if hasDirectiveTarget:
+      targetIdx = directiveTarget
+      scratch.tcSelectionTier = TierGeometry
+    else:
+      targetIdx = selectTarget(belief, scratch)
     if targetIdx >= 0:
       scratch.tcLockedTaskIndex = targetIdx
       scratch.tcLockTick = belief.tick
       scratch.tcLockedTier = scratch.tcSelectionTier
-  else:
+  elif not hasDirectiveTarget:
     if scratch.tcPhase == TpNavigate and
        belief.tick - scratch.tcLastReEvalTick >= TaskReEvalPeriodTicks:
       scratch.tcLastReEvalTick = belief.tick
@@ -419,3 +480,54 @@ proc decide*(belief: Belief, params: ModeParams,
     pressA: false, pressB: false,
     cursor: CursorNone, chat: "",
     discipline: DisciplineNormal)
+
+proc taskPhaseStr(phase: TaskPhase): string =
+  case phase
+  of TpNavigate: "navigate"
+  of TpHold: "hold"
+  of TpConfirm: "confirm"
+
+proc taskTierStr(tier: TaskSelectionTier): string =
+  case tier
+  of TierIcon: "icon"
+  of TierCheckout: "checkout"
+  of TierGeometry: "geometry"
+
+proc taskTargetKindStr(kind: TaskTargetKind): string =
+  case kind
+  of TgtIndex: "index"
+  of TgtNearestMandatory: "nearest_mandatory"
+  of TgtNearestAny: "nearest_any"
+  of TgtSpecificRoom: "specific_room"
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("navigating_or_completing_tasks")
+  result["phase"] = newJString(taskPhaseStr(scratch.tcPhase))
+  result["directive_target_kind"] =
+    newJString(taskTargetKindStr(params.tcTarget.kind))
+  if params.tcTarget.kind == TgtIndex:
+    result["directive_task_index"] = newJInt(params.tcTarget.taskIndex)
+  elif params.tcTarget.kind == TgtSpecificRoom:
+    result["directive_room_id"] = newJInt(params.tcTarget.roomId)
+  result["abandon_on_nearby_body"] =
+    newJBool(params.tcAbandonOnNearbyBody)
+  result["locked_task_index"] = newJInt(scratch.tcLockedTaskIndex)
+  result["locked_tier"] = newJString(taskTierStr(scratch.tcLockedTier))
+  result["selection_tier"] = newJString(taskTierStr(scratch.tcSelectionTier))
+  if scratch.tcLockedTaskIndex >= 0 and
+     scratch.tcLockedTaskIndex < referenceData.map.tasks.len:
+    let ts = referenceData.map.tasks[scratch.tcLockedTaskIndex]
+    result["locked_task_name"] = newJString(ts.name)
+    result["locked_task_room"] =
+      newJString(roomNameAt(referenceData.map, ts.passableCX, ts.passableCY))
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.tcEnterTick))
+  if scratch.tcPhase == TpHold:
+    result["hold_ticks_remaining"] = newJInt(scratch.tcHoldRemaining)
+    result["hold_ticks_elapsed"] =
+      newJInt(max(0, belief.tick - scratch.tcHoldStartTick))
+  if scratch.tcPhase == TpConfirm:
+    result["confirm_ticks_remaining"] =
+      newJInt(max(0, scratch.tcConfirmDeadlineTick - belief.tick))
+    result["confirm_icon_miss_count"] = newJInt(scratch.tcConfirmMissCount)

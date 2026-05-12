@@ -621,7 +621,8 @@ proc logGameEvent*(trace: TraceWriter, kind: string, tick: int,
       rec["detail"] = newJString(payload)
   trace.eventsFile.writeLine($rec)
 
-proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief) =
+proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief,
+                  modeSummary: JsonNode = nil) =
   ## Log a periodic full-belief snapshot to snapshots.jsonl.
   ## Called from bot.nim:decideNextMask at SnapshotIntervalTicks cadence.
   if trace == nil or trace.level < TraceFull:
@@ -630,7 +631,7 @@ proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief) =
     return
   trace.lastSnapshotTick = tick
 
-  let snapJson = snapshotMod.renderSnapshot(belief)
+  let snapJson = snapshotMod.renderSnapshot(belief, modeSummary)
   var rec = newJObject()
   rec["t"] = newJInt(tick)
   try:

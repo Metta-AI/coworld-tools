@@ -13,6 +13,7 @@
 ##   - If a crewmate appears during loiter and preMaySwapOnWitness is
 ##     true, end loiter early and re-select a new station.
 
+import std/json
 import ../types
 import ../tuning
 import ../action
@@ -45,6 +46,45 @@ proc onExit*(belief: Belief, scratch: var ModeScratch) =
   discard belief
   discard scratch
 
+proc taskInRoom(idx, roomId: int): bool =
+  let map = referenceData.map
+  if idx < 0 or idx >= map.tasks.len or roomId < 0 or roomId >= map.rooms.len:
+    return false
+  let ts = map.tasks[idx]
+  roomNameAt(map, ts.passableCX, ts.passableCY) == map.rooms[roomId].name
+
+proc nearestTask(selfX, selfY: int, roomId: int = -1,
+                 excludeClose = true): int =
+  let tasks = referenceData.map.tasks
+  var bestDist = high(int)
+  result = -1
+  for i, ts in tasks:
+    if roomId >= 0 and not taskInRoom(i, roomId):
+      continue
+    let d = heuristic(selfX, selfY, ts.passableCX, ts.passableCY)
+    if excludeClose and d <= 30:
+      continue
+    if d < bestDist:
+      bestDist = d
+      result = i
+
+proc targetFromParams(belief: Belief, params: ModeParams): int =
+  let selfX = belief.percep.selfX
+  let selfY = belief.percep.selfY
+  let tasks = referenceData.map.tasks
+  case params.preTarget.kind
+  of TgtIndex:
+    if params.preTarget.taskIndex >= 0 and
+       params.preTarget.taskIndex < tasks.len:
+      params.preTarget.taskIndex
+    else:
+      -1
+  of TgtSpecificRoom:
+    nearestTask(selfX, selfY, params.preTarget.roomId, excludeClose = false)
+  of TgtNearestMandatory, TgtNearestAny:
+    let far = nearestTask(selfX, selfY)
+    if far >= 0: far else: nearestTask(selfX, selfY, excludeClose = false)
+
 proc decide*(belief: Belief, params: ModeParams,
              scratch: var ModeScratch): ActionIntent =
   let selfX = belief.percep.selfX
@@ -54,6 +94,16 @@ proc decide*(belief: Belief, params: ModeParams,
 
   if not localized or tasks.len == 0:
     return noOpIntent()
+
+  let forcedTarget =
+    params.preTarget.kind == TgtIndex or params.preTarget.kind == TgtSpecificRoom
+  if forcedTarget:
+    let target = targetFromParams(belief, params)
+    if target >= 0 and scratch.preFakeTargetIndex != target:
+      scratch.preFakeTargetIndex = target
+      scratch.preLoiterUntilTick = 0
+      scratch.preFakeHoldUntilTick = 0
+      scratch.preWitnessSwapped = false
 
   # --- Loitering (fake-hold + linger) ---
   if scratch.preLoiterUntilTick > 0 and belief.tick < scratch.preLoiterUntilTick:
@@ -90,19 +140,10 @@ proc decide*(belief: Belief, params: ModeParams,
 
   # --- Pick a target ---
   if scratch.preFakeTargetIndex < 0:
-    let offset = (belief.tick div 100) mod tasks.len
-    var bestDist = high(int)
-    var bestIdx = offset
-    for i in 0 ..< tasks.len:
-      let idx = (offset + i) mod tasks.len
-      let ts = tasks[idx]
-      let cx = ts.passableCX
-      let cy = ts.passableCY
-      let d = heuristic(selfX, selfY, cx, cy)
-      if d > 30 and d < bestDist:
-        bestDist = d
-        bestIdx = idx
-    scratch.preFakeTargetIndex = bestIdx
+    scratch.preFakeTargetIndex = targetFromParams(belief, params)
+
+  if scratch.preFakeTargetIndex < 0:
+    return noOpIntent()
 
   let ti = scratch.preFakeTargetIndex
   let ts = tasks[ti]
@@ -138,3 +179,36 @@ proc decide*(belief: Belief, params: ModeParams,
     chat: "",
     discipline: DisciplineNormal
   )
+
+proc taskTargetKindStr(kind: TaskTargetKind): string =
+  case kind
+  of TgtIndex: "index"
+  of TgtNearestMandatory: "nearest_mandatory"
+  of TgtNearestAny: "nearest_any"
+  of TgtSpecificRoom: "specific_room"
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("faking_tasks_for_cover")
+  result["directive_target_kind"] =
+    newJString(taskTargetKindStr(params.preTarget.kind))
+  if params.preTarget.kind == TgtIndex:
+    result["directive_task_index"] = newJInt(params.preTarget.taskIndex)
+  elif params.preTarget.kind == TgtSpecificRoom:
+    result["directive_room_id"] = newJInt(params.preTarget.roomId)
+  result["loiter_ticks_requested"] = newJInt(params.preLoiterTicks)
+  result["may_swap_on_witness"] = newJBool(params.preMaySwapOnWitness)
+  result["fake_target_index"] = newJInt(scratch.preFakeTargetIndex)
+  if scratch.preFakeTargetIndex >= 0 and
+     scratch.preFakeTargetIndex < referenceData.map.tasks.len:
+    let ts = referenceData.map.tasks[scratch.preFakeTargetIndex]
+    result["fake_target_name"] = newJString(ts.name)
+    result["fake_target_room"] =
+      newJString(roomNameAt(referenceData.map, ts.passableCX, ts.passableCY))
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.preEnterTick))
+  result["loiter_ticks_remaining"] =
+    newJInt(max(0, scratch.preLoiterUntilTick - belief.tick))
+  result["fake_hold_ticks_remaining"] =
+    newJInt(max(0, scratch.preFakeHoldUntilTick - belief.tick))
+  result["witness_swap_used"] = newJBool(scratch.preWitnessSwapped)

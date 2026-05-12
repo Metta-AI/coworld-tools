@@ -12,7 +12,7 @@
 ## stalking, max_witnesses gates strikes, and opportunistic controls
 ## whether non-preferred targets may be taken.
 
-import std/strutils
+import std/[json, strutils]
 import ../types
 import ../action
 import ../navigation
@@ -555,7 +555,14 @@ proc enterPostKill(belief: Belief, scratch: var ModeScratch, reason: string) =
 # Phase behavior
 # ---------------------------------------------------------------------------
 
-proc alibiIntent(belief: Belief, scratch: var ModeScratch): ActionIntent =
+proc alibiIntent(belief: Belief, params: ModeParams,
+                 scratch: var ModeScratch): ActionIntent =
+  if params.huntCoverMode == ModeIdle:
+    scratch.huntCoverTargetIndex = -1
+    scratch.huntCoverLoiterUntilTick = 0
+    scratch.huntCoverFakeUntilTick = 0
+    return noOpIntent()
+
   let tasks = referenceData.map.tasks
   if tasks.len == 0:
     return noOpIntent()
@@ -605,6 +612,10 @@ proc seekingIntent(belief: Belief, params: ModeParams,
 
   let tasks = referenceData.map.tasks
   if tasks.len == 0:
+    return noOpIntent()
+
+  if params.huntCoverMode == ModeIdle:
+    scratch.huntCoverTargetIndex = -1
     return noOpIntent()
 
   if scratch.huntCoverTargetIndex >= 0 and
@@ -718,7 +729,7 @@ proc decide*(belief: Belief, params: ModeParams,
     setPhase(scratch, belief.tick, HpAlibi, "cooldown_active")
     scratch.huntStrikeTick = -1
     scratch.huntTargetColor = -1
-    return alibiIntent(belief, scratch)
+    return alibiIntent(belief, params, scratch)
 
   let visible = bestVisibleTarget(belief, params, crewmates)
   if visible.valid:
@@ -738,3 +749,62 @@ proc decide*(belief: Belief, params: ModeParams,
 
   setPhase(scratch, belief.tick, HpSeeking, "kill_ready_seek")
   seekingIntent(belief, params, scratch)
+
+proc huntingPhaseStr(phase: HuntingPhase): string =
+  case phase
+  of HpAlibi: "alibi"
+  of HpSeeking: "seeking"
+  of HpStalking: "stalking"
+  of HpStrike: "strike"
+  of HpPostKill: "post_kill"
+
+proc postKillPlanStr(plan: PostKillPlanKind): string =
+  case plan
+  of PkNone: "none"
+  of PkVent: "vent"
+  of PkStation: "station"
+  of PkPlayer: "player"
+
+proc summarizeForLlm*(belief: Belief, params: ModeParams,
+                      scratch: ModeScratch): JsonNode =
+  result = newJObject()
+  result["status"] = newJString("imposter_hunting")
+  result["phase"] = newJString(huntingPhaseStr(scratch.huntPhase))
+  result["phase_reason"] = newJString(scratch.huntPhaseReason)
+  result["phase_ticks"] =
+    newJInt(max(0, belief.tick - scratch.huntPhaseStartedTick))
+  result["ticks_in_mode"] = newJInt(max(0, belief.tick - scratch.huntEnterTick))
+  result["preferred_target"] = newJInt(params.huntPreferredTarget)
+  result["active_target_color"] = newJInt(scratch.huntTargetColor)
+  result["max_witnesses"] = newJInt(params.huntMaxWitnesses)
+  result["opportunistic"] = newJBool(params.huntOpportunistic)
+  result["cover_mode"] =
+    newJString(if params.huntCoverMode == ModeIdle: "idle" else: "pretending")
+  if scratch.huntLastSightingTick > 0:
+    result["last_sighting_age_ticks"] =
+      newJInt(max(0, belief.tick - scratch.huntLastSightingTick))
+    result["last_seen_position"] = %*[scratch.huntLastSeenX, scratch.huntLastSeenY]
+  result["cover_target_index"] = newJInt(scratch.huntCoverTargetIndex)
+  if scratch.huntCoverTargetIndex >= 0 and
+     scratch.huntCoverTargetIndex < referenceData.map.tasks.len:
+    let ts = referenceData.map.tasks[scratch.huntCoverTargetIndex]
+    result["cover_target_name"] = newJString(ts.name)
+    result["cover_target_room"] =
+      newJString(roomNameAt(referenceData.map, ts.passableCX, ts.passableCY))
+  result["cover_loiter_ticks_remaining"] =
+    newJInt(max(0, scratch.huntCoverLoiterUntilTick - belief.tick))
+  result["cover_fake_ticks_remaining"] =
+    newJInt(max(0, scratch.huntCoverFakeUntilTick - belief.tick))
+  result["strike_active"] = newJBool(scratch.huntStrikeTick >= 0)
+  if scratch.huntStrikeTick >= 0:
+    result["strike_age_ticks"] =
+      newJInt(max(0, belief.tick - scratch.huntStrikeTick))
+    result["strike_position"] = %*[scratch.huntStrikeTargetX,
+                                   scratch.huntStrikeTargetY]
+  result["failed_kill_color"] = newJInt(scratch.huntFailedKillColor)
+  result["post_kill_ticks_remaining"] =
+    newJInt(max(0, scratch.huntPostKillUntilTick - belief.tick))
+  result["post_kill_plan"] = newJString(postKillPlanStr(scratch.huntPostKillPlan))
+  if scratch.huntPostKillTargetValid:
+    result["post_kill_target"] = %*[scratch.huntPostKillTargetX,
+                                    scratch.huntPostKillTargetY]

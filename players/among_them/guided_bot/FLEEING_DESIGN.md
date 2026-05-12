@@ -4,9 +4,9 @@
 > mode design details live here; `DESIGN.md` contains only a brief
 > overview and cross-reference.
 >
-> **Implementation:** `modes/fleeing.nim` (144 LOC)
+> **Implementation:** `modes/fleeing.nim`
 >
-> Last updated: 2026-05-05
+> Last updated: 2026-05-12
 
 ---
 
@@ -280,10 +280,13 @@ layer emits no buttons.
 
 ## 11. LLM snapshot context
 
-The fleeing mode's internal scratch state is **not** included in LLM
-snapshots. The LLM sees:
+Fleeing exposes a compact mode summary in LLM snapshots. The LLM sees:
 
-- `current_mode: { "name": "fleeing", "source": "reflex", "ticks_active": <int> }`
+- `current_mode.name/source/ticks_active`.
+- `current_mode.params`, including body location, minimum distance, and
+  duration.
+- `current_mode.summary`, including the flee origin, distance target,
+  remaining flee ticks, cover target, and current distance from body.
 - Perception data (visible bodies — relevant context for why the bot
   is fleeing).
 - Memory (per-player summaries).
@@ -297,11 +300,13 @@ happens via the normal guidance channel.
 
 ## 12. Open questions
 
-1. **Self-kill fleeing.** The `hunting → fleeing` reflex fires on any
-   new body, including ones the imposter just created. A refinement
-   could suppress the reflex for ~12 ticks after a `kill_confirmed`
-   event (check timing in hunting scratch). Low priority — fleeing
-   after a kill is reasonable (don't linger at the scene).
+1. **Self-kill fleeing.** Known-body de-duplication in `reflex.nim`
+   suppresses repeated fleeing from remembered corpses and remembers
+   bodies seen during hunting strike/post-kill handling without firing.
+   A first-time flee from an ambiguous body can still be acceptable
+   cover behavior; if traces show it wasting time again, tune the
+   hunting post-kill transition rather than adding persistent corpse
+   blindness.
 
 2. **Flee target quality.** The projection `self + 2*(self - body)` is
    naive — it doesn't account for the map layout. If the bot is in a
