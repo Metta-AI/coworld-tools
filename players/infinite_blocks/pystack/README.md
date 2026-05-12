@@ -39,6 +39,14 @@ agent.
 
 ## Docker
 
+The manifest image is:
+
+```text
+ghcr.io/jboggsy/bitworld-pystack:latest
+```
+
+Local build and smoke test:
+
 ```sh
 docker build -t bitworld-pystack:latest .
 docker run --rm bitworld-pystack:latest

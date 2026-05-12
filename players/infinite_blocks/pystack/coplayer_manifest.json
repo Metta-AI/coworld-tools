@@ -1,7 +1,7 @@
 {
   "author": "jamesboggs",
   "name": "pystack",
-  "image_uri": "ghcr.io/jamesboggs/bitworld-pystack:latest",
+  "image_uri": "ghcr.io/jboggsy/bitworld-pystack:latest",
   "binary": "/usr/local/bin/pystack",
   "games": ["infinite_blocks"]
 }
