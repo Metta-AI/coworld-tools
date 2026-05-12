@@ -1103,6 +1103,24 @@ async def run_bot(args: argparse.Namespace) -> None:
             await asyncio.sleep(0.25)
 
 
+def normalize_cli_args(argv: list[str]) -> list[str]:
+    """Accept the BitWorld/Nim runner's argv shape in Python argparse."""
+
+    normalized: list[str] = []
+    for index, arg in enumerate(argv):
+        if index == 0 and arg.rsplit("/", 1)[-1] in {"pystack", "pystack.py"}:
+            continue
+        if arg.startswith("--"):
+            body = arg[2:]
+            colon_index = body.find(":")
+            equals_index = body.find("=")
+            if colon_index > 0 and (equals_index < 0 or colon_index < equals_index):
+                normalized.append(f"--{body[:colon_index]}={body[colon_index + 1:]}")
+                continue
+        normalized.append(arg)
+    return normalized
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Python Infinite Blocks pystack bot")
     parser.add_argument("--address", default="localhost")
@@ -1120,7 +1138,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default="auto",
         help="auto tries the optional /global protocol, then falls back to /player frames",
     )
-    return parser.parse_args(argv)
+    return parser.parse_args(normalize_cli_args(argv))
 
 
 def main(argv: list[str] | None = None) -> int:

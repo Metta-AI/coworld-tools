@@ -50,6 +50,11 @@ Local build and smoke test:
 ```sh
 docker build -t bitworld-pystack:latest .
 docker run --rm bitworld-pystack:latest
+docker run --rm bitworld-pystack:latest /usr/local/bin/pystack --help
 ```
+
+The image uses `CMD`, not `ENTRYPOINT`, so the BitWorld runner can execute the
+manifest `binary` directly with `--address:HOST`, `--port:N`, `--name:NAME`,
+`--url:WS_URL`, and `--slot:N` arguments.
 
 The manifest entrypoint is `/usr/local/bin/pystack`.

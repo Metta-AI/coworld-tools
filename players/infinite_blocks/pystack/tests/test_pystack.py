@@ -29,6 +29,24 @@ class PystackLogicTests(unittest.TestCase):
         self.assertEqual(url, "ws://localhost:2000/player?name=agent%201&slot=3&token=tok")
         self.assertEqual(pystack.derive_global_url(url), "ws://localhost:2000/global")
 
+    def test_parse_args_accepts_bitworld_runner_contract(self):
+        args = pystack.parse_args(
+            [
+                "/usr/local/bin/pystack",
+                "--address:host.docker.internal",
+                "--port:45201",
+                "--name:pystack-45201-1778627204747_2",
+                "--url:ws://host.docker.internal:45201/player?name=pystack-45201-1778627204747_2&slot=1",
+                "--slot:1",
+            ]
+        )
+
+        self.assertEqual(args.address, "host.docker.internal")
+        self.assertEqual(args.port, 45201)
+        self.assertEqual(args.name, "pystack-45201-1778627204747_2")
+        self.assertEqual(args.url, "ws://host.docker.internal:45201/player?name=pystack-45201-1778627204747_2&slot=1")
+        self.assertEqual(args.slot, 1)
+
     def test_choose_placement_prefers_row_completion(self):
         width = 20
         height = 24
