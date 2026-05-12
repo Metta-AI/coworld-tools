@@ -6,8 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY stacker.py /usr/local/bin/stacker
-RUN chmod +x /usr/local/bin/stacker
+COPY pystack.py /usr/local/bin/pystack
+RUN chmod +x /usr/local/bin/pystack
 
-ENTRYPOINT ["stacker"]
+ENTRYPOINT ["pystack"]
 CMD ["--address", "host.docker.internal", "--port", "2000"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Python clone of the Infinite Blocks stacker bot.
+"""Python clone of the Infinite Blocks pystack bot.
 
 The original stacker is a Nim websocket bot in
 `agent-policies/policies/symbolic/bitworld/infinite-blocks/stacker`. This file
@@ -572,7 +572,7 @@ def mask_summary(mask: int) -> str:
 
 
 @dataclass
-class GlobalStacker:
+class GlobalPystack:
     rng: random.Random = field(default_factory=random.Random)
     frame_tick: int = 0
     map: SpriteImage = field(default_factory=SpriteImage)
@@ -627,7 +627,7 @@ class GlobalStacker:
         color, count = max(counts.items(), key=lambda item: item[1])
         if count >= 4:
             self.own_color = color
-            print(f"stacker color rgb={color[0]},{color[1]},{color[2]}", flush=True)
+            print(f"pystack color rgb={color[0]},{color[1]},{color[2]}", flush=True)
 
     def apply_sprite_packet(self, packet: bytes, player_frame: bool) -> bool:
         offset = 0
@@ -771,7 +771,7 @@ class GlobalStacker:
 
 
 @dataclass
-class FrameStacker:
+class FramePystack:
     frame_tick: int = 0
     last_mask: int = 0xFF
     target: Placement = field(default_factory=Placement)
@@ -898,7 +898,7 @@ def flood_component(
     return component
 
 
-def steering_mask(bot: GlobalStacker | FrameStacker, active: ActivePiece, placement: Placement) -> int:
+def steering_mask(bot: GlobalPystack | FramePystack, active: ActivePiece, placement: Placement) -> int:
     if not placement.found:
         bot.intent = "dropping"
         return BUTTON_DOWN
@@ -920,7 +920,7 @@ def steering_mask(bot: GlobalStacker | FrameStacker, active: ActivePiece, placem
     return mask
 
 
-def echo_debug(bot: GlobalStacker | FrameStacker, mask: int, debug_interval: int) -> None:
+def echo_debug(bot: GlobalPystack | FramePystack, mask: int, debug_interval: int) -> None:
     if debug_interval <= 0 or bot.frame_tick % debug_interval != 0:
         return
     print(
@@ -962,7 +962,7 @@ def normalize_player_url(url: str, name: str, slot: int, token: str) -> str:
     normalized = ensure_player_path(url)
     parsed = urlsplit(normalized)
     query = parsed.query
-    player_name = name or "py-stacker"
+    player_name = name or "pystack"
     query = set_query_param(query, "name", player_name)
     if slot >= 0:
         query = set_query_param(query, "slot", str(slot))
@@ -983,7 +983,7 @@ def derive_global_url(player_url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, GLOBAL_WEBSOCKET_PATH, "", ""))
 
 
-async def receive_global_updates(ws, bot: GlobalStacker, player_frame: bool, timeout: float | None) -> bool:
+async def receive_global_updates(ws, bot: GlobalPystack, player_frame: bool, timeout: float | None) -> bool:
     try:
         if timeout is None:
             first = await ws.recv()
@@ -1015,10 +1015,10 @@ async def run_global_mode(
     max_steps: int,
     debug_interval: int,
 ) -> None:
-    bot = GlobalStacker(random.Random(time.time_ns() ^ os.getpid()))
+    bot = GlobalPystack(random.Random(time.time_ns() ^ os.getpid()))
     async with websockets.connect(player_url, ping_interval=None) as player_ws:
         async with websockets.connect(map_url, ping_interval=None) as global_ws:
-            await player_ws.send(chat_packet("stacker online", "sprite"))
+            await player_ws.send(chat_packet("pystack online", "sprite"))
             await receive_global_updates(player_ws, bot, True, None)
             await receive_global_updates(global_ws, bot, False, None)
             last_sent_mask = 0xFF
@@ -1043,9 +1043,9 @@ async def run_framebuffer_mode(
     max_steps: int,
     debug_interval: int,
 ) -> None:
-    bot = FrameStacker()
+    bot = FramePystack()
     async with websockets.connect(player_url, ping_interval=None) as player_ws:
-        await player_ws.send(chat_packet("py-stacker online", "framebuffer"))
+        await player_ws.send(chat_packet("pystack online", "framebuffer"))
         last_sent_mask = 0xFF
         while True:
             message = await player_ws.recv()
@@ -1091,7 +1091,7 @@ async def run_bot(args: argparse.Namespace) -> None:
                     pass
                 await run_global_mode(websockets, player_url_value, map_url_value, args.max_steps, args.debug_interval)
             except Exception as exc:
-                print(f"stacker falling back to framebuffer protocol: {exc}", flush=True)
+                print(f"pystack falling back to framebuffer protocol: {exc}", flush=True)
                 await run_framebuffer_mode(websockets, player_url_value, args.max_steps, args.debug_interval)
             return
         except asyncio.CancelledError:
@@ -1099,12 +1099,12 @@ async def run_bot(args: argparse.Namespace) -> None:
         except Exception as exc:
             if args.max_steps > 0:
                 raise
-            print(f"stacker reconnecting: {exc}", flush=True)
+            print(f"pystack reconnecting: {exc}", flush=True)
             await asyncio.sleep(0.25)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Python Infinite Blocks stacker bot")
+    parser = argparse.ArgumentParser(description="Python Infinite Blocks pystack bot")
     parser.add_argument("--address", default="localhost")
     parser.add_argument("--port", type=int, default=PLAYER_DEFAULT_PORT)
     parser.add_argument("--name", default="")
@@ -1118,7 +1118,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--mode",
         choices=("auto", "global", "framebuffer"),
         default="auto",
-        help="auto tries the original /global stacker protocol, then falls back to /player frames",
+        help="auto tries the optional /global protocol, then falls back to /player frames",
     )
     return parser.parse_args(argv)
 

@@ -7,4 +7,4 @@ and Dockerfiles stay isolated as more agents are added.
 
 Current agents:
 
-- `stacker/` - Python clone of the symbolic Infinite Blocks stacker agent.
+- `pystack/` - Python clone of the symbolic Infinite Blocks stacker strategy.
