@@ -1,0 +1,34 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Nim for mettagrid build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenal-dev
+          NIM_VERSION="$(curl -fsSL https://raw.githubusercontent.com/Metta-AI/mettagrid/main/.nim-version)"
+          NIMBY_VERSION="$(curl -fsSL https://raw.githubusercontent.com/Metta-AI/mettagrid/main/.nimby-version)"
+          case "$(uname -m)" in
+            x86_64) NIMBY_PLATFORM="Linux-X64" ;;
+            aarch64) NIMBY_PLATFORM="Linux-ARM64" ;;
+            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          TMP_DIR="$(mktemp -d)"
+          curl -fsSL -o "$TMP_DIR/nimby" \
+            "https://github.com/treeform/nimby/releases/download/${NIMBY_VERSION}/nimby-${NIMBY_PLATFORM}"
+          chmod +x "$TMP_DIR/nimby"
+          "$TMP_DIR/nimby" use "$NIM_VERSION"
+          install_dir="$HOME/.nimby/nim/bin"
+          mkdir -p "$install_dir"
+          mv -f "$TMP_DIR/nimby" "$install_dir/nimby"
+          rm -rf "$TMP_DIR"
+          echo "$install_dir" >> "$GITHUB_PATH"
+      - run: uv sync
+      - run: uv run pytest --cov=cvc_policy --cov-fail-under=85 -q

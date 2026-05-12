@@ -1,0 +1,1462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CvC run {{ run_id }}</title>
+<style>
+:root {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --panel2: #273449;
+  --fg: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --ok: #10b981;
+  --bad: #ef4444;
+  --warn: #f59e0b;
+  --border: #334155;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+header { padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline;
+  background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; color: var(--accent); }
+header .meta { color: var(--muted); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-weight: 600; }
+.badge.passed { background: var(--ok); color: #04231a; }
+.badge.failed { background: var(--bad); color: #2a0606; }
+.badge.crashed { background: var(--bad); color: #2a0606; }
+.badge.unknown { background: var(--border); color: var(--fg); }
+.banner-fail { background: #450a0a; border: 1px solid var(--bad);
+  padding: 10px 16px; margin: 0; color: #fecaca; }
+.banner-fail button { background: transparent; color: var(--bad);
+  border: 1px solid var(--bad); padding: 2px 8px; margin-right: 8px;
+  cursor: pointer; font-family: inherit; }
+main { display: grid;
+  grid-template-columns: var(--main-cols, minmax(480px, 2fr) 6px minmax(320px, 1fr));
+  gap: 0; padding: 10px; flex: 1 1 auto; min-height: 0; }
+#col-resize { width: 6px; cursor: col-resize; background: transparent;
+  border-left: 1px solid transparent; border-right: 1px solid transparent;
+  user-select: none; touch-action: none; }
+#col-resize:hover, #col-resize.dragging {
+  background: var(--accent); opacity: 0.4; }
+#resize-ghost { position: fixed; top: 0; bottom: 0; width: 2px;
+  background: var(--accent); opacity: 0.6; z-index: 9999;
+  pointer-events: none; display: none; }
+#resize-ghost.active { display: block; }
+body.resizing, body.resizing * { cursor: col-resize !important; }
+main > section, main > .right-col { margin: 0 4px; }
+.right-col { display: flex; flex-direction: column; gap: 8px;
+  min-height: 0; min-width: 0; }
+.right-col > section { margin: 0; }
+.right-col > .step-view-card { flex: 0 0 auto; max-height: 50%;
+  overflow: auto; }
+.right-col > .step-view-card.collapsed { max-height: none; overflow: visible; }
+.right-col > .log-card { flex: 1 1 auto; min-height: 0; }
+.step-view-card.collapsed #inventory-panel { display: none; }
+.step-view-tick { color: var(--accent); font-weight: 700;
+  font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+  padding: 2px 4px; margin-bottom: 4px; }
+.step-view-tick .collapse-btn { background: none; border: none;
+  color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 4px;
+  line-height: 1; vertical-align: middle; }
+.step-view-tick .collapse-btn:hover { color: var(--accent); }
+.get-status-btn { background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--muted); cursor: pointer; font-size: 10px;
+  padding: 1px 6px; margin-left: 8px; }
+.get-status-btn:hover { color: var(--accent); border-color: var(--accent); }
+.status-output { background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 8px; margin-top: 6px; font-size: 11px;
+  color: var(--fg); overflow-x: auto; white-space: pre-wrap;
+  max-height: 300px; overflow-y: auto; }
+section { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px;
+  display: flex; flex-direction: column; min-height: 0; }
+section h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em; }
+.log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#agent-select { background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 11px; padding: 2px 6px; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%239ca3af'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 5px center;
+  padding-right: 18px; }
+.log-card .filters-toggle { align-self: flex-start; font-size: 0.75em;
+  padding: 1px 8px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--panel2); color: var(--fg); cursor: pointer;
+  font-family: inherit; margin-bottom: 4px; }
+.log-card .filters-toggle.collapsed { opacity: 0.6; }
+.log-card .log-filters { display: flex; flex-direction: column; gap: 6px;
+  padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.log-card .log-filters.collapsed { display: none; }
+.log-card .log-filters .row { display: flex; flex-wrap: wrap; gap: 6px;
+  align-items: center; }
+.log-card .log-filters .group-label { color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.05em; font-size: 11px; margin-right: 4px; }
+.filter-bulk-btn { background: none; border: 1px solid var(--border);
+  border-radius: 3px; color: var(--muted); cursor: pointer; font-size: 10px;
+  padding: 1px 5px; margin-right: 2px; }
+.filter-bulk-btn:hover { color: var(--fg); border-color: var(--accent); }
+.log-card label.agent-cb { display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--panel2); cursor: pointer; font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel2); cursor: pointer; user-select: none;
+  display: inline-flex; align-items: center; gap: 6px; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.chip.off { opacity: 0.4; }
+.replay-card iframe { width: 100%; flex: 1 1 auto; min-height: 0; border: 0;
+  background: var(--panel2); border-radius: 4px; }
+.replay-fallback { padding: 1em; color: var(--muted); font-size: 0.9em; }
+.copy-btn { font-size: 0.75em; padding: 1px 6px;
+  border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
+  background: transparent; color: var(--fg); font-family: inherit; }
+.header-copy { margin-left: auto; }
+.tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.tabs button { background: var(--panel2); color: var(--fg); border: 0;
+  padding: 4px 10px; border-radius: 4px 4px 0 0; cursor: pointer;
+  font-family: inherit; }
+.tabs button.active { background: var(--accent); color: #04231a; }
+input[type="search"] { width: 100%; padding: 4px 6px; background: var(--panel2);
+  color: var(--fg); border: 1px solid var(--border); border-radius: 4px;
+  font-family: inherit; }
+#log { flex: 1 1 auto; min-height: 0; overflow: auto;
+  margin-top: 6px; width: 100%; }
+#log .line { padding: 2px 4px; border-left: 3px solid transparent;
+  white-space: nowrap; }
+#log .line.current { border-left-color: var(--accent); background: var(--panel2); }
+#log .line.selected { background: var(--panel2);
+  outline: 1px solid var(--accent); outline-offset: -1px; }
+#log .line.hidden { display: none; }
+#log .line.merged-hidden { display: none; }
+#log .step-marker.merged-hidden { display: none; }
+#log .step-marker.hidden { display: none; }
+#log hr.step-sep.hr-hidden { display: none; }
+/* Left column: step number (vertical) on the first line of a step
+   block, merge-range badge on merged runs, or empty on follow-up
+   lines. Column is compact so the content gets more horizontal room. */
+#log .line { padding-left: 28px; position: relative;
+  content-visibility: auto; contain-intrinsic-size: auto 18px; }
+#log .line.step-start[data-step-label]::before {
+  content: attr(data-step-label);
+  position: absolute; left: 0; top: 0; width: 22px;
+  color: var(--muted); opacity: 0.6;
+  font-size: 10px; letter-spacing: 0.05em;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  text-align: left; padding: 1px 0; }
+#log .step-range-badge { color: var(--muted); opacity: 0.7;
+  font-size: 10px; font-style: italic; margin-left: 8px; }
+#log .line.merged-hidden { display: none; }
+#log .step-marker { padding-left: 28px; }
+/* Follow-up events within the same step that share the agent — the
+   agent/role glyphs are suppressed, content sits in the content column. */
+#log .line.agent-dupe .type::before { content: '\21B3\2002'; /* ↳ */
+  opacity: 0.35; margin-right: 2px; }
+#log .line { cursor: pointer; }
+#log .step-marker { cursor: pointer; }
+#log .line .meta { color: var(--muted); }
+/* Stream indicated by whole-line color: py = white, llm = green. */
+#log .line[data-stream="py"] { color: #f1f5f9; }
+#log .line[data-type="llm_turn"] { white-space: pre-wrap; }
+#log .line[data-stream="llm"] { color: #10b981; }
+#log .agent-tag { display: inline-block; font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px; font-weight: 600; margin-right: 4px; vertical-align: middle; }
+#log .type { color: var(--muted); margin-right: 4px; }
+#log .role-icon { margin-right: 4px; font-size: 0.9em; }
+#log .role-icon.gear-ok { background: rgba(16, 185, 129, 0.28);
+  color: #10b981; padding: 0 4px; border-radius: 3px; }
+#log .role-icon.gear-wrong { background: rgba(239, 68, 68, 0.28);
+  color: #ef4444; padding: 0 4px; border-radius: 3px; }
+#log .line .gear-pill { display: inline-block; padding: 0 5px;
+  border-radius: 3px; line-height: 1.1; }
+#log .line .gear-pill.gear-ok { background: rgba(16, 185, 129, 0.28);
+  color: #10b981; }
+#log .line .gear-pill.gear-wrong { background: rgba(239, 68, 68, 0.28);
+  color: #ef4444; }
+#log .line .role-arrow { color: var(--muted); padding: 0 4px; }
+#log .line.expanded { white-space: normal; background: var(--panel2); }
+#log .line .line-details { margin-top: 4px; padding: 6px 8px;
+  background: var(--bg); border-left: 2px solid var(--accent);
+  border-radius: 3px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; color: var(--fg); cursor: text;
+  user-select: text; overflow-x: auto; }
+#log .line .line-details.pretty { white-space: pre; }
+#log .line .line-details:not(.pretty) { white-space: nowrap; }
+#log .line .line-details-toolbar { display: inline-block;
+  margin-right: 6px; color: var(--muted); cursor: pointer;
+  user-select: none; opacity: 0.7; }
+#log .line .line-details-toolbar:hover { opacity: 1; color: var(--accent); }
+.inventory-panel { display: flex; flex-direction: row; flex-wrap: wrap;
+  align-items: flex-start; gap: 4px;
+  padding: 6px 4px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--border); font-size: 12px; }
+.inventory-panel .inv-row { display: flex; align-items: center; gap: 8px;
+  padding: 2px 4px; border-radius: 3px;
+  white-space: nowrap; overflow: hidden; }
+.inventory-panel .inv-agent { font-weight: 700;
+  display: inline-block; min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.inventory-panel .inv-role { display: inline-flex; gap: 2px;
+  align-items: center; }
+.inventory-panel .inv-hp { display: inline-flex; gap: 2px;
+  align-items: center; color: #f87171; }
+.inventory-panel .inv-cargo { display: inline-flex; gap: 4px;
+  align-items: center; }
+.inventory-panel .inv-row.stale { opacity: 0.4; }
+.inventory-panel .inv-row.active { outline: 1px solid var(--accent);
+  border-radius: 4px; }
+.inventory-panel .inv-row { cursor: pointer; }
+.inventory-panel .inv-row:hover { background: var(--panel2); border-radius: 4px; }
+.inventory-panel .inv-badge { display: inline-flex; align-items: center;
+  gap: 2px; padding: 1px 4px; border-radius: 3px;
+  background: var(--panel2); cursor: default; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  position: relative; }
+.inventory-panel .inv-badge .inv-icon { font-weight: 700; opacity: 0.7; }
+.inventory-panel .inv-badge .inv-count { font-weight: 600; }
+.inventory-panel .inv-bars { display: inline-flex; flex-direction: column;
+  gap: 1px; justify-content: center; }
+.inventory-panel .inv-bar { display: inline-flex; gap: 0;
+  align-items: center; padding: 1px 2px; border-radius: 2px;
+  background: var(--panel2); cursor: default; position: relative; }
+.inventory-panel [data-tip]:hover::after {
+  content: attr(data-tip); position: absolute;
+  bottom: calc(100% + 4px); left: 50%;
+  transform: translateX(-50%); white-space: nowrap;
+  background: #0f172a; color: #f1f5f9; padding: 3px 6px;
+  border-radius: 3px; border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; z-index: 10; pointer-events: none; }
+.inventory-panel .inv-bar .seg { width: 1px; height: 5px;
+  background: #334155; }
+.inventory-panel .inv-bar.hp .seg.filled { background: #10b981; }
+.inventory-panel .inv-bar.energy .seg.filled { background: #facc15; }
+.inventory-panel .team-block { display: flex; flex-direction: column; gap: 1px;
+  padding: 4px 6px; flex: 1 1 140px; min-width: 120px;
+  border-right: 1px dashed var(--border); }
+.inventory-panel .team-block:last-child { border-right: 0; }
+.inventory-panel .team-inventory .role-count {
+  display: inline-flex; gap: 2px; align-items: center;
+  padding: 1px 4px; border-radius: 3px; background: var(--panel2);
+  font-family: ui-monospace, Menlo, monospace; }
+.inventory-panel .team-inventory .role-count .role-icon {
+  opacity: 0.85; }
+.inventory-panel .team-agents { display: flex; flex-direction: column; gap: 1px; }
+.inventory-panel .team-header { display: flex; align-items: center; gap: 8px;
+  padding: 2px 4px; font-weight: 700; color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.inventory-panel .team-header .team-id { color: var(--accent); }
+.inventory-panel .team-inventory {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 1px 4px; font-size: 11px; min-height: 18px; }
+.inventory-panel .team-inventory > span {
+  display: inline-flex; gap: 2px; align-items: center;
+  padding: 1px 4px; border-radius: 3px; background: var(--panel2);
+  font-family: ui-monospace, Menlo, monospace; }
+.inventory-panel .team-inventory .team-resources,
+.inventory-panel .team-inventory .team-roles {
+  background: transparent; padding: 0; gap: 4px; flex-wrap: wrap; }
+.inventory-panel .team-inventory .team-score { color: var(--muted); }
+.inventory-panel .team-inventory .jct {
+  font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+#log hr.step-sep { border: 0; border-top: 1px solid var(--border);
+  margin: 4px 0; height: 0; }
+#log .step-marker { color: var(--muted); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.05em; padding: 0 4px; }
+#log .step-range { color: var(--muted); font-size: 10px; opacity: 0.5;
+  letter-spacing: 0.05em; padding: 0 4px; cursor: pointer;
+  font-style: italic; }
+#log .step-range.current { opacity: 1; color: var(--accent); }
+footer { position: sticky; bottom: 0; background: var(--panel);
+  border-top: 1px solid var(--border); padding: 8px 16px;
+  display: flex; gap: 10px; align-items: center; }
+footer input[type="range"] { flex: 1; }
+footer button, footer select { background: var(--panel2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;
+  cursor: pointer; font-family: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ run_id }}</h1>
+  <span class="badge {{ status }}">{{ status }}</span>
+  <span class="meta">scenario={{ scenario }}</span>
+  <span class="meta">duration={{ '%.2f'|format(duration_s) }}s</span>
+  <span class="meta">tps={{ '%.1f'|format(tps) }}</span>
+  <span class="meta">cogs={{ cogs }}</span>
+  <span class="meta">seed={{ seed }}</span>
+  <span class="meta">steps={{ steps }}</span>
+  <span class="meta">mission={{ mission }}</span>
+  {% if has_replay %}
+  <button type="button" class="copy-btn header-copy"
+    data-copy="softmax cogames replay {{ replay_abs_path }}"
+    title="softmax cogames replay {{ replay_abs_path }}">copy replay cmd</button>
+  {% endif %}
+</header>
+
+{% if status == "failed" or status == "crashed" %}
+<div class="banner-fail">
+  <strong>Run {{ status }}.</strong>
+  {% for a in assertions %}
+    {% if not a.passed %}
+      <button type="button" class="jump-fail"
+        data-step="{{ a.failed_at_step if a.failed_at_step is not none else 0 }}">
+        {{ a.name }}
+      </button>
+      <span>{{ a.message }}{% if a.failed_at_step is not none %} (step {{ a.failed_at_step }}){% endif %}</span>
+      &nbsp;&nbsp;
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<main id="main-grid">
+  <section class="replay-card">
+    <h2>Replay</h2>
+    {% if has_replay %}
+    <iframe id="mettascope" allowfullscreen></iframe>
+    <noscript>JavaScript required for embedded replay.</noscript>
+    {% else %}
+    <div class="meta">(no replay.json.z found)</div>
+    {% endif %}
+  </section>
+
+  <div id="col-resize" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+  <div class="right-col">
+  <section class="step-view-card collapsed" id="step-view-card">
+    <div class="step-view-tick" id="step-view-current"><button type="button" id="step-view-toggle" class="collapse-btn" aria-expanded="false" title="collapse/expand step view">+</button> <span class="step-text">step 0</span> <button type="button" id="get-status-btn" class="get-status-btn" title="Show get_status() for current agent at this step">status</button> <button type="button" id="get-world-btn" class="get-status-btn" title="Show world model for current agent at this step">world</button>
+    <pre id="status-output" class="status-output" style="display:none"></pre></div>
+    <div id="inventory-panel" class="inventory-panel">
+      {% for tg in team_groups %}
+      <div class="team-block" data-team="{{ tg.team }}">
+        <div class="team-header">
+          <span class="team-id">{{ tg.team if tg.team else 'no-team' }}</span>
+        </div>
+        <div class="team-inventory">
+          <span class="team-score"
+            title="score (deferred: no direct source yet)">&#9733; &ndash;</span>
+          <span class="team-junctions"></span>
+          <span class="team-roles"></span>
+          <span class="team-resources"></span>
+        </div>
+        <div class="team-agents">
+        {% for a in tg.agents %}
+          <div class="inv-row" data-agent="{{ a }}">
+            <span class="inv-agent" style="color: {{ agent_color(a) }}">a{{ a }}</span>
+            <span class="inv-role"></span>
+            <span class="inv-hp"></span>
+            <span class="inv-cargo"></span>
+          </div>
+        {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="log-card">
+    <div class="log-toolbar">
+      <select id="agent-select" title="Filter to a single agent">
+        <option value="">all agents</option>
+        {% for a in agents %}
+        <option value="{{ a }}"{% if loop.first %} selected{% endif %}>a{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" id="filters-toggle" class="filters-toggle collapsed"
+        aria-expanded="false" title="Show/hide filters">filters</button>
+    </div>
+    <div class="log-filters collapsed" id="log-filters">
+      <div class="row">
+        <input type="search" id="search" placeholder="filter text (across payloads + rationale)">
+      </div>
+      <div class="row">
+        <span class="group-label">Types</span>
+        <button type="button" class="filter-bulk-btn" id="types-all">all</button>
+        <button type="button" class="filter-bulk-btn" id="types-none">none</button>
+        <div class="chips" id="type-chips">
+          {% for t, n, color in type_counts %}
+          <span class="chip" data-type="{{ t }}">
+            <span class="dot" style="background: {{ color }}"></span>
+            {{ t }} <span class="meta">({{ n }})</span>
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="row">
+        <span class="group-label">Agents</span>
+        <button type="button" class="filter-bulk-btn" id="agents-all">all</button>
+        <button type="button" class="filter-bulk-btn" id="agents-none">none</button>
+        {% for a in agents %}
+        <label class="agent-cb">
+          <input type="checkbox" checked class="agent-toggle" data-agent="{{ a }}">
+          <span style="color: {{ agent_color(a) }}">a{{ a }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="row">
+        <span class="group-label">Stream</span>
+        <div class="tabs" id="tabs">
+          <button type="button" class="tab active" data-tab="all">All</button>
+          <button type="button" class="tab" data-tab="py">Py</button>
+          <button type="button" class="tab" data-tab="llm">LLM</button>
+          <button type="button" class="tab" data-tab="team">Team</button>
+        </div>
+      </div>
+    </div>
+    <div id="log">
+      {% for g in log_groups %}
+      {% if not loop.first %}<hr class="step-sep">{% endif %}
+      {% if g.type == "range" %}
+      <div class="step-range" data-start="{{ g.start }}" data-end="{{ g.end }}">[{{ g.start }}-{{ g.end }}]</div>
+      {% else %}
+      {# Compact step marker in the left column — vertical layout on the
+         first line of each step rather than a standalone horizontal row. #}
+      {% if g.lines %}
+      {% for ln in g.lines %}
+      <div class="line{% if loop.first %} step-start{% endif %}{% if ln.hide_agent %} agent-dupe{% endif %}"
+           data-idx="{{ ln.idx }}" data-step="{{ ln.step }}"
+           {% if loop.first %}data-step-label="{{ g.step }}"{% endif %}
+           data-agent="{{ ln.agent if ln.agent is not none else '' }}"
+           data-stream="{{ ln.stream }}"
+           data-type="{{ ln.type }}"
+           data-payload="{{ ln.text }}">{% if ln.agent is not none and not ln.hide_agent %}<span class="agent-tag" style="color: {{ agent_color(ln.agent) }}">a{{ ln.agent }}</span>{% endif %}{% if ln.role and role_glyph(ln.role) and not ln.hide_agent %}<span class="role-icon" title="{{ ln.role }}">{{ role_glyph(ln.role) }}</span>{% endif %}{% if ln.type not in ('action', 'target') %}<span class="type">{{ ln.type }}</span>{% endif %}<span class="payload">{{ ln.text }}</span></div>
+      {% endfor %}
+      {% else %}
+      <div class="step-marker" data-step="{{ g.step }}" data-original="step {{ g.step }}">step {{ g.step }}</div>
+      {% endif %}
+      {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+  </div>
+</main>
+
+<script type="application/json" id="events">{{ events_json|safe }}</script>
+<script type="application/json" id="inventory-by-agent-step">{{ inventory_by_agent_step_json|safe }}</script>
+<script type="application/json" id="team-by-step">{{ team_by_step_json|safe }}</script>
+<script>
+(function () {
+  var events = JSON.parse(document.getElementById('events').textContent);
+  var inventoryByAgentStep = JSON.parse(
+    document.getElementById('inventory-by-agent-step').textContent);
+  var teamByStep = JSON.parse(
+    document.getElementById('team-by-step').textContent);
+  var maxStep = {{ max_step }};
+
+  // Compact per-resource glyphs. Hover shows the full name.
+  var INV_ICONS = {
+    carbon: 'c',
+    oxygen: 'o',
+    germanium: 'g',
+    silicon: 's',
+    heart: "\u2665",
+    miner: "\u26cf",
+    aligner: "\ud83d\udd17",
+    scrambler: "\ud83c\udf00",
+    scout: "\ud83d\udd2d"
+  };
+  var INV_CARGO_KEYS = ['carbon', 'oxygen', 'germanium', 'silicon', 'heart'];
+  var INV_MAX = {hp: 100, energy: 100};
+
+  // Compute get_status dashboard for an agent at a given step — mirrors
+  // llm_worker._build_status but runs client-side on the embedded events.
+  function getStatus(agentId, atStep) {
+    if (atStep === undefined) atStep = maxStep;
+    var latestInv = {};
+    var recentActions = [];
+    var recentTargets = [];
+    for (var i = events.length - 1; i >= 0; i--) {
+      var e = events[i];
+      if (e.step > atStep) continue;
+      if (e.agent !== agentId) continue;
+      if (e.type === 'inventory' && !latestInv.inventory) {
+        latestInv = e.payload || {};
+      }
+      if (e.type === 'action' && recentActions.length < 5) {
+        recentActions.unshift('step ' + e.step + ': ' + ((e.payload || {}).summary || ''));
+      }
+      if (e.type === 'target' && recentTargets.length < 3) {
+        var p = e.payload || {};
+        recentTargets.unshift('step ' + e.step + ': ' + (p.kind || '?') + '@' + JSON.stringify(p.pos || '?'));
+      }
+    }
+    var inv = latestInv.inventory || {};
+    var gear = {};
+    ['miner','aligner','scrambler','scout','heart'].forEach(function (k) {
+      if (inv[k] && parseInt(inv[k]) > 0) gear[k] = parseInt(inv[k]);
+    });
+    var cargo = {};
+    ['carbon','oxygen','germanium','silicon'].forEach(function (k) {
+      if (inv[k] && parseInt(inv[k]) > 0) cargo[k] = parseInt(inv[k]);
+    });
+    return {
+      step: atStep,
+      hp: parseInt(inv.hp || 0),
+      energy: parseInt(inv.energy || 0),
+      position: latestInv.pos,
+      role: latestInv.role || 'unknown',
+      gear: gear,
+      cargo: cargo,
+      team_resources: latestInv.team_resources || {},
+      junctions: latestInv.junctions || {},
+      recent_actions: recentActions,
+      recent_targets: recentTargets
+    };
+  }
+  // Get world model for an agent (from the world_model event emitted at episode end).
+  function getWorldModel(agentId) {
+    for (var i = events.length - 1; i >= 0; i--) {
+      var e = events[i];
+      if (e.type === 'world_model' && e.agent === agentId) {
+        return e.payload;
+      }
+    }
+    return {entities: [], count: 0};
+  }
+  // Expose globally for console use.
+  window.getStatus = getStatus;
+  window.getWorldModel = getWorldModel;
+
+  function _findLatestHeartbeat(agent, step) {
+    var entries = inventoryByAgentStep[String(agent)];
+    if (!entries || entries.length === 0) return null;
+    // Binary search for the largest entries[i].step <= step. If none
+    // qualify (scrubber before the first recorded snapshot), fall back
+    // to the earliest entry so the panel shows *something* on load.
+    var lo = 0, hi = entries.length - 1, best = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (entries[mid].step <= step) { best = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    if (best < 0) return entries[0];
+    return entries[best];
+  }
+  function _findLatestTeamSnapshot(team, step) {
+    var entries = teamByStep[team];
+    if (!entries || entries.length === 0) return null;
+    var lo = 0, hi = entries.length - 1, best = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (entries[mid].step <= step) { best = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    if (best < 0) return entries[0];
+    return entries[best];
+  }
+
+  function _invBadge(key, count, label) {
+    var icon = INV_ICONS[key] || key;
+    var text = (label || key) + ': ' + count;
+    return '<span class="inv-badge" data-tip="' + text +
+           '" title="' + text + '">' +
+           '<span class="inv-icon">' + icon + '</span>' +
+           '<span class="inv-count">' + count + '</span></span>';
+  }
+  function _invBar(key, count) {
+    var max = INV_MAX[key] || 100;
+    var segs = 10;
+    var filled = Math.max(0, Math.min(segs, Math.round(count / max * segs)));
+    var html = '';
+    for (var i = 0; i < segs; i++) {
+      html += '<span class="seg' + (i < filled ? ' filled' : '') + '"></span>';
+    }
+    var tip = key + ': ' + count + '/' + max;
+    return '<span class="inv-bar ' + key + '" data-tip="' + tip +
+           '" title="' + tip + '">' + html + '</span>';
+  }
+  function updateInventoryPanel(step) {
+    var panel = document.getElementById('inventory-panel');
+    if (!panel) return;
+    // Per-team header rendering: shared resources + junction counts +
+    // role composition (aggregated from each team's agent heartbeats).
+    var teamBlocks = panel.querySelectorAll('.team-block');
+    teamBlocks.forEach(function (block) {
+      var team = block.dataset.team || '';
+      var resEl = block.querySelector('.team-resources');
+      var jctEl = block.querySelector('.team-junctions');
+      var rolesEl = block.querySelector('.team-roles');
+      var hit = team ? _findLatestTeamSnapshot(team, step) : null;
+      if (resEl) {
+        if (hit) {
+          var tr = (hit.payload || {}).team_resources || {};
+          var rparts = [];
+          INV_CARGO_KEYS.forEach(function (k) {
+            if (tr[k] !== undefined) rparts.push(_invBadge(k, tr[k], k));
+          });
+          resEl.innerHTML = rparts.join('');
+        } else {
+          resEl.innerHTML = '';
+        }
+      }
+      if (jctEl) {
+        if (hit) {
+          var j = (hit.payload || {}).junctions || {};
+          var f = j.friendly || 0;
+          jctEl.innerHTML =
+            '<span class="jct" title="team junctions">\u29C9 ' + f +
+            '</span>';
+        } else {
+          jctEl.innerHTML = '';
+        }
+      }
+      if (rolesEl) {
+        var roleCounts = {};
+        block.querySelectorAll('.team-agents .inv-row').forEach(function (r) {
+          var a = parseInt(r.dataset.agent, 10);
+          if (isNaN(a)) return;
+          var hb = _findLatestHeartbeat(a, step);
+          var role = hb && hb.payload ? hb.payload.role : null;
+          if (typeof role === 'string' && role) {
+            roleCounts[role] = (roleCounts[role] || 0) + 1;
+          }
+        });
+        var rparts = Object.keys(roleCounts).sort().map(function (role) {
+          var icon = INV_ICONS[role] || role;
+          return '<span class="role-count" title="' + role + ': ' +
+            roleCounts[role] + '"><span class="role-icon">' + icon +
+            '</span>: ' + roleCounts[role] + '</span>';
+        });
+        rolesEl.innerHTML = rparts.join('');
+      }
+    });
+    var rows = panel.querySelectorAll('.inv-row');
+    rows.forEach(function (row) {
+      var agent = parseInt(row.dataset.agent, 10);
+      var hit = _findLatestHeartbeat(agent, step);
+      var roleEl = row.querySelector('.inv-role');
+      var hpEl = row.querySelector('.inv-hp');
+      var cargoEl = row.querySelector('.inv-cargo');
+      if (!hit) {
+        row.classList.add('stale');
+        if (roleEl) roleEl.innerHTML = '';
+        if (hpEl) hpEl.innerHTML = '';
+        if (cargoEl) cargoEl.innerHTML = '';
+        return;
+      }
+      row.classList.remove('stale');
+      var p = hit.payload || {};
+      if (roleEl) {
+        roleEl.innerHTML = p.role
+          ? '<span class="inv-badge" data-tip="role: ' + p.role +
+            '" title="role: ' + p.role + '">' +
+            (INV_ICONS[p.role] || p.role) + '</span>'
+          : '';
+      }
+      if (hpEl) {
+        var inv = p.inventory || {};
+        var pieces = [];
+        if (p.hp !== undefined) pieces.push(_invBar('hp', p.hp));
+        if (inv.energy !== undefined) pieces.push(_invBar('energy', inv.energy));
+        hpEl.innerHTML = pieces.length
+          ? '<span class="inv-bars">' + pieces.join('') + '</span>'
+          : '';
+      }
+      var inv = p.inventory || {};
+      var parts = [];
+      INV_CARGO_KEYS.forEach(function (k) {
+        if (inv[k] !== undefined) parts.push(_invBadge(k, inv[k], k));
+      });
+      if (cargoEl) cargoEl.innerHTML = parts.join('');
+    });
+  }
+  // Mettascope owns scrubber UI; setStep tracks the step internally so
+  // log highlighting + click-to-jump still work, but no on-page scrubber.
+  var scrub = { value: 0 };
+  var stepLabel = { textContent: '' };
+  var search = document.getElementById('search');
+  var log = document.getElementById('log');
+  var typeChips = document.getElementById('type-chips');
+  var tabs = document.getElementById('tabs');
+
+  // Default-hide the per-tick `inventory` event type from the log; it's
+  // the data source for the inventory panel and only adds noise inline.
+  var hiddenTypes = {"inventory": true};
+  var hiddenAgents = {};
+  var currentTab = 'all';
+
+  var currentStep = -1;
+  var suppressMettascopePush = false;
+
+  function setStep(step, agent) {
+    step = Math.max(0, Math.min(maxStep, Math.floor(step)));
+    // Always refresh the inventory panel — clicking a different line at
+    // the same step should still highlight that row's agent.
+    updateInventoryPanel(step);
+    if (typeof agent === 'number' && !isNaN(agent)) {
+      document.querySelectorAll('#inventory-panel .inv-row').forEach(
+        function (r) { r.classList.remove('active'); });
+      var row = document.querySelector(
+        '#inventory-panel .inv-row[data-agent="' + agent + '"]');
+      if (row) row.classList.add('active');
+    }
+    var sameStep = step === currentStep;
+    if (sameStep && agent === undefined) {
+      scrub.value = step;
+      return;
+    }
+    currentStep = step;
+    scrub.value = step;
+    stepLabel.textContent = 'step ' + step + ' / ' + maxStep;
+    if (typeof _updateStepHeader === 'function') _updateStepHeader();
+    // Forward to the embedded mettascope unless we were *called* because
+    // mettascope told us to move (suppressMettascopePush guards that).
+    // Optional `agent` selects + centers on that agent in mettascope.
+    if (!suppressMettascopePush) {
+      var iframe = document.getElementById('mettascope');
+      if (iframe && iframe.contentWindow) {
+        var msg = { type: 'mettascopeSetStep', step: step };
+        if (typeof agent === 'number' && !isNaN(agent)) msg.agent = agent;
+        iframe.contentWindow.postMessage(msg, '*');
+      }
+    }
+    // Highlight current-step log lines.
+    log.querySelectorAll('.line').forEach(function (el) {
+      if (parseInt(el.dataset.step, 10) === step) el.classList.add('current');
+      else el.classList.remove('current');
+    });
+    // Highlight the range marker if step falls inside it.
+    log.querySelectorAll('.step-range').forEach(function (el) {
+      var a = parseInt(el.dataset.start, 10);
+      var b = parseInt(el.dataset.end, 10);
+      if (step >= a && step <= b) el.classList.add('current');
+      else el.classList.remove('current');
+    });
+    // Scroll first current line into view (or the current range marker
+    // if we're inside an empty gap).
+    var firstCurrent = log.querySelector('.line.current')
+      || log.querySelector('.step-range.current');
+    if (firstCurrent) firstCurrent.scrollIntoView({block: 'nearest'});
+    updateInventoryPanel(step);
+  }
+
+  function applyFilters() {
+    var q = (search.value || '').toLowerCase();
+    // Reset any prior merge state before recomputing.
+    log.querySelectorAll('.step-marker').forEach(function (el) {
+      el.classList.remove('merged-hidden');
+      el.classList.remove('hidden');
+      if (el.dataset.original) el.textContent = el.dataset.original;
+    });
+    log.querySelectorAll('hr.step-sep').forEach(function (el) {
+      el.classList.remove('hr-hidden');
+    });
+    log.querySelectorAll('.step-range-badge').forEach(function (el) {
+      el.parentNode && el.parentNode.removeChild(el);
+    });
+    log.querySelectorAll('.line').forEach(function (el) {
+      el.classList.remove('merged-hidden');
+      el.classList.remove('in-merged-run');
+      var type = el.dataset.type;
+      var agent = el.dataset.agent;
+      var stream = el.dataset.stream;
+      // Include data-payload so the role_change enrichment (which
+      // replaces visible text with glyphs) doesn't hide rows from the
+      // text filter.
+      var text = (el.textContent + ' ' +
+        (el.dataset.payload || '')).toLowerCase();
+      var hide = false;
+      if (hiddenTypes[type]) hide = true;
+      if (agent !== '' && hiddenAgents[agent]) hide = true;
+      if (currentTab === 'py' && stream !== 'py') hide = true;
+      if (currentTab === 'llm' && stream !== 'llm') hide = true;
+      if (currentTab === 'team' && agent !== '') hide = true;
+      if (q && text.indexOf(q) === -1) hide = true;
+      el.classList.toggle('hidden', hide);
+    });
+    // Hide step markers whose lines are all hidden (no visible content).
+    log.querySelectorAll('.step-marker').forEach(function (marker) {
+      var lines = _linesAfterMarker(marker);
+      var visible = lines.filter(function (l) { return !l.classList.contains('hidden'); });
+      if (visible.length === 0) marker.classList.add('hidden');
+    });
+    // Hide all step-range gaps — they're noise when filtering.
+    log.querySelectorAll('.step-range').forEach(function (r) { r.classList.add('hidden'); });
+    recomputeMerges();
+  }
+
+  // Return the sequence of .line elements that follow this step-marker
+  // until the next step-marker / step-range.
+  function _linesAfterMarker(marker) {
+    var out = [];
+    var el = marker.nextElementSibling;
+    while (el) {
+      if (el.classList.contains('step-marker') ||
+          el.classList.contains('step-range') ||
+          el.tagName === 'HR') break;
+      if (el.classList.contains('line')) out.push(el);
+      el = el.nextElementSibling;
+    }
+    return out;
+  }
+
+  function _lineKey(ln) {
+    return (ln.dataset.agent || '') + '|' + ln.dataset.stream + '|' +
+           ln.dataset.type + '|' + (ln.dataset.payload || '');
+  }
+
+  // Walk the currently-visible step-markers and merge runs of adjacent
+  // markers whose visible-line *sets* match (same count, same keys).
+  // Step keys formed from sorted line keys so multi-event steps merge
+  // when the whole set repeats. Idempotent — applyFilters resets first.
+  function _stepLineKeys(marker) {
+    return _linesAfterMarker(marker)
+      .filter(function (l) { return !l.classList.contains('hidden'); })
+      .map(_lineKey)
+      .sort()
+      .join(';;');
+  }
+  // Role phases: actions that belong to the same operational phase.
+  var _ROLE_PHASES = {
+    'mine_carbon': 'mining', 'mine_oxygen': 'mining', 'mine_germanium': 'mining',
+    'mine_silicon': 'mining', 'find_extractors': 'mining', 'deposit_resources': 'mining',
+    'fund_miner_gear_mine_carbon': 'mining', 'fund_miner_gear_mine_oxygen': 'mining',
+    'fund_miner_gear_mine_germanium': 'mining', 'fund_miner_gear_mine_silicon': 'mining',
+    'align_junction': 'aligning', 'find_neutral_junction': 'aligning',
+    'scramble_junction': 'scrambling', 'find_enemy_junction': 'scrambling',
+    'acquire_heart': 'hearts', 'batch_hearts': 'hearts', 'find_hub_for_heart': 'hearts',
+    'retreat_to_hub': 'retreat', 'retreat_hold': 'retreat',
+    'explore': 'explore',
+  };
+  function _actionPhase(line) {
+    var payload = line.dataset.payload || '';
+    return _ROLE_PHASES[payload] || payload;
+  }
+
+  function recomputeMerges() {
+    // Collect all visible action lines for the selected agent, group
+    // consecutive lines in the same phase into collapsed runs.
+    var allLines = Array.prototype.slice.call(log.querySelectorAll('.line'));
+    var visible = allLines.filter(function (l) {
+      return !l.classList.contains('hidden') && l.dataset.type === 'action';
+    });
+    // Reset previous merge state.
+    visible.forEach(function (l) {
+      l.classList.remove('merged-hidden', 'in-merged-run');
+      var badge = l.querySelector('.step-range-badge');
+      if (badge) badge.remove();
+      l.classList.remove('merge-summary');
+    });
+    if (visible.length < 2) return;
+    var i = 0;
+    while (i < visible.length) {
+      var start = visible[i];
+      var phase = _actionPhase(start);
+      var j = i + 1;
+      while (j < visible.length && _actionPhase(visible[j]) === phase) j++;
+      var runLen = j - i;
+      if (runLen > 2) {
+        // Collapse: show first line with step range badge, hide middle lines.
+        var startStep = start.dataset.step;
+        var endStep = visible[j - 1].dataset.step;
+        var badge = document.createElement('span');
+        badge.className = 'step-range-badge';
+        badge.textContent = '(' + runLen + ' events, steps ' + startStep + '-' + endStep + ')';
+        start.appendChild(badge);
+        start.classList.add('merge-summary');
+        // Hide all middle lines, keep first and last.
+        for (var k = i + 1; k < j - 1; k++) {
+          visible[k].classList.add('merged-hidden');
+        }
+      }
+      i = j;
+    }
+    // Keep exactly ONE hr between two visible blocks. Walk the log in
+    // DOM order, tracking whether we've seen visible content since the
+    // last kept hr. Skip hidden/merged-hidden children. A run of hrs
+    // between two visible blocks collapses to the first; leading/
+    // trailing hrs (no visible content on one side yet) hide.
+    var children = Array.prototype.slice.call(log.children);
+    var lastHadContent = false;  // visible non-hr content since last hr kept
+    var pendingHr = null;        // hr waiting to be kept once content follows
+    children.forEach(function (el) {
+      if (el.classList.contains('hidden') ||
+          el.classList.contains('merged-hidden')) {
+        return;  // treat as if absent
+      }
+      if (el.tagName === 'HR') {
+        if (lastHadContent) {
+          // Keep the most recent hr across a run; collapse any prior
+          // pendingHr (not yet flanked by content on both sides).
+          if (pendingHr) pendingHr.classList.add('hr-hidden');
+          pendingHr = el;
+          lastHadContent = false;
+        } else {
+          el.classList.add('hr-hidden');
+        }
+      } else {
+        // Visible content: the pending hr is now confirmed-visible.
+        pendingHr = null;
+        lastHadContent = true;
+      }
+    });
+    // Trailing pending hr has no content after it — hide it.
+    if (pendingHr) pendingHr.classList.add('hr-hidden');
+  }
+
+  // Clicking a log line, step marker, or empty-range jumps the scrubber.
+  // For a .line click, also pass the agent so mettascope centers on it.
+  log.addEventListener('click', function (e) {
+    var target = e.target.closest('.line, .step-marker, .step-range');
+    if (!target || !log.contains(target)) return;
+    var step;
+    if (target.classList.contains('step-range')) {
+      step = parseInt(target.dataset.start, 10);
+    } else {
+      step = parseInt(target.dataset.step, 10);
+    }
+    if (isNaN(step)) return;
+    scrub.value = step;
+    // Highlight the clicked line (single-click = select; double-click
+    // still expands via the separate dblclick handler).
+    if (target.classList.contains('line')) {
+      log.querySelectorAll('.line.selected').forEach(function (el) {
+        el.classList.remove('selected');
+      });
+      target.classList.add('selected');
+    }
+    var agentAttr = target.dataset.agent;
+    if (agentAttr !== undefined && agentAttr !== '') {
+      setStep(step, parseInt(agentAttr, 10));
+    } else {
+      setStep(step);
+    }
+  });
+
+  typeChips.addEventListener('click', function (e) {
+    var chip = e.target.closest('.chip');
+    if (!chip) return;
+    var t = chip.dataset.type;
+    hiddenTypes[t] = !hiddenTypes[t];
+    chip.classList.toggle('off', !!hiddenTypes[t]);
+    applyFilters();
+  });
+
+  function _setAllTypes(hidden) {
+    typeChips.querySelectorAll('.chip').forEach(function (chip) {
+      var t = chip.dataset.type;
+      hiddenTypes[t] = hidden;
+      chip.classList.toggle('off', hidden);
+    });
+    applyFilters();
+  }
+  document.getElementById('types-all').addEventListener('click', function () { _setAllTypes(false); });
+  document.getElementById('types-none').addEventListener('click', function () { _setAllTypes(true); });
+
+  document.querySelectorAll('.agent-toggle').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      hiddenAgents[cb.dataset.agent] = !cb.checked;
+      _syncAgentEyes();
+      applyFilters();
+    });
+  });
+
+  function _setAllAgents(hidden) {
+    document.querySelectorAll('.agent-toggle').forEach(function (cb) {
+      hiddenAgents[cb.dataset.agent] = hidden;
+      cb.checked = !hidden;
+    });
+    _syncAgentEyes();
+    applyFilters();
+  }
+  document.getElementById('agents-all').addEventListener('click', function () { _setAllAgents(false); });
+  document.getElementById('agents-none').addEventListener('click', function () { _setAllAgents(true); });
+
+  // Agent dropdown: solo-filter to one agent, or show all.
+  // Persists selection in localStorage.
+  var agentSelect = document.getElementById('agent-select');
+  function _applyAgentSelect(val) {
+    if (val === '') {
+      _setAllAgents(false);
+    } else {
+      document.querySelectorAll('.agent-toggle').forEach(function (cb) {
+        hiddenAgents[cb.dataset.agent] = (cb.dataset.agent !== val);
+        cb.checked = (cb.dataset.agent === val);
+      });
+      _syncAgentEyes();
+      applyFilters();
+    }
+    try { localStorage.setItem('cgp-agent-select', val); } catch (e) {}
+  }
+  agentSelect.addEventListener('change', function () {
+    _applyAgentSelect(agentSelect.value);
+  });
+  // Restore saved selection or apply default (first agent).
+  var savedAgent = null;
+  try { savedAgent = localStorage.getItem('cgp-agent-select'); } catch (e) {}
+  if (savedAgent !== null) {
+    agentSelect.value = savedAgent;
+  }
+  _applyAgentSelect(agentSelect.value);
+
+  function _syncAgentEyes() {
+    document.querySelectorAll('.agent-eye').forEach(function (btn) {
+      var a = btn.dataset.agent;
+      btn.classList.toggle('hidden-eye', !!hiddenAgents[a]);
+    });
+    document.querySelectorAll('.agent-toggle').forEach(function (cb) {
+      cb.checked = !hiddenAgents[cb.dataset.agent];
+    });
+  }
+  function _setAgentHidden(a, hidden) {
+    hiddenAgents[a] = hidden;
+  }
+  document.querySelectorAll('.agent-eye').forEach(function (btn) {
+    var a = btn.dataset.agent;
+    btn.addEventListener('click', function (ev) {
+      if (btn._dblTimer) { clearTimeout(btn._dblTimer); btn._dblTimer = null; }
+      // Defer single-click a hair so a double-click can cancel it.
+      btn._dblTimer = setTimeout(function () {
+        btn._dblTimer = null;
+        _setAgentHidden(a, !hiddenAgents[a]);
+        _syncAgentEyes();
+        applyFilters();
+      }, 180);
+    });
+    btn.addEventListener('dblclick', function (ev) {
+      if (btn._dblTimer) { clearTimeout(btn._dblTimer); btn._dblTimer = null; }
+      // Solo toggle: if only this agent is visible, show all; else solo it.
+      var allAgents = Array.prototype.slice.call(
+        document.querySelectorAll('.agent-eye')
+      ).map(function (b) { return b.dataset.agent; });
+      var isOnlyVisible = allAgents.every(function (x) {
+        return x === a ? !hiddenAgents[x] : !!hiddenAgents[x];
+      });
+      if (isOnlyVisible) {
+        allAgents.forEach(function (x) { _setAgentHidden(x, false); });
+      } else {
+        allAgents.forEach(function (x) { _setAgentHidden(x, x !== a); });
+      }
+      _syncAgentEyes();
+      applyFilters();
+    });
+  });
+
+  tabs.addEventListener('click', function (e) {
+    var b = e.target.closest('.tab');
+    if (!b) return;
+    currentTab = b.dataset.tab;
+    tabs.querySelectorAll('.tab').forEach(function (x) {
+      x.classList.toggle('active', x === b);
+    });
+    applyFilters();
+  });
+
+  search.addEventListener('input', applyFilters);
+
+  // Collapsible filter panel.
+  (function () {
+    var btn = document.getElementById('filters-toggle');
+    var panel = document.getElementById('log-filters');
+    if (!btn || !panel) return;
+    var stored = window.localStorage && localStorage.getItem('cgp-filters-collapsed');
+    if (stored === '0') {
+      panel.classList.remove('collapsed');
+      btn.classList.remove('collapsed');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    btn.addEventListener('click', function () {
+      var collapsed = panel.classList.toggle('collapsed');
+      btn.classList.toggle('collapsed', collapsed);
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      try {
+        if (window.localStorage) {
+          localStorage.setItem('cgp-filters-collapsed', collapsed ? '1' : '0');
+        }
+      } catch (e) { /* localStorage may be disabled */ }
+    });
+  })();
+
+  document.querySelectorAll('.jump-fail').forEach(function (b) {
+    b.addEventListener('click', function () { setStep(+b.dataset.step); });
+  });
+
+  // Clicking a collapsed empty-range marker jumps to its start step.
+  log.addEventListener('click', function (e) {
+    var r = e.target.closest('.step-range');
+    if (!r) return;
+    setStep(+r.dataset.start);
+  });
+
+  // Delegated copy handler for any element with data-copy.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-copy]');
+    if (!el) return;
+    var text = el.getAttribute('data-copy') || '';
+    if (navigator.clipboard) navigator.clipboard.writeText(text);
+    var prev = el.textContent;
+    el.textContent = 'copied';
+    setTimeout(function () { el.textContent = prev; }, 2000);
+  });
+
+  // Listen for step updates from mettascope so our scrubber follows its
+  // playback. We only trust messages whose source is our own iframe, and
+  // we set suppressMettascopePush so setStep doesn't echo the value back.
+  window.addEventListener('message', function (event) {
+    var iframe = document.getElementById('mettascope');
+    if (!iframe || event.source !== iframe.contentWindow) return;
+    if (!event.data) return;
+    var t = event.data.type;
+    var hasAgent = typeof event.data.agent === 'number'
+      && !isNaN(event.data.agent);
+    if (t === 'mettascopeStep') {
+      var step = event.data.step | 0;
+      suppressMettascopePush = true;
+      if (step !== currentStep) setStep(step, hasAgent ? event.data.agent : undefined);
+      else if (hasAgent) _highlightAgentInStepView(event.data.agent);
+      suppressMettascopePush = false;
+      return;
+    }
+    // Agent-selection event from mettascope: highlight in Step View.
+    if ((t === 'mettascopeSelectAgent' || t === 'mettascopeAgent'
+        || t === 'mettascopeSelect') && hasAgent) {
+      _highlightAgentInStepView(event.data.agent);
+    }
+  });
+
+  function _highlightAgentInStepView(agent) {
+    document.querySelectorAll('#inventory-panel .inv-row').forEach(
+      function (r) { r.classList.remove('active'); });
+    var row = document.querySelector(
+      '#inventory-panel .inv-row[data-agent="' + agent + '"]');
+    if (row) {
+      row.classList.add('active');
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // Click an inv-row → select that agent in mettascope + log.
+  document.querySelectorAll('#inventory-panel .inv-row').forEach(
+    function (row) {
+      row.addEventListener('click', function (ev) {
+        if (ev.target.closest('.agent-eye')) return;
+        var agent = parseInt(row.dataset.agent, 10);
+        if (!isNaN(agent)) setStep(currentStep, agent);
+      });
+    });
+
+  // Step View section collapse toggle.
+  (function () {
+    var btn = document.getElementById('step-view-toggle');
+    var card = document.getElementById('step-view-card');
+    if (!btn || !card) return;
+    btn.addEventListener('click', function () {
+      var collapsed = card.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      btn.innerHTML = collapsed ? '+' : '&minus;';
+    });
+  })();
+
+  // get_status button: show dashboard for selected agent at current step.
+  document.getElementById('get-status-btn').addEventListener('click', function () {
+    var out = document.getElementById('status-output');
+    if (out.style.display !== 'none') {
+      out.style.display = 'none';
+      return;
+    }
+    var agent = parseInt(agentSelect.value, 10);
+    if (isNaN(agent)) return;
+    var status = getStatus(agent, currentStep);
+    out.textContent = JSON.stringify(status, null, 2);
+    out.style.display = 'block';
+  });
+
+  // Update step panel header to show selected agent.
+  function _updateStepHeader() {
+    var stepText = document.querySelector('#step-view-current .step-text');
+    var statusBtn = document.getElementById('get-status-btn');
+    var agent = agentSelect.value;
+    if (stepText) {
+      var label = 'step ' + currentStep;
+      if (agent !== '') label = 'a' + agent + ' @ step ' + currentStep;
+      stepText.textContent = label;
+    }
+    var worldBtn = document.getElementById('get-world-btn');
+    if (statusBtn) statusBtn.style.display = (agent === '') ? 'none' : '';
+    if (worldBtn) worldBtn.style.display = (agent === '') ? 'none' : '';
+    // Hide output when agent changes.
+    var out = document.getElementById('status-output');
+    if (out) out.style.display = 'none';
+  }
+  agentSelect.addEventListener('change', _updateStepHeader);
+
+  document.getElementById('get-world-btn').addEventListener('click', function () {
+    var out = document.getElementById('status-output');
+    if (out.style.display !== 'none') {
+      out.style.display = 'none';
+      return;
+    }
+    var agent = parseInt(agentSelect.value, 10);
+    if (isNaN(agent)) return;
+    var wm = getWorldModel(agent);
+    out.textContent = JSON.stringify(wm, null, 2);
+    out.style.display = 'block';
+  });
+
+  (function setupReplay() {
+    var iframe = document.getElementById('mettascope');
+    if (!iframe) return;
+    var proto = window.location.protocol;
+    if (proto === 'http:' || proto === 'https:') {
+      var replayUrl = new URL('./replay.json.z', window.location.href).href;
+      // Probe the locally-served mettascope dist; fall back to the
+      // github-pages URL if the server didn't mount it (mixed content
+      // may block it in browsers in that case).
+      var localBase = new URL('./mettascope/mettascope.html', window.location.href).href;
+      var remoteBase = 'https://metta-ai.github.io/metta/mettascope/mettascope.html';
+      var showError = function () {
+        iframe.outerHTML = '<div class="replay-fallback">Mettascope not available. Set <code>CVC_METTASCOPE_DIST</code> to a local mettascope <code>dist</code> directory, or install mettagrid with <code>dist</code> included.</div>';
+      };
+      var loadRemote = function () {
+        fetch(remoteBase, {method: 'HEAD', mode: 'no-cors'}).then(function (r2) {
+          if (r2.type === 'opaque' || r2.ok) {
+            iframe.src = remoteBase + '?replay=' + encodeURIComponent(replayUrl);
+          } else {
+            showError();
+          }
+        }).catch(showError);
+      };
+      fetch('./mettascope/mettascope.html', {method: 'HEAD'}).then(function (r) {
+        if (r.ok) {
+          iframe.src = localBase + '?replay=' + encodeURIComponent(replayUrl);
+        } else {
+          loadRemote();
+        }
+      }).catch(loadRemote);
+    } else {
+      iframe.outerHTML = '<div class="replay-fallback">Open via <code>cgp view</code> for embedded replay (needs HTTP server).</div>';
+    }
+  })();
+
+  // Drag-to-resize between replay and log columns. During drag we only
+  // move a lightweight absolutely-positioned ghost line; the real grid
+  // columns are committed once on pointerup so the heavy log + iframe
+  // reflow happens at most once per drag.
+  (function () {
+    var grid = document.getElementById('main-grid');
+    var handle = document.getElementById('col-resize');
+    if (!grid || !handle) return;
+    var stored = window.localStorage && localStorage.getItem('cgp-cols');
+    if (stored) grid.style.setProperty('--main-cols', stored);
+    var ghost = document.createElement('div');
+    ghost.id = 'resize-ghost';
+    document.body.appendChild(ghost);
+    var dragging = false;
+    var startX = 0;
+    var startLeftPx = 0;
+    var pendingLeftPx = 0;
+    function _commitCols(leftPx) {
+      var totalPx = grid.getBoundingClientRect().width;
+      var rightPx = Math.max(80, totalPx - leftPx - handle.offsetWidth);
+      var leftClamped = Math.max(80, totalPx - rightPx - handle.offsetWidth);
+      var cols = leftClamped + 'px ' + handle.offsetWidth + 'px ' + rightPx + 'px';
+      grid.style.setProperty('--main-cols', cols);
+      try { if (window.localStorage) localStorage.setItem('cgp-cols', cols); }
+      catch (e) {}
+    }
+    function _moveGhost(clientX) {
+      var rect = grid.getBoundingClientRect();
+      var minX = rect.left + 80;
+      var maxX = rect.right - 80 - handle.offsetWidth;
+      var x = Math.max(minX, Math.min(maxX, clientX));
+      ghost.style.left = x + 'px';
+    }
+    function _endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('dragging');
+      ghost.classList.remove('active');
+      document.body.classList.remove('resizing');
+      if (e && typeof e.pointerId === 'number') {
+        try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+      }
+      _commitCols(pendingLeftPx);
+    }
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      dragging = true;
+      handle.classList.add('dragging');
+      ghost.classList.add('active');
+      document.body.classList.add('resizing');
+      try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+      startX = e.clientX;
+      startLeftPx = grid.firstElementChild.getBoundingClientRect().width;
+      pendingLeftPx = startLeftPx;
+      _moveGhost(e.clientX);
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      if (e.buttons === 0) { _endDrag(e); return; }
+      pendingLeftPx = startLeftPx + (e.clientX - startX);
+      _moveGhost(e.clientX);
+    });
+    handle.addEventListener('pointerup', _endDrag);
+    handle.addEventListener('pointercancel', _endDrag);
+    handle.addEventListener('lostpointercapture', _endDrag);
+    // Safety net: any mouseup anywhere on the window cleanly ends a drag.
+    window.addEventListener('mouseup', _endDrag);
+    window.addEventListener('blur', _endDrag);
+  })();
+
+  applyFilters();
+  setStep(0);
+
+  // Color the per-line role glyph based on whether the agent has
+  // the matching gear in inventory at that step. Green = right gear,
+  // red = holding another gear item, unstyled = no gear at all.
+  (function () {
+    var GEAR_KEYS = ['miner', 'aligner', 'scrambler', 'scout'];
+    document.querySelectorAll('#log .line .role-icon').forEach(
+      function (icon) {
+        var line = icon.closest('.line');
+        var agent = parseInt(line.dataset.agent, 10);
+        var step = parseInt(line.dataset.step, 10);
+        var role = icon.getAttribute('title');
+        if (isNaN(agent) || !role || GEAR_KEYS.indexOf(role) < 0) return;
+        var hb = _findLatestHeartbeat(agent, step);
+        var inv = (hb && hb.payload && hb.payload.inventory) || {};
+        if ((inv[role] || 0) > 0) icon.classList.add('gear-ok');
+        else if (GEAR_KEYS.some(function (k) { return (inv[k] || 0) > 0; }))
+          icon.classList.add('gear-wrong');
+      });
+  })();
+
+  // Rewrite `role_change` log lines as `glyph → glyph`, with the
+  // target glyph colored by whether the agent actually has the right
+  // gear for the new role at that step (green=ok, red=wrong gear, no
+  // box=no gear at all).
+  (function () {
+    var GEAR_KEYS = ['miner', 'aligner', 'scrambler', 'scout'];
+    function _esc(s) {
+      return String(s).replace(/[&<>"]/g, function (c) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    document.querySelectorAll('#log .line[data-type="role_change"]')
+      .forEach(function (el) {
+        var payloadEl = el.querySelector('.payload');
+        if (!payloadEl) return;
+        var raw = el.dataset.payload || payloadEl.textContent;
+        var fromM = /\bfrom=(\w+)/.exec(raw);
+        var toM = /\bto=(\w+)/.exec(raw);
+        if (!fromM || !toM) return;
+        var fromRole = fromM[1], toRole = toM[1];
+        var agent = parseInt(el.dataset.agent, 10);
+        var step = parseInt(el.dataset.step, 10);
+        var gearClass = '';
+        if (!isNaN(agent)) {
+          var hb = _findLatestHeartbeat(agent, step);
+          var inv = (hb && hb.payload && hb.payload.inventory) || {};
+          var hasTarget = (inv[toRole] || 0) > 0;
+          var hasAny = GEAR_KEYS.some(function (k) {
+            return (inv[k] || 0) > 0;
+          });
+          if (hasTarget) gearClass = 'gear-ok';
+          else if (hasAny) gearClass = 'gear-wrong';
+        }
+        var fromGlyph = INV_ICONS[fromRole] || fromRole;
+        var toGlyph = INV_ICONS[toRole] || toRole;
+        var pillClass = gearClass ? 'gear-pill ' + gearClass : '';
+        var title = fromRole + ' \u2192 ' + toRole +
+          (gearClass === 'gear-ok' ? ' (gear ready)' :
+           gearClass === 'gear-wrong' ? ' (wrong gear held)' :
+           ' (no gear)');
+        payloadEl.innerHTML =
+          '<span title="' + _esc(fromRole) + '">' + _esc(fromGlyph) +
+          '</span><span class="role-arrow">\u2192</span>' +
+          '<span class="' + pillClass + '" title="' + _esc(title) +
+          '">' + _esc(toGlyph) + '</span>';
+      });
+  })();
+
+  // Double-click a log line to expand it: render the full event
+  // payload as pretty-printed JSON below the summary line. Another
+  // double-click collapses.
+  log.addEventListener('dblclick', function (ev) {
+    var line = ev.target.closest('.line');
+    if (!line || !log.contains(line)) return;
+    // llm_turn lines already show full text inline — skip expand.
+    if (line.dataset.type === 'llm_turn') return;
+    // Don't toggle if the user is just double-clicking in the
+    // already-expanded details block to select text.
+    if (ev.target.closest('.line-details')) return;
+    ev.preventDefault();
+    if (window.getSelection) window.getSelection().removeAllRanges();
+    var existing = line.querySelector('.line-details');
+    if (existing) {
+      existing.remove();
+      line.classList.remove('expanded');
+      return;
+    }
+    var idx = parseInt(line.dataset.idx, 10);
+    if (isNaN(idx)) return;
+    var evt = events[idx];
+    if (!evt) return;
+    var details = document.createElement('div');
+    details.className = 'line-details';
+    var payload = evt.payload || {};
+    var toolbar = document.createElement('span');
+    toolbar.className = 'line-details-toolbar';
+    toolbar.textContent = '{}';
+    toolbar.title = 'toggle pretty-print';
+    var body = document.createElement('span');
+    body.className = 'line-details-body';
+    function _render(pretty) {
+      try {
+        body.textContent = pretty
+          ? JSON.stringify(payload, null, 2)
+          : JSON.stringify(payload);
+      } catch (err) {
+        body.textContent = String(payload);
+      }
+      details.classList.toggle('pretty', !!pretty);
+    }
+    _render(true);
+    toolbar.addEventListener('click', function (e) {
+      e.stopPropagation();
+      _render(!details.classList.contains('pretty'));
+    });
+    // Prevent double-click inside the toolbar from bubbling up and
+    // collapsing the line.
+    toolbar.addEventListener('dblclick', function (e) {
+      e.stopPropagation();
+    });
+    details.appendChild(toolbar);
+    details.appendChild(body);
+    line.appendChild(details);
+    line.classList.add('expanded');
+  });
+
+  // Poll /_mtime and reload when a watched file (events.json, result.json,
+  // template, render.py) changes. Silently no-ops on file:// or if the
+  // endpoint is missing (e.g. --no-server).
+  (function () {
+    if (location.protocol === 'file:') return;
+    var initial = null;
+    function tick() {
+      fetch('/_mtime', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j) return;
+          if (initial === null) { initial = j.mtime; return; }
+          if (j.mtime > initial + 0.001) location.reload();
+        })
+        .catch(function () {});
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+})();
+</script>
+</body>
+</html>

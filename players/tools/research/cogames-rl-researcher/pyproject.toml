@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogames-rl-researcher"
+version = "0.1.0"
+description = "Claude-first RL researcher workflow runner for CoGames"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+authors = [{ name = "Metta AI" }]
+dependencies = ["cogames", "pydantic>=2.12.2"]
+
+[project.urls]
+Repository = "https://github.com/Metta-AI/metta/tree/main/cogames-rl-researcher"
+
+[dependency-groups]
+dev = ["pytest>=8.3.3", "pytest-cov>=6.1.1", "pytest-xdist>=3.8.0", "ruff>=0.11.13"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cogames_rl_researcher", "cogames_rl_researcher.*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+cogames_rl_researcher = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = ["integration: live checks that require auth/network and are opt-in"]
+
+[tool.uv.sources]
+cogames = { workspace = true }

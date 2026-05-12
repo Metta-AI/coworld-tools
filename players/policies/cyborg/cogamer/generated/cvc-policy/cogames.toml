@@ -1,0 +1,3 @@
+[policy]
+class_path = "cvc_policy.cogamer_policy.CvCPolicy"
+setup_script = "setup_policy.py"
