@@ -1,0 +1,18 @@
+type: mettagrid.map_builder.ascii.AsciiMapBuilder.Config
+map_data: |-
+    ###############
+    #.............#
+    #..@..........#
+    #.............#
+    #..A..&...J...#
+    #.............#
+    #.............#
+    #.............#
+    ###############
+char_to_map_name:
+  "#": wall
+  ".": empty
+  "@": agent.agent
+  "A": c:aligner
+  "&": c:hub
+  "J": junction
