@@ -4,6 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .claude_env import bedrock_subprocess_env
 from .framework import AgentFrameworkRef
 
 
@@ -32,7 +33,12 @@ def run_claude(
     if model:
         cmd.extend(["--model", model])
 
-    return _run_command(cmd, cwd=game_source, runner_name="Claude")
+    return _run_command(
+        cmd,
+        cwd=game_source,
+        runner_name="Claude",
+        env=bedrock_subprocess_env(),
+    )
 
 
 def run_codex(
@@ -79,9 +85,22 @@ def run_codex(
     return stdout
 
 
-def _run_command(cmd: list[str], *, cwd: Path, runner_name: str) -> str:
+def _run_command(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    runner_name: str,
+    env: dict[str, str] | None = None,
+) -> str:
     try:
-        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
     except FileNotFoundError as exc:
         raise RuntimeError(f"{runner_name} executable not found: {cmd[0]}") from exc
 

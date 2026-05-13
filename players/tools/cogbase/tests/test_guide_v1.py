@@ -10,9 +10,37 @@ import pytest
 GUIDE_ROOT = Path(__file__).resolve().parents[1] / "testbed" / "guide_v1"
 sys.path.insert(0, str(GUIDE_ROOT))
 
+from guide_v1.claude_env import bedrock_subprocess_env  # noqa: E402
 from guide_v1.contracts import GUIDE_CONTRACT_SCHEMA_VERSION, write_guide_contract  # noqa: E402
 from guide_v1.framework import AgentFrameworkRef  # noqa: E402
 from guide_v1 import pipeline as guide_pipeline  # noqa: E402
+
+
+def test_bedrock_subprocess_env_forces_bedrock_and_strips_conflicting_auth() -> None:
+    base = {
+        "PATH": "/usr/bin",
+        "AWS_REGION": "us-east-1",
+        "ANTHROPIC_API_KEY": "sk-leak",
+        "ANTHROPIC_AUTH_TOKEN": "leak-token",
+        "CLAUDE_CODE_USE_VERTEX": "1",
+    }
+
+    env = bedrock_subprocess_env(base)
+
+    assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert env["AWS_REGION"] == "us-east-1"
+    assert env["PATH"] == "/usr/bin"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "ANTHROPIC_AUTH_TOKEN" not in env
+    assert "CLAUDE_CODE_USE_VERTEX" not in env
+    # The cmux claude wrapper strips provider-selection vars unless these
+    # opt-outs are present; the env must keep CLAUDE_CODE_USE_BEDROCK alive
+    # through the wrapper so the child process actually routes to Bedrock.
+    assert env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1"
+    preserved = set(env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"].split(","))
+    assert "CLAUDE_CODE_USE_BEDROCK" in preserved
+    # The input mapping must not be mutated.
+    assert base["ANTHROPIC_API_KEY"] == "sk-leak"
 
 
 def test_write_guide_contract_extracts_machine_readable_action_and_observation_contract(
