@@ -4,6 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from .claude_env import bedrock_subprocess_env
 from .framework import AgentFrameworkRef
 
 
@@ -41,6 +42,7 @@ def run_synthesizer(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=bedrock_subprocess_env(),
         )
     except FileNotFoundError as exc:
         raise RuntimeError("Claude executable not found: claude") from exc
