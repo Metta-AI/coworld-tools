@@ -75,11 +75,20 @@ KEY_RENDEZVOUS_STALE_WHISPER_RANGE_SQ = (
     KEY_RENDEZVOUS_STALE_WHISPER_RANGE * KEY_RENDEZVOUS_STALE_WHISPER_RANGE
 )
 KEY_REQUESTER_SWEEP_RADIUS = KEY_RENDEZVOUS_PARTNER_RANGE
-KEY_REQUESTER_VISIBLE_ENTRY_RANGE = 4
+# Loosened from 4 to 16 so the requester can pulse the entry button from
+# where it actually settles near the rendezvous (live traces showed Hades and
+# Persephone parking 6-9 px away because (54, 66) is on/behind an obstacle in
+# both rooms). Combined with KEY_RENDEZVOUS_OPEN_RANGE=20, worst-case
+# requester-to-whisper distance stays inside SERVER_ENTRY_RANGE+slack so the
+# server still registers the join.
+KEY_REQUESTER_VISIBLE_ENTRY_RANGE = 16
 KEY_REQUESTER_VISIBLE_ENTRY_RANGE_SQ = (
     KEY_REQUESTER_VISIBLE_ENTRY_RANGE * KEY_REQUESTER_VISIBLE_ENTRY_RANGE
 )
-KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS = 120
+# Reduced from 120 to 48 ticks (~2s) so the requester does not idle through
+# half the 15s round before its first blind sweep. Openers create whispers
+# within the first few ticks of arrival; waiting 5s is overkill.
+KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS = 48
 KEY_REQUESTER_ROLES = frozenset({Role.HADES, Role.PERSEPHONE})
 KEY_OPENER_ROLES = frozenset({Role.CERBERUS, Role.DEMETER})
 KEY_SHARED_RENDEZVOUS = (54, 66)

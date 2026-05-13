@@ -27,6 +27,8 @@ from agents.eurydice.knowledge import PlayerKnowledge
 from agents.eurydice.log import logger as eurydice_logger, set_logger
 from agents.eurydice.meta_decide import build_strategic_state, compute_urgency, meta_decide
 from agents.eurydice.modes import (
+    BLIND_KEY_FIRST_GRANT_TICKS,
+    BLIND_KEY_GRANT_TICKS,
     BlindGrantEntryTask,
     BlindOfferRoleExchangeTask,
     EurydiceIdleMode,
@@ -3177,9 +3179,11 @@ def test_probe_systematic_key_partner_opener_moves_from_outer_rendezvous_edge() 
 
 
 def test_key_partner_opener_runs_blind_grant_after_hidden_whisper_create() -> None:
+    started_tick = 100
+    grant_tick = started_tick + BLIND_KEY_FIRST_GRANT_TICKS + BLIND_KEY_GRANT_TICKS // 2
     belief_state, _accumulators, _knowledge = _initialized_state(
         position=(54, 66),
-        tick=226,
+        tick=grant_tick,
         my_role="cerberus",
         my_team="shades",
         players={},
@@ -3191,8 +3195,8 @@ def test_key_partner_opener_runs_blind_grant_after_hidden_whisper_create() -> No
     )
     belief_state.extra[PROBE_STATE] = {
         "target": target,
-        "selected_tick": 100,
-        "started_tick": 100,
+        "selected_tick": started_tick,
+        "started_tick": started_tick,
         "round": 1,
         "action": "whisper_created",
         "intent": "FIND_KEY_PARTNER",
@@ -3264,9 +3268,11 @@ def test_key_partner_opener_runs_blind_role_offer_after_grant_window() -> None:
 
 
 def test_key_partner_opener_blind_grants_at_rendezvous_edge() -> None:
+    started_tick = 100
+    grant_tick = started_tick + BLIND_KEY_FIRST_GRANT_TICKS + BLIND_KEY_GRANT_TICKS // 2
     belief_state, _accumulators, _knowledge = _initialized_state(
         position=(78, 66),
-        tick=226,
+        tick=grant_tick,
         my_role="demeter",
         my_team="nymphs",
         players={},
@@ -3278,8 +3284,8 @@ def test_key_partner_opener_blind_grants_at_rendezvous_edge() -> None:
     )
     belief_state.extra[PROBE_STATE] = {
         "target": target,
-        "selected_tick": 100,
-        "started_tick": 100,
+        "selected_tick": started_tick,
+        "started_tick": started_tick,
         "round": 1,
         "action": "whisper_created",
         "intent": "FIND_KEY_PARTNER",
@@ -3471,9 +3477,11 @@ def test_probe_systematic_nymph_key_pair_uses_shared_reachable_rendezvous() -> N
 
 
 def test_probe_systematic_key_partner_opener_blind_grants_without_known_target() -> None:
+    started_tick = 100
+    grant_tick = started_tick + BLIND_KEY_FIRST_GRANT_TICKS + BLIND_KEY_GRANT_TICKS // 2
     belief_state, _accumulators, _knowledge = _initialized_state(
         position=(54, 66),
-        tick=100,
+        tick=started_tick,
         my_role="cerberus",
         my_team="shades",
         players={},
@@ -3489,7 +3497,7 @@ def test_probe_systematic_key_partner_opener_blind_grants_without_known_target()
     )
 
     first = mode.select_task(belief_state, ActionMemory())
-    belief_state.tick = 226
+    belief_state.tick = grant_tick
     second = mode.select_task(belief_state, ActionMemory())
 
     assert isinstance(first, InitiateWhisperTask)
