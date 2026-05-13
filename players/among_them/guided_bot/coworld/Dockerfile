@@ -24,6 +24,8 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV GUIDED_BOT_TRACE_DIR=stderr
+ENV GUIDED_BOT_TRACE_LEVEL=events
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

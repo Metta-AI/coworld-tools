@@ -55,11 +55,21 @@ type
     TraceDecisions    ## events + decisions + modes + reflexes + guidance
     TraceFull         ## all of the above + snapshots + frames.bin
 
+  StreamKind* = enum
+    skEvents
+    skDecisions
+    skModes
+    skGuidance
+    skReflexes
+    skSnapshots
+    skPerception
+
   TraceWriter* = ref object
     level*: TraceLevel
     rootDir*: string
     botIndex*: int              ## Index of this bot within the policy (-1 = unknown).
-    ## File streams for each JSONL output.
+    useStderr*: bool            ## When true, emit prefixed JSONL to stderr instead of files.
+    ## File streams for each JSONL output (nil when useStderr).
     eventsFile: FileStream
     decisionsFile: FileStream
     modesFile: FileStream
@@ -261,6 +271,24 @@ proc navToJson(state: ActionState): JsonNode =
     result["lookahead_x"] = newJInt(state.lastLookahead.x)
     result["lookahead_y"] = newJInt(state.lastLookahead.y)
 
+const StreamPrefix: array[StreamKind, string] = [
+  skEvents:     "[trace:events] ",
+  skDecisions:  "[trace:decisions] ",
+  skModes:      "[trace:modes] ",
+  skGuidance:   "[trace:guidance] ",
+  skReflexes:   "[trace:reflexes] ",
+  skSnapshots:  "[trace:snapshots] ",
+  skPerception: "[trace:perception] ",
+]
+
+proc writeStderr(trace: TraceWriter, kind: StreamKind, line: string) =
+  ## Write a prefixed trace line to stderr. Used in hosted containers
+  ## where only stdout/stderr are captured.
+  stderr.write(StreamPrefix[kind])
+  stderr.write(line)
+  stderr.write("\n")
+  flushFile(stderr)
+
 proc writeLine(fs: FileStream, line: string) =
   ## Write a line + newline to a file stream, flushing immediately so
   ## data survives unclean shutdown. No-op if stream is nil.
@@ -275,6 +303,7 @@ proc writeLine(fs: FileStream, line: string) =
 
 proc writeManifest(trace: TraceWriter, final: bool = false) =
   ## Write (or overwrite) the manifest.json file.
+  ## In stderr mode, emits manifest as a trace event instead.
   var m = newJObject()
   m["trace_schema_version"] = newJInt(TraceSchemaVersion)
   m["bot"] = newJString("guided_bot")
@@ -292,24 +321,45 @@ proc writeManifest(trace: TraceWriter, final: bool = false) =
     m["closed"] = newJBool(true)
   else:
     m["closed"] = newJBool(false)
-  let path = trace.rootDir / "manifest.json"
-  writeFile(path, m.pretty())
+  if trace.useStderr:
+    var wrapper = newJObject()
+    wrapper["kind"] = newJString("manifest")
+    wrapper["manifest"] = m
+    writeStderr(trace, skEvents, $wrapper)
+  else:
+    let path = trace.rootDir / "manifest.json"
+    writeFile(path, m.pretty())
 
 # ---------------------------------------------------------------------------
 # Public API — lifecycle
 # ---------------------------------------------------------------------------
 
 proc openTrace*(rootDir: string, level: TraceLevel, botIndex: int = -1): TraceWriter =
-  ## Create a unique session subdirectory under rootDir and open file
-  ## handles for each JSONL stream. Returns nil if tracing is off or
-  ## rootDir is empty.
+  ## Create a trace writer. When rootDir is "stderr", emits prefixed
+  ## JSONL to stderr (for hosted containers where only captured output
+  ## is available). Otherwise creates a unique session subdirectory
+  ## under rootDir and opens file handles.
   ##
-  ## Each invocation generates a unique session path:
-  ##   <rootDir>/<ISO-timestamp>-<pid>-<instance>/
-  ## The monotonic instanceCounter ensures no collisions even when
-  ## multiple bots are created in the same process and second.
+  ## Returns nil if tracing is off or rootDir is empty.
   if level == TraceOff or rootDir.len == 0:
     return nil
+
+  # Stderr mode: emit prefixed lines to stderr, no files.
+  if rootDir == "stderr":
+    inc instanceCounter
+    result = TraceWriter(
+      level: level,
+      rootDir: "stderr",
+      botIndex: botIndex,
+      useStderr: true,
+      startTick: 0,
+      endTick: 0,
+      outcome: "",
+      role: "",
+      modeEntryTick: 0,
+      lastSnapshotTick: -1000
+    )
+    return
 
   # Generate unique session directory.
   let ts = now().format("yyyy-MM-dd'T'HH-mm-ss")
@@ -323,6 +373,7 @@ proc openTrace*(rootDir: string, level: TraceLevel, botIndex: int = -1): TraceWr
     level: level,
     rootDir: sessionDir,
     botIndex: botIndex,
+    useStderr: false,
     startTick: 0,
     endTick: 0,
     outcome: "",
@@ -357,6 +408,9 @@ proc closeTrace*(trace: TraceWriter) =
 
   # Update manifest with final state.
   writeManifest(trace, final = true)
+
+  if trace.useStderr:
+    return
 
   # Close all streams.
   if trace.eventsFile != nil:
@@ -418,13 +472,19 @@ proc logDecision*(trace: TraceWriter, belief: Belief,
     rec["nav"] = navToJson(actionState)
   if belief.directive.reasoning.len > 0:
     rec["reason"] = newJString(belief.directive.reasoning)
-  trace.decisionsFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skDecisions, $rec)
+  else:
+    trace.decisionsFile.writeLine($rec)
 
 proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Belief) =
   ## Log full per-frame perception output to perception.jsonl for
   ## offline visualization. Coordinates from percept are screen-space;
   ## camera/self coordinates from belief are world-space.
+  ## Skipped in stderr mode — too voluminous for captured output.
   if trace == nil or trace.level < TraceDecisions:
+    return
+  if trace.useStderr:
     return
   if trace.perceptionFile == nil:
     return
@@ -555,7 +615,10 @@ proc logModeEntered*(trace: TraceWriter, tick: int, fromMode, toMode: ModeName,
   rec["params"] = paramsToJson(params)
   rec["from_mode"] = newJString(modeStr(fromMode))
   rec["reason"] = newJString(reason)
-  trace.modesFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skModes, $rec)
+  else:
+    trace.modesFile.writeLine($rec)
 
 proc logModeExited*(trace: TraceWriter, tick: int, mode: ModeName,
                    durationTicks: int) =
@@ -569,7 +632,10 @@ proc logModeExited*(trace: TraceWriter, tick: int, mode: ModeName,
   rec["kind"] = newJString("mode_exited")
   rec["mode"] = newJString(modeStr(mode))
   rec["duration_ticks"] = newJInt(durationTicks)
-  trace.modesFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skModes, $rec)
+  else:
+    trace.modesFile.writeLine($rec)
 
 proc logReflexFired*(trace: TraceWriter, tick: int, name: string,
                     fromMode, toMode: ModeName, toParams: ModeParams) =
@@ -585,7 +651,10 @@ proc logReflexFired*(trace: TraceWriter, tick: int, name: string,
   rec["from_mode"] = newJString(modeStr(fromMode))
   rec["to_mode"] = newJString(modeStr(toMode))
   rec["to_params"] = paramsToJson(toParams)
-  trace.reflexesFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skReflexes, $rec)
+  else:
+    trace.reflexesFile.writeLine($rec)
 
 proc logGuidanceEvent*(trace: TraceWriter, payload: string) =
   ## Log a guidance event to guidance.jsonl (DESIGN.md section 11.4).
@@ -595,7 +664,10 @@ proc logGuidanceEvent*(trace: TraceWriter, payload: string) =
   if trace == nil or trace.level < TraceDecisions:
     return
   # The payload is already a complete JSON line.
-  trace.guidanceFile.writeLine(payload)
+  if trace.useStderr:
+    writeStderr(trace, skGuidance, payload)
+  else:
+    trace.guidanceFile.writeLine(payload)
 
 proc logGameEvent*(trace: TraceWriter, kind: string, tick: int,
                   payload: string) =
@@ -619,7 +691,10 @@ proc logGameEvent*(trace: TraceWriter, kind: string, tick: int,
           rec[key] = val
     except CatchableError:
       rec["detail"] = newJString(payload)
-  trace.eventsFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skEvents, $rec)
+  else:
+    trace.eventsFile.writeLine($rec)
 
 proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief,
                   modeSummary: JsonNode = nil) =
@@ -638,11 +713,17 @@ proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief,
     rec["snapshot"] = parseJson(snapJson)
   except CatchableError:
     rec["snapshot_raw"] = newJString(snapJson)
-  trace.snapshotsFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skSnapshots, $rec)
+  else:
+    trace.snapshotsFile.writeLine($rec)
 
 proc logFrame*(trace: TraceWriter, frame: openArray[uint8]) =
   ## Append a raw frame to frames.bin. Only active at TraceFull.
+  ## Skipped in stderr mode — binary data is not useful in captured logs.
   if trace == nil or trace.level < TraceFull:
+    return
+  if trace.useStderr:
     return
   if trace.framesFile == nil:
     return
