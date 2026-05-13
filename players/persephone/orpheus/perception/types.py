@@ -127,6 +127,7 @@ class VisiblePlayer:
     player_color: int
     player_shape: PlayerShape | None = None
     role_indicator: RoleIndicator | None = None
+    in_whisper: bool = False
 
 
 @dataclass

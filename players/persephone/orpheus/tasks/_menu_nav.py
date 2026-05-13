@@ -31,18 +31,20 @@ from orpheus.types import (
 MenuStep = tuple[Any, ...]
 
 CATEGORY_ORDER = ["COLOR", "ROLE", "LEADER", "EXIT"]
-MENU_BUTTON_HOLD_TICKS = 2
-MENU_BUTTON_RELEASE_TICKS = 2
+MENU_BUTTON_HOLD_TICKS = 1
+MENU_BUTTON_RELEASE_TICKS = 1
 
 ITEM_ORDER_BY_CATEGORY: dict[str, tuple[tuple[str, ...], ...]] = {
     "EXIT": (("EXIT",),),
     "COLOR": (
-        ("C.OFFER", "C.UNOFFR", "OFFER", "UNOFFR"),
+        ("C.OFFER", "OFFER"),
+        ("C.UNOFFR", "UNOFFR"),
         ("C.ACCPT", "ACCPT"),
     ),
     "ROLE": (
         ("ROLE",),
-        ("R.OFFER", "R.UNOFFR", "OFFER", "UNOFFR"),
+        ("R.OFFER", "OFFER"),
+        ("R.UNOFFR", "UNOFFR"),
         ("R.ACCPT", "ACCPT"),
     ),
     "LEADER": (

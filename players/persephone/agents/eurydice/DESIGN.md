@@ -1965,6 +1965,17 @@ chat parsing. Additional source gaps that still affect Eurydice:
 - **Visible non-bubble sprites:** ordinary overworld players without speech
   bubbles are exposed as direct observations, including visible role
   indicators. This still needs live-frame validation in fog/obstacle cases.
+- **Key rendezvous execution:** Hades/Persephone and Cerberus/Demeter now share
+  a fixed `(54, 66)` key rendezvous. Requesters press entry from a tight center
+  radius and throttle B pulses because a repeated entry button can cancel a
+  pending request. Openers run a blind `GRANT` window, then a longer blind
+  `R.OFFER` window; requesters also blind-offer after entry request because
+  blind `R.ACCPT` from ordinary gameplay can create a self-whisper. A
+  2026-05-12 live run produced a server-confirmed join and role offer, but
+  later validations, including an overnight seed-5305 run with eight completed
+  draws, still failed to produce consistent pending-entry/join state or any
+  server-confirmed `shared roles`. Hidden request/grant mechanics remain the
+  active exchange blocker.
 
 See the full **Whisper Interaction Protocol** section below for the
 protocol variants and detailed state transition rules.

@@ -22,12 +22,23 @@ role/team/room, parses role-summary/schedule panels, enters role-driven
 objectives, selects probe targets, creates or requests whispers, and completes
 some probes.
 
-The major current bottleneck is not idle behavior; it is interaction
-reliability. Live traces show agents selecting targets, creating/requesting
-whispers, and moving through role objectives, but they still mostly produce
-solo whispers. The authoritative server logs from the latest full runs show no
-joined whispers and no server-confirmed role/color exchanges, so winning is
-blocked before higher-level social strategy can matter.
+The major current bottleneck is not idle behavior; it is post-rendezvous
+exchange completion. Live traces show agents selecting targets, creating or
+requesting whispers, moving through role objectives, and sometimes completing
+server-confirmed joins. A 2026-05-12 seed-5305 diagnostic run recorded
+`R.CRCL joined P.CROSS's whisper` and `P.CROSS offered role exchange`, but no
+`shared roles`, no key-pair completion, and no winner.
+
+The current implementation uses a fixed `(54, 66)` key rendezvous. Hades and
+Persephone request entry from the rendezvous center, while Cerberus and Demeter
+open whispers, run a short blind `GRANT` window, then spend a longer window on
+blind `R.OFFER`. Requesters also blind-offer after entry requests, because blind
+`R.ACCPT` from ordinary gameplay can create self-whispers. The latest
+long-running seed-5305 validation reached agent-side `BlindOfferRoleExchangeTask`
+on key roles, but eight completed server logs still ended in draws with no
+`joined`, `offered role`, or `shared roles` events. The remaining low-level
+question is why requester B pulses near open key whispers do not reliably
+become server pending-entry state that the opener can grant.
 
 ## LLM Readiness
 

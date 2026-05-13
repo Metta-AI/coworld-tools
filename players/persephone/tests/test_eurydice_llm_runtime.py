@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from orpheus.action_memory import ActionMemory
-from orpheus.belief_state import BeliefState, PlayerInfo
+from orpheus.belief_state import BeliefState, ChatMessageRecord, PlayerInfo
+from orpheus.mode import ModeDirective, ModeParams
 from orpheus.perception.types import HostageGrid, PlayerShape, Room, View
 
 from agents.eurydice.advanced_modes import HostageSelectParams
+from agents.eurydice.ext_keys import PLAYER_KNOWLEDGE
+from agents.eurydice.knowledge import PlayerKnowledge
+from agents.eurydice.llm_controller import maybe_override_directive
 from agents.eurydice.llm_context import DECISION_SCHEMA_VERSION
 from agents.eurydice.meta_decide import meta_decide
 from agents.eurydice.modes import ProbeTargetParams
 from agents.eurydice.pipeline import initialize_eurydice_state, player_index_to_id
+from agents.eurydice.strategic_state import StrategicState
+from agents.eurydice.types import Objective, Role, Team
 from agents.eurydice.whisper_mode import InWhisperMode, InWhisperParams
 from orpheus.tasks import GrantEntryTask
 
@@ -32,6 +38,10 @@ def _state() -> BeliefState:
         round_schedule=[(15, 1), (15, 1), (15, 1)],
     )
     initialize_eurydice_state(belief_state)
+    belief_state.extra["_identity_global_chat_review_done"] = belief_state.round
+    belief_state.chat_history.append(
+        ChatMessageRecord(0, 100, "global", "I AM HADES")
+    )
     belief_state.players[1] = PlayerInfo(
         position=(70, 50, belief_state.tick),
         room=Room.UNDERWORLD,
@@ -39,8 +49,20 @@ def _state() -> BeliefState:
     return belief_state
 
 
+def _mark_key_exchange_done(belief_state: BeliefState) -> None:
+    partner = player_index_to_id(1, belief_state)
+    assert partner is not None
+    record = PlayerKnowledge.create(partner)
+    record.role = Role.CERBERUS
+    record.team = Team.SHADES
+    record.has_exchanged_roles_with_us = True
+    belief_state.extra[PLAYER_KNOWLEDGE][partner] = record
+    belief_state.my_exchange_partner = 1
+
+
 def test_meta_decide_targets_control_can_replace_systematic_probe() -> None:
     belief_state = _state()
+    _mark_key_exchange_done(belief_state)
     target = player_index_to_id(1, belief_state)
 
     directive, _ = meta_decide(
@@ -94,6 +116,13 @@ def test_meta_decide_all_control_can_select_global_action(monkeypatch) -> None:
 
     monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
     belief_state = _state()
+    belief_state.my_role = "shade"
+    belief_state.chat_history[-1] = ChatMessageRecord(
+        0,
+        100,
+        "global",
+        "I AM SHADE",
+    )
     belief_state.view = View.GLOBAL_CHAT
 
     directive, _ = meta_decide(
@@ -108,8 +137,299 @@ def test_meta_decide_all_control_can_select_global_action(monkeypatch) -> None:
     assert getattr(directive.params, "message", None) == "STATUS?"
 
 
+def test_meta_decide_preserves_key_partner_probe_params_when_llm_agrees(monkeypatch) -> None:
+    belief_state = _state()
+    belief_state.my_role = "cerberus"
+    belief_state.chat_history.append(
+        ChatMessageRecord(0, 100, "global", "I AM CERBERUS")
+    )
+    target = player_index_to_id(1, belief_state)
+    assert target is not None
+    record = PlayerKnowledge.create(target)
+    record.role = Role.HADES
+    record.room = Room.UNDERWORLD
+    belief_state.extra[PLAYER_KNOWLEDGE][target] = record
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "probe_player",
+                "surface": "probe",
+                "target": [target[0], target[1]],
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "probe key partner",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="fake",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == target
+    assert directive.params.request_only is False
+    assert directive.params.open_in_place is True
+    assert directive.params.skip_color_exchange is True
+
+
+def test_llm_key_partner_probe_from_systematic_keeps_key_exchange_params(monkeypatch) -> None:
+    belief_state = _state()
+    target = player_index_to_id(1, belief_state)
+    assert target is not None
+    state = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.FIND_KEY_PARTNER,
+    )
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "probe_player",
+                "surface": "probe",
+                "target": [target[0], target[1]],
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "probe known key partner",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive = maybe_override_directive(
+        belief_state,
+        state,
+        ModeDirective("probe_systematic", ModeParams()),
+        control_mode="all",
+        provider_name="fake",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == target
+    assert directive.params.request_only is True
+    assert directive.params.skip_color_exchange is True
+
+
+def test_llm_find_key_partner_probe_without_known_partner_keeps_requester_params(
+    monkeypatch,
+) -> None:
+    belief_state = _state()
+    target = player_index_to_id(1, belief_state)
+    assert target is not None
+    state = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=None,
+        current_objective=Objective.FIND_KEY_PARTNER,
+    )
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "probe_player",
+                "surface": "probe",
+                "target": [target[0], target[1]],
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "probe a possible key partner",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive = maybe_override_directive(
+        belief_state,
+        state,
+        ModeDirective("probe_systematic", ModeParams()),
+        control_mode="all",
+        provider_name="fake",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == target
+    assert directive.params.open_in_place is True
+    assert directive.params.skip_color_exchange is True
+    assert directive.params.max_approach_ticks == 240
+
+
+def test_llm_key_role_probe_uses_rendezvous_params_without_key_objective(
+    monkeypatch,
+) -> None:
+    belief_state = _state()
+    target = player_index_to_id(1, belief_state)
+    assert target is not None
+    state = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        current_objective=Objective.IDLE,
+    )
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "probe_player",
+                "surface": "probe",
+                "target": [target[0], target[1]],
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "probe Hades from chat context",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive = maybe_override_directive(
+        belief_state,
+        state,
+        ModeDirective("probe_systematic", ModeParams()),
+        control_mode="all",
+        provider_name="fake",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == target
+    assert directive.params.open_in_place is True
+    assert directive.params.skip_color_exchange is True
+    assert directive.params.intent.name == "FIND_KEY_PARTNER"
+
+
+def test_llm_key_role_probe_pins_known_key_partner(monkeypatch) -> None:
+    belief_state = _state()
+    wrong_target = player_index_to_id(1, belief_state)
+    belief_state.players[2] = PlayerInfo(
+        position=(55, 50, belief_state.tick),
+        room=Room.UNDERWORLD,
+    )
+    key_partner = player_index_to_id(2, belief_state)
+    assert wrong_target is not None
+    assert key_partner is not None
+    state = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=key_partner,
+        current_objective=Objective.IDLE,
+    )
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "probe_player",
+                "surface": "probe",
+                "target": [wrong_target[0], wrong_target[1]],
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "model picked a non-partner",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive = maybe_override_directive(
+        belief_state,
+        state,
+        ModeDirective("probe_systematic", ModeParams()),
+        control_mode="all",
+        provider_name="fake",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == key_partner
+    assert directive.params.open_in_place is True
+    assert directive.params.skip_color_exchange is True
+
+
+def test_llm_key_probe_rejects_non_probe_override(monkeypatch) -> None:
+    belief_state = _state()
+    state = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_objective=Objective.FIND_KEY_PARTNER,
+    )
+    fallback = ModeDirective("probe_systematic", ModeParams())
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "send_whisper",
+                "surface": "summit",
+                "target": None,
+                "destination": None,
+                "hostage_targets": None,
+                "message": "MEET CERBERUS",
+                "reveal_color": False,
+                "reveal_role": False,
+                "confidence": 0.9,
+                "rationale": "chat instead of rendezvous",
+            }
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
+
+    directive = maybe_override_directive(
+        belief_state,
+        state,
+        fallback,
+        control_mode="all",
+        provider_name="fake",
+    )
+
+    assert directive is fallback
+    assert directive.mode == "probe_systematic"
+
+
 def test_meta_decide_throttles_expensive_provider_between_calls(monkeypatch) -> None:
     belief_state = _state()
+    _mark_key_exchange_done(belief_state)
     target = player_index_to_id(1, belief_state)
     assert target is not None
     calls = []
@@ -163,6 +483,7 @@ def test_meta_decide_throttles_expensive_provider_between_calls(monkeypatch) -> 
 
 def test_meta_decide_all_control_can_override_hostage_phase(monkeypatch) -> None:
     belief_state = _state()
+    _mark_key_exchange_done(belief_state)
     target = player_index_to_id(1, belief_state)
     assert target is not None
     belief_state.view = View.HOSTAGE_SELECT
@@ -228,6 +549,7 @@ def test_meta_decide_all_control_can_override_leader_summit(monkeypatch) -> None
 
     monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", lambda name: Provider())
     belief_state = _state()
+    _mark_key_exchange_done(belief_state)
     belief_state.view = View.LEADER_SUMMIT
     belief_state.is_leader = True
 
@@ -245,6 +567,7 @@ def test_meta_decide_all_control_can_override_leader_summit(monkeypatch) -> None
 
 def test_meta_decide_passes_llm_config_into_whisper_mode() -> None:
     belief_state = _state()
+    _mark_key_exchange_done(belief_state)
     belief_state.view = View.WHISPER
     belief_state.in_whisper = True
 

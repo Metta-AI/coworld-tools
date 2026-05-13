@@ -17,7 +17,12 @@ from .advanced_modes import (
     TimeWasteParams,
 )
 from .log import logger
-from .modes import ProbeSystematicParams, ProbeTargetParams
+from .modes import (
+    KEY_OPENER_ROLES,
+    KEY_REQUESTER_ROLES,
+    ProbeSystematicParams,
+    ProbeTargetParams,
+)
 from .strategic_state import StrategicState
 from .types import Objective, PlayerID, ProbeIntent, Role, Team, Urgency
 
@@ -62,6 +67,15 @@ def evaluate_hades(
                 "partner_in_other_room->seek_leadership",
                 "seek_leadership",
                 SeekLeadershipParams(reason="reach_key_partner"),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
+        if _partner_room_unknown(state):
+            return _branch(
+                state,
+                "hades",
+                "partner_room_unknown->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
                 Objective.COMPLETE_KEY_EXCHANGE,
             )
         if not state.key_partner_found:
@@ -137,6 +151,15 @@ def evaluate_cerberus(
                 CoordinateCrossRoomParams(target=state.key_partner_id),
                 Objective.COMPLETE_KEY_EXCHANGE,
             )
+        if _partner_room_unknown(state):
+            return _branch(
+                state,
+                "cerberus",
+                "partner_room_unknown->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
         if not state.key_partner_found:
             return _branch(
                 state,
@@ -198,6 +221,15 @@ def evaluate_persephone(
                 "partner_in_other_room->hold_position",
                 "hold_position",
                 HoldPositionParams(seek_leadership=True, defensive=True, reason="partner_other_room"),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
+        if _partner_room_unknown(state):
+            return _branch(
+                state,
+                "persephone",
+                "partner_room_unknown->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
                 Objective.COMPLETE_KEY_EXCHANGE,
             )
         if not state.key_partner_found:
@@ -280,6 +312,15 @@ def evaluate_demeter(
                 "partner_in_other_room->coordinate_cross_room",
                 "coordinate_cross_room",
                 CoordinateCrossRoomParams(target=state.key_partner_id),
+                Objective.COMPLETE_KEY_EXCHANGE,
+            )
+        if _partner_room_unknown(state):
+            return _branch(
+                state,
+                "demeter",
+                "partner_room_unknown->probe_target",
+                "probe_target",
+                _partner_probe_params(state),
                 Objective.COMPLETE_KEY_EXCHANGE,
             )
         if not state.key_partner_found:
@@ -495,6 +536,14 @@ def _partner_in_other_room(state: StrategicState) -> bool:
     )
 
 
+def _partner_room_unknown(state: StrategicState) -> bool:
+    return (
+        state.key_partner_found
+        and state.key_partner_id is not None
+        and state.key_partner_room is None
+    )
+
+
 def _enemy_key_unknown(state: StrategicState) -> bool:
     return state.enemy_key_role_id is None or state.enemy_key_role_room is None
 
@@ -543,7 +592,9 @@ def _partner_probe_params(state: StrategicState) -> ProbeTargetParams:
         target=state.key_partner_id or (0, 0),
         intent=ProbeIntent.FIND_KEY_PARTNER,
         skip_color_exchange=True,
-        max_approach_ticks=144,
+        max_approach_ticks=240,
+        request_only=state.my_role in KEY_REQUESTER_ROLES,
+        open_in_place=state.my_role in KEY_OPENER_ROLES,
     )
 
 

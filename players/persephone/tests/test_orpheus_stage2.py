@@ -438,7 +438,7 @@ def test_overworld_speech_bubble_updates_player_position() -> None:
 
     _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
 
-    assert belief_state.players[2].position == (36, 56, 1)
+    assert belief_state.players[2].position == (39, 60, 1)
     assert belief_state.players[2].last_seen_in_whisper == 1
 
 
@@ -459,8 +459,30 @@ def test_overworld_visible_player_updates_position_without_whisper() -> None:
 
     _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
 
-    assert belief_state.players[2].position == (36, 56, 1)
+    assert belief_state.players[2].position == (39, 60, 1)
     assert belief_state.players[2].last_seen_in_whisper is None
+
+
+def test_overworld_visible_player_whisper_marker_updates_whisper_recency() -> None:
+    """The overworld whisper marker makes a target joinable without chat."""
+    belief_state = BeliefState(player_count=10, room_size=(200, 200))
+    overworld = OverworldPerception(
+        self_position=Position(room=Room.UNDERWORLD, x=80, y=90),
+        visible_players=[
+            VisiblePlayer(
+                screen_x=20,
+                screen_y=30,
+                player_color=_color(2),
+                player_shape=_shape(2),
+                in_whisper=True,
+            )
+        ],
+    )
+
+    _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
+
+    assert belief_state.players[2].position == (39, 60, 1)
+    assert belief_state.players[2].last_seen_in_whisper == 1
 
 
 def test_overworld_visible_player_updates_role_indicator() -> None:
@@ -485,6 +507,40 @@ def test_overworld_visible_player_updates_role_indicator() -> None:
     assert belief_state.players[0].team == "shades"
     assert belief_state.players[0].role_source == KnowledgeSource.GAME_DISPLAY
     assert belief_state.players[0].team_source == KnowledgeSource.GAME_DISPLAY
+
+
+def test_overworld_position_rejects_impossible_same_phase_jump() -> None:
+    belief_state = BeliefState(
+        player_count=10,
+        room_size=(120, 120),
+        position=(24, 78),
+        room=Room.MORTAL_REALM,
+    )
+    belief_state.view = View.PLAYING
+    overworld = OverworldPerception(
+        self_position=Position(room=Room.MORTAL_REALM, x=48, y=30),
+    )
+
+    _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
+
+    assert belief_state.position == (24, 78)
+
+
+def test_overworld_position_accepts_large_jump_after_phase_transition() -> None:
+    belief_state = BeliefState(
+        player_count=10,
+        room_size=(120, 120),
+        position=(24, 78),
+        room=Room.MORTAL_REALM,
+    )
+    belief_state.view = View.HOSTAGE_EXCHANGE
+    overworld = OverworldPerception(
+        self_position=Position(room=Room.MORTAL_REALM, x=48, y=30),
+    )
+
+    _apply(belief_state, _frame(View.PLAYING, overworld=overworld))
+
+    assert belief_state.position == (48, 30)
 
 
 def test_overworld_minimap_sightings_appended() -> None:
@@ -559,6 +615,100 @@ def test_overworld_shout_appends_new_text() -> None:
         "one",
         "two",
     ]
+
+
+def test_overworld_shout_records_unique_color_sender() -> None:
+    """A shout strip with a unique sender color is attributed to that player."""
+    belief_state = BeliefState(player_count=4)
+
+    _apply(
+        belief_state,
+        _frame(
+            View.PLAYING,
+            overworld=OverworldPerception(
+                last_shout="I AM HADES",
+                last_shout_color=_color(3),
+            ),
+        ),
+    )
+
+    assert belief_state.chat_history[0].sender_index == 3
+
+
+def test_overworld_shout_uses_local_player_for_repeated_color() -> None:
+    """Repeated player colors can still be attributed when only one match is local."""
+    belief_state = BeliefState(
+        player_count=10,
+        room=Room.UNDERWORLD,
+        view=View.PLAYING,
+    )
+    belief_state.players[0] = PlayerInfo(
+        position=(20, 20, 0),
+        room=Room.UNDERWORLD,
+    )
+    belief_state.players[8] = PlayerInfo(
+        position=(80, 20, 0),
+        room=Room.MORTAL_REALM,
+    )
+
+    _apply(
+        belief_state,
+        _frame(
+            View.PLAYING,
+            overworld=OverworldPerception(
+                last_shout="I AM CERBERUS",
+                last_shout_color=_color(0),
+            ),
+        ),
+    )
+
+    assert belief_state.chat_history[0].sender_index == 0
+
+
+def test_overworld_shout_uses_room_player_for_repeated_color_without_position() -> None:
+    """Room assignment is enough to attribute a local color-only shout."""
+    belief_state = BeliefState(
+        player_count=10,
+        room=Room.UNDERWORLD,
+        view=View.PLAYING,
+    )
+    belief_state.players[0] = PlayerInfo(room=Room.UNDERWORLD)
+    belief_state.players[8] = PlayerInfo(room=Room.MORTAL_REALM)
+
+    _apply(
+        belief_state,
+        _frame(
+            View.PLAYING,
+            overworld=OverworldPerception(
+                last_shout="I AM HADES",
+                last_shout_color=_color(0),
+            ),
+        ),
+    )
+
+    assert belief_state.chat_history[0].sender_index == 0
+
+
+def test_overworld_shout_leaves_ambiguous_repeated_color_unattributed() -> None:
+    """A lone recent same-color position is not enough to decode shout sender."""
+    belief_state = BeliefState(
+        player_count=10,
+        view=View.PLAYING,
+    )
+    belief_state.players[0] = PlayerInfo(position=(20, 20, 0))
+
+    _apply(
+        belief_state,
+        _frame(
+            View.PLAYING,
+            overworld=OverworldPerception(
+                last_shout="I AM HADES",
+                last_shout_color=_color(0),
+            ),
+        ),
+    )
+
+    assert belief_state.chat_history[0].sender_index is None
 
 
 def test_overworld_is_leader_and_leader_color() -> None:

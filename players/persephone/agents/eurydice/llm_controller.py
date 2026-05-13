@@ -17,7 +17,9 @@ from agents.eurydice.llm_validator import (
     validate_and_trace_llm_decision,
 )
 from agents.eurydice.log import logger
+from agents.eurydice.modes import ProbeTargetParams
 from agents.eurydice.strategic_state import StrategicState
+from agents.eurydice.types import ProbeIntent, Role
 
 
 LLM_CONTROL_MODES = {"off", "shadow", "targets", "whispers", "all"}
@@ -111,6 +113,16 @@ def maybe_override_directive(
         )
         return fallback
 
+    directive = _preserve_fallback_probe_params(fallback, directive)
+    directive = _preserve_key_partner_probe_params(strategic_state, directive)
+    if _key_probe_blocks_non_probe_override(strategic_state, fallback, directive):
+        _trace_directive_ignored(
+            fallback,
+            raw_decision,
+            "key_probe_requires_probe_action",
+            result.context_hash,
+        )
+        return fallback
     if not _control_mode_allows(control_mode, fallback, directive):
         _trace_directive_ignored(
             fallback,
@@ -122,6 +134,89 @@ def maybe_override_directive(
 
     _trace_directive_selected(fallback, directive, result.context_hash)
     return directive
+
+
+def _key_probe_blocks_non_probe_override(
+    strategic_state: StrategicState,
+    fallback: ModeDirective,
+    directive: ModeDirective,
+) -> bool:
+    if directive.mode == "probe_target":
+        return False
+    return _fallback_is_key_partner_probe(strategic_state, fallback)
+
+
+def _fallback_is_key_partner_probe(
+    strategic_state: StrategicState,
+    fallback: ModeDirective,
+) -> bool:
+    if strategic_state.key_exchange_done:
+        return False
+    key_roles = {Role.HADES, Role.PERSEPHONE, Role.CERBERUS, Role.DEMETER}
+    if strategic_state.my_role not in key_roles:
+        return False
+    if fallback.mode not in {"probe_systematic", "probe_target"}:
+        return False
+
+    params = getattr(fallback, "params", None)
+    if _enum_name(getattr(params, "intent", None)) == "FIND_KEY_PARTNER":
+        return True
+    if bool(getattr(params, "skip_color_exchange", False)):
+        return True
+    return _enum_name(strategic_state.current_objective) in {
+        "FIND_KEY_PARTNER",
+        "COMPLETE_KEY_EXCHANGE",
+    }
+
+
+def _enum_name(value: Any) -> str:
+    return getattr(value, "name", str(value)).upper()
+
+
+def _preserve_fallback_probe_params(
+    fallback: ModeDirective,
+    directive: ModeDirective,
+) -> ModeDirective:
+    if fallback.mode != "probe_target" or directive.mode != "probe_target":
+        return directive
+    fallback_target = getattr(fallback.params, "target", None)
+    directive_target = getattr(directive.params, "target", None)
+    if fallback_target is not None and fallback_target == directive_target:
+        return fallback
+    return directive
+
+
+def _preserve_key_partner_probe_params(
+    strategic_state: StrategicState,
+    directive: ModeDirective,
+) -> ModeDirective:
+    if directive.mode != "probe_target":
+        return directive
+    target = getattr(directive.params, "target", None)
+    if target is None:
+        return directive
+    if strategic_state.key_exchange_done:
+        return directive
+    key_roles = {Role.HADES, Role.PERSEPHONE, Role.CERBERUS, Role.DEMETER}
+    if strategic_state.my_role not in key_roles:
+        return directive
+
+    opener_roles = {Role.CERBERUS, Role.DEMETER}
+    requester_roles = {Role.HADES, Role.PERSEPHONE}
+    key_partner_id = getattr(strategic_state, "key_partner_id", None)
+    if isinstance(key_partner_id, tuple) and len(key_partner_id) == 2:
+        target = key_partner_id
+    return ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            max_approach_ticks=240,
+            request_only=strategic_state.my_role in requester_roles,
+            open_in_place=strategic_state.my_role in opener_roles,
+        ),
+    )
 
 
 def _control_mode_allows(

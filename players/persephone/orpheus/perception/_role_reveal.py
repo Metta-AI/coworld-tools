@@ -163,6 +163,22 @@ def _read_self_sprite(frame: np.ndarray) -> tuple[int | None, PlayerShape | None
 
 def _dominant_player_color(region: np.ndarray) -> int | None:
     """Return the most likely canonical player color in a sprite region."""
+    exact_counts: dict[int, int] = {
+        color: int(np.count_nonzero(region == color))
+        for color in PLAYER_COLORS
+    }
+    if any(exact_counts.values()):
+        # The role card renders the own sprite without fog. Some canonical
+        # player colors are also shadow colors for other sprites, so exact
+        # fill pixels must win before shadow remapping.
+        return max(
+            PLAYER_COLORS,
+            key=lambda color: (
+                exact_counts.get(color, 0),
+                -PLAYER_COLORS.index(color),
+            ),
+        )
+
     counts: dict[int, int] = {}
     for observed in np.ravel(region):
         observed_int = int(observed)

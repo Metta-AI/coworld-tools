@@ -41,6 +41,8 @@ LEADERSHIP_TIMEOUT_TICKS = 72
 HOSTAGE_SELECT_TIMEOUT_TICKS = 120
 SUMMIT_SECOND_MESSAGE_TICKS = 96
 INFO_SCREEN_WAIT_TICKS = 48
+GLOBAL_CHAT_REVIEW_TICKS = 3
+GLOBAL_CHAT_REVIEW_TIMEOUT_TICKS = 24
 
 _HOLD_TARGET_KEY = "_hold_position_target"
 _HOLD_TARGET_TICK_KEY = "_hold_position_target_tick"
@@ -51,6 +53,7 @@ _CROSS_ROOM_SENT_KEY = "_coordinate_cross_room_sent"
 _CROSS_ROOM_SENT_THIS_ENTRY_KEY = "_coordinate_cross_room_sent_this_entry"
 _RELAY_SENT_KEY = "_relay_intelligence_sent"
 _TIME_WASTE_TARGET_KEY = "_time_waste_target"
+_IDENTITY_ANNOUNCED_KEY = "_identity_announcement_sent"
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,16 @@ class TimeWasteParams(ModeParams):
 class RelayIntelligenceParams(ModeParams):
     message: str = "STATUS"
     channel: str = "global"
+
+
+@dataclass(frozen=True)
+class AnnounceIdentityParams(ModeParams):
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ReviewGlobalChatParams(ModeParams):
+    reason: str = "identity_claim_attribution"
 
 
 @dataclass(frozen=True)
@@ -427,6 +440,49 @@ class RelayIntelligenceMode(Mode):
         belief_state.extra.pop(_RELAY_SENT_KEY, None)
 
 
+class AnnounceIdentityMode(Mode):
+    """Broadcast a truthful self role claim once for partner discovery."""
+
+    params_type = AnnounceIdentityParams
+    params: AnnounceIdentityParams | ModeParams = AnnounceIdentityParams()
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        del action_memory
+
+        message = getattr(self.params, "message", "") or ""
+        key = (getattr(belief_state, "round", 0) or 0, message)
+        if belief_state.extra.get(_IDENTITY_ANNOUNCED_KEY) == key:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if getattr(belief_state, "view", None) not in {View.PLAYING, View.GLOBAL_CHAT}:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if getattr(belief_state, "cooldowns", {}).get("chat", 0) > 0:
+            return IdleTask()
+
+        if not message:
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        belief_state.extra[_IDENTITY_ANNOUNCED_KEY] = key
+        _complete_mode(belief_state)
+        return SendMessageTask(text=message, channel="global")
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del belief_state, action_memory, new_mode_directive
+
+
 class CheckInfoScreenMode(Mode):
     """Open the info screen briefly so belief update can ingest it."""
 
@@ -456,6 +512,54 @@ class CheckInfoScreenMode(Mode):
         new_mode_directive: ModeDirective,
     ) -> None:
         del belief_state, action_memory, new_mode_directive
+
+
+class ReviewGlobalChatMode(Mode):
+    """Open global chat briefly so sender sprites disambiguate identity shouts."""
+
+    params_type = ReviewGlobalChatParams
+    params: ReviewGlobalChatParams | ModeParams = ReviewGlobalChatParams()
+
+    def select_task(self, belief_state, action_memory) -> Task | None:
+        view = getattr(belief_state, "view", None)
+        if view is View.GLOBAL_CHAT:
+            if getattr(action_memory, "ticks_active", 0) >= GLOBAL_CHAT_REVIEW_TICKS:
+                _mark_global_chat_review_done(belief_state)
+                _complete_mode(belief_state)
+                return CloseViewTask()
+            return IdleTask()
+
+        if getattr(action_memory, "ticks_active", 0) >= GLOBAL_CHAT_REVIEW_TIMEOUT_TICKS:
+            _mark_global_chat_review_done(belief_state)
+            _complete_mode(belief_state)
+            return IdleTask()
+
+        if view in {View.PLAYING, View.HOSTAGE_SELECT, View.LEADER_SUMMIT}:
+            return OpenGlobalChatTask()
+
+        if view in {View.INFO_SCREEN, View.WHISPER}:
+            return CloseViewTask()
+
+        _complete_mode(belief_state)
+        return IdleTask()
+
+    def mode_enter(self, belief_state, action_memory) -> None:
+        del action_memory
+        _clear_mode_completion(belief_state)
+
+    def mode_switch_cleanup(
+        self,
+        belief_state,
+        action_memory,
+        new_mode_directive: ModeDirective,
+    ) -> None:
+        del belief_state, action_memory, new_mode_directive
+
+
+def _mark_global_chat_review_done(belief_state) -> None:
+    belief_state.extra["_identity_global_chat_review_done"] = (
+        getattr(belief_state, "round", 0) or 0
+    )
 
 
 def _complete_mode(belief_state) -> None:
@@ -701,6 +805,8 @@ __all__ = [
     "CoordinateCrossRoomParams",
     "TimeWasteParams",
     "RelayIntelligenceParams",
+    "AnnounceIdentityParams",
+    "ReviewGlobalChatParams",
     "DecoyParams",
     "HoldPositionMode",
     "SeekLeadershipMode",
@@ -711,5 +817,7 @@ __all__ = [
     "TimeWasteMode",
     "DecoyMode",
     "RelayIntelligenceMode",
+    "AnnounceIdentityMode",
+    "ReviewGlobalChatMode",
     "CheckInfoScreenMode",
 ]

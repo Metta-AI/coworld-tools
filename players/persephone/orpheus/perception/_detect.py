@@ -54,12 +54,16 @@ def detect_view(frame: np.ndarray) -> View:
     hud_text_2 = read_text_at(frame, 2, 2, COLOR_HUD_NORMAL, 20)
     hud_norm_2 = normalize_text(hud_text_2)
 
-    # Whisper: "WHISP" at (42, 2) in current renderer, or at (2, 2) in legacy
+    # Current chat surfaces keep the round clock at (2, 2) and put the view
+    # title at (42, 2). The SHOUT title can be weakly OCR'd as WHISP, so let
+    # shout's distinct bottom bar win before accepting a WHISP title.
+    title_text_2 = read_text_at(frame, 42, 2, COLOR_HUD_NORMAL, 8)
+    title_norm_2 = normalize_text(title_text_2)
+    if title_norm_2.startswith("SHOUT") or _has_global_chat_bottom_bar(frame):
+        return View.GLOBAL_CHAT
     if hud_norm_2.startswith("WHISP"):
         return View.WHISPER
-    whisp_text = read_text_at(frame, 42, 2, COLOR_HUD_NORMAL, 8)
-    whisp_norm = normalize_text(whisp_text)
-    if whisp_norm.startswith("WHISP"):
+    if title_norm_2.startswith("WHISP") and _has_whisper_bottom_bar(frame):
         return View.WHISPER
 
     # Info screen shared mode: "KNOWN PLAYERS" header
@@ -71,6 +75,11 @@ def detect_view(frame: np.ndarray) -> View:
     bar_norm_8 = normalize_text(bar_text_8)
     if bar_norm_8.startswith("WAITING"):
         return View.WAITING_ENTRY
+
+    # Whisper action menus keep the round clock visible, so weak header OCR can
+    # otherwise fall through to PLAYING. The bottom bar is a stronger signal.
+    if _has_whisper_bottom_bar(frame):
+        return View.WHISPER
 
     # Step 4: Phase labels rendered beside the clock at (42, 2)
     phase_text_8 = read_text_at(frame, 42, 2, COLOR_HUD_ALERT, 12)
@@ -150,6 +159,31 @@ def _has_roster_title(frame: np.ndarray) -> bool:
         text = read_text_at(frame, x + dx, 6, COLOR_HUD_NORMAL, len(expected) + 2)
         norm = normalize_text(text).strip().upper()
         if "PLAYER" in norm and "ROSTER" in norm:
+            return True
+    return False
+
+
+def _has_whisper_bottom_bar(frame: np.ndarray) -> bool:
+    for color in (COLOR_HUD_NORMAL, COLOR_HUD_DIM):
+        bar_text = read_text_at(frame, 2, BAR_Y + 2, color, 24)
+        norm = normalize_text(bar_text).upper()
+        if "TAB" in norm and ("ACT" in norm or "EXIT" in norm):
+            return True
+        if norm.startswith("(") and ")" in norm:
+            category = norm[1:norm.index(")")].strip()
+            if category in {"COLOR", "ROLE", "LEADER", "EXIT"}:
+                return True
+
+    alert_text = read_text_at(frame, 2, BAR_Y + 2, COLOR_HUD_ALERT, 12)
+    alert_norm = normalize_text(alert_text).upper()
+    return alert_norm.startswith("COLOR") or alert_norm.startswith("ROLE")
+
+
+def _has_global_chat_bottom_bar(frame: np.ndarray) -> bool:
+    for color in (COLOR_HUD_NORMAL, COLOR_HUD_DIM):
+        bar_text = read_text_at(frame, 2, BAR_Y + 2, color, 24)
+        norm = normalize_text(bar_text).upper()
+        if "TAB" in norm and ("CLOSE" in norm or "NEXT" in norm):
             return True
     return False
 

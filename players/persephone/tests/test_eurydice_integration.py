@@ -16,9 +16,8 @@ from orpheus.belief_state import BeliefState
 from orpheus.action_memory import ActionMemory
 from orpheus.logging import Logger
 from orpheus.idle import IdleTask
-from agents.eurydice.policy import build_registry, AGENT_ID
+from agents.eurydice.policy import build_registry, AGENT_ID, register_eurydice_hooks
 from agents.eurydice.modes import EurydiceIdleMode
-from agents.eurydice.pipeline import eurydice_post_belief_update
 from agents.eurydice.meta_decide import meta_decide
 from agents.eurydice.ext_keys import EURYDICE_ACCUMULATORS, PLAYER_KNOWLEDGE
 from agents.eurydice.evaluators import ROLE_EVALUATORS
@@ -42,7 +41,7 @@ def _build_pipeline():
         current_mode_name="idle",
         fallback_directive=ModeDirective("idle", ModeParams()),
     )
-    pipeline.hook_registry.register_hook(HookPoint.POST_BELIEF_UPDATE, eurydice_post_belief_update)
+    register_eurydice_hooks(pipeline)
     return pipeline, sent
 
 def _tick_with_fixture(pipeline, name: str):
@@ -101,6 +100,24 @@ def test_pipeline_tick_with_playing_fixture():
     assert bs.tick == 1
     assert bs.view == View.PLAYING
     assert EURYDICE_ACCUMULATORS in bs.extra
+
+
+def test_eurydice_hook_immediately_enters_whisper_mode() -> None:
+    pipeline, _sent = _build_pipeline()
+    pipeline.current_mode_name = "hold_position"
+    pipeline.belief_state.view = View.WHISPER
+
+    pipeline.hook_registry.dispatch(
+        HookPoint.POST_BELIEF_UPDATE,
+        pipeline.current_mode_name,
+        pipeline.belief_state,
+        logger=pipeline.logger,
+    )
+    entry = pipeline.mode_buffer.consume()
+
+    assert entry is not None
+    directive, _inferences = entry
+    assert directive.mode == "in_whisper"
 
 def test_pipeline_survives_100_ticks_same_frame():
     """Repeated identical frames don't crash or cause state corruption."""

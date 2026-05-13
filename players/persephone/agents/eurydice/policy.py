@@ -26,12 +26,14 @@ from agents.eurydice.frame_recorder import FrameRecorder
 from agents.eurydice.log import set_logger
 from agents.eurydice.meta_decide import meta_decide
 from agents.eurydice.advanced_modes import (
+    AnnounceIdentityMode,
     CheckInfoScreenMode,
     CoordinateCrossRoomMode,
     DecoyMode,
     HoldPositionMode,
     HostageSelectMode,
     RelayIntelligenceMode,
+    ReviewGlobalChatMode,
     SeekLeadershipMode,
     SummitInteractMode,
     TimeWasteMode,
@@ -39,7 +41,7 @@ from agents.eurydice.advanced_modes import (
 )
 from agents.eurydice.modes import EurydiceIdleMode, ScoutMode, ProbeTargetMode, ProbeSystematicMode
 from agents.eurydice.llm_action_mode import LLMActionMode
-from agents.eurydice.whisper_mode import InWhisperMode
+from agents.eurydice.whisper_mode import InWhisperMode, InWhisperParams
 from agents.eurydice.pipeline import eurydice_post_belief_update
 from orpheus.hooks import HookPoint
 from orpheus.idle import IdleMode
@@ -85,11 +87,58 @@ def build_registry() -> ModeRegistry:
     registry.register("summit_interact", SummitInteractMode)
     registry.register("time_waste", TimeWasteMode)
     registry.register("relay_intelligence", RelayIntelligenceMode)
+    registry.register("review_global_chat", ReviewGlobalChatMode)
+    registry.register("announce_identity", AnnounceIdentityMode)
     registry.register("decoy", DecoyMode)
     registry.register("usurp", UsurpMode)
     registry.register("check_info_screen", CheckInfoScreenMode)
     registry.register("llm_action", LLMActionMode)
     return registry
+
+
+def register_eurydice_hooks(
+    pipeline: Pipeline,
+    *,
+    llm_control: str = "off",
+    llm_provider: str = "hold",
+) -> None:
+    """Register Eurydice hooks, including view-critical local overrides."""
+
+    def post_belief_update(belief_state):
+        eurydice_post_belief_update(belief_state)
+        _push_immediate_whisper_directive(
+            pipeline,
+            llm_control=llm_control,
+            llm_provider=llm_provider,
+        )
+
+    pipeline.hook_registry.register_hook(
+        HookPoint.POST_BELIEF_UPDATE,
+        post_belief_update,
+    )
+
+
+def _push_immediate_whisper_directive(
+    pipeline: Pipeline,
+    *,
+    llm_control: str,
+    llm_provider: str,
+) -> None:
+    belief_state = pipeline.belief_state
+    if belief_state.view is not View.WHISPER:
+        return
+    if pipeline.current_mode_name == "in_whisper":
+        return
+    pipeline.mode_buffer.push(
+        ModeDirective(
+            "in_whisper",
+            InWhisperParams(
+                llm_control=llm_control,
+                llm_provider=llm_provider,
+            ),
+        ),
+        dict(getattr(belief_state, "inferences", {})),
+    )
 
 def run(
     *,
@@ -146,7 +195,11 @@ def run(
             current_mode_name="idle",
             fallback_directive=ModeDirective("idle", ModeParams()),
         )
-        pipeline.hook_registry.register_hook(HookPoint.POST_BELIEF_UPDATE, eurydice_post_belief_update)
+        register_eurydice_hooks(
+            pipeline,
+            llm_control=llm_control,
+            llm_provider=llm_provider,
+        )
 
         def decide_with_optional_llm(belief_state, action_memory):
             return meta_decide(

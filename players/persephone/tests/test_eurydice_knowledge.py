@@ -118,7 +118,16 @@ def test_info_screen_reconciles_full_role_exchange() -> None:
         in_whisper=False,
         whisper_occupants=[],
     )
-    belief_state.extra[INFO_SCREEN_RECONCILE_PENDING] = True
+    belief_state.last_exchange_event = {
+        "type": "shared_roles",
+        "tick": 10,
+        "participants": [0, 1],
+    }
+    update_exchange_tracker(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
     belief_state.players[1] = PlayerInfo(role="cerberus", team="shades")
 
     update_info_screen_reconciliation(
@@ -142,6 +151,72 @@ def test_info_screen_reconciles_full_role_exchange() -> None:
     assert record.has_exchanged_colors_with_us is True
     assert record.times_interacted == 1
     assert acc.role_offers_received_and_accepted == 1
+
+
+def test_info_screen_role_without_shared_roles_does_not_complete_exchange() -> None:
+    belief_state = _belief_state(
+        view=View.INFO_SCREEN,
+        in_whisper=False,
+        whisper_occupants=[],
+    )
+    belief_state.players[1] = PlayerInfo(role="cerberus", team="shades")
+
+    update_info_screen_reconciliation(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+
+    player_id = _pid(1, belief_state)
+    record = belief_state.extra[PLAYER_KNOWLEDGE][player_id]
+    acc = belief_state.extra[EURYDICE_ACCUMULATORS].player_accumulators.get(
+        player_id
+    )
+    assert belief_state.my_exchange_partner is None
+    assert record.role is Role.CERBERUS
+    assert record.role_source is RoleSource.ONE_WAY_REVEAL
+    assert record.team is Team.SHADES
+    assert record.team_source is TeamSource.INFERRED
+    assert record.has_exchanged_roles_with_us is False
+    assert record.has_exchanged_colors_with_us is False
+    assert record.trust_level is TrustLevel.PROBABLE
+    assert acc is None or acc.role_offers_received_and_accepted == 0
+
+
+def test_info_screen_after_role_offer_does_not_complete_exchange() -> None:
+    belief_state = _belief_state(
+        view=View.INFO_SCREEN,
+        in_whisper=False,
+        whisper_occupants=[],
+        chat_history=[
+            ChatMessageRecord(
+                tick=10,
+                sender_index=None,
+                channel="whisper",
+                text="BOLT offered role exchange",
+                occupants=[0, 1],
+            )
+        ],
+    )
+    update_exchange_tracker(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+    belief_state.players[1] = PlayerInfo(role="cerberus", team="shades")
+
+    update_info_screen_reconciliation(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+
+    player_id = _pid(1, belief_state)
+    record = belief_state.extra[PLAYER_KNOWLEDGE][player_id]
+    assert belief_state.my_exchange_partner is None
+    assert record.role is Role.CERBERUS
+    assert record.role_source is RoleSource.ONE_WAY_REVEAL
+    assert record.has_exchanged_roles_with_us is False
 
 
 def test_info_screen_reconciles_color_only_without_role() -> None:
@@ -235,7 +310,10 @@ def test_active_offer_tracking_is_deduplicated() -> None:
 
 
 def test_chat_parser_updates_low_priority_identity_claim() -> None:
-    belief_state = _belief_state(view=View.PLAYING, in_whisper=False)
+    belief_state = _belief_state(
+        view=View.PLAYING,
+        in_whisper=False,
+    )
     player_id = _pid(1, belief_state)
     record = PlayerKnowledge.create(player_id)
     record.team = Team.SHADES
@@ -257,6 +335,84 @@ def test_chat_parser_updates_low_priority_identity_claim() -> None:
     assert record.role_source is RoleSource.CHAT_CLAIM
     assert record.team is Team.SHADES
     assert record.team_source is TeamSource.COLOR_EXCHANGE
+
+
+def test_chat_parser_accepts_unverified_self_identity_claim_for_partner_search() -> None:
+    belief_state = _belief_state(
+        view=View.PLAYING,
+        in_whisper=False,
+        my_role="persephone",
+        my_team="nymphs",
+    )
+    player_id = _pid(1, belief_state)
+    record = PlayerKnowledge.create(player_id)
+    record.team = Team.NYMPHS
+    record.team_source = TeamSource.INFERRED
+    belief_state.extra[PLAYER_KNOWLEDGE][player_id] = record
+    belief_state.chat_history = [
+        ChatMessageRecord(1, 11, "global", "I am Demeter"),
+    ]
+
+    update_chat_tracker(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+
+    assert record.claims_about_identity == "I am Demeter"
+    assert record.role is Role.DEMETER
+    assert record.role_source is RoleSource.CHAT_CLAIM
+    assert record.team is Team.NYMPHS
+
+
+def test_shout_visual_tag_repairs_repeated_color_sender_identity() -> None:
+    belief_state = _belief_state(
+        view=View.PLAYING,
+        in_whisper=False,
+        player_count=10,
+    )
+    belief_state.chat_history = [
+        ChatMessageRecord(8, 11, "shout", "I AM HADES R CRCL"),
+    ]
+
+    update_chat_tracker(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+
+    true_hades_id = _pid(0, belief_state)
+    repeated_color_id = _pid(8, belief_state)
+    true_record = belief_state.extra[PLAYER_KNOWLEDGE][true_hades_id]
+    repeated_record = belief_state.extra[PLAYER_KNOWLEDGE].get(repeated_color_id)
+    assert true_record.claims_about_identity == "I am Hades"
+    assert true_record.role is Role.HADES
+    assert true_record.role_source is RoleSource.CHAT_CLAIM
+    assert repeated_record is None or repeated_record.role is not Role.HADES
+
+
+def test_global_visual_tag_repairs_repeated_color_sender_identity() -> None:
+    belief_state = _belief_state(
+        view=View.PLAYING,
+        in_whisper=False,
+        player_count=10,
+    )
+    belief_state.chat_history = [
+        ChatMessageRecord(8, 11, "global", "I AM HADES R CRCL"),
+    ]
+
+    update_chat_tracker(
+        belief_state.extra[EURYDICE_ACCUMULATORS],
+        belief_state.extra[PLAYER_KNOWLEDGE],
+        belief_state,
+    )
+
+    true_hades_id = _pid(0, belief_state)
+    repeated_record = belief_state.extra[PLAYER_KNOWLEDGE].get(_pid(8, belief_state))
+    true_record = belief_state.extra[PLAYER_KNOWLEDGE][true_hades_id]
+    assert true_record.role is Role.HADES
+    assert true_record.role_source is RoleSource.CHAT_CLAIM
+    assert repeated_record is None or repeated_record.role is not Role.HADES
 
 
 def test_enemy_chat_claim_cannot_overwrite_mechanical_exchange() -> None:

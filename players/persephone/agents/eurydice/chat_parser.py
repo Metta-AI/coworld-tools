@@ -38,6 +38,38 @@ _QUESTION_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("HAVE YOU", "status"),
     ("HAVE", "status"),
 )
+_COLOR_LETTERS: dict[int, str] = {
+    3: "R",
+    14: "B",
+    8: "Y",
+    10: "G",
+    7: "O",
+    9: "P",
+    11: "L",
+    12: "N",
+}
+_LETTER_COLORS: dict[str, int] = {letter: color for color, letter in _COLOR_LETTERS.items()}
+_SHAPE_NAMES: tuple[str, ...] = (
+    "CRCL",
+    "SQR",
+    "TRI",
+    "DMOND",
+    "STAR",
+    "CROSS",
+    "X",
+    "HEART",
+    "MOON",
+    "BOLT",
+    "GLASS",
+    "RING",
+)
+_SHAPE_INDEX: dict[str, int] = {
+    shape_name: index for index, shape_name in enumerate(_SHAPE_NAMES)
+}
+_PLAYER_ID_RE = re.compile(
+    r"\b([RBYGOPLN])(?:[.\s-]+)"
+    r"(CRCL|SQR|TRI|DMOND|STAR|CROSS|X|HEART|MOON|BOLT|GLASS|RING)\b"
+)
 
 
 def parse_message(
@@ -70,6 +102,32 @@ def parse_message(
     )
 
 
+def extract_player_id_mention(text_upper: str) -> PlayerID | None:
+    """Extract a compact visual player tag such as ``R CRCL`` or ``B.SQR``."""
+
+    match = _PLAYER_ID_RE.search(text_upper)
+    if match is None:
+        return None
+
+    color = _LETTER_COLORS.get(match.group(1))
+    shape = _SHAPE_INDEX.get(match.group(2))
+    if color is None or shape is None:
+        return None
+    return (color, shape)
+
+
+def format_player_id_mention(player_id: PlayerID | None) -> str | None:
+    """Return the compact visual tag for a player id, if representable."""
+
+    if player_id is None:
+        return None
+    color, shape = player_id
+    color_letter = _COLOR_LETTERS.get(color)
+    if color_letter is None or shape < 0 or shape >= len(_SHAPE_NAMES):
+        return None
+    return f"{color_letter} {_SHAPE_NAMES[shape]}"
+
+
 def assess_credibility(
     parsed: ParsedMessage,
     sender_knowledge: PlayerKnowledge | None,
@@ -93,6 +151,19 @@ def assess_credibility(
                 credibility = 0.85
             elif sender_knowledge.team_source is TeamSource.COLOR_EXCHANGE:
                 credibility = 0.6
+    known_enemy = (
+        sender_knowledge is not None
+        and sender_knowledge.team is not None
+        and my_team is not None
+        and sender_knowledge.team != my_team
+    )
+    if (
+        parsed.identity_claim is not None
+        and parsed.identity_claim.subject == "self"
+        and parsed.channel in {"global", "shout", "whisper"}
+        and not known_enemy
+    ):
+        credibility = max(credibility, 0.65)
 
     if parsed.identity_claim is not None and _contradicts_known_identity(
         parsed.identity_claim, sender_knowledge

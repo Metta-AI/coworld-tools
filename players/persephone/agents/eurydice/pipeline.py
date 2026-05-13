@@ -19,6 +19,7 @@ from orpheus.perception.types import View
 from .accumulators import GlobalAccumulators, PlayerAccumulator
 from .chat_parser import (
     assess_credibility,
+    extract_player_id_mention,
     parse_message,
     update_knowledge_from_chat,
 )
@@ -241,6 +242,7 @@ def handle_round_transition(
     accumulators.current_round = belief_state.round or 0
     accumulators.round_start_tick = belief_state.tick
     accumulators.our_probe_cycles_this_round = 0
+    belief_state.extra.pop(PROBE_STATE, None)
 
 
 # ---------------------------------------------------------------------------
@@ -814,7 +816,9 @@ def update_info_screen_reconciliation(
     reason = belief_state.extra.pop(_INFO_SCREEN_RECONCILE_REASON, None)
     belief_state.extra[INFO_SCREEN_RECONCILE_PENDING] = False
 
-    role_indices: list[int] = []
+    exchange_partner_index = belief_state.my_exchange_partner
+    confirms_role_exchange = had_pending and reason == "shared_roles"
+    role_exchange_indices: list[int] = []
     role_players: list[PlayerID] = []
     color_players: list[PlayerID] = []
 
@@ -840,8 +844,11 @@ def update_info_screen_reconciliation(
                 belief_state,
                 role,
                 team,
+                confirmed_exchange=confirms_role_exchange
+                or exchange_partner_index == index,
             )
-            role_indices.append(index)
+            if confirms_role_exchange or exchange_partner_index == index:
+                role_exchange_indices.append(index)
             if changed:
                 role_players.append(player_id)
         elif team is not None:
@@ -854,8 +861,8 @@ def update_info_screen_reconciliation(
             if changed:
                 color_players.append(player_id)
 
-    if belief_state.my_exchange_partner is None and len(role_indices) == 1:
-        belief_state.my_exchange_partner = role_indices[0]
+    if belief_state.my_exchange_partner is None and len(role_exchange_indices) == 1:
+        belief_state.my_exchange_partner = role_exchange_indices[0]
 
     if logger and (had_pending or role_players or color_players):
         logger.event(
@@ -879,7 +886,12 @@ def _reconcile_info_screen_role(
     belief_state: BeliefState,
     role: Role,
     team: Team | None,
+    *,
+    confirmed_exchange: bool,
 ) -> bool:
+    if not confirmed_exchange:
+        return _reconcile_info_screen_one_way_role(pk, belief_state, role, team)
+
     changed = (
         not pk.has_exchanged_roles_with_us
         or pk.role is not role
@@ -926,6 +938,56 @@ def _reconcile_info_screen_role(
         confidence=1.0,
         source="info_screen",
     )
+    return changed
+
+
+def _reconcile_info_screen_one_way_role(
+    pk: PlayerKnowledge,
+    belief_state: BeliefState,
+    role: Role,
+    team: Team | None,
+) -> bool:
+    changed = (
+        pk.role is not role
+        or pk.role_source is not RoleSource.ONE_WAY_REVEAL
+        or (team is not None and pk.team is not team)
+    )
+
+    pk.last_interaction_tick = belief_state.tick
+    pk.last_interaction_round = belief_state.round or 0
+
+    _set_role_inference(
+        pk,
+        role,
+        rule="info_screen_one_way_role_reconcile",
+        confidence=1.0,
+        source="info_screen",
+    )
+    pk.role_source = RoleSource.ONE_WAY_REVEAL
+
+    if team is not None:
+        _set_team_inference(
+            pk,
+            team,
+            rule="info_screen_one_way_role_team_reconcile",
+            confidence=1.0,
+            source="info_screen",
+        )
+        if pk.team_source is not TeamSource.ROLE_EXCHANGE:
+            pk.team_source = TeamSource.INFERRED
+            pk.team_confidence = 1.0
+
+    my_team = _parse_team_string(belief_state.my_team)
+    if team is not None and my_team is not None:
+        trust = TrustLevel.PROBABLE if team is my_team else TrustLevel.HOSTILE
+        _set_trust_inference(
+            pk,
+            trust,
+            rule="trust_from_info_screen_one_way_role",
+            confidence=1.0,
+            source="info_screen",
+        )
+
     return changed
 
 
@@ -1098,12 +1160,14 @@ def update_chat_tracker(
     belief_state.extra[chat_counter_key] = current_len
 
     for msg in new_messages:
-        if msg.sender_index is None:
-            continue  # System message; handled by exchange_tracker
-
-        player_id = player_index_to_id(msg.sender_index, belief_state)
+        raw_player_id = (
+            player_index_to_id(msg.sender_index, belief_state)
+            if msg.sender_index is not None
+            else None
+        )
+        player_id = _chat_message_sender_id(msg, raw_player_id)
         if player_id is None:
-            continue
+            continue  # System or unattributable message; exchange_tracker handles systems.
 
         acc = _ensure_accumulator(accumulators, player_id)
         pk = _ensure_knowledge(knowledge, player_id)
@@ -1121,6 +1185,23 @@ def update_chat_tracker(
         parsed = parse_message(msg.text, player_id, msg.channel, msg.tick)
         credibility = assess_credibility(parsed, pk, my_team)
         update_knowledge_from_chat(parsed, credibility, knowledge, belief_state)
+
+
+def _chat_message_sender_id(msg, raw_player_id: PlayerID | None) -> PlayerID | None:
+    """Resolve chat sender, using self-tags to repair ambiguous shout strips."""
+
+    text_upper = str(getattr(msg, "text", "")).upper()
+    claimed_id = extract_player_id_mention(text_upper)
+    channel = getattr(msg, "channel", "")
+
+    if channel in {"global", "shout"} and claimed_id is not None:
+        if raw_player_id is None or raw_player_id[0] == claimed_id[0]:
+            return claimed_id
+
+    if raw_player_id is None:
+        return claimed_id
+
+    return raw_player_id
 
 
 # ---------------------------------------------------------------------------

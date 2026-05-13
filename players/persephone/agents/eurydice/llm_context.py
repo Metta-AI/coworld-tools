@@ -470,16 +470,21 @@ def _legal_actions(belief_state: BeliefState) -> list[str]:
         return ["hold", "select_hostage"]
     if view is View.LEADER_SUMMIT:
         return ["hold", "send_whisper"]
-    if view in {View.PLAYING, View.WAITING_ENTRY}:
-        return [
+    if view is View.WAITING_ENTRY:
+        return ["hold"]
+    if view is View.PLAYING:
+        actions = [
             "hold",
             "probe_player",
-            "create_whisper",
-            "join_whisper",
             "open_global",
             "open_info",
             "move_to",
         ]
+        if _has_recent_whisper_target(belief_state):
+            actions.append("join_whisper")
+        else:
+            actions.append("create_whisper")
+        return actions
     return ["hold"]
 
 
@@ -510,6 +515,11 @@ def _hard_constraints(belief_state: BeliefState) -> list[str]:
     ]
     if getattr(belief_state, "view", None) is View.HOSTAGE_SELECT:
         constraints.append("Do not initiate or join whispers while selecting hostages.")
+    if getattr(belief_state, "view", None) is View.PLAYING:
+        if _has_recent_whisper_target(belief_state):
+            constraints.append("Prefer joining a recent existing whisper over creating a new solo whisper.")
+        else:
+            constraints.append("Create a whisper only when no recent joinable whisper is visible.")
     if getattr(belief_state, "view", None) is View.WHISPER:
         constraints.append("If hostile third occupants enter a sensitive exchange, exit or stall.")
     return constraints
@@ -626,6 +636,17 @@ def _single_non_self_whisper_occupant(
         if player_id is not None:
             candidates.append(player_id)
     return candidates[0] if len(candidates) == 1 else None
+
+
+def _has_recent_whisper_target(belief_state: BeliefState) -> bool:
+    tick = int(getattr(belief_state, "tick", 0) or 0)
+    for index, info in getattr(belief_state, "players", {}).items():
+        if index == getattr(belief_state, "my_index", None):
+            continue
+        last_seen = getattr(info, "last_seen_in_whisper", None)
+        if isinstance(last_seen, int) and tick - last_seen <= 60:
+            return True
+    return False
 
 
 def _hostage_target_total(selections: Any, eligible_count: int) -> int:

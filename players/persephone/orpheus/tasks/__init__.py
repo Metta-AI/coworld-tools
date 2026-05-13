@@ -14,6 +14,8 @@ from orpheus.tasks.chatroom import (
     ExitWhisperTask,
     GrantEntryTask,
     InitiateWhisperTask,
+    MoveAndInitiateWhisperTask,
+    RendezvousEntrySweepTask,
     RequestEntryTask,
 )
 from orpheus.tasks.communication import SendMessageTask
@@ -49,6 +51,8 @@ __all__ = [
     "CloseViewTask",
     "CreateWhisperTask",
     "InitiateWhisperTask",
+    "MoveAndInitiateWhisperTask",
+    "RendezvousEntrySweepTask",
     "RequestEntryTask",
     "CancelEntryTask",
     "ExitWhisperTask",

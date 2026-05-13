@@ -4,7 +4,7 @@ This document is the implementation roadmap for taking Eurydice from the
 current partially implemented agent to the behavior described in
 [`DESIGN.md`](DESIGN.md) and the role strategy documents.
 
-Last source audit: 2026-05-11.
+Last source audit: 2026-05-12.
 
 The important planning constraint is dependency order: a phase may only depend
 on capabilities proven by earlier phases. For example, role-specific strategy
@@ -37,7 +37,15 @@ knowledge updates, and evaluator parameter contracts are already working.
 - **Phase 4 partial:** Probe attempts now track target selection, started
   action, completion, and per-round failures; `probe_target` no longer joins an
   unrelated nearby whisper; failed entry attempts are capped per target/round;
-  probe modes no longer initiate whispers during HostageSelect.
+  probe modes no longer initiate whispers during HostageSelect. Key roles use a
+  shared `(54, 66)` rendezvous with tight 8px open/reached ranges, Hades and
+  Persephone act as requesters, Cerberus and Demeter act as openers, entry
+  request pulses are globally throttled to 72 ticks to avoid canceling pending
+  requests, requesters sweep a small 8px radius to refresh stale partner
+  positions, openers run a short blind `GRANT` window followed by a longer
+  blind `R.OFFER` window, requesters blind-offer after entry requests instead
+  of blind-accepting from unsafe gameplay pixels, and B-entry tasks have a
+  bounded retry window.
 - **Phase 5 partial:** `in_whisper` now derives protocol from the directive
   that caused whisper entry, supports stall/key-exchange/quick-verify/
   infiltration selection, applies Spy-aware incoming role-offer decisions, and
@@ -45,7 +53,10 @@ knowledge updates, and evaluator parameter contracts are already working.
   info-screen reconciliation. Exchange menu tasks persist until the menu
   sequence completes, menu-backed tasks use robust held button presses, and
   solo/key-exchange whispers grant the first or intended requester instead of
-  blocking all entry during sensitive states.
+  blocking all entry during sensitive states. Hidden key-exchange whisper state
+  now persists whether the local agent created the whisper, so the in-whisper
+  FSM can continue blind grant/offer phases even if probe state changes or
+  occupants are not parsed.
 - **Phase 6 partial:** Additional role-evaluator contracts cover key partner
   cross-room behavior, Persephone escape/hold behavior, Shade leader hostage
   strategy, Spy real-team verification targeting, and final-round partner
@@ -134,9 +145,11 @@ knowledge updates, and evaluator parameter contracts are already working.
 - Evaluators emit typed params for core branches, but several advanced modes
   only store or lightly consume those params. They do not yet implement the
   full role-specific behaviors described in `DESIGN.md`.
-- Probe rendezvous is target-scoped now, but live self-play still produces
-  mostly solo whispers. It lacks cooperative meeting-point behavior, reliable
-  entry-request/grant completion, and safe global announcements.
+- Probe rendezvous now has cooperative key-pair meeting behavior and can produce
+  server-confirmed joins, but live self-play still fails to convert those joins
+  into server-confirmed role exchanges. The active blocker is post-join
+  requester view/perception and safe exchange completion, not just target
+  selection.
 - Advanced modes are intentionally shallow: hostage selection is mechanical,
   cross-room coordination only sends `SEND ME`, `hold_position` does not
   actively seek leadership, and `decoy` does not communicate a false identity.
@@ -148,17 +161,63 @@ knowledge updates, and evaluator parameter contracts are already working.
   executor, and optional runtime hooks. `all` now grants broad validated
   semantic authority over target selection, movement/open-view actions, global
   and leader-summit chat, leadership seeking, hostage selection, and the
-  whisper-local entry/first-message hook. It still lacks an external model
-  provider, rich saved-context export from live traces, deeper multi-turn
-  whisper exchange control, and mixed-policy evaluation.
+  whisper-local entry/first-message hook. It still lacks rich saved-context
+  export from live traces, deeper multi-turn whisper exchange control, and
+  mixed-policy evaluation.
 
 ### Latest Validation
 
 - `PYTHONPATH=. .venv/bin/python -m pytest tests -q`:
-  **585 passed, 5 skipped** on 2026-05-11.
-- Focused post-change checks:
+  **615 passed, 5 skipped** on 2026-05-11 before the current rendezvous
+  iteration.
+- Focused post-change checks on 2026-05-13:
   `PYTHONPATH=. .venv/bin/python -m pytest tests/test_eurydice_stages.py tests/test_orpheus_stage4.py -q`
-  passed with **175 passed** on 2026-05-11.
+  passed with **273 passed**. Earlier in the rendezvous iteration, the broader
+  Eurydice/Orpheus focused set passed with **299 passed**:
+  `tests/test_eurydice_stages.py tests/test_orpheus_stage4.py tests/test_eurydice_llm_runtime.py tests/test_eurydice_knowledge.py tests/test_eurydice_directives.py tests/test_eurydice_evaluators.py`.
+- Live guarded-Haiku diagnostics, 10 Eurydice agents against a local default
+  Persephone server (`seed=5305`, `--llm-control all --llm-provider haiku`):
+  runs `after86` through `after93` still ended in draws, but `after92` produced
+  the first current-session server-confirmed key interaction:
+  `/Users/jamesboggs/coding/bitworld/persephones_escape/logs/1778608290610/full.log`
+  recorded `R.CRCL joined P.CROSS's whisper` at 83.8s and `P.CROSS offered role
+  exchange` at 96.9s. Final server state remained `Hades/Cerberus shared:
+  false, Persephone/Demeter shared: false, same room: false`.
+- The unsafe blind requester-accept experiment in `after93` was reverted:
+  `/Users/jamesboggs/coding/bitworld/persephones_escape/logs/1778608787558/full.log`
+  showed requesters opening their own whispers (`B.SQR opened whisper`,
+  `R.CRCL opened whisper`) instead of safely accepting an existing joined
+  whisper. Requester role-exchange acceptance must not press menu actions from
+  ordinary gameplay unless a whisper-like view or another safe server signal is
+  available.
+- A bounded frame-recorded `after94` diagnostic (`seed=5305`, 242 MB of frames)
+  still drew. Server log
+  `/Users/jamesboggs/coding/bitworld/persephones_escape/logs/1778609737606/full.log`
+  showed solo opener role offers (`P.CROSS offered role exchange`, `O.STAR
+  offered role exchange`) but no joins. Frame inspection around the key
+  rendezvous showed local policies still saw `PLAYING` pixels while server
+  whisper state was hidden, and trace timing showed requester B retries could
+  cancel a pending request before the opener finished the next `GRANT` menu
+  sequence. Entry retries were therefore widened to 72 ticks with a bounded
+  retry window.
+- Live guarded-Haiku validation after the blind-grant hold change (`after96`,
+  `seed=5305`) still drew:
+  `/Users/jamesboggs/coding/bitworld/persephones_escape/logs/1778611539507/full.log`
+  showed `O.STAR opened whisper`, `P.CROSS opened whisper`, and a Demeter
+  whisper message, but no `joined`, `shared roles`, or winner. The change
+  reduced wasted solo role-offer churn, but the remaining blocker is now below
+  strategy: requester B pulses near open key whispers are still not reliably
+  becoming server pending-entry state that the opener can grant.
+- Latest long-running seed-5305 validation after requester blind-offer and
+  persisted in-whisper key state produced eight completed server logs
+  (`1778630780053`, `1778637451726`, `1778661827150`, `1778686766602`,
+  `1778689320983`, `1778689514089`, `1778689707094`, `1778689900090`). Every
+  log ended `Winner: Draw` with `Hades/Cerberus shared: false` and
+  `Persephone/Demeter shared: false`; none contained server `joined`,
+  `offered role`, or `shared roles` events. Agent traces did reach
+  `BlindOfferRoleExchangeTask` on key roles, so the next debugging target is
+  the request/grant/menu transport path from agent-side blind role-offer tasks
+  to server-confirmed whisper state.
 - Live full-match validation, 10 Eurydice agents against a local default
   Persephone server (`seed=4243`): server result was **Draw** with
   `Hades/Cerberus shared: false`, `Persephone/Demeter shared: false`, and
@@ -539,7 +598,9 @@ protocols can matter.
   reach `View.WHISPER` within 15 seconds.
 - In full 10-agent self-play, the server log should show at least one `joined`
   whisper event by round 1 and at least one server-confirmed role/color offer
-  or exchange by round 2. The current 2026-05-11 runs do not meet this bar.
+  or exchange by round 2. The current 2026-05-12 runs reached the `joined`
+  portion once (`after92`) and reached a server-confirmed role offer, but still
+  did not complete a role/color exchange or produce a winner.
 - Median time from target selection to whisper view is below one third of the
   current round duration.
 - Failed attempts switch target or strategy within 96 ticks after failure.

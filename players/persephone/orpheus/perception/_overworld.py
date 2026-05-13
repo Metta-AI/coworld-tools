@@ -256,6 +256,7 @@ def scan_visible_players(frame: np.ndarray) -> list[VisiblePlayer]:
                         player_color=color,
                         player_shape=shape,
                         role_indicator=indicator,
+                        in_whisper=_has_whisper_indicator(frame, x, y),
                     ),
                 )
             )
@@ -270,6 +271,25 @@ def scan_visible_players(frame: np.ndarray) -> list[VisiblePlayer]:
 
     selected.sort(key=lambda player: (player.screen_y, player.screen_x))
     return selected
+
+
+def _has_whisper_indicator(frame: np.ndarray, x: int, y: int) -> bool:
+    """Return True when the overworld whisper marker is visible above a sprite."""
+
+    indicator_points = (
+        (x - 3, y - 4),
+        (x - 2, y - 4),
+        (x - 1, y - 4),
+        (x - 3, y - 3),
+        (x - 2, y - 3),
+        (x - 1, y - 3),
+        (x, y - 2),
+    )
+    matches = 0
+    for px, py in indicator_points:
+        if 0 <= px < SCREEN_WIDTH and 0 <= py < SCREEN_HEIGHT:
+            matches += int(frame[py, px] == COLOR_HUD_NORMAL)
+    return matches >= 5
 
 
 def _dominant_player_color_and_score(region: np.ndarray) -> tuple[int | None, int]:

@@ -24,6 +24,7 @@ from .ext_keys import (
     LAST_PHASE,
     MODE_COMPLETE,
     PLAYER_KNOWLEDGE,
+    PROBE_STATE,
     STRATEGIC_STATE,
 )
 from .evaluators import ROLE_EVALUATORS
@@ -31,12 +32,17 @@ from .knowledge import PlayerKnowledge
 from .log import logger
 from .pipeline import _parse_role_string, _parse_team_string, player_index_to_id
 from .strategic_state import StrategicState
-from .types import Phase, PlayerID, Role, Team, Urgency
+from .types import Phase, PlayerID, ProbeIntent, Role, Team, Urgency
+from .advanced_modes import AnnounceIdentityParams, ReviewGlobalChatParams
+from .chat_parser import format_player_id_mention
 
 TICKS_PER_SECOND = 24
 MIN_MODE_DURATION_TICKS = 48
 DEFAULT_ROUND_TICKS = 15 * TICKS_PER_SECOND
 DEFAULT_ROUND_COUNT = 3
+IDENTITY_ANNOUNCEMENT_STAGGER_TICKS = 8
+IDENTITY_ANNOUNCEMENT_LISTEN_MARGIN_TICKS = 72
+KEY_PROTOCOL_HOLD_TICKS = 144
 _PREV_STRATEGIC_KEY = "_eurydice_prev_strategic"
 
 def meta_decide(
@@ -48,20 +54,23 @@ def meta_decide(
 ) -> tuple[ModeDirective, dict | None]:
     """Select the next mode directive from the current belief snapshot."""
     state = build_strategic_state(belief_state)
+    provider_control = (
+        "off" if _key_exchange_provider_bypass(state) else llm_control
+    )
     mode_complete = bool(belief_state.extra.pop(MODE_COMPLETE, False))
     current_mode = _last_mode(belief_state)
     ticks_in_mode = belief_state.tick - _last_tick(belief_state)
 
     override = _phase_override(belief_state)
     if override is not None:
-        if llm_control != "off":
+        if provider_control != "off" and _phase_override_allows_llm(belief_state):
             from .llm_controller import maybe_override_directive
 
             override = maybe_override_directive(
                 belief_state,
                 state,
                 override,
-                control_mode=llm_control,
+                control_mode=provider_control,
                 provider_name=llm_provider,
             )
         return _finish(
@@ -75,18 +84,15 @@ def meta_decide(
         )
 
     if belief_state.view is View.WHISPER:
-        if llm_control == "off":
-            whisper_directive = _directive("in_whisper")
-        else:
-            from .whisper_mode import InWhisperParams
+        from .whisper_mode import InWhisperParams
 
-            whisper_directive = ModeDirective(
-                "in_whisper",
-                InWhisperParams(
-                    llm_control=llm_control,
-                    llm_provider=llm_provider,
-                ),
-            )
+        whisper_directive = ModeDirective(
+            "in_whisper",
+            InWhisperParams(
+                llm_control=llm_control,
+                llm_provider=llm_provider,
+            ),
+        )
 
         return _finish(
             whisper_directive,
@@ -105,6 +111,34 @@ def meta_decide(
             state,
             belief_state,
             reason="info_screen_reconcile_pending",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
+
+    key_protocol = _active_key_protocol_directive(belief_state, state)
+    if key_protocol is not None:
+        return _finish(
+            key_protocol,
+            state,
+            belief_state,
+            reason="active_key_protocol",
+            evaluator=None,
+            mode_complete=mode_complete,
+            ticks_in_mode=ticks_in_mode,
+        )
+
+    identity_announcement = _identity_announcement_directive(
+        belief_state,
+        state,
+        llm_control=llm_control,
+    )
+    if identity_announcement is not None:
+        return _finish(
+            identity_announcement,
+            state,
+            belief_state,
+            reason="identity_announcement",
             evaluator=None,
             mode_complete=mode_complete,
             ticks_in_mode=ticks_in_mode,
@@ -143,14 +177,14 @@ def meta_decide(
         if evaluator
         else _directive("idle")
     )
-    if llm_control != "off":
+    if provider_control != "off":
         from .llm_controller import maybe_override_directive
 
         directive = maybe_override_directive(
             belief_state,
             state,
             directive,
-            control_mode=llm_control,
+            control_mode=provider_control,
             provider_name=llm_provider,
         )
     return _finish(
@@ -252,6 +286,131 @@ def _phase_override(belief_state: BeliefState) -> ModeDirective | None:
     return None
 
 
+def _phase_override_allows_llm(belief_state: BeliefState) -> bool:
+    return getattr(belief_state, "view", None) in {
+        View.HOSTAGE_SELECT,
+        View.LEADER_SUMMIT,
+    }
+
+
+def _key_exchange_provider_bypass(state: StrategicState) -> bool:
+    return state.my_role in {
+        Role.HADES,
+        Role.CERBERUS,
+        Role.PERSEPHONE,
+        Role.DEMETER,
+    } and not state.key_exchange_done
+
+
+def _identity_announcement_directive(
+    belief_state: BeliefState,
+    state: StrategicState,
+    *,
+    llm_control: str,
+) -> ModeDirective | None:
+    if (llm_control or "off").strip().lower() == "off":
+        return None
+    if state.my_role is None:
+        return None
+    if belief_state.view not in {View.PLAYING, View.GLOBAL_CHAT}:
+        return None
+    if not _identity_announcement_stagger_elapsed(belief_state, state):
+        return _directive("idle")
+    message = _identity_announcement_message(state.my_role, state.my_player_id)
+    if _identity_claim_already_sent(belief_state, state, message):
+        if _key_role_needs_exchange(state):
+            return None
+        if state.key_partner_found or _identity_global_chat_review_done(belief_state):
+            return None
+        if _identity_listen_window_active(belief_state, state):
+            return _directive("idle")
+        if _identity_global_chat_review_needed(state):
+            return ModeDirective("review_global_chat", ReviewGlobalChatParams())
+        return None
+    return ModeDirective(
+        "announce_identity",
+        AnnounceIdentityParams(message=message),
+    )
+
+
+def _identity_announcement_stagger_elapsed(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> bool:
+    my_index = getattr(belief_state, "my_index", None)
+    if not isinstance(my_index, int) or my_index <= 0:
+        return True
+    player_count = getattr(belief_state, "player_count", None)
+    if isinstance(player_count, int) and player_count > 0:
+        my_index = min(my_index, player_count - 1)
+    delay = my_index * IDENTITY_ANNOUNCEMENT_STAGGER_TICKS
+    return getattr(belief_state, "tick", 0) - state.round_start_tick >= delay
+
+
+def _identity_listen_window_active(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> bool:
+    if state.key_partner_found:
+        return False
+    player_count = getattr(belief_state, "player_count", None)
+    if not isinstance(player_count, int) or player_count <= 1:
+        return False
+    latest_stagger = (player_count - 1) * IDENTITY_ANNOUNCEMENT_STAGGER_TICKS
+    listen_until = (
+        state.round_start_tick
+        + latest_stagger
+        + IDENTITY_ANNOUNCEMENT_LISTEN_MARGIN_TICKS
+    )
+    return getattr(belief_state, "tick", 0) < listen_until
+
+
+def _identity_announcement_message(role: Role, player_id: PlayerID | None) -> str:
+    role_name = role.name.replace("_", " ")
+    player_tag = format_player_id_mention(player_id)
+    if player_tag is None:
+        return f"I AM {role_name}"
+    return f"I AM {role_name} {player_tag}"
+
+
+def _identity_global_chat_review_done(belief_state: BeliefState) -> bool:
+    reviewed_round = belief_state.extra.get("_identity_global_chat_review_done")
+    return reviewed_round == (getattr(belief_state, "round", 0) or 0)
+
+
+def _identity_global_chat_review_needed(state: StrategicState) -> bool:
+    return _partner_role(state.my_role) is not None
+
+
+def _key_role_needs_exchange(state: StrategicState) -> bool:
+    return _partner_role(state.my_role) is not None and not state.key_exchange_done
+
+
+def _identity_claim_already_sent(
+    belief_state: BeliefState,
+    state: StrategicState,
+    message: str,
+) -> bool:
+    announced_key = (getattr(belief_state, "round", 0) or 0, message)
+    if belief_state.extra.get("_identity_announcement_sent") == announced_key:
+        return True
+
+    my_index = getattr(belief_state, "my_index", None)
+    if my_index is None:
+        return False
+    round_start = state.round_start_tick
+    role_prefix = f"I AM {state.my_role.name.replace('_', ' ')}"
+    for chat in getattr(belief_state, "chat_history", []):
+        if getattr(chat, "sender_index", None) != my_index:
+            continue
+        if getattr(chat, "tick", 0) < round_start:
+            continue
+        text_upper = str(getattr(chat, "text", "")).upper()
+        if text_upper == message or text_upper.startswith(role_prefix):
+            return True
+    return False
+
+
 def _info_screen_reconcile_override(
     belief_state: BeliefState,
 ) -> ModeDirective | None:
@@ -260,6 +419,65 @@ def _info_screen_reconcile_override(
     if belief_state.view not in {View.PLAYING, View.GLOBAL_CHAT, View.INFO_SCREEN}:
         return None
     return _directive("check_info_screen")
+
+
+def _active_key_protocol_directive(
+    belief_state: BeliefState,
+    state: StrategicState,
+) -> ModeDirective | None:
+    if belief_state.view not in {View.PLAYING, View.WAITING_ENTRY, View.GLOBAL_CHAT}:
+        return None
+    if state.key_exchange_done:
+        return None
+
+    probe_state = belief_state.extra.get(PROBE_STATE)
+    if not isinstance(probe_state, dict):
+        return None
+    if probe_state.get("intent") != "FIND_KEY_PARTNER":
+        return None
+    if probe_state.get("action") not in {"whisper_created", "entry_requested"}:
+        return None
+    if probe_state.get("round") != (getattr(belief_state, "round", 0) or 0):
+        return None
+
+    started_tick = probe_state.get("started_tick")
+    if not isinstance(started_tick, int):
+        return None
+    if getattr(belief_state, "tick", 0) - started_tick > KEY_PROTOCOL_HOLD_TICKS:
+        return None
+
+    last = _last_directive(belief_state)
+    if last is not None and last.mode in {"probe_systematic", "probe_target"}:
+        return last
+
+    target = probe_state.get("target")
+    role = state.my_role
+    opener_roles = {Role.CERBERUS, Role.DEMETER}
+    requester_roles = {Role.HADES, Role.PERSEPHONE}
+    if isinstance(target, tuple) and len(target) == 2:
+        from .modes import ProbeTargetParams
+
+        return ModeDirective(
+            "probe_target",
+            ProbeTargetParams(
+                target=target,
+                intent=ProbeIntent.FIND_KEY_PARTNER,
+                skip_color_exchange=True,
+                max_approach_ticks=240,
+                request_only=role in requester_roles,
+                open_in_place=role in opener_roles,
+            ),
+        )
+
+    from .modes import ProbeSystematicParams
+
+    return ModeDirective(
+        "probe_systematic",
+        ProbeSystematicParams(
+            target_team=state.my_team or Team.SHADES,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+        ),
+    )
 
 
 def _finish(

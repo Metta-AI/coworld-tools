@@ -65,6 +65,29 @@ class HeuristicProvider:
         del prompt
         surface = infer_surface(context)
         if surface == "probe":
+            strategy_target = _strategy_probe_target(context)
+            if strategy_target is not None:
+                if _target_recently_in_whisper(context, strategy_target):
+                    return _decision(
+                        "join_whisper",
+                        target=strategy_target,
+                        surface=surface,
+                        rationale="join known strategic target's existing whisper",
+                    )
+                return _decision(
+                    "probe_player",
+                    target=strategy_target,
+                    surface=surface,
+                    rationale="prioritize known strategic target",
+                )
+            whisper_target = _first_recent_whisper_target(context)
+            if whisper_target is not None:
+                return _decision(
+                    "join_whisper",
+                    target=whisper_target,
+                    surface=surface,
+                    rationale="join existing whisper before opening another solo room",
+                )
             target = _first_probe_target(context)
             if target is not None:
                 return _decision(
@@ -306,6 +329,61 @@ def _first_probe_target(context: dict[str, Any]) -> list[int] | None:
             continue
         if player.get("visible_position") or player.get("last_seen_position"):
             return [int(target[0]), int(target[1])]
+    return None
+
+
+def _strategy_probe_target(context: dict[str, Any]) -> list[int] | None:
+    strategy = context.get("strategy") or {}
+    objective = strategy.get("objective")
+    if objective in {"complete_key_exchange", "find_key_partner"}:
+        target = strategy.get("key_partner_id")
+        if _is_target(target):
+            return [int(target[0]), int(target[1])]
+
+    for key in ("enemy_key_role_id", "verified_ally"):
+        target = strategy.get(key)
+        if _is_target(target):
+            return [int(target[0]), int(target[1])]
+    return None
+
+
+def _target_recently_in_whisper(
+    context: dict[str, Any],
+    target: list[int],
+) -> bool:
+    current_tick = context.get("tick")
+    for player in context.get("players") or []:
+        if player.get("is_self"):
+            continue
+        player_id = player.get("player_id")
+        if not _is_target(player_id) or list(player_id) != target:
+            continue
+        last_seen = player.get("last_seen_in_whisper_tick")
+        if not isinstance(last_seen, int):
+            return False
+        return not isinstance(current_tick, int) or current_tick - last_seen <= 60
+    return False
+
+
+def _first_recent_whisper_target(context: dict[str, Any]) -> list[int] | None:
+    failed = {
+        tuple(item.get("target"))
+        for item in (context.get("runtime") or {}).get("probe_failures", [])
+        if isinstance(item, dict) and isinstance(item.get("target"), list)
+    }
+    current_tick = context.get("tick")
+    for player in context.get("players") or []:
+        if player.get("is_self"):
+            continue
+        target = player.get("player_id")
+        if not _is_target(target) or tuple(target) in failed:
+            continue
+        last_seen = player.get("last_seen_in_whisper_tick")
+        if not isinstance(last_seen, int):
+            continue
+        if isinstance(current_tick, int) and current_tick - last_seen > 60:
+            continue
+        return [int(target[0]), int(target[1])]
     return None
 
 

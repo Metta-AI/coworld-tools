@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agents.eurydice.llm_context import DECISION_SCHEMA_VERSION
 from agents.eurydice.llm_prompts import build_prompt_parts, infer_surface
-from agents.eurydice.llm_provider import BedrockHaikuProvider, make_provider
+from agents.eurydice.llm_provider import BedrockHaikuProvider, HeuristicProvider, make_provider
 
 
 def _global_context() -> dict:
@@ -17,6 +17,90 @@ def _global_context() -> dict:
         "self": {"role": "hades", "team": "shades"},
         "strategy": {"objective": "find_partner"},
     }
+
+
+def test_heuristic_probe_joins_recent_whisper_before_new_probe() -> None:
+    context = {
+        "tick": 120,
+        "view": "playing",
+        "legal_actions": ["hold", "probe_player", "join_whisper"],
+        "runtime": {"probe_failures": []},
+        "players": [
+            {
+                "is_self": False,
+                "player_id": [14, 1],
+                "last_seen_position": [70, 60],
+                "last_seen_in_whisper_tick": 118,
+            },
+            {
+                "is_self": False,
+                "player_id": [8, 2],
+                "last_seen_position": [30, 60],
+            },
+        ],
+    }
+
+    decision = HeuristicProvider().decide(context, "unused")
+
+    assert decision["action"] == "join_whisper"
+    assert decision["target"] == [14, 1]
+
+
+def test_heuristic_probe_prioritizes_key_partner_over_unrelated_recent_whisper() -> None:
+    context = {
+        "tick": 120,
+        "view": "playing",
+        "legal_actions": ["hold", "probe_player", "join_whisper"],
+        "strategy": {
+            "objective": "complete_key_exchange",
+            "key_partner_id": [10, 3],
+        },
+        "runtime": {"probe_failures": []},
+        "players": [
+            {
+                "is_self": False,
+                "player_id": [14, 1],
+                "last_seen_position": [70, 60],
+                "last_seen_in_whisper_tick": 118,
+            },
+            {
+                "is_self": False,
+                "player_id": [10, 3],
+                "last_seen_position": [30, 60],
+            },
+        ],
+    }
+
+    decision = HeuristicProvider().decide(context, "unused")
+
+    assert decision["action"] == "probe_player"
+    assert decision["target"] == [10, 3]
+
+
+def test_heuristic_probe_joins_key_partner_whisper_when_recent() -> None:
+    context = {
+        "tick": 120,
+        "view": "playing",
+        "legal_actions": ["hold", "probe_player", "join_whisper"],
+        "strategy": {
+            "objective": "complete_key_exchange",
+            "key_partner_id": [10, 3],
+        },
+        "runtime": {"probe_failures": []},
+        "players": [
+            {
+                "is_self": False,
+                "player_id": [10, 3],
+                "last_seen_position": [30, 60],
+                "last_seen_in_whisper_tick": 118,
+            },
+        ],
+    }
+
+    decision = HeuristicProvider().decide(context, "unused")
+
+    assert decision["action"] == "join_whisper"
+    assert decision["target"] == [10, 3]
 
 
 def test_bedrock_provider_parses_fenced_json_decision() -> None:

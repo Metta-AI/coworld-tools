@@ -303,14 +303,14 @@ def test_belief_update_grid_updates_fire_on_overworld_position_change() -> None:
         _frame(
             View.PLAYING,
             overworld=OverworldPerception(
-                self_position=Position(Room.UNDERWORLD, 50, 50),
+                self_position=Position(Room.UNDERWORLD, 28, 28),
                 room=Room.UNDERWORLD,
             ),
         ),
         previous_view=View.PLAYING,
     )
 
-    for gx, gy in _footprint_cells(grid, (50, 50)):
+    for gx, gy in _footprint_cells(grid, (28, 28)):
         assert grid.get(gx, gy) == CellState.FREE
         assert bool(grid.viewport_confirmed[gy, gx]) is True
 

@@ -25,18 +25,22 @@ from agents.eurydice.ext_keys import (
     LAST_NON_WHISPER_DIRECTIVE,
     MODE_COMPLETE,
     PLAYER_KNOWLEDGE,
+    PROBE_STATE,
     STRATEGIC_STATE,
     WHISPER_EXIT_REASON,
     WHISPER_MODE_STATE,
 )
 from agents.eurydice.knowledge import PlayerKnowledge
-from agents.eurydice.modes import ProbeSystematicParams, ProbeTargetParams
+from agents.eurydice.modes import (
+    BlindOfferRoleExchangeTask,
+    BlindGrantEntryTask,
+    ProbeSystematicParams,
+    ProbeTargetParams,
+)
 from agents.eurydice.pipeline import player_index_to_id
 from agents.eurydice.types import (
     PROTOCOL_TIMEOUTS,
-    Objective,
     PlayerID,
-    ProbeIntent,
     Role,
     Team,
     Urgency,
@@ -53,8 +57,13 @@ STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
 WAIT_FOR_OCCUPANT_TIMEOUT_TICKS = 360
 LLM_WHISPER_DECISION_COOLDOWN_TICKS = 48
+KEY_IN_WHISPER_GRANT_TICKS = 12
+KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS = 24
+KEY_IN_WHISPER_OFFER_TICKS = 96
+KEY_IN_WHISPER_IDLE_TICKS = 24
 _WHISPER_EXIT_LOGGED = "_eurydice_whisper_exit_logged"
 _WHISPER_ENTRY_GRANTED_LOGGED = "_eurydice_whisper_entry_granted_logged"
+_WHISPER_ENTRY_DECISION_LOGGED = "_eurydice_whisper_entry_decision_logged"
 _EXCHANGE_MENU_STEPS = {
     "color_offer": 3,
     "color_accept": 5,
@@ -89,7 +98,7 @@ class InWhisperParams(ModeParams):
 class InWhisperMode(Mode):
     """Run Eurydice's finite-state whisper interaction protocol."""
 
-    params_type = ModeParams
+    params_type = InWhisperParams
     params: InWhisperParams | ModeParams = InWhisperParams()
 
     def select_task(self, belief_state, action_memory) -> Task | None:
@@ -184,21 +193,53 @@ class InWhisperMode(Mode):
         my_id = _my_player_id(belief_state)
         occupants = _current_occupants(belief_state)
         candidates = [pid for pid in occupants if pid is not None and pid != my_id]
-        key_partner_id = _key_partner_id(belief_state)
+        key_partner_id = _key_exchange_target_id(belief_state)
+        created_by_us = _key_exchange_created_by_us(belief_state)
+        state.created_by_us = created_by_us
 
         state.occupants_at_entry = list(occupants)
-        state.target_occupant = _select_whisper_target(
-            candidates,
-            knowledge,
-            my_team,
-            key_partner_id,
-        )
+        if state.protocol == "key_exchange" and key_partner_id is not None:
+            state.target_occupant = key_partner_id if key_partner_id in occupants else None
+        else:
+            state.target_occupant = _select_whisper_target(
+                candidates,
+                knowledge,
+                my_team,
+                key_partner_id,
+            )
         state.hostile_present = _hostile_or_unknown_present(
             candidates,
             state.target_occupant,
             knowledge,
             my_team,
         )
+        if (
+            state.protocol == "key_exchange"
+            and key_partner_id is not None
+            and state.target_occupant == key_partner_id
+        ):
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                "key_exchange_known_partner_direct_role_offer",
+            )
+            state.fsm_state = "ROLE_EXCHANGE"
+            return IdleTask()
+        if state.protocol == "key_exchange" and key_partner_id is not None:
+            _log_protocol_selected(
+                belief_state,
+                state,
+                occupants,
+                (
+                    "key_exchange_created_wait_for_partner"
+                    if created_by_us
+                    else "key_exchange_wait_for_partner"
+                ),
+            )
+            state.fsm_state = "WAIT_FOR_OCCUPANT"
+            return IdleTask()
+
         state.fsm_state = "ASSESS"
         return IdleTask()
 
@@ -214,15 +255,33 @@ class InWhisperMode(Mode):
         if candidates:
             knowledge = _player_knowledge(belief_state)
             my_team = _my_team(belief_state)
-            key_partner_id = _key_partner_id(belief_state)
-            state.target_occupant = _select_whisper_target(
-                candidates, knowledge, my_team, key_partner_id,
-            )
+            key_partner_id = _key_exchange_target_id(belief_state)
+            if state.protocol == "key_exchange" and key_partner_id is not None:
+                if key_partner_id not in occupants:
+                    state.target_occupant = None
+                    state.hostile_present = _hostile_or_unknown_present(
+                        candidates, state.target_occupant, knowledge, my_team,
+                    )
+                    if state.protocol == "key_exchange":
+                        return _key_exchange_wait_task(
+                            belief_state,
+                            state,
+                            tick,
+                            candidates,
+                        )
+                    return IdleTask()
+                state.target_occupant = key_partner_id
+            else:
+                state.target_occupant = _select_whisper_target(
+                    candidates, knowledge, my_team, key_partner_id,
+                )
             state.hostile_present = _hostile_or_unknown_present(
                 candidates, state.target_occupant, knowledge, my_team,
             )
             state.fsm_state = "ASSESS"
 
+        if state.protocol == "key_exchange":
+            return _key_exchange_wait_task(belief_state, state, tick, candidates)
         return IdleTask()
 
     def _assess_task(self, belief_state, state: WhisperModeState) -> Task:
@@ -239,10 +298,27 @@ class InWhisperMode(Mode):
             if llm_task is not None:
                 return llm_task
 
+        if state.protocol == "key_exchange":
+            key_partner_id = _key_exchange_target_id(belief_state)
+            if key_partner_id is not None:
+                my_id = _my_player_id(belief_state)
+                candidates = [
+                    pid for pid in occupants if pid is not None and pid != my_id
+                ]
+                if key_partner_id not in occupants:
+                    state.target_occupant = None
+                    state.fsm_state = "WAIT_FOR_OCCUPANT"
+                    return IdleTask()
+                state.target_occupant = key_partner_id
+
         if (
             len(occupants) > 2
             and state.hostile_present
             and _is_key_role(my_role)
+            and not (
+                state.protocol == "key_exchange"
+                and state.target_occupant == _key_exchange_target_id(belief_state)
+            )
         ):
             _log_protocol_selected(
                 belief_state,
@@ -486,6 +562,15 @@ class InWhisperMode(Mode):
                 return IdleTask()
             return _begin_exchange_menu_task(state, tick, "role_accept", target_index)
 
+        if state.protocol == "key_exchange":
+            key_partner_id = _key_exchange_target_id(belief_state)
+            if key_partner_id is not None and key_partner_id not in _current_occupants(
+                belief_state
+            ):
+                state.target_occupant = None
+                state.fsm_state = "WAIT_FOR_OCCUPANT"
+                return IdleTask()
+
         if not state.role_exchange_initiated:
             if _exchange_action_on_cooldown(state, tick):
                 return IdleTask()
@@ -599,6 +684,83 @@ def _exchange_menu_task(kind: str, target_index: int | None) -> Task:
     return IdleTask()
 
 
+def _key_exchange_wait_task(
+    belief_state,
+    state: WhisperModeState,
+    tick: int,
+    candidates: list[PlayerID] | None = None,
+) -> Task:
+    if _exchange_completed_since(belief_state, "shared_roles", state.entered_tick):
+        state.role_exchange_completed = True
+        _log_exchange_outcome(
+            belief_state,
+            state,
+            "role",
+            "complete",
+            state.target_occupant,
+            None,
+            server_confirmed=True,
+        )
+        _transition_to_exit(belief_state, state, "role_exchange_complete")
+        return IdleTask()
+
+    if candidates is None:
+        my_id = _my_player_id(belief_state)
+        candidates = [
+            pid
+            for pid in _current_occupants(belief_state)
+            if pid is not None and pid != my_id
+        ]
+
+    key_partner_id = _key_exchange_target_id(belief_state)
+    if (
+        key_partner_id is not None
+        and candidates
+        and key_partner_id not in candidates
+        and state.occupants_at_entry
+    ):
+        return _key_exchange_ping_task(belief_state, state, tick)
+
+    elapsed = max(0, tick - state.entered_tick)
+    if state.created_by_us:
+        phase_tick = elapsed % (
+            KEY_IN_WHISPER_GRANT_TICKS
+            + KEY_IN_WHISPER_OFFER_TICKS
+            + KEY_IN_WHISPER_IDLE_TICKS
+        )
+        if phase_tick < KEY_IN_WHISPER_GRANT_TICKS:
+            return BlindGrantEntryTask()
+        if phase_tick < KEY_IN_WHISPER_GRANT_TICKS + KEY_IN_WHISPER_OFFER_TICKS:
+            return BlindOfferRoleExchangeTask()
+        return IdleTask()
+
+    if elapsed >= KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS:
+        phase_tick = (elapsed - KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS) % (
+            KEY_IN_WHISPER_OFFER_TICKS + KEY_IN_WHISPER_IDLE_TICKS
+        )
+        if phase_tick < KEY_IN_WHISPER_OFFER_TICKS:
+            return BlindOfferRoleExchangeTask()
+        return IdleTask()
+
+    return _key_exchange_ping_task(belief_state, state, tick)
+
+
+def _key_exchange_ping_task(
+    belief_state,
+    state: WhisperModeState,
+    tick: int,
+) -> Task:
+    del belief_state
+    if (
+        state.messages_sent == 0
+        or tick - state.waiting_for_response_since >= ACTION_COOLDOWN_TICKS
+    ):
+        state.messages_sent += 1
+        state.waiting_for_response_since = tick
+        return SendMessageTask(text="SEND ME", channel="whisper")
+    return IdleTask()
+
+
 def _finalize_exchange_menu_task(
     belief_state,
     state: WhisperModeState,
@@ -651,41 +813,135 @@ def _protocol_from_context(
 ) -> str:
     """Infer the intended whisper protocol from the mode that entered whisper."""
 
-    directive = belief_state.extra.get(LAST_NON_WHISPER_DIRECTIVE)
+    if _active_probe_context_indicates_key_exchange(belief_state):
+        return "key_exchange"
+
+    directive = belief_state.extra.get(LAST_NON_WHISPER_DIRECTIVE) or getattr(
+        belief_state,
+        "inferences",
+        {},
+    ).get(LAST_NON_WHISPER_DIRECTIVE)
     params = directive.params if isinstance(directive, ModeDirective) else None
 
     explicit_protocol = getattr(params, "protocol", None)
     if explicit_protocol in PROTOCOL_TIMEOUTS:
         return explicit_protocol
 
-    if isinstance(params, TimeWasteParams):
+    if isinstance(params, TimeWasteParams) or getattr(params, "protocol", None) == "stall":
         return "stall"
 
-    if isinstance(params, ProbeTargetParams):
-        if params.skip_color_exchange:
+    if isinstance(params, ProbeTargetParams) or hasattr(params, "skip_color_exchange"):
+        if getattr(params, "skip_color_exchange", False):
             return "key_exchange"
-        if params.intent is ProbeIntent.VERIFY_SELF_AS_SPY:
+        if _intent_name(getattr(params, "intent", None)) == "VERIFY_SELF_AS_SPY":
             return "quick_verify"
         if _my_role(belief_state) is Role.SPY:
             return "infiltration"
 
-    if isinstance(params, ProbeSystematicParams):
-        if params.intent is ProbeIntent.VERIFY_SELF_AS_SPY:
+    if isinstance(params, ProbeSystematicParams) or hasattr(params, "intent"):
+        if _intent_name(getattr(params, "intent", None)) == "FIND_KEY_PARTNER":
+            return "key_exchange"
+        if _intent_name(getattr(params, "intent", None)) == "VERIFY_SELF_AS_SPY":
             return "quick_verify"
         if _my_role(belief_state) is Role.SPY:
             return "infiltration"
 
-    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    strategic_state = _strategic_state(belief_state)
+    objective = getattr(strategic_state, "current_objective", None)
     if (
-        getattr(strategic_state, "current_objective", None)
-        is Objective.COMPLETE_KEY_EXCHANGE
+        _objective_name(objective) == "COMPLETE_KEY_EXCHANGE"
         and _key_partner_id(belief_state) is not None
+    ):
+        return "key_exchange"
+    if (
+        _is_key_role(_my_role(belief_state))
+        and _key_partner_id(belief_state) is not None
+        and not bool(getattr(strategic_state, "key_exchange_done", False))
     ):
         return "key_exchange"
 
     if isinstance(previous, WhisperModeState) and previous.protocol in PROTOCOL_TIMEOUTS:
         return previous.protocol
     return "standard"
+
+
+def _active_probe_context_indicates_key_exchange(belief_state) -> bool:
+    state = getattr(belief_state, "extra", {}).get(PROBE_STATE)
+    if not isinstance(state, dict):
+        return False
+    completed_tick = state.get("completed_tick")
+    if (
+        state.get("completed")
+        and isinstance(completed_tick, int)
+        and _tick(belief_state) - completed_tick > WAIT_FOR_OCCUPANT_TIMEOUT_TICKS
+    ):
+        return False
+    intent = str(state.get("intent", "")).upper()
+    return bool(state.get("skip_color_exchange")) or intent == "FIND_KEY_PARTNER"
+
+
+def _key_exchange_target_id(belief_state) -> PlayerID | None:
+    key_partner_id = _key_partner_id(belief_state)
+    if key_partner_id is not None:
+        return key_partner_id
+
+    state = getattr(belief_state, "extra", {}).get(PROBE_STATE)
+    if isinstance(state, dict):
+        intent = str(state.get("intent", "")).upper()
+        if state.get("skip_color_exchange") or intent == "FIND_KEY_PARTNER":
+            completed_tick = state.get("completed_tick")
+            if (
+                state.get("completed")
+                and isinstance(completed_tick, int)
+                and _tick(belief_state) - completed_tick > WAIT_FOR_OCCUPANT_TIMEOUT_TICKS
+            ):
+                return None
+            target = state.get("target")
+            if isinstance(target, tuple) and len(target) == 2:
+                return target
+            if isinstance(target, list) and len(target) == 2:
+                return (target[0], target[1])
+            return None
+
+    directive = belief_state.extra.get(LAST_NON_WHISPER_DIRECTIVE) or getattr(
+        belief_state,
+        "inferences",
+        {},
+    ).get(LAST_NON_WHISPER_DIRECTIVE)
+    params = directive.params if isinstance(directive, ModeDirective) else None
+    if params is not None and (
+        getattr(params, "skip_color_exchange", False)
+        or _intent_name(getattr(params, "intent", None)) == "FIND_KEY_PARTNER"
+    ):
+        target = getattr(params, "target", None)
+        if isinstance(target, tuple) and len(target) == 2:
+            return target
+
+    return None
+
+
+def _key_exchange_created_by_us(belief_state) -> bool:
+    state = getattr(belief_state, "extra", {}).get(PROBE_STATE)
+    if isinstance(state, dict) and state.get("action") == "whisper_created":
+        return True
+
+    directive = belief_state.extra.get(LAST_NON_WHISPER_DIRECTIVE) or getattr(
+        belief_state,
+        "inferences",
+        {},
+    ).get(LAST_NON_WHISPER_DIRECTIVE)
+    params = directive.params if isinstance(directive, ModeDirective) else None
+    return bool(getattr(params, "open_in_place", False)) and not bool(
+        getattr(params, "request_only", False)
+    )
+
+
+def _intent_name(intent) -> str:
+    return getattr(intent, "name", str(intent)).upper()
+
+
+def _objective_name(objective) -> str:
+    return getattr(objective, "name", str(objective)).upper()
 
 
 def _forced_ejected(belief_state, state: WhisperModeState) -> bool:
@@ -698,6 +954,8 @@ def _forced_ejected(belief_state, state: WhisperModeState) -> bool:
 
 def _protocol_timed_out(state: WhisperModeState, tick: int) -> bool:
     timeout = PROTOCOL_TIMEOUTS.get(state.protocol, PROTOCOL_TIMEOUTS["standard"])
+    if state.protocol == "key_exchange" and state.fsm_state == "WAIT_FOR_OCCUPANT":
+        timeout = WAIT_FOR_OCCUPANT_TIMEOUT_TICKS
     return state.fsm_state != "EXIT" and tick - state.entered_tick > timeout
 
 
@@ -713,6 +971,29 @@ def _entry_request_task(
     if pending_entry is None:
         return None
 
+    player_id = player_index_to_id(pending_entry, belief_state)
+    if state.protocol == "key_exchange":
+        key_target_id = _key_exchange_target_id(belief_state)
+        if key_target_id is not None:
+            if player_id == key_target_id:
+                _log_entry_request_decision(
+                    belief_state,
+                    state,
+                    pending_entry,
+                    player_id,
+                    decision="grant_key_partner",
+                )
+                _log_entry_granted(belief_state, state, player_id)
+                return GrantEntryTask()
+            _log_entry_request_decision(
+                belief_state,
+                state,
+                pending_entry,
+                player_id,
+                decision="deny_non_partner_key_exchange",
+            )
+            return None
+
     llm_task = _llm_whisper_task(
         belief_state,
         state,
@@ -720,9 +1001,15 @@ def _entry_request_task(
         {"grant_entry", "deny_entry", "hold"},
     )
     if llm_task is not None:
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision=f"llm_{type(llm_task).__name__}",
+        )
         return llm_task
 
-    player_id = player_index_to_id(pending_entry, belief_state)
     my_id = _my_player_id(belief_state)
     other_occupants = [
         occupant
@@ -730,22 +1017,64 @@ def _entry_request_task(
         if occupant is not None and occupant != my_id
     ]
     if not other_occupants or player_id == state.target_occupant:
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision="grant_empty_or_target",
+        )
         _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
 
     if state.fsm_state in SENSITIVE_ENTRY_STATES:
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision="hold_sensitive_state",
+        )
         return None
     if state.protocol == "key_exchange":
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision="hold_key_exchange",
+        )
         return None
 
     knowledge = _player_knowledge(belief_state)
     if _is_probable_ally(player_id, knowledge, _my_team(belief_state)):
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision="grant_probable_ally",
+        )
         _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
     record = knowledge.get(player_id) if player_id is not None else None
     if record is None or record.team is None:
+        _log_entry_request_decision(
+            belief_state,
+            state,
+            pending_entry,
+            player_id,
+            decision="grant_unknown_player",
+        )
         _log_entry_granted(belief_state, state, player_id)
         return GrantEntryTask()
+    _log_entry_request_decision(
+        belief_state,
+        state,
+        pending_entry,
+        player_id,
+        decision="deny_known_nonally",
+    )
     return None
 
 
@@ -934,7 +1263,7 @@ def _should_accept_role_offer(
     my_role = _my_role(belief_state)
 
     if my_role is Role.SPY:
-        strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+        strategic_state = _strategic_state(belief_state)
         verified_ally = getattr(strategic_state, "verified_ally", None)
         if offerer_id is not None and offerer_id == verified_ally:
             return True
@@ -1050,7 +1379,7 @@ def _intent_involves_partner_search(
     if state.protocol == "key_exchange":
         return True
 
-    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    strategic_state = _strategic_state(belief_state)
     objective = getattr(strategic_state, "current_objective", None)
     objective_name = getattr(objective, "name", str(objective)).upper()
     if objective_name in {"FIND_KEY_PARTNER", "COMPLETE_KEY_EXCHANGE"}:
@@ -1061,11 +1390,19 @@ def _intent_involves_partner_search(
 
 
 def _key_partner_id(belief_state) -> PlayerID | None:
-    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    strategic_state = _strategic_state(belief_state)
     key_partner_id = getattr(strategic_state, "key_partner_id", None)
     if isinstance(key_partner_id, tuple) and len(key_partner_id) == 2:
         return key_partner_id
     return None
+
+
+def _strategic_state(belief_state):
+    return belief_state.extra.get(STRATEGIC_STATE) or getattr(
+        belief_state,
+        "inferences",
+        {},
+    ).get(STRATEGIC_STATE)
 
 
 def _my_player_id(belief_state) -> PlayerID | None:
@@ -1092,7 +1429,7 @@ def _my_team(belief_state) -> Team | None:
 
 
 def _urgency(belief_state) -> Urgency:
-    strategic_state = belief_state.extra.get(STRATEGIC_STATE)
+    strategic_state = _strategic_state(belief_state)
     urgency = getattr(strategic_state, "urgency", None)
     if isinstance(urgency, Urgency):
         return urgency
@@ -1214,6 +1551,52 @@ def _log_exchange_outcome(
             },
             LogLevel.DECISIONS,
         )
+
+
+def _log_entry_request_decision(
+    belief_state,
+    state: WhisperModeState,
+    pending_entry: int | None,
+    player_id: PlayerID | None,
+    *,
+    decision: str,
+) -> None:
+    key_partner_id = _key_partner_id(belief_state)
+    my_id = _my_player_id(belief_state)
+    occupants = _current_occupants(belief_state)
+    payload = {
+        "decision": decision,
+        "pending_entry": pending_entry,
+        "player_id": _player_id_value(player_id),
+        "protocol": state.protocol,
+        "fsm_state": state.fsm_state,
+        "target": _player_id_value(state.target_occupant),
+        "key_partner": _player_id_value(key_partner_id),
+        "occupants": [_player_id_value(occupant) for occupant in occupants],
+        "other_occupants": [
+            _player_id_value(occupant)
+            for occupant in occupants
+            if occupant is not None and occupant != my_id
+        ],
+    }
+    signature = (
+        pending_entry,
+        payload["player_id"],
+        state.protocol,
+        state.fsm_state,
+        payload["target"],
+        payload["key_partner"],
+        decision,
+        tuple(
+            tuple(occupant) if isinstance(occupant, list) else occupant
+            for occupant in payload["occupants"]
+        ),
+    )
+    if belief_state.extra.get(_WHISPER_ENTRY_DECISION_LOGGED) == signature:
+        return
+    belief_state.extra[_WHISPER_ENTRY_DECISION_LOGGED] = signature
+    if logger:
+        logger.event("entry_request_decision", payload, LogLevel.DECISIONS)
 
 
 def _log_entry_granted(

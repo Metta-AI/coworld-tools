@@ -83,6 +83,21 @@ def test_pipeline_ticks_without_error_and_sends_zero_input(
     send_chat.assert_not_called()
 
 
+def test_pipeline_passes_learned_room_size_to_perception(pipeline_factory) -> None:
+    """Overworld parsing uses the room size learned from role reveal."""
+    pipeline, _send_input, _send_chat = pipeline_factory()
+    pipeline.belief_state.room_size = (120, 120)
+    frame = np.zeros((128, 128), dtype=np.uint8)
+
+    with patch(
+        "orpheus.pipeline.parse_frame",
+        return_value=FramePerception(view=View.LOBBY),
+    ) as parse:
+        pipeline.tick(frame)
+
+    parse.assert_called_once_with(frame, room_size=120)
+
+
 def test_send_act_command_lowers_correctly(pipeline_factory) -> None:
     """ActCommand lowering sends reset, button, and chat packets correctly."""
     pipeline, send_input, send_chat = pipeline_factory()

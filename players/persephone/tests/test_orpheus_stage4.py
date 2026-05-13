@@ -22,12 +22,15 @@ from orpheus.tasks import (
     FollowTask,
     GrantEntryTask,
     IdleTask,
+    InitiateWhisperTask,
+    MoveAndInitiateWhisperTask,
     MoveToTask,
     OfferColorExchangeTask,
     OfferRoleExchangeTask,
     OpenGlobalChatTask,
     OpenInfoScreenTask,
     PassLeadershipTask,
+    RendezvousEntrySweepTask,
     RequestEntryTask,
     RevealRoleTask,
     SelectHostagesTask,
@@ -125,14 +128,6 @@ def test_menu_navigator_opens_closed_menu_with_b_press() -> None:
     assert MenuNavigator((("category", "ROLE"),)).next_command(
         belief,
         memory,
-    ) == ActCommand(buttons=BUTTON_B)
-    assert MenuNavigator((("category", "ROLE"),)).next_command(
-        belief,
-        memory,
-    ) == ActCommand()
-    assert MenuNavigator((("category", "ROLE"),)).next_command(
-        belief,
-        memory,
     ) == ActCommand()
     assert MenuNavigator((("category", "ROLE"),)).next_command(
         belief,
@@ -157,10 +152,7 @@ def test_menu_navigator_can_complete_with_default_bar_fallback() -> None:
 
     assert nonzero_buttons == [
         BUTTON_B,
-        BUTTON_B,
         BUTTON_RIGHT,
-        BUTTON_RIGHT,
-        BUTTON_DOWN,
         BUTTON_DOWN,
         BUTTON_A,
     ]
@@ -237,12 +229,6 @@ def test_menu_navigator_confirms_when_category_and_item_match() -> None:
 
     assert command == ActCommand(buttons=BUTTON_A)
     assert memory.menu_step == 3
-    assert MenuNavigator(
-        (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
-    ).next_command(belief, memory) == ActCommand(buttons=BUTTON_A)
-    assert MenuNavigator(
-        (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
-    ).next_command(belief, memory) == ActCommand()
     assert MenuNavigator(
         (("category", "ROLE"), ("item", "R.OFFER"), ("confirm",))
     ).next_command(belief, memory) == ActCommand()
@@ -344,6 +330,18 @@ TASK_CASES = [
         frozenset({View.GLOBAL_CHAT, View.INFO_SCREEN, View.WHISPER}),
     ),
     (CreateWhisperTask(), CreateWhisperTask(), CancelEntryTask(), OPEN_VIEW_VIEWS),
+    (
+        MoveAndInitiateWhisperTask(1, 2),
+        MoveAndInitiateWhisperTask(1, 2),
+        MoveAndInitiateWhisperTask(2, 2),
+        OPEN_VIEW_VIEWS,
+    ),
+    (
+        RendezvousEntrySweepTask(1, 2),
+        RendezvousEntrySweepTask(1, 2),
+        RendezvousEntrySweepTask(2, 2),
+        OPEN_VIEW_VIEWS,
+    ),
     (RequestEntryTask(1), RequestEntryTask(1), RequestEntryTask(2), OPEN_VIEW_VIEWS),
     (CancelEntryTask(), CancelEntryTask(), CreateWhisperTask(), frozenset({View.WAITING_ENTRY})),
     (ExitWhisperTask(), ExitWhisperTask(), CreateWhisperTask(), frozenset({View.WHISPER})),
@@ -428,7 +426,8 @@ def test_move_to_task_repaths_after_stuck_detection() -> None:
     after_stuck = task.select_action(belief, memory)
 
     assert first.buttons
-    assert after_stuck == ActCommand()
+    assert after_stuck.buttons
+    assert after_stuck.buttons in {BUTTON_RIGHT, BUTTON_DOWN}
     assert memory.path is None
     assert task.select_action(belief, memory).buttons
 
@@ -600,14 +599,249 @@ def test_vote_usurp_prefers_perceived_cursor_index() -> None:
     assert memory.usurp_cursor_index == 3
 
 
-def test_request_entry_presses_a_when_close_to_recent_whisper() -> None:
+def test_request_entry_presses_b_when_close_to_recent_whisper() -> None:
     belief = _belief(position=(10, 10))
     belief.tick = 100
     belief.players[1] = PlayerInfo(position=(14, 14, 0), last_seen_in_whisper=80)
 
     command = RequestEntryTask(1).select_action(belief, ActionMemory())
 
-    assert command == ActCommand(buttons=BUTTON_A)
+    assert command == ActCommand(buttons=BUTTON_B)
+
+
+def test_initiate_whisper_retries_entry_button_with_spaced_taps() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+    task = InitiateWhisperTask(use_button_b=True)
+
+    buttons = []
+    for tick in range(100, 173):
+        belief.tick = tick
+        buttons.append(task.select_action(belief, memory).buttons)
+
+    assert buttons[0] == BUTTON_B
+    assert buttons[1:72] == [0] * 71
+    assert buttons[72] == BUTTON_B
+
+
+def test_initiate_whisper_blocks_target_change_entry_cancel_tap() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+
+    belief.tick = 100
+    entry_task = InitiateWhisperTask(target_index=None, use_button_b=True)
+    assert entry_task.select_action(belief, memory).buttons == BUTTON_B
+    belief.tick = 101
+    assert entry_task.select_action(belief, memory).buttons == 0
+
+    targeted_entry = InitiateWhisperTask(target_index=1, use_button_b=True)
+    belief.tick = 102
+    assert targeted_entry.select_action(belief, memory).buttons == 0
+    belief.tick = 172
+    assert targeted_entry.select_action(belief, memory).buttons == BUTTON_B
+
+
+def test_entry_button_cooldown_survives_task_signature_changes() -> None:
+    belief = _belief(position=(50, 50))
+    memory = ActionMemory()
+
+    belief.tick = 100
+    first = MoveAndInitiateWhisperTask(50, 50, target_index=1, use_button_b=True)
+    assert first.select_action(belief, memory).buttons == BUTTON_B
+
+    belief.tick = 102
+    sweep = RendezvousEntrySweepTask(50, 50, target_index=None, use_button_b=True)
+    assert not (sweep.select_action(belief, memory).buttons & BUTTON_B)
+
+    belief.tick = 172
+    assert sweep.select_action(belief, memory).buttons == BUTTON_B
+
+
+def test_initiate_whisper_resets_retry_state_after_stale_gap() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+    belief.tick = 100
+    task = InitiateWhisperTask(target_index=1, use_button_b=True)
+
+    assert task.select_action(belief, memory).buttons == BUTTON_B
+    belief.tick = 101
+    assert task.select_action(belief, memory).buttons == 0
+
+    belief.tick = 210
+    assert task.select_action(belief, memory).buttons == BUTTON_B
+
+
+def test_entry_button_attempts_fail_before_third_cancel_tap() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+    task = InitiateWhisperTask(target_index=1, use_button_b=True)
+
+    pulses = []
+    for tick in range(100, 294):
+        belief.tick = tick
+        buttons = task.select_action(belief, memory).buttons
+        if buttons & BUTTON_B:
+            pulses.append(tick)
+
+    assert pulses == [100, 172, 244]
+    assert InitiateWhisperTask.has_failed(belief)
+
+
+def test_move_and_initiate_moves_while_retrying_entry_button() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(50, 50, target_index=1, use_button_b=True)
+
+    buttons = [task.select_action(belief, memory).buttons for _ in range(25)]
+
+    assert buttons[0] & BUTTON_RIGHT
+    assert buttons[0] & BUTTON_DOWN
+    assert not any(button & BUTTON_B for button in buttons)
+
+
+def test_move_and_initiate_paths_to_reachable_entry_radius_when_goal_blocked() -> None:
+    belief = _belief(position=(10, 10))
+    grid = belief.occupancy_grid
+    goal = (50, 50)
+    gx, gy = grid.world_to_grid(*goal)
+    grid.mark_wall(gx, gy, viewport_confirmed=True)
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(*goal, target_index=1, use_button_b=True)
+
+    first = task.select_action(belief, memory)
+    second = task.select_action(belief, memory)
+
+    assert first.buttons & BUTTON_RIGHT
+    assert first.buttons & BUTTON_DOWN
+    assert second.buttons & BUTTON_RIGHT
+    assert second.buttons & BUTTON_DOWN
+    assert not (first.buttons & BUTTON_B)
+    assert not (second.buttons & BUTTON_B)
+    assert memory.path
+    end = memory.path[-1]
+    assert (end[0] - goal[0]) ** 2 + (end[1] - goal[1]) ** 2 <= 20 * 20
+    assert end != goal
+
+
+def test_move_and_initiate_taps_when_entering_entry_range() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(50, 50, target_index=1, use_button_b=True)
+
+    assert not (task.select_action(belief, memory).buttons & BUTTON_B)
+    assert not (task.select_action(belief, memory).buttons & BUTTON_B)
+
+    belief.position = (50, 50, 0)
+    command = task.select_action(belief, memory)
+
+    assert command.buttons & BUTTON_B
+
+
+def test_move_and_initiate_honors_tight_button_radius() -> None:
+    belief = _belief(position=(35, 50))
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(
+        50,
+        50,
+        target_index=1,
+        use_button_b=True,
+        button_radius=4,
+    )
+
+    approach = task.select_action(belief, memory)
+    belief.position = (50, 50, 0)
+    tap = task.select_action(belief, memory)
+
+    assert approach.buttons & BUTTON_RIGHT
+    assert not (approach.buttons & BUTTON_B)
+    assert tap.buttons & BUTTON_B
+
+
+def test_move_and_initiate_sweeps_while_tapping_at_goal() -> None:
+    belief = _belief(position=(50, 50))
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(50, 50, target_index=None, use_button_b=True)
+
+    command = task.select_action(belief, memory)
+
+    assert command.buttons == BUTTON_B
+
+
+def test_move_and_initiate_repaths_when_goal_changes() -> None:
+    belief = _belief(position=(10, 10))
+    memory = ActionMemory()
+
+    MoveAndInitiateWhisperTask(50, 50).select_action(belief, memory)
+    assert memory.path is not None
+    first_path = memory.path
+    MoveAndInitiateWhisperTask(80, 80).select_action(belief, memory)
+
+    assert memory.path is not first_path
+
+
+def test_rendezvous_entry_sweep_moves_to_center_before_tapping() -> None:
+    belief = _belief(position=(72, 84))
+    memory = ActionMemory()
+    task = RendezvousEntrySweepTask(50, 50)
+
+    command = task.select_action(belief, memory)
+
+    assert command.buttons & BUTTON_LEFT
+    assert command.buttons & BUTTON_UP
+    assert not (command.buttons & BUTTON_B)
+
+
+def test_rendezvous_entry_sweep_can_tap_from_wide_button_radius() -> None:
+    belief = _belief(position=(74, 50))
+    memory = ActionMemory()
+    task = RendezvousEntrySweepTask(50, 50, button_radius=24)
+
+    command = task.select_action(belief, memory)
+
+    assert command.buttons == BUTTON_B
+
+
+def test_rendezvous_entry_sweep_cycles_area_without_waiting_for_goal() -> None:
+    belief = _belief(position=(50, 50))
+    memory = ActionMemory()
+    task = RendezvousEntrySweepTask(50, 50)
+
+    commands = [task.select_action(belief, memory).buttons for _ in range(10)]
+
+    assert commands[0] == BUTTON_B
+    assert commands[-1] & BUTTON_RIGHT
+
+
+def test_rendezvous_entry_sweep_direct_steps_when_path_unavailable() -> None:
+    belief = _belief(position=(72, 84))
+    grid = belief.occupancy_grid
+    grid.mark_wall_region(1, 1, grid.grid_w - 2, grid.grid_h - 2)
+    memory = ActionMemory()
+    task = RendezvousEntrySweepTask(54, 66)
+
+    first = task.select_action(belief, memory)
+    second = task.select_action(belief, memory)
+
+    assert first.buttons == BUTTON_LEFT
+    assert second.buttons == BUTTON_LEFT
+    commands = [task.select_action(belief, memory).buttons for _ in range(6)]
+    assert BUTTON_UP in commands
+
+
+def test_move_and_initiate_direct_steps_when_entry_path_unavailable() -> None:
+    belief = _belief(position=(72, 84))
+    grid = belief.occupancy_grid
+    grid.mark_wall_region(1, 1, grid.grid_w - 2, grid.grid_h - 2)
+    memory = ActionMemory()
+    task = MoveAndInitiateWhisperTask(54, 66, target_index=1, use_button_b=True)
+
+    first = task.select_action(belief, memory)
+    second = task.select_action(belief, memory)
+
+    assert first.buttons == BUTTON_LEFT
+    assert second.buttons == BUTTON_LEFT
+    commands = [task.select_action(belief, memory).buttons for _ in range(6)]
+    assert BUTTON_UP in commands
 
 
 def test_request_entry_moves_when_target_is_far() -> None:
@@ -666,6 +900,7 @@ def test_menu_backed_tasks_confirm_matching_menu_item(task, category, item) -> N
 @pytest.mark.parametrize(
     "task",
     [
+        GrantEntryTask(),
         OfferColorExchangeTask(),
         AcceptColorExchangeTask(1),
         WithdrawColorOfferTask(),
@@ -683,10 +918,6 @@ def test_menu_backed_tasks_open_menu_when_menu_state_missing(task) -> None:
     command = task.select_action(BeliefState(menu_state=None), memory)
 
     assert command == ActCommand(buttons=BUTTON_B)
-    assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand(
-        buttons=BUTTON_B,
-    )
-    assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand()
     assert task.select_action(BeliefState(menu_state=None), memory) == ActCommand()
 
 
@@ -696,8 +927,8 @@ def test_accept_role_exchange_confirms_target_after_item_confirm() -> None:
     belief = BeliefState(menu_state=_menu_state(category="ROLE", item="R.ACCPT"))
 
     assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
-    assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
     assert task.select_action(belief, memory) == ActCommand()
+    assert task.select_action(belief, memory) == ActCommand(buttons=BUTTON_A)
     assert task.select_action(belief, memory) == ActCommand()
     belief.menu_state = _menu_state(
         bar=ChatroomBarState.TARGET_PICKER,

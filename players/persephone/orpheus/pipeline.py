@@ -90,7 +90,11 @@ class Pipeline:
             logger=self.logger,
         )
 
-        perception = parse_frame(frame)
+        room_size = _room_size_for_perception(self.belief_state)
+        if room_size is None:
+            perception = parse_frame(frame)
+        else:
+            perception = parse_frame(frame, room_size=room_size)
         previous_view = self.belief_state.view
 
         self.hook_registry.dispatch(
@@ -542,6 +546,21 @@ def _command_is_non_noop(command: ActCommand) -> bool:
         or command.buttons != 0
         or command.chat_text is not None
     )
+
+
+def _room_size_for_perception(belief_state: BeliefState) -> int | None:
+    room_size = getattr(belief_state, "room_size", None)
+    if room_size is None:
+        return None
+    if isinstance(room_size, int):
+        return room_size if room_size > 0 else None
+    if len(room_size) < 1:
+        return None
+    try:
+        width = int(room_size[0])
+    except (TypeError, ValueError):
+        return None
+    return width if width > 0 else None
 
 
 def _task_name(task: Task | None) -> str | None:

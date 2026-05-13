@@ -352,6 +352,11 @@ def test_pipeline_repeated_playing_frame_has_stable_derived_state() -> None:
     pipeline, _, _ = _pipeline()
 
     pipeline.tick(role_reveal.frame)
+    room_size = pipeline.belief_state.room_size
+    assert room_size is not None
+    expected_perception = parse_frame(playing.frame, room_size=room_size[0])
+    assert expected_perception.overworld is not None
+    assert expected_perception.overworld.self_position is not None
     confirmed_counts: list[int] = []
     for _ in range(20):
         pipeline.tick(playing.frame)
@@ -359,7 +364,7 @@ def test_pipeline_repeated_playing_frame_has_stable_derived_state() -> None:
         assert grid is not None
         confirmed_counts.append(int(np.count_nonzero(grid.viewport_confirmed)))
 
-    position = playing_perception.overworld.self_position
+    position = expected_perception.overworld.self_position
     belief = pipeline.belief_state
     assert belief.tick == 21
     assert belief.view == View.PLAYING

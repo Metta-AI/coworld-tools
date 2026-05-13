@@ -9,16 +9,31 @@ import pytest
 
 from agents.eurydice.accumulators import GlobalAccumulators, PlayerAccumulator
 from agents.eurydice.deception import DeceptionState, is_cover_blown, record_lie
-from agents.eurydice.advanced_modes import CheckInfoScreenMode, TimeWasteParams
+from agents.eurydice.advanced_modes import (
+    CheckInfoScreenMode,
+    GLOBAL_CHAT_REVIEW_TIMEOUT_TICKS,
+    ReviewGlobalChatMode,
+    TimeWasteParams,
+)
 from agents.eurydice.ext_keys import *
-from agents.eurydice.evaluators import evaluate_hades
+from agents.eurydice.evaluators import (
+    evaluate_cerberus,
+    evaluate_demeter,
+    evaluate_hades,
+    evaluate_persephone,
+)
 from agents.eurydice.frame_recorder import FrameRecorder
 from agents.eurydice.knowledge import PlayerKnowledge
 from agents.eurydice.log import logger as eurydice_logger, set_logger
 from agents.eurydice.meta_decide import build_strategic_state, compute_urgency, meta_decide
 from agents.eurydice.modes import (
+    BlindGrantEntryTask,
+    BlindOfferRoleExchangeTask,
     EurydiceIdleMode,
     IntroAdvanceTask,
+    KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+    KEY_REQUESTER_SWEEP_RADIUS,
+    KEY_REQUESTER_VISIBLE_ENTRY_RANGE,
     ProbeSystematicMode,
     ProbeSystematicParams,
     ProbeTargetMode,
@@ -42,6 +57,7 @@ from agents.eurydice.pipeline import (
 from agents.eurydice.strategic_state import StrategicState
 from agents.eurydice.types import (
     INTERACTION_RANGE,
+    Objective,
     Phase,
     PlayerID,
     ProbeIntent,
@@ -52,7 +68,12 @@ from agents.eurydice.types import (
     TrustLevel,
     Urgency,
 )
-from agents.eurydice.whisper_mode import InWhisperMode
+from agents.eurydice.whisper_mode import (
+    InWhisperMode,
+    InWhisperParams,
+    KEY_IN_WHISPER_GRANT_TICKS,
+    KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS,
+)
 from orpheus.action_memory import ActionMemory
 from orpheus.belief_state import (
     BeliefState,
@@ -73,9 +94,12 @@ from orpheus.tasks import (
     CreateWhisperTask,
     GrantEntryTask,
     InitiateWhisperTask,
+    MoveAndInitiateWhisperTask,
     MoveToTask,
+    OpenGlobalChatTask,
     OfferColorExchangeTask,
     OfferRoleExchangeTask,
+    RendezvousEntrySweepTask,
     SendMessageTask,
 )
 from orpheus.types import BUTTON_A
@@ -200,6 +224,250 @@ def test_meta_decide_logs_reason_and_strategic_change() -> None:
     assert changes[-1]["my_role"] == "hades"
 
 
+def test_llm_control_announces_truthful_identity_once_per_round() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(tick=24)
+
+    directive, inferences = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "announce_identity"
+    assert getattr(directive.params, "message") == "I AM HADES R CRCL"
+    assert inferences is not None
+    assert inferences[LAST_DIRECTIVE_MODE] == "announce_identity"
+
+
+def test_identity_announcement_is_staggered_by_player_index() -> None:
+    belief_state, accumulators, _knowledge = _initialized_state(
+        tick=120,
+        my_index=5,
+        my_role="cerberus",
+        my_team="shades",
+        player_count=10,
+    )
+    accumulators.round_start_tick = 100
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "idle"
+
+    belief_state.tick = 140
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "announce_identity"
+    assert getattr(directive.params, "message") == "I AM CERBERUS P CROSS"
+
+
+def test_identity_announcement_is_skipped_after_self_claim() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(tick=48)
+    belief_state.chat_history = [
+        ChatMessageRecord(0, 48, "global", "I AM HADES"),
+    ]
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode != "announce_identity"
+
+
+def test_key_role_identity_claim_moves_to_key_search_after_self_claim() -> None:
+    belief_state, accumulators, _knowledge = _initialized_state(
+        tick=250,
+        my_index=0,
+        my_role="hades",
+        my_team="shades",
+        player_count=10,
+    )
+    accumulators.round_start_tick = 100
+    belief_state.chat_history = [
+        ChatMessageRecord(0, 110, "global", "I AM HADES"),
+    ]
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "probe_systematic"
+    assert isinstance(directive.params, ProbeSystematicParams)
+    assert directive.params.intent is ProbeIntent.FIND_KEY_PARTNER
+
+
+def test_key_exchange_bypasses_llm_provider_until_exchanged(monkeypatch) -> None:
+    belief_state, accumulators, _knowledge = _initialized_state(
+        tick=250,
+        my_index=0,
+        my_role="hades",
+        my_team="shades",
+        player_count=10,
+    )
+    accumulators.round_start_tick = 100
+    belief_state.chat_history = [
+        ChatMessageRecord(0, 110, "global", "I AM HADES R CRCL"),
+    ]
+
+    def fail_provider(_name):
+        raise AssertionError("key exchange should not block on LLM provider")
+
+    monkeypatch.setattr("agents.eurydice.llm_controller.make_provider", fail_provider)
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "probe_systematic"
+    assert isinstance(directive.params, ProbeSystematicParams)
+    assert directive.params.intent is ProbeIntent.FIND_KEY_PARTNER
+
+
+def test_active_key_protocol_blocks_identity_announcement() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(tick=120)
+    target = _pid(5, belief_state)
+    last = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            request_only=False,
+            open_in_place=True,
+        ),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.extra[LAST_DIRECTIVE] = last
+    belief_state.extra[LAST_DIRECTIVE_MODE] = last.mode
+    belief_state.extra[LAST_DIRECTIVE_TICK] = 100
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive == last
+
+
+def test_identity_claim_review_is_key_role_only() -> None:
+    belief_state, accumulators, _knowledge = _initialized_state(
+        tick=250,
+        my_index=2,
+        my_role="shade",
+        my_team="shades",
+        player_count=10,
+    )
+    accumulators.round_start_tick = 100
+    belief_state.chat_history = [
+        ChatMessageRecord(2, 126, "global", "I AM SHADE"),
+    ]
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode != "review_global_chat"
+
+
+def test_review_global_chat_mode_marks_round_done_and_closes() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.PLAYING,
+        tick=250,
+        round=1,
+    )
+    mode = ReviewGlobalChatMode()
+    memory = ActionMemory()
+
+    task = mode.select_task(belief_state, memory)
+    assert isinstance(task, OpenGlobalChatTask)
+
+    belief_state.view = View.GLOBAL_CHAT
+    memory.ticks_active = 3
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, CloseViewTask)
+    assert belief_state.extra["_identity_global_chat_review_done"] == 1
+    assert belief_state.extra[MODE_COMPLETE] is True
+
+
+def test_review_global_chat_mode_times_out_if_chat_does_not_open() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.PLAYING,
+        tick=250,
+        round=1,
+    )
+    mode = ReviewGlobalChatMode()
+    memory = ActionMemory()
+    memory.ticks_active = GLOBAL_CHAT_REVIEW_TIMEOUT_TICKS
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, IdleTask)
+    assert belief_state.extra["_identity_global_chat_review_done"] == 1
+    assert belief_state.extra[MODE_COMPLETE] is True
+
+
+def test_identity_listen_window_ends_after_key_partner_found() -> None:
+    belief_state, accumulators, knowledge = _initialized_state(
+        tick=132,
+        my_index=0,
+        my_role="hades",
+        my_team="shades",
+        player_count=10,
+    )
+    accumulators.round_start_tick = 100
+    belief_state.chat_history = [
+        ChatMessageRecord(0, 110, "global", "I AM HADES"),
+    ]
+    partner = _pid(1, belief_state)
+    knowledge[partner] = PlayerKnowledge.create(partner)
+    knowledge[partner].role = Role.CERBERUS
+    knowledge[partner].room = Room.UNDERWORLD
+
+    directive, _ = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == partner
+
+
 def test_idle_mode_advances_roster_intro_after_short_dwell() -> None:
     belief_state = _belief_state(
         view=View.ROSTER_REVEAL,
@@ -256,6 +524,16 @@ def test_intro_schedule_panel_waits_for_schedule_or_timeout() -> None:
     assert task.select_action(belief_state, memory).buttons == 0
     belief_state.round_schedule = [(15 * 24, 1), (15 * 24, 1), (15 * 24, 1)]
     assert task.select_action(belief_state, memory).buttons == BUTTON_A
+
+
+def test_initiate_whisper_retries_create_button_with_spaced_taps() -> None:
+    belief_state = _belief_state(view=View.PLAYING)
+    memory = ActionMemory()
+    task = InitiateWhisperTask()
+
+    buttons = [task.select_action(belief_state, memory).buttons for _ in range(10)]
+
+    assert buttons == [BUTTON_A, 0, 0, 0, BUTTON_A, 0, 0, 0, BUTTON_A, 0]
 
 
 def test_strategic_change_ignores_game_elapsed_only() -> None:
@@ -342,6 +620,39 @@ def test_evaluator_branch_logged_at_verbose_level() -> None:
     assert branch["branch"] == "partner_in_room->probe_target"
 
 
+@pytest.mark.parametrize(
+    ("role", "team", "evaluator"),
+    [
+        (Role.HADES, Team.SHADES, evaluate_hades),
+        (Role.CERBERUS, Team.SHADES, evaluate_cerberus),
+        (Role.PERSEPHONE, Team.NYMPHS, evaluate_persephone),
+        (Role.DEMETER, Team.NYMPHS, evaluate_demeter),
+    ],
+)
+def test_key_role_with_known_partner_unknown_room_probes_target(
+    role: Role,
+    team: Team,
+    evaluator,
+) -> None:
+    partner = (PLAYER_COLORS[1], 1)
+    state = StrategicState(
+        my_role=role,
+        my_team=team,
+        my_room=Room.UNDERWORLD,
+        key_partner_found=True,
+        key_partner_id=partner,
+        key_partner_room=None,
+        round_schedule=[(15, 1), (15, 1), (15, 1)],
+    )
+
+    directive = evaluator(state, BeliefState(), ActionMemory())
+
+    assert directive.mode == "probe_target"
+    assert isinstance(directive.params, ProbeTargetParams)
+    assert directive.params.target == partner
+    assert directive.params.intent is ProbeIntent.FIND_KEY_PARTNER
+
+
 def test_whisper_fsm_and_protocol_logging() -> None:
     belief_state, _accumulators, _knowledge = _initialized_state(
         view=View.WHISPER,
@@ -376,7 +687,7 @@ def test_color_offer_menu_task_persists_until_sent() -> None:
         whisper_occupants=[0, 1],
         my_role="nymph",
         my_team="nymphs",
-        tick=100,
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
     )
     mode = InWhisperMode()
     memory = ActionMemory()
@@ -420,7 +731,7 @@ def test_role_accept_menu_task_persists_until_sent() -> None:
         whisper_occupants=[0, 1],
         pending_offers={"role": True, "color": False},
         active_role_offers=[1],
-        tick=100,
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
     )
     target = _pid(1, belief_state)
     _knowledge_for(belief_state, 1, team=Team.SHADES)
@@ -513,7 +824,7 @@ def test_key_exchange_grants_target_entry_request() -> None:
         in_whisper=True,
         whisper_occupants=[0, 2],
         pending_entry=1,
-        my_role="hades",
+        my_role="cerberus",
         my_team="shades",
         tick=100,
     )
@@ -577,6 +888,548 @@ def test_probe_key_partner_directive_enters_key_exchange_protocol() -> None:
 
     state = belief_state.extra[WHISPER_MODE_STATE]
     assert state.protocol == "key_exchange"
+
+
+def test_probe_key_partner_protocol_uses_skip_color_duck_type() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+    )
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        SimpleNamespace(skip_color_exchange=True, intent="FIND_KEY_PARTNER"),
+    )
+    mode = InWhisperMode()
+
+    mode.mode_enter(belief_state, ActionMemory())
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+
+
+def test_key_exchange_protocol_uses_active_probe_context_when_idle_overwrites_directive() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+    )
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective("idle", ModeParams())
+    belief_state.extra[PROBE_STATE] = {
+        "target": _pid(1, belief_state),
+        "selected_tick": 10,
+        "started_tick": 12,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    mode = InWhisperMode()
+
+    mode.mode_enter(belief_state, ActionMemory())
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+
+
+def test_key_exchange_protocol_reads_outer_loop_inferences() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+    )
+    belief_state.inferences[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        SimpleNamespace(skip_color_exchange=True, intent="FIND_KEY_PARTNER"),
+    )
+    mode = InWhisperMode()
+
+    mode.mode_enter(belief_state, ActionMemory())
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+
+
+def test_key_role_with_known_partner_defaults_to_key_exchange_protocol() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        my_role="hades",
+        my_team="shades",
+    )
+    partner = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "idle",
+        ModeParams(),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=partner,
+        key_exchange_done=False,
+        current_objective=Objective.IDLE,
+    )
+    mode = InWhisperMode()
+
+    mode.mode_enter(belief_state, ActionMemory())
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+
+
+def test_key_exchange_waits_when_known_partner_is_not_an_occupant() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 2],
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+        ),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    mode.mode_enter(belief_state, ActionMemory())
+
+    first = mode.select_task(belief_state, ActionMemory())
+    second = mode.select_task(belief_state, ActionMemory())
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert isinstance(first, IdleTask)
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "WAIT_FOR_OCCUPANT"
+    assert state.target_occupant is None
+    assert isinstance(second, SendMessageTask)
+
+
+def test_key_exchange_waits_when_known_partner_is_unparsed_in_whisper() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+        ),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    first = mode.select_task(belief_state, memory)
+    second = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert isinstance(first, IdleTask)
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "WAIT_FOR_OCCUPANT"
+    assert state.target_occupant is None
+    assert isinstance(second, SendMessageTask)
+
+
+def test_key_exchange_offers_when_known_partner_is_present() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        my_role="hades",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+        ),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    first = mode.select_task(belief_state, memory)
+    second = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert isinstance(first, IdleTask)
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "ROLE_EXCHANGE"
+    assert state.target_occupant == target
+    assert isinstance(second, OfferRoleExchangeTask)
+
+
+def test_key_exchange_waits_after_we_created_empty_partner_whisper() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            open_in_place=True,
+        ),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    mode.select_task(belief_state, memory)
+    task = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "WAIT_FOR_OCCUPANT"
+    assert state.target_occupant is None
+    assert isinstance(task, BlindGrantEntryTask)
+
+
+def test_key_exchange_blind_offers_after_created_hidden_whisper_grant_window() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            open_in_place=True,
+        ),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    belief_state.tick += KEY_IN_WHISPER_GRANT_TICKS
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_exchange_created_hidden_whisper_role_persists_after_probe_state_changes() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[],
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            open_in_place=True,
+        ),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    belief_state.tick += KEY_IN_WHISPER_GRANT_TICKS
+
+    task = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.created_by_us is True
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_exchange_uses_last_probe_target_but_waits_until_partner_present() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="hades",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            request_only=True,
+        ),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    mode.select_task(belief_state, memory)
+    task = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "WAIT_FOR_OCCUPANT"
+    assert state.target_occupant is None
+    assert isinstance(task, SendMessageTask)
+
+
+def test_key_exchange_requester_blind_offers_after_hidden_whisper_settles() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="hades",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            request_only=True,
+        ),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    belief_state.tick += KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_exchange_hidden_entry_occupants_do_not_block_blind_requester_offer() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[],
+        my_role="hades",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "probe_target",
+        ProbeTargetParams(
+            target=target,
+            intent=ProbeIntent.FIND_KEY_PARTNER,
+            skip_color_exchange=True,
+            request_only=True,
+        ),
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+    mode.select_task(belief_state, memory)
+    belief_state.whisper_occupants = [0, 2]
+    belief_state.tick += KEY_IN_WHISPER_REQUESTER_SETTLE_TICKS
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_exchange_uses_completed_probe_target_but_waits_until_partner_present() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0],
+        my_role="hades",
+        my_team="shades",
+        tick=120,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[LAST_NON_WHISPER_DIRECTIVE] = ModeDirective(
+        "hold_position",
+        ModeParams(),
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 90,
+        "started_tick": 95,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+        "completed": True,
+        "completed_tick": 120,
+    }
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    mode.select_task(belief_state, memory)
+    task = mode.select_task(belief_state, memory)
+
+    state = belief_state.extra[WHISPER_MODE_STATE]
+    assert state.protocol == "key_exchange"
+    assert state.fsm_state == "WAIT_FOR_OCCUPANT"
+    assert state.target_occupant is None
+    assert isinstance(task, SendMessageTask)
+
+
+def test_key_exchange_grants_key_partner_despite_other_occupant() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 2],
+        pending_entry=1,
+        my_role="cerberus",
+        my_team="shades",
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+        current_objective=Objective.COMPLETE_KEY_EXCHANGE,
+    )
+    mode = InWhisperMode()
+    mode.mode_enter(belief_state, ActionMemory())
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, GrantEntryTask)
 
 
 def test_key_role_unknown_target_uses_direct_role_probe() -> None:
@@ -1212,7 +2065,34 @@ def test_in_whisper_mode_not_interrupted() -> None:
 
     directive, inferences = meta_decide(belief_state, ActionMemory())
 
-    assert directive == ModeDirective("in_whisper", ModeParams())
+    assert directive == ModeDirective("in_whisper", InWhisperParams())
+    assert inferences is not None
+    assert inferences[LAST_DIRECTIVE_MODE] == "in_whisper"
+
+
+def test_key_role_in_whisper_preserves_runtime_params() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        tick=20,
+        view=View.WHISPER,
+        in_whisper=True,
+        my_role="hades",
+        my_team="shades",
+    )
+    belief_state.extra[LAST_DIRECTIVE_MODE] = "in_whisper"
+    belief_state.extra[LAST_DIRECTIVE_TICK] = 0
+    belief_state.extra[MODE_COMPLETE] = False
+
+    directive, inferences = meta_decide(
+        belief_state,
+        ActionMemory(),
+        llm_control="all",
+        llm_provider="heuristic",
+    )
+
+    assert directive == ModeDirective(
+        "in_whisper",
+        InWhisperParams(llm_control="all", llm_provider="heuristic"),
+    )
     assert inferences is not None
     assert inferences[LAST_DIRECTIVE_MODE] == "in_whisper"
 
@@ -1371,7 +2251,531 @@ def test_probe_target_in_range_whisper_creates_whisper() -> None:
     assert task.target_index == 1
 
 
+def test_probe_target_request_only_moves_close_before_entry_request() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=12,
+    )
+    belief_state.players[1] = PlayerInfo(position=(50 + INTERACTION_RANGE + 1, 50, 12))
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=_pid(1, belief_state),
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) == (50 + INTERACTION_RANGE + 1, 50)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_request_only_waits_near_partner_until_whisper_visible() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=12,
+    )
+    belief_state.players[1] = PlayerInfo(position=(57, 50, 12))
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=_pid(1, belief_state),
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, IdleTask)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_request_only_searches_when_partner_position_unknown() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=12,
+        room_size=(100, 100),
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[2] = PlayerInfo(position=(80, 50, 12))
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) == (80, 50)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_requester_moves_to_rendezvous_when_partner_hidden() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=12,
+        my_role="hades",
+        my_team="shades",
+        room_size=(100, 100),
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_requester_requests_within_tight_rendezvous() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(56, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        room_size=(100, 100),
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert task.radius == KEY_REQUESTER_SWEEP_RADIUS
+    assert (task.x, task.y) == (54, 66)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_requester_requests_blind_when_partner_hidden() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(56, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        room_size=(160, 160),
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[2] = PlayerInfo(
+        position=(54, 66, 1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS),
+        last_seen_in_whisper=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert (task.x, task.y) == (54, 66)
+    assert task.target_index is None
+    assert task.button_radius == KEY_REQUESTER_VISIBLE_ENTRY_RANGE
+
+
+def test_probe_target_key_requester_requests_at_rendezvous_without_marker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert (task.x, task.y) == (54, 66)
+    assert task.radius == KEY_REQUESTER_SWEEP_RADIUS
+    assert belief_state.extra[PROBE_STATE]["action"] == "entry_requested"
+
+
+def test_probe_target_key_requester_waits_for_opener_before_blind_request() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=120,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=2,
+        round_start_tick=100,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, IdleTask)
+    assert "action" not in belief_state.extra[PROBE_STATE]
+
+
+def test_probe_target_key_requester_waits_near_unconfirmed_visible_partner() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=120,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(58, 66, 120))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=2,
+        round_start_tick=100,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, IdleTask)
+    assert "action" not in belief_state.extra[PROBE_STATE]
+
+
+def test_probe_target_key_requester_requests_blind_after_opener_delay() -> None:
+    tick = 100 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=tick,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(58, 66, tick))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=2,
+        round_start_tick=100,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert (task.x, task.y) == (54, 66)
+    assert belief_state.extra[PROBE_STATE]["action"] == "entry_requested"
+
+
+def test_probe_target_key_requester_closes_on_unmarked_visible_partner() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 78),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(75, 78, 100))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(75, 78)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_requester_ignores_off_rendezvous_whisper_marker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(
+        position=(120, 120, 100),
+        last_seen_in_whisper=100,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert "action" not in belief_state.extra[PROBE_STATE]
+
+
+def test_probe_target_key_requester_chases_rendezvous_whisper_marker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(
+        position=(58, 76, 100),
+        last_seen_in_whisper=100,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveAndInitiateWhisperTask)
+    assert (task.x, task.y) == (58, 76)
+    assert task.target_index == 1
+    assert task.use_button_b is True
+    assert task.button_radius == KEY_REQUESTER_VISIBLE_ENTRY_RANGE
+    assert belief_state.extra[PROBE_STATE]["action"] == "entry_requested"
+
+
+def test_probe_target_key_requester_keeps_moving_until_server_entry_range() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(
+        position=(29, 69, 100),
+        last_seen_in_whisper=100,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveAndInitiateWhisperTask)
+    assert (task.x, task.y) == (29, 69)
+    assert task.target_index == 1
+    assert task.use_button_b is True
+    assert task.button_radius == KEY_REQUESTER_VISIBLE_ENTRY_RANGE
+
+
+def test_probe_target_key_requester_requests_near_visible_partner_without_marker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(58, 78),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(75, 78, 100))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(75, 78)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_requester_requests_on_top_of_visible_partner() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(73, 78),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(75, 78, 100))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        key_partner_id=target,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is True
+    assert task.target_index == 1
+    assert belief_state.extra[PROBE_STATE]["action"] == "entry_requested"
+
+
+def test_probe_target_request_only_avoids_unrelated_nearby_whisper() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(57, 50, 100))
+    belief_state.players[2] = PlayerInfo(
+        position=(56, 52, 100),
+        last_seen_in_whisper=100,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(57, 50)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
 def test_probe_target_in_range_whisper_requests_entry() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=12,
+    )
+    belief_state.players[1] = PlayerInfo(
+        position=(57, 50, 12),
+        last_seen_in_whisper=12,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(target=_pid(1, belief_state))
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is True
+    assert task.target_index == 1
+
+
+def test_probe_target_requests_entry_at_outer_interaction_radius() -> None:
     belief_state, _accumulators, _knowledge = _initialized_state(
         position=(50, 50),
         tick=12,
@@ -1430,6 +2834,200 @@ def test_probe_target_creates_whisper_at_last_known_position() -> None:
     assert task.target_index is None
 
 
+def test_probe_target_open_in_place_creates_before_chasing_partner() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=12,
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[PLAYER_KNOWLEDGE][target] = PlayerKnowledge.create(target)
+    belief_state.extra[PLAYER_KNOWLEDGE][target].last_seen_position = (120, 50)
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.target_index is None
+    assert task.use_button_b is False
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_opener_moves_to_rendezvous_before_creating_when_far() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_opener_creates_only_near_rendezvous_center() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert task.target_index is None
+
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_probe_target_key_opener_creates_from_reachable_adjacent_center() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(60, 66),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert task.target_index is None
+
+
+def test_probe_target_key_opener_creates_from_server_entry_bubble_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(72, 66),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert task.target_index is None
+
+
+def test_probe_target_key_opener_creates_from_diagonal_server_entry_bubble_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(72, 72),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert task.target_index is None
+
+
+def test_probe_target_key_opener_creates_from_moderate_rendezvous_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(66, 72),
+        tick=12,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert task.target_index is None
+
+
 def test_probe_target_does_not_join_unrelated_nearby_whisper() -> None:
     belief_state, _accumulators, _knowledge = _initialized_state(
         position=(50, 50),
@@ -1446,9 +3044,8 @@ def test_probe_target_does_not_join_unrelated_nearby_whisper() -> None:
 
     task = mode.select_task(belief_state, ActionMemory())
 
-    assert isinstance(task, InitiateWhisperTask)
-    assert task.target_index == 1
-    assert task.use_button_b is False
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) != (50, 50)
 
 
 def test_probe_systematic_does_not_join_fully_verified_nearby_whisper() -> None:
@@ -1471,9 +3068,546 @@ def test_probe_systematic_does_not_join_fully_verified_nearby_whisper() -> None:
 
     task = mode.select_task(belief_state, ActionMemory())
 
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) != (50, 50)
+
+
+def test_probe_systematic_key_partner_requester_ignores_arbitrary_visible_player() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(57, 50, 100))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert target not in belief_state.extra.get(PROBE_STATE, {}).values()
+
+
+def test_probe_systematic_key_partner_requester_ignores_arbitrary_visible_whisper() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(
+        position=(57, 50, 100),
+        last_seen_in_whisper=100,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert target not in belief_state.extra.get(PROBE_STATE, {}).values()
+
+
+def test_probe_systematic_key_partner_opener_opens_in_place() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=100,
+        my_role="cerberus",
+        my_team="shades",
+    )
+    belief_state.players[1] = PlayerInfo(position=(120, 50, 100))
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
     assert isinstance(task, InitiateWhisperTask)
-    assert task.target_index == 1
     assert task.use_button_b is False
+    assert task.target_index is None
+    assert belief_state.extra[PROBE_STATE]["intent"] == "FIND_KEY_PARTNER"
+    assert belief_state.extra[PROBE_STATE]["skip_color_exchange"] is True
+
+
+def test_probe_systematic_key_partner_opener_moves_from_outer_rendezvous_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(78, 66),
+        tick=100,
+        my_role="demeter",
+        my_team="nymphs",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.DEMETER,
+        my_team=Team.NYMPHS,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.NYMPHS,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) == (54, 66)
+
+
+def test_key_partner_opener_runs_blind_grant_after_hidden_whisper_create() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=226,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, BlindGrantEntryTask)
+
+
+def test_blind_grant_entry_stays_on_grant_after_disabled_confirm() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=120,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    memory = ActionMemory()
+    task = BlindGrantEntryTask()
+
+    buttons = [task.select_action(belief_state, memory).buttons for _ in range(16)]
+
+    assert buttons[:10].count(BUTTON_A) == 1
+    assert BUTTON_A in buttons[10:]
+
+
+def test_key_partner_opener_runs_blind_role_offer_after_grant_window() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=256,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_partner_opener_blind_grants_at_rendezvous_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(78, 66),
+        tick=226,
+        my_role="demeter",
+        my_team="nymphs",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.DEMETER,
+        my_team=Team.NYMPHS,
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "whisper_created",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, BlindGrantEntryTask)
+
+
+def test_key_partner_requester_runs_blind_offer_after_hidden_entry_request() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=120,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+        "saw_waiting_entry": True,
+    }
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_key_partner_requester_does_not_blind_offer_before_entry_settles() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=104,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    target = _pid(1, belief_state)
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+    )
+    belief_state.extra[PROBE_STATE] = {
+        "target": target,
+        "selected_tick": 100,
+        "started_tick": 100,
+        "round": 1,
+        "action": "entry_requested",
+        "intent": "FIND_KEY_PARTNER",
+        "skip_color_exchange": True,
+    }
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        request_only=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert not isinstance(task, BlindOfferRoleExchangeTask)
+
+
+def test_probe_systematic_key_partner_requester_moves_to_rendezvous_without_known_target() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=100,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+
+    belief_state.position = (54, 66, 101)
+    belief_state.tick = 100 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert task.button_radius == KEY_REQUESTER_VISIBLE_ENTRY_RANGE
+
+
+def test_probe_systematic_key_rendezvous_ignores_probe_stagger() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=100,
+        my_role="demeter",
+        my_team="nymphs",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.DEMETER,
+        my_team=Team.NYMPHS,
+    )
+    belief_state.extra["_eurydice_probe_stagger"] = 999
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.NYMPHS,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+
+
+def test_probe_systematic_nymph_key_pair_uses_shared_reachable_rendezvous() -> None:
+    persephone_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=100,
+        my_role="persephone",
+        my_team="nymphs",
+        players={},
+    )
+    persephone_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.PERSEPHONE,
+        my_team=Team.NYMPHS,
+    )
+    requester = ProbeSystematicMode()
+    requester.params = ProbeSystematicParams(
+        target_team=Team.NYMPHS,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    requester_task = requester.select_task(persephone_state, ActionMemory())
+
+    assert requester_task == MoveToTask(54, 66)
+
+    demeter_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=100,
+        my_role="demeter",
+        my_team="nymphs",
+        players={},
+    )
+    demeter_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.DEMETER,
+        my_team=Team.NYMPHS,
+    )
+    opener = ProbeSystematicMode()
+    opener.params = ProbeSystematicParams(
+        target_team=Team.NYMPHS,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    opener_task = opener.select_task(demeter_state, ActionMemory())
+
+    assert isinstance(opener_task, InitiateWhisperTask)
+    assert opener_task.use_button_b is False
+
+
+def test_probe_systematic_key_partner_opener_blind_grants_without_known_target() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=100,
+        my_role="cerberus",
+        my_team="shades",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    first = mode.select_task(belief_state, ActionMemory())
+    belief_state.tick = 226
+    second = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(first, InitiateWhisperTask)
+    assert belief_state.extra[PROBE_STATE]["target"] is None
+    assert belief_state.extra[PROBE_STATE]["action"] == "whisper_created"
+    assert isinstance(second, BlindGrantEntryTask)
+
+
+def test_probe_systematic_key_partner_requester_uses_blind_rendezvous_with_nearby_whisper() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    belief_state.players[2] = PlayerInfo(
+        position=(54, 66, 1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS),
+        last_seen_in_whisper=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert (task.x, task.y) == (54, 66)
+
+
+def test_probe_systematic_key_partner_requester_requests_without_known_marker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(54, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, RendezvousEntrySweepTask)
+    assert task.use_button_b is True
+    assert task.target_index is None
+    assert (task.x, task.y) == (54, 66)
+    assert task.radius == KEY_REQUESTER_SWEEP_RADIUS
+    assert task.button_radius == KEY_REQUESTER_VISIBLE_ENTRY_RANGE
+
+
+def test_probe_systematic_key_partner_requester_moves_from_rendezvous_edge() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(78, 66),
+        tick=1 + KEY_REQUESTER_BLIND_ENTRY_DELAY_TICKS,
+        my_role="hades",
+        my_team="shades",
+        players={},
+    )
+    belief_state.extra[STRATEGIC_STATE] = StrategicState(
+        my_role=Role.HADES,
+        my_team=Team.SHADES,
+        current_round=1,
+        round_start_tick=1,
+    )
+    mode = ProbeSystematicMode()
+    mode.params = ProbeSystematicParams(
+        target_team=Team.SHADES,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert task == MoveToTask(54, 66)
+    assert (task.x, task.y) == (54, 66)
+
+
+def test_probe_target_open_in_place_moves_away_from_recent_whisper_blocker() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=100,
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[2] = PlayerInfo(
+        position=(52, 50, 100),
+        last_seen_in_whisper=100,
+    )
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        open_in_place=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, MoveToTask)
+    assert (task.x, task.y) != (50, 50)
 
 
 def test_probe_systematic_does_not_initiate_in_hostage_select() -> None:
@@ -1511,6 +3645,51 @@ def test_probe_waiting_entry_timeout_cancels_and_records_failure() -> None:
 
     assert isinstance(task, CancelEntryTask)
     assert belief_state.extra[MODE_COMPLETE] is True
+    assert belief_state.extra[PROBE_FAILURES][(1, target)] == 1
+
+
+def test_key_partner_probe_retries_after_general_probe_failure() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(50, 50),
+        tick=120,
+    )
+    target = _pid(1, belief_state)
+    belief_state.players[1] = PlayerInfo(position=(57, 50, 120))
+    belief_state.extra[PROBE_FAILURES] = {(1, target): 1}
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+    )
+
+    task = mode.select_task(belief_state, ActionMemory())
+
+    assert isinstance(task, InitiateWhisperTask)
+    assert task.use_button_b is False
+    assert MODE_COMPLETE not in belief_state.extra
+
+
+def test_key_partner_approach_timeout_resets_action_memory_for_retry() -> None:
+    belief_state, _accumulators, _knowledge = _initialized_state(
+        position=(10, 10),
+        tick=120,
+    )
+    target = _pid(1, belief_state)
+    memory = ActionMemory()
+    memory.ticks_active = 241
+    mode = ProbeTargetMode()
+    mode.params = ProbeTargetParams(
+        target=target,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        max_approach_ticks=240,
+    )
+
+    task = mode.select_task(belief_state, memory)
+
+    assert isinstance(task, IdleTask)
+    assert memory.ticks_active == 0
     assert belief_state.extra[PROBE_FAILURES][(1, target)] == 1
 
 
@@ -1704,6 +3883,23 @@ def test_pipeline_accumulation_over_10_ticks() -> None:
         20,
         30,
     )
+
+
+def test_round_transition_clears_active_probe_state() -> None:
+    belief_state, accumulators, _knowledge = _initialized_state(round=1)
+    accumulators.current_round = 1
+    belief_state.extra[PROBE_STATE] = {
+        "target": _pid(1, belief_state),
+        "action": "whisper_created",
+        "round": 1,
+        "intent": "FIND_KEY_PARTNER",
+    }
+    belief_state.round = 2
+    belief_state.tick = 200
+
+    eurydice_post_belief_update(belief_state)
+
+    assert PROBE_STATE not in belief_state.extra
 
 
 def test_full_pipeline_to_meta_decide_to_mode() -> None:

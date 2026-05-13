@@ -24,6 +24,7 @@ from orpheus.perception._ocr import (
     measure_text,
 )
 from orpheus.perception._common import (
+    BAR_Y,
     COLOR_HOSTAGE_CHECK,
     COLOR_HUD_ALERT,
     COLOR_HUD_DIM,
@@ -358,6 +359,71 @@ class TestPerceptionBugFixes:
         hostage = _render_hostage_grid_frame()
         assert detect_view(hostage) == View.HOSTAGE_SELECT
 
+    def test_whisper_action_bar_overrides_round_clock(self):
+        """Whisper menu frames still classify as whisper when header OCR is weak."""
+        default_bar = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(default_bar, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(default_bar, "H/I:TAB L:EXIT K:ACT", 2, BAR_Y + 2, COLOR_HUD_DIM)
+
+        menu = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(menu, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(menu, "(LEADER) GRANT", 2, BAR_Y + 2, COLOR_HUD_DIM)
+
+        target_picker = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(target_picker, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(target_picker, "ROLE:", 2, BAR_Y + 2, COLOR_HUD_ALERT)
+
+        assert detect_view(default_bar) == View.WHISPER
+        assert detect_view(menu) == View.WHISPER
+        assert detect_view(target_picker) == View.WHISPER
+
+    def test_shout_view_title_and_bottom_bar_are_global_chat(self):
+        """The shout surface also has a round clock and tab controls."""
+        shout_title = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(shout_title, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(shout_title, "SHOUT", 42, 2, COLOR_HUD_NORMAL)
+        _draw_text(
+            shout_title,
+            "H/I:TAB L:CLOSE K:NEXT",
+            2,
+            BAR_Y + 2,
+            COLOR_HUD_DIM,
+        )
+
+        shout_bar = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(shout_bar, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(
+            shout_bar,
+            "H/I:TAB L:CLOSE K:NEXT",
+            2,
+            BAR_Y + 2,
+            COLOR_HUD_DIM,
+        )
+
+        shout_conflict = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(shout_conflict, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(shout_conflict, "WHISP", 42, 2, COLOR_HUD_NORMAL)
+        _draw_text(
+            shout_conflict,
+            "H/I:TAB L:CLOSE K:NEXT",
+            2,
+            BAR_Y + 2,
+            COLOR_HUD_DIM,
+        )
+
+        assert detect_view(shout_title) == View.GLOBAL_CHAT
+        assert detect_view(shout_bar) == View.GLOBAL_CHAT
+        assert detect_view(shout_conflict) == View.GLOBAL_CHAT
+
+    def test_spurious_whisp_title_does_not_override_playing_bar(self):
+        """A weak title OCR hit is not enough without whisper controls."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(frame, "R1 0:14", 2, 2, COLOR_HUD_NORMAL)
+        _draw_text(frame, "WHISP", 42, 2, COLOR_HUD_NORMAL)
+        _draw_text(frame, "J:NEW K:JOIN L:SHOUT", 2, BAR_Y + 2, COLOR_HUD_DIM)
+
+        assert detect_view(frame) == View.PLAYING
+
     def test_role_leader_suffix_is_stripped(self):
         """A leader star suffix is separated from the role name."""
         frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
@@ -552,6 +618,18 @@ class TestRoleReveal:
         assert result.role_reveal.self_shape == PlayerShape.TRIANGLE
         assert result.role_reveal.player_count == 10
         assert result.role_reveal.room_size == 120
+
+    def test_role_card_self_color_prefers_exact_player_fill_over_shadow_alias(self):
+        """Player colors that are also shadow colors still decode exactly."""
+        frame = _render_role_card_frame()
+        frame[8:8 + PLAYER_H, 60:60 + PLAYER_W] = 0
+        _draw_sprite(frame, PlayerShape.CROSS, 9, 60, 8)
+
+        result = parse_frame(frame)
+
+        assert result.role_reveal is not None
+        assert result.role_reveal.self_color == 9
+        assert result.role_reveal.self_shape == PlayerShape.CROSS
 
     def test_parse_frame_classifies_role_summary_panel(self):
         """Panel 2 is detected from the MATCH ROLES summary header."""

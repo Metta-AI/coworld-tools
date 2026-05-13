@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agents.eurydice.evaluators import (
+    evaluate_cerberus,
     evaluate_demeter,
     evaluate_hades,
     evaluate_persephone,
@@ -58,7 +59,7 @@ def _pid(index: int, belief_state: BeliefState):
     return player_id
 
 
-def test_hades_partner_local_probe_target_has_key_exchange_params() -> None:
+def test_hades_partner_local_requests_entry_for_key_exchange() -> None:
     partner_id = (PLAYER_COLORS[1], 1)
     state = StrategicState(
         my_role=Role.HADES,
@@ -76,7 +77,34 @@ def test_hades_partner_local_probe_target_has_key_exchange_params() -> None:
         target=partner_id,
         intent=ProbeIntent.FIND_KEY_PARTNER,
         skip_color_exchange=True,
-        max_approach_ticks=144,
+        max_approach_ticks=240,
+        request_only=True,
+        open_in_place=False,
+    )
+    assert state.current_objective is Objective.COMPLETE_KEY_EXCHANGE
+
+
+def test_cerberus_partner_local_opens_whisper_for_key_exchange() -> None:
+    partner_id = (PLAYER_COLORS[3], 3)
+    state = StrategicState(
+        my_role=Role.CERBERUS,
+        my_team=Team.SHADES,
+        my_room=Room.UNDERWORLD,
+        key_partner_found=True,
+        key_partner_id=partner_id,
+        key_partner_room=Room.UNDERWORLD,
+    )
+
+    directive = evaluate_cerberus(state, BeliefState(), ActionMemory())
+
+    assert directive.mode == "probe_target"
+    assert directive.params == ProbeTargetParams(
+        target=partner_id,
+        intent=ProbeIntent.FIND_KEY_PARTNER,
+        skip_color_exchange=True,
+        max_approach_ticks=240,
+        request_only=False,
+        open_in_place=True,
     )
     assert state.current_objective is Objective.COMPLETE_KEY_EXCHANGE
 

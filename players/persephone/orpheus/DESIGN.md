@@ -366,7 +366,7 @@ multi-press sequences.
 | Task | Params | Operation | Completion signal |
 |------|--------|-----------|-------------------|
 | `create_whisper` | — | Press A/J in current position (mode ensures open space) | View → whisper |
-| `request_entry` | `player_index` | A* path to target player, A-press when close. Checks preconditions before pressing: target must have recent `last_seen_in_chatroom` tick and be within interaction proximity. No-ops if preconditions unmet | View → whisper (or WAITING state) |
+| `request_entry` | `player_index` | A* path to target player, B-press when close. Checks preconditions before pressing: target must have recent `last_seen_in_chatroom` tick and be within interaction proximity. No-ops if preconditions unmet. Repeated B can cancel the pending request, so entry pulses are globally throttled and bounded | View -> whisper (or WAITING state) |
 | `cancel_entry` | — | Press B while WAITING_ENTRY | View → overworld |
 | `exit_whisper` | — | Menu navigate: EXIT category → EXIT item → confirm (or Select/L shortcut) | View → overworld |
 | `grant_entry` | — | Menu navigate: LEADER category → GRANT item → confirm | System message confirms |
@@ -424,14 +424,18 @@ multi-press sequences.
   (left/right) → navigate item (up/down) → confirm (A) → optionally navigate
   target picker (left/right) → confirm (A). Because the live server samples
   rising-edge inputs and menu OCR is partial, menu navigation holds each
-  button for two ticks and releases for two ticks before advancing. `GRANT`
+  button for one tick and releases for one tick before advancing. `GRANT`
   currently uses a fixed robust sequence for the same reason.
 
 - `request_entry` bundles approach + button press into one task. The mode
   doesn't need to micromanage proximity — the task handles both pathfinding
-  and the A-press. The task validates preconditions from belief state before
-  pressing A (target's `last_seen_in_chatroom` is recent, target is within
-  proximity) to avoid accidentally creating a chatroom in open space.
+  and the B-press. The task validates preconditions from belief state before
+  pressing B (target's `last_seen_in_chatroom` is recent, target is within
+  proximity) to avoid accidentally creating a chatroom in open space. Entry
+  request retries use a 72-tick interval and a global anti-cancel guard across
+  task signatures because a second B-press can cancel a still-pending request.
+  B-entry tasks use a bounded retry window so a likely pending request is not
+  churned indefinitely while the opener is still navigating to `GRANT`.
 
 - `follow` is distinct from repeated `move_to(player_pos)` to avoid clearing
   ActionMemory (and re-computing A*) every tick the target moves. Its identity
@@ -777,7 +781,10 @@ what it explicitly specifies.
 - `tick` — incremented unconditionally.
 - `view` — set to `perception.view`.
 - `in_whisper` — set to `(perception.view == View.WHISPER)`. This is the
-  single source of truth for whisper presence.
+  single source of truth for whisper presence. A 2026-05-12 Eurydice live run
+  showed a server-confirmed join where the requester did not subsequently
+  observe `View.WHISPER`; until that perception/routing gap is resolved, callers
+  must not blindly execute whisper menu actions from ordinary gameplay.
 - **On `in_whisper` transition from True to False**: clear
   `whisper_occupants`, `pending_offers`, `pending_entry`, `menu_state`.
   These fields are only meaningful while in a whisper.

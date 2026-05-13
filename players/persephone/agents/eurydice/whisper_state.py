@@ -27,6 +27,7 @@ class WhisperModeState:
     protocol: str = "standard"
     fsm_state: str = "ENTER"
     entered_tick: int = 0
+    created_by_us: bool = False
     occupants_at_entry: list[PlayerID] = field(default_factory=list)
     target_occupant: PlayerID | None = None
     hostile_present: bool = False

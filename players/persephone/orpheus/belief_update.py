@@ -43,6 +43,7 @@ OVERWORLD_VIEWS = {
 # acceptable in practice despite not being a general-purpose object identity
 # cache strategy.
 _previous_positions: dict[int, tuple[int, int]] = {}
+_MAX_SAME_PHASE_POSITION_STEP_PX = 12
 
 
 def apply(
@@ -75,6 +76,7 @@ def apply(
             belief_state,
             perception.overworld,
             perception.view,
+            previous_view,
             perception.raw_pixels,
         )
     elif perception.view == View.WHISPER:
@@ -293,6 +295,7 @@ def _apply_overworld(
     belief_state: BeliefState,
     overworld: OverworldPerception | None,
     view: View,
+    previous_view: View,
     raw_pixels: np.ndarray | None,
 ) -> None:
     if overworld is None:
@@ -300,11 +303,19 @@ def _apply_overworld(
 
     new_position: tuple[int, int] | None = None
     if overworld.self_position is not None:
-        new_position = (
+        candidate_position = (
             overworld.self_position.x,
             overworld.self_position.y,
         )
-        belief_state.position = new_position
+        if _position_update_is_plausible(
+            belief_state,
+            candidate_position,
+            overworld.room,
+            previous_view,
+            view,
+        ):
+            new_position = candidate_position
+            belief_state.position = new_position
 
     if overworld.room is not None:
         belief_state.room = overworld.room
@@ -330,7 +341,11 @@ def _apply_overworld(
             belief_state.leader_colors[belief_state.my_room] = leader_color
 
     if overworld.last_shout is not None:
-        _append_shout_if_new(belief_state, overworld.last_shout)
+        _append_shout_if_new(
+            belief_state,
+            overworld.last_shout,
+            sender_color=overworld.last_shout_color,
+        )
 
     occupancy_grid = belief_state.occupancy_grid
     if occupancy_grid is not None:
@@ -395,7 +410,11 @@ def _apply_overworld_visible_players(
     overworld: OverworldPerception,
 ) -> None:
     for visible in overworld.visible_players:
-        _apply_visible_player(belief_state, visible, mark_in_whisper=False)
+        _apply_visible_player(
+            belief_state,
+            visible,
+            mark_in_whisper=bool(getattr(visible, "in_whisper", False)),
+        )
 
 
 def _apply_visible_player(
@@ -471,11 +490,37 @@ def _screen_to_world(
     if belief_state.position is None or belief_state.room_size is None:
         return None
 
-    self_center_x, self_center_y = belief_state.position
+    self_x, self_y = belief_state.position
     room_w, room_h = belief_state.room_size
-    camera_x = _clamp(self_center_x - 64, 0, room_w - 128)
-    camera_y = _clamp(self_center_y - 64, -9, room_h - 119)
+    camera_x = _clamp(self_x + 3 - 64, 0, room_w - 128)
+    camera_y = _clamp(self_y - 60, -9, room_h - 119)
     return screen_x + camera_x, screen_y + camera_y
+
+
+def _position_update_is_plausible(
+    belief_state: BeliefState,
+    candidate_position: tuple[int, int],
+    candidate_room: Room | None,
+    previous_view: View,
+    current_view: View,
+) -> bool:
+    previous_position = belief_state.position
+    if previous_position is None:
+        return True
+    if previous_view not in OVERWORLD_VIEWS or current_view not in OVERWORLD_VIEWS:
+        return True
+    if (
+        candidate_room is not None
+        and belief_state.room is not None
+        and candidate_room != belief_state.room
+    ):
+        return True
+
+    dx = candidate_position[0] - previous_position[0]
+    dy = candidate_position[1] - previous_position[1]
+    return dx * dx + dy * dy <= (
+        _MAX_SAME_PHASE_POSITION_STEP_PX * _MAX_SAME_PHASE_POSITION_STEP_PX
+    )
 
 
 def _clamp(value: int, lower: int, upper: int) -> int:
@@ -486,22 +531,73 @@ def _room_size_is_positive(room_size: tuple[int, int]) -> bool:
     return room_size[0] > 0 and room_size[1] > 0
 
 
-def _append_shout_if_new(belief_state: BeliefState, text: str) -> None:
+def _append_shout_if_new(
+    belief_state: BeliefState,
+    text: str,
+    *,
+    sender_color: int | None = None,
+) -> None:
+    sender_index = _decode_shout_sender(belief_state, sender_color)
     for record in reversed(belief_state.chat_history):
         if record.channel == "shout":
-            if record.text == text:
+            if record.text == text and record.sender_index == sender_index:
                 return
             break
 
     belief_state.chat_history.append(
         ChatMessageRecord(
-            sender_index=None,
+            sender_index=sender_index,
             tick=belief_state.tick,
             channel="shout",
             text=text,
             occupants=None,
         )
     )
+
+
+def _decode_shout_sender(
+    belief_state: BeliefState,
+    sender_color: int | None,
+) -> int | None:
+    if sender_color is None:
+        return None
+
+    matches = [
+        index
+        for index in range(belief_state.player_count or 10)
+        if PLAYER_COLORS[index % len(PLAYER_COLORS)] == sender_color
+    ]
+    if len(matches) == 1:
+        return matches[0]
+
+    current_room = belief_state.room or belief_state.my_room
+    current_tick = belief_state.tick
+    room_matches: list[int] = []
+    recent_room_matches: list[int] = []
+    for index in matches:
+        player = belief_state.players.get(index)
+        if player is None:
+            continue
+        in_current_room = (
+            player.room is not None
+            and current_room is not None
+            and player.room == current_room
+        )
+        if player.room is not None and current_room is not None and not in_current_room:
+            continue
+        if in_current_room:
+            room_matches.append(index)
+        position = player.position
+        if position is not None and current_tick - position[2] <= 240:
+            if in_current_room:
+                recent_room_matches.append(index)
+
+    if len(recent_room_matches) == 1:
+        return recent_room_matches[0]
+    if len(room_matches) == 1:
+        return room_matches[0]
+
+    return None
 
 
 def _apply_whisper(
