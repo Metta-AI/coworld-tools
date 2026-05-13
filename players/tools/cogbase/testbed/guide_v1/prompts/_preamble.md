@@ -41,9 +41,16 @@ filler or caveats.
 
 ## Prior Documents
 
-The following documents have already been generated. Read any that are relevant
-to your task — they establish vocabulary, decisions, and facts that your
+The following documents have already been generated. Each block below contains
+the doc's title and opening summary inline. **Treat the inline summary as your
+primary context** — it establishes vocabulary, decisions, and facts that your
 document should be consistent with (but not duplicate).
+
+Only `Read` a full prior document when you need to verify a specific claim or
+quote a concrete value (a constant, a table cell, a code snippet). Do not read
+a prior doc just for general orientation; the inline summary is sufficient
+for that. When you do quote a prior doc, cite it as
+`<FILENAME.md>:<line_number>` so the claim is auditable.
 
 {{prior_docs}}
 

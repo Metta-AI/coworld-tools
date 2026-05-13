@@ -14,6 +14,9 @@ from guide_v1.claude_env import bedrock_subprocess_env  # noqa: E402
 from guide_v1.contracts import GUIDE_CONTRACT_SCHEMA_VERSION, write_guide_contract  # noqa: E402
 from guide_v1.framework import AgentFrameworkRef  # noqa: E402
 from guide_v1 import pipeline as guide_pipeline  # noqa: E402
+from guide_v1 import prompts as guide_prompts  # noqa: E402
+from guide_v1.documents import get_document  # noqa: E402
+from guide_v1.sidecar import DOC_CONTRACT_SCHEMA_VERSION  # noqa: E402
 
 
 def test_bedrock_subprocess_env_forces_bedrock_and_strips_conflicting_auth() -> None:
@@ -257,3 +260,139 @@ def _framework_ref(tmp_path: Path) -> AgentFrameworkRef:
         package="agent_policies.frameworks.coborg",
         package_source_root=package_source_root,
     )
+
+
+def test_summarize_prior_doc_returns_title_and_opening_paragraph(tmp_path: Path) -> None:
+    doc = tmp_path / "GAME_OVERVIEW.md"
+    doc.write_text(
+        "# Sample Game: Overview\n"
+        "\n"
+        "Sample is a real-time 8-player social deduction game.\n"
+        "Players are split into roles and act each tick.\n"
+        "\n"
+        "## Classification\n"
+        "\n"
+        "| Dimension | Value |\n"
+        "| --- | --- |\n"
+        "| Genre | Social deduction |\n",
+        encoding="utf-8",
+    )
+
+    summary = guide_prompts.summarize_prior_doc(doc)
+
+    assert summary.startswith("# Sample Game: Overview")
+    assert "real-time 8-player social deduction" in summary
+    # Stops at the next heading — Classification table must not leak in.
+    assert "Classification" not in summary
+    assert "Genre" not in summary
+
+
+def test_format_prior_docs_inlines_summary_blocks(tmp_path: Path) -> None:
+    output_dir = tmp_path / "guide"
+    output_dir.mkdir()
+    (output_dir / "GAME_OVERVIEW.md").write_text(
+        "# Sample Overview\n\nA tiny social deduction game.\n",
+        encoding="utf-8",
+    )
+
+    rules_doc = get_document("RULES_AND_MECHANICS")
+    formatted = guide_prompts.format_prior_docs(
+        rules_doc,
+        output_dir,
+        frozenset({"GAME_OVERVIEW"}),
+    )
+
+    assert "### GAME_OVERVIEW.md" in formatted
+    assert f"Path: `{output_dir / 'GAME_OVERVIEW.md'}`" in formatted
+    assert "# Sample Overview" in formatted
+    assert "A tiny social deduction game." in formatted
+
+
+def test_guide_contract_prefers_sidecar_actions_over_prose_extraction(tmp_path: Path) -> None:
+    guide_dir = tmp_path / "sidecar_game"
+    guide_dir.mkdir()
+    # Prose alone would extract the wrong action_id table. The sidecar carries
+    # the ground-truth wire payloads and must win.
+    (guide_dir / "INTERFACE_CONTRACT.md").write_text(
+        "# Interface Contract\n"
+        "\n"
+        "Actions are sent as a 2-byte binary websocket message of the form\n"
+        "`[0x00, mask]`.\n"
+        "\n"
+        "| Index | Name | Input Mask (hex) | Buttons |\n"
+        "| --- | --- | --- | --- |\n"
+        "| 0 | `noop` | `0x00` | None |\n"
+        "| 1 | `a` | `0x20` | A |\n"
+        "| 2 | `b` | `0x40` | B |\n"
+        "| 6 | `down` | `0x02` | Down |\n",
+        encoding="utf-8",
+    )
+    (guide_dir / "INTERFACE_CONTRACT.contract.json").write_text(
+        json.dumps(
+            {
+                "schema_version": DOC_CONTRACT_SCHEMA_VERSION,
+                "document": "INTERFACE_CONTRACT.md",
+                "actions": {
+                    "style": "binary_button_mask",
+                    "default_action": "noop",
+                    "requires_message_type": True,
+                    "payload_prefix": [0],
+                    "payloads": {
+                        "noop": 0,
+                        "up": 0x01,
+                        "down": 0x02,
+                        "left": 0x04,
+                        "right": 0x08,
+                        "attack": 0x20,
+                        "b": 0x40,
+                    },
+                    "candidates": [
+                        {
+                            "action_id": "attack",
+                            "description": "Imposter kill / Crewmate report / vote confirm.",
+                            "evidence": [
+                                {
+                                    "document": "INTERFACE_CONTRACT.md",
+                                    "line": 8,
+                                    "text": "| 1 | `a` | `0x20` | A |",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    contract_file = write_guide_contract(guide_dir)
+    contract = json.loads(contract_file.read_text(encoding="utf-8"))
+
+    assert contract["actions"]["payloads"]["attack"] == 0x20
+    assert contract["actions"]["payloads"]["down"] == 0x02
+    assert contract["actions"]["payloads"]["up"] == 0x01
+    candidate_ids = {item["action_id"] for item in contract["actions"]["candidates"]}
+    assert candidate_ids == {"attack"}
+    assert contract["sidecar_sources"]["actions"] == "INTERFACE_CONTRACT.contract.json"
+
+
+def test_guide_contract_falls_back_when_sidecar_is_missing_or_malformed(tmp_path: Path) -> None:
+    guide_dir = tmp_path / "no_sidecar"
+    guide_dir.mkdir()
+    (guide_dir / "INTERFACE_CONTRACT.md").write_text(
+        "# Interface Contract\n"
+        "\n"
+        "Players send JSON actions `{\"move\": \"up\"}`. Valid values are\n"
+        "`\"up\"`, `\"down\"`, `\"left\"`, `\"right\"`, `\"stay\"`.\n",
+        encoding="utf-8",
+    )
+    # Wrong schema version: must be ignored, prose extraction wins.
+    (guide_dir / "INTERFACE_CONTRACT.contract.json").write_text(
+        json.dumps({"schema_version": "not-a-real-version", "actions": {"style": "broken"}}),
+        encoding="utf-8",
+    )
+
+    contract = json.loads(write_guide_contract(guide_dir).read_text(encoding="utf-8"))
+
+    assert contract["actions"]["style"] != "broken"
+    assert "sidecar_sources" not in contract
