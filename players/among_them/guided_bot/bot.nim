@@ -55,6 +55,8 @@ type
     prevBodyCount*: int        ## For detecting new bodies (body_seen event).
     prevRole*: BotRole         ## For detecting role_revealed event.
     prevPhaseForTrace*: GamePhase ## For detecting meeting_started / game_over.
+    prevKillReady*: bool       ## For detecting kill_ready_changed event.
+    lastImposterStatusTick*: int ## For periodic imposter status snapshots.
     ## Phase 5 — interstitial OCR cache. classifyInterstitial is a
     ## full-frame OCR sweep (~22 ms). We cache the result across
     ## consecutive interstitial frames so the sweep runs at most once
@@ -85,6 +87,8 @@ proc initBot*(botIndex: int = -1): Bot =
   result.prevBodyCount = 0
   result.prevRole = RoleUnknown
   result.prevPhaseForTrace = PhaseUnknown
+  result.prevKillReady = false
+  result.lastImposterStatusTick = -1
   result.interstitialClassified = false
   result.cachedInterstitialKind = InterstitialUnknown
 
@@ -658,6 +662,40 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
                # through the existing belief merge. Would need an
                # additional prev-ghost flag for edge detection; deferred.
 
+    # kill_ready_changed: lit kill button transitioned this frame.
+    if bot.belief.self.role == RoleImposter and
+       bot.belief.percep.killReady != bot.prevKillReady:
+      var payload = newJObject()
+      payload["kill_ready"] = newJBool(bot.belief.percep.killReady)
+      payload["localized"] = newJBool(bot.belief.percep.localized)
+      payload["visible_crewmates"] = newJInt(bot.belief.percep.visibleCrewmates.len)
+      logGameEvent(bot.trace, "kill_ready_changed", tick, $payload)
+
+    # imposter_status: periodic snapshot of imposter decision-relevant
+    # state. Useful for understanding why the bot doesn't strike during
+    # long matches.
+    if bot.belief.self.role == RoleImposter and
+       (bot.lastImposterStatusTick < 0 or
+        tick - bot.lastImposterStatusTick >= 480):
+      bot.lastImposterStatusTick = tick
+      var payload = newJObject()
+      payload["mode"] = newJString($bot.belief.directive.mode)
+      payload["hunt_phase"] = newJString(
+        huntingPhaseStr(bot.modeScratch.huntPhase))
+      payload["kill_ready"] = newJBool(bot.belief.percep.killReady)
+      payload["localized"] = newJBool(bot.belief.percep.localized)
+      payload["self_color"] = newJInt(bot.belief.self.colorIndex)
+      payload["self_pos"] = %*[bot.belief.percep.selfX,
+                               bot.belief.percep.selfY]
+      payload["visible_crewmates"] = newJInt(
+        bot.belief.percep.visibleCrewmates.len)
+      payload["visible_bodies"] = newJInt(
+        bot.belief.percep.visibleBodies.len)
+      payload["hunt_target_color"] = newJInt(
+        bot.modeScratch.huntTargetColor)
+      payload["known_imposters"] = %bot.belief.self.knownImposterColors
+      logGameEvent(bot.trace, "imposter_status", tick, $payload)
+
     # Drain guidance trace events from the channel (worker → main).
     drainGuidanceTraceEvents(bot.guidance, bot.trace)
 
@@ -665,6 +703,7 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
     bot.prevBodyCount = bot.belief.percep.visibleBodies.len
     bot.prevRole = bot.belief.self.role
     bot.prevPhaseForTrace = bot.belief.self.phase
+    bot.prevKillReady = bot.belief.percep.killReady
 
     # Log raw frame if TraceFull.
     logFrame(bot.trace, bot.unpacked)
