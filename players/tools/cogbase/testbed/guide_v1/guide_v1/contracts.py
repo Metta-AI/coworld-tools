@@ -9,6 +9,7 @@ from typing import Any
 
 from .documents import all_documents
 from .framework import AgentFrameworkRef
+from .sidecar import merge_sidecars
 
 
 GUIDE_CONTRACT_FILENAME = "guide_contract.json"
@@ -55,7 +56,7 @@ def build_guide_contract(
     actions = _build_action_contract(evidence)
     runtime = _build_runtime_contract(evidence)
 
-    return {
+    prose_contract = {
         "schema_version": GUIDE_CONTRACT_SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "game_slug": _slug_from_output_dir(output_path),
@@ -72,6 +73,7 @@ def build_guide_contract(
         "actions": actions,
         "runtime": runtime,
     }
+    return merge_sidecars(prose_contract, output_path)
 
 
 def _load_documents(output_dir: Path) -> dict[str, str]:
