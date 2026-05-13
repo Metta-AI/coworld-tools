@@ -139,7 +139,6 @@ def _render_framework_bootstrap(agent_framework: AgentFrameworkRef) -> str:
     return f'''from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -152,9 +151,8 @@ REQUIRED_SYMBOLS: list[str] = {required_symbols}
 
 
 def load_cyborg_framework() -> ModuleType:
-    for source_root in reversed(_candidate_source_roots()):
-        if source_root.exists() and str(source_root) not in sys.path:
-            sys.path.insert(0, str(source_root))
+    if PACKAGE_SOURCE_ROOT.exists() and str(PACKAGE_SOURCE_ROOT) not in sys.path:
+        sys.path.insert(0, str(PACKAGE_SOURCE_ROOT))
     try:
         module = importlib.import_module(PACKAGE_NAME)
     except ModuleNotFoundError as exc:
@@ -168,25 +166,12 @@ def load_cyborg_framework() -> ModuleType:
             raise
         raise RuntimeError(
             "Generated agent requires the Cyborg framework package "
-            f"{{PACKAGE_NAME!r}}. Set COGAMES_AGENTS_ROOT to the cogames-agents "
-            f"checkout or COGBASE_AGENT_FRAMEWORK_DIR to the coborg_framework "
-            f"directory. Tried framework_dir={{FRAMEWORK_DIR}} and "
+            f"{{PACKAGE_NAME!r}}. Generated artifacts record the framework "
+            f"source root at generation time. Tried framework_dir={{FRAMEWORK_DIR}} and "
             f"package_source_root={{PACKAGE_SOURCE_ROOT}}."
         ) from exc
     _validate_cyborg_api(module)
     return module
-
-
-def _candidate_source_roots() -> list[Path]:
-    roots: list[Path] = []
-    cogames_root = os.environ.get("COGAMES_AGENTS_ROOT")
-    if cogames_root:
-        roots.append(Path(cogames_root).expanduser() / "src")
-    framework_dir = os.environ.get("COGBASE_AGENT_FRAMEWORK_DIR")
-    if framework_dir:
-        roots.append(Path(framework_dir).expanduser().parent / "src")
-    roots.append(PACKAGE_SOURCE_ROOT)
-    return roots
 
 
 def _validate_cyborg_api(module: ModuleType) -> None:
@@ -196,8 +181,8 @@ def _validate_cyborg_api(module: ModuleType) -> None:
     raise RuntimeError(
         "Generated agent requires the Cyborg framework API exported by "
         f"{{PACKAGE_NAME!r}}, but the imported module is missing: "
-        f"{{', '.join(missing)}}. Verify COGAMES_AGENTS_ROOT or "
-        "COGBASE_AGENT_FRAMEWORK_DIR points at a complete cogames-agents checkout."
+        f"{{', '.join(missing)}}. Regenerate the artifact from this repository "
+        "or pass --agent-framework-dir to an explicit compatible framework."
     )
 '''
 

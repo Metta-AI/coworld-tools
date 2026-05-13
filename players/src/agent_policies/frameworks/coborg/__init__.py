@@ -1,8 +1,9 @@
 """Reusable two-loop cyborg-agent framework.
 
-The package implements the architecture documented in ``coborg_framework``:
-a fast symbolic inner loop connected to a slower strategy loop through typed
-mode directives.
+The package implements the Coborg architecture documented under
+``src/agent_policies/frameworks/coborg/docs/metta_cogames_framework``: a fast
+symbolic inner loop connected to a slower strategy loop through typed mode
+directives.
 """
 
 from agent_policies.frameworks.coborg.buffers import OverwriteBuffer

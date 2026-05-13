@@ -27,11 +27,6 @@ where = ["src"]
 include = [
   "agent_policies",
   "agent_policies.*",
-  "cogames_agents",
-  "cogames_agents.*",
-  "cogamer",
-  "framework",
-  "robot",
 ]
 
 [tool.setuptools.package-data]

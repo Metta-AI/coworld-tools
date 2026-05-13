@@ -22,9 +22,12 @@ and max steps when applicable.
 - `benchmark/cogsguard/`: legacy CogsGuard benchmark entrypoints.
 - `compare/cogsguard/`: parity, regression, and policy comparison scripts.
 - `upload/cogsguard/`: legacy CoGames submission notes for CogsGuard policies.
-- `research/cogsguard/`: CogsGuard rollout/audit/tuning helpers.
-- `research/coborg/`: cyborg policy framework skills and CVC debugger optimizer
-  tools.
+- `cogbase/`: standalone prototype meta-pipeline for generating game guides and
+  base-agent artifacts. It uses `agent_policies.frameworks.coborg` as the
+  Cyborg runtime framework for generated adapters.
+- `research/cogsguard/`: CogsGuard rollout/audit/tuning helpers and the CVC
+  debugger robot optimizer.
+- `research/cursor-skills/`: Cursor skills for the cyborg evolution framework.
 - `research/cogames-attempts/`: training, sweep, eval, and utility scripts from
   the research-attempts repo.
 - `research/cogames-rl-researcher/`: metta-local AI researcher workflow package.

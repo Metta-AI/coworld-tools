@@ -258,9 +258,9 @@ VLM calls with deterministic perception over time.
 # Generate all guide documents
 python generate_guides.py <path_to_game_source> --output-dir ./output/my_game
 
-# Use a specific Cyborg framework checkout
+# Explicitly override the Cyborg framework for a compatibility experiment
 python generate_guides.py <path_to_game_source> \
-  --agent-framework-dir ~/metta/cogames-agents/coborg_framework
+  --agent-framework-dir /path/to/compatible/coborg
 
 # Generate specific documents
 python generate_guides.py <path_to_game_source> --only interface-contract
@@ -286,11 +286,8 @@ python generate_guides.py <path_to_game_source> --runner claude --runner codex
 ```
 
 If `--agent-framework-dir` is omitted, Guide uses
-`COGBASE_AGENT_FRAMEWORK_DIR`, then `~/metta/cogames-agents/coborg_framework`,
-then `~/coding/metta/cogames-agents/coborg_framework`, then
-`~/coding/metta2/metta/cogames-agents/coborg_framework` when present. Fallback
-selection only uses directories that also expose the `cogames_agents.cyborg`
-source package.
+`src/agent_policies/frameworks/coborg` from this repository. It does not search
+external `cogames-agents` checkouts.
 
 The output directory contains the final Markdown suite, `guide_contract.json`,
 and `.drafts/` subdirectories with whichever runner drafts were selected. When

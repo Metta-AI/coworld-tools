@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
-ENV_VAR = "COGBASE_AGENT_FRAMEWORK_DIR"
-FALLBACK_FRAMEWORK_DIRS: tuple[Path, ...] = (
-    Path("~/coding/agent-policies/src/agent_policies/frameworks/coborg"),
-    Path("~/metta/cogames-agents/coborg_framework"),
-    Path("~/coding/metta/cogames-agents/coborg_framework"),
-    Path("~/coding/metta2/metta/cogames-agents/coborg_framework"),
-)
+def _repo_coborg_framework_dir() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "src" / "agent_policies" / "frameworks" / "coborg"
+        if (candidate / "__init__.py").is_file():
+            return candidate
+    raise RuntimeError("could not find src/agent_policies/frameworks/coborg from Cogbase")
+
+
+DEFAULT_FRAMEWORK_DIR = _repo_coborg_framework_dir()
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,17 +34,7 @@ class AgentFrameworkRef:
 def resolve_agent_framework_dir(value: Path | None = None) -> Path:
     if value is not None:
         return value.expanduser().resolve()
-
-    env_value = os.environ.get(ENV_VAR)
-    if env_value:
-        return Path(env_value).expanduser().resolve()
-
-    for candidate in FALLBACK_FRAMEWORK_DIRS:
-        resolved = candidate.expanduser()
-        if resolved.is_dir():
-            return resolved.resolve()
-
-    return FALLBACK_FRAMEWORK_DIRS[0].expanduser().resolve()
+    return DEFAULT_FRAMEWORK_DIR.resolve()
 
 
 def build_agent_framework_ref(value: Path | None = None) -> AgentFrameworkRef:

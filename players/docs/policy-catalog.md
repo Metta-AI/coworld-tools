@@ -50,7 +50,9 @@ container-image policies should live next to the policy they implement.
 | CogsGuard comparison | `tools/compare/cogsguard` | metta `cogames-agents` | Regression, parity, and comparison scripts. |
 | CogsGuard upload | `tools/upload/cogsguard` | metta `cogames-agents` | Legacy submission notes. |
 | CogsGuard research | `tools/research/cogsguard` | metta `cogames-agents` | Rollout, audit, and tuning scripts. |
-| Coborg research tools | `tools/research/coborg` | `Metta-AI/policies`, `Metta-AI/cvc-debugger` | Cursor skills and policy optimizer tools. |
+| Cogbase | `tools/cogbase` | local `cogbase` project | Standalone prototype meta-pipeline for generating source-grounded game guides and base-agent artifacts. Uses `agent_policies.frameworks.coborg` for generated Cyborg runtime adapters. |
+| Cursor skills | `tools/research/cursor-skills` | `Metta-AI/policies` | Cursor skills for the cyborg evolution framework. |
+| CogsGuard CVC debugger optimizer | `tools/research/cogsguard/cvc-debugger-policy-optimizer` | `Metta-AI/cvc-debugger` | Standalone robot policy optimizer container and harness. |
 | CoGames attempts research | `tools/research/cogames-attempts` | `Metta-AI/cogames-attempts` | Sweep, train, eval, and utility scripts. |
 | AI researcher workflows | `tools/research/cogames-rl-researcher` | metta `cogames-rl-researcher` | Monorepo-local workflow package copied out of metta. |
 

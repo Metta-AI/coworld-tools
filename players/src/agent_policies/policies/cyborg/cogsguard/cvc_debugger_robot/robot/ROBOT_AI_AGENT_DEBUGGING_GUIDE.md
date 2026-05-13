@@ -39,7 +39,7 @@ Key files:
 ### Basic Command
 
 ```bash
-ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000
+ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000
 ```
 
 This runs the **tournament environment** — an 88×88 Machina-1 map with 8 cogs, 10,000 ticks, clips ships in all four corners, and the full gear/junction/territory ruleset. Both live tournaments (`beta-cvc` freeplay and `beta-teams-tiny-fixed` team) use this exact configuration.
@@ -47,7 +47,7 @@ This runs the **tournament environment** — an 88×88 Machina-1 map with 8 cogs
 | Flag | Meaning |
 |---|---|
 | `-m machina_1` | Mission/map — use `machina_1` to match tournament config (88×88, clips, gear) |
-| `-p class=robot.RobotPolicy` | Use the robot policy for team 1 |
+| `-p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy` | Use the robot policy for team 1 |
 | `-s 1000` | Run for 10,000 ticks (tournament default) |
 | `-c 4` | 8 cogs (tournament default) |
 | `--seed 42` | Deterministic RNG seed for reproducibility |
@@ -59,7 +59,7 @@ This runs the **tournament environment** — an 88×88 Machina-1 map with 8 cogs
 Prefix with `ROBOT_DEBUG=1` to enable console trace output and the live dashboard:
 
 ```bash
-ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000
+ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000
 ```
 
 This does two things:
@@ -127,7 +127,7 @@ When `ROBOT_DEBUG=1` is set, every agent prints a one-line trace per tick after 
 
 ```bash
 # All decisions for agent 2
-ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 2>&1 | grep '\[A2'
+ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 2>&1 | grep '\[A2'
 
 # All EXPLORE commands (stuck / searching)
 ... | grep 'cmd=EXPLORE'
@@ -304,7 +304,7 @@ Every tick produces a `WorldSnapshot` with these fields. This is what gets pushe
 
 **1. OBSERVE** — Run a game and watch the scrambler:
 ```bash
-ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 --seed 2 2>&1 | grep '\[A2'
+ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 --seed 2 2>&1 | grep '\[A2'
 ```
 
 **2. IDENTIFY** — Scrambler oscillates between two positions in neutral territory:
@@ -335,7 +335,7 @@ print(f"  [A{self._agent_id} DEBUG] enemy junctions={len(junctions)}, "
 ```bash
 for seed in 2 7 13 42 99; do
   echo "=== Seed $seed ==="
-  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 --seed $seed 2>&1 | grep '\[A2.*scrambl'
+  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 --seed $seed 2>&1 | grep '\[A2.*scrambl'
 done
 ```
 
@@ -506,18 +506,18 @@ After making a change, validate it systematically:
 
 ```bash
 # Quick smoke test — single seed
-ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 --seed 42
+ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 --seed 42
 
 # Multi-seed regression check
 for seed in 2 7 13 42 99; do
   echo "=== Seed $seed ==="
-  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 --seed $seed 2>&1 | tail -20
+  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 --seed $seed 2>&1 | tail -20
 done
 
 # Focus on one role across seeds
 for seed in 2 7 13 42 99; do
   echo "=== Seed $seed ==="
-  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=robot.RobotPolicy -s 1000 --seed $seed 2>&1 | grep '\[A2.*scrambl'
+  ROBOT_DEBUG=1 cogames play -m machina_1 -c 4 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -s 1000 --seed $seed 2>&1 | grep '\[A2.*scrambl'
 done
 ```
 

@@ -25,6 +25,7 @@ from maker_v1.build_plan import MakerError, generate_plan  # noqa: E402
 from maker_v1.bootstrap import BootstrapError, run_visual_bootstrap  # noqa: E402
 from maker_v1.cli import main as maker_main  # noqa: E402
 from maker_v1.framework import AgentFrameworkRef  # noqa: E402
+from maker_v1 import framework as maker_framework  # noqa: E402
 from maker_v1.policy_builder import build_policy_from_labels  # noqa: E402
 from maker_v1.smoke import run_smoke_test  # noqa: E402
 from maker_v1.vlm import (  # noqa: E402
@@ -210,16 +211,19 @@ Decode JSON fields directly. There is no framebuffer or pixel payload.
 """,
     )
     bad_root = tmp_path / "bad_framework_root"
-    bad_framework_dir = bad_root / "coborg_framework"
-    bad_package_dir = bad_root / "src" / "cogames_agents" / "cyborg"
+    bad_framework_dir = bad_root / "src" / "agent_policies" / "frameworks" / "coborg"
+    bad_package_dir = bad_framework_dir
     bad_framework_dir.mkdir(parents=True)
-    bad_package_dir.mkdir(parents=True)
-    (bad_root / "src" / "cogames_agents" / "__init__.py").write_text("", encoding="utf-8")
+    (bad_root / "src" / "agent_policies" / "__init__.py").write_text("", encoding="utf-8")
+    (bad_root / "src" / "agent_policies" / "frameworks" / "__init__.py").write_text(
+        "",
+        encoding="utf-8",
+    )
     (bad_package_dir / "__init__.py").write_text("BROKEN = True\n", encoding="utf-8")
     bad_ref = AgentFrameworkRef(
-        name="cyborg",
+        name="coborg",
         framework_dir=bad_framework_dir,
-        package="cogames_agents.cyborg",
+        package="agent_policies.frameworks.coborg",
         package_source_root=bad_root / "src",
     )
     output_dir = tmp_path / "maker_out"
@@ -782,8 +786,9 @@ def _load_generated_agent_module(path: Path) -> types.ModuleType:
         name: sys.modules.get(name)
         for name in (
             "cyborg_agent",
-            "cogames_agents",
-            "cogames_agents.cyborg",
+            "agent_policies",
+            "agent_policies.frameworks",
+            "agent_policies.frameworks.coborg",
             "framework_bootstrap",
             "frame_store",
             "policy",
@@ -820,13 +825,17 @@ def _has_test_file(output_dir: Path, pattern: str) -> bool:
 
 
 def _install_cyborg_stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "cogames_agents_stub"
-    framework_dir = root / "coborg_framework"
-    package_dir = root / "src" / "cogames_agents" / "cyborg"
+    root = tmp_path / "agent_policies_stub"
+    framework_dir = root / "src" / "agent_policies" / "frameworks" / "coborg"
+    package_dir = framework_dir
     framework_dir.mkdir(parents=True, exist_ok=True)
     package_dir.mkdir(parents=True, exist_ok=True)
     (framework_dir / "README.md").write_text("# Cyborg test framework\n", encoding="utf-8")
-    (root / "src" / "cogames_agents" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "agent_policies" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "agent_policies" / "frameworks" / "__init__.py").write_text(
+        "",
+        encoding="utf-8",
+    )
     (package_dir / "__init__.py").write_text(
         '''
 from __future__ import annotations
@@ -995,8 +1004,7 @@ class AgentRuntime:
         + "\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("COGAMES_AGENTS_ROOT", str(root))
-    monkeypatch.setenv("COGBASE_AGENT_FRAMEWORK_DIR", str(framework_dir))
+    monkeypatch.setattr(maker_framework, "DEFAULT_FRAMEWORK_DIR", framework_dir)
     return root
 
 

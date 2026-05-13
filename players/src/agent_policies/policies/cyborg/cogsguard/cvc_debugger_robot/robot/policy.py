@@ -35,6 +35,7 @@ from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.roster im
 from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.observability import (
   ObservabilityHub, start_server, get_hub, is_debug_enabled, build_tick_payload,
 )
+from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.policy_specs import ROBOT_POLICY_SPEC
 from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.llm_coordinator import LLMCoordinator
 
 
@@ -348,7 +349,7 @@ class RobotPolicy(MultiAgentPolicy):
         "max_steps": max_steps,
         "obs_size": [policy_env_info.obs_height, policy_env_info.obs_width],
         "actions": list(policy_env_info.action_names),
-        "policy": "class=robot.RobotPolicy",
+        "policy": ROBOT_POLICY_SPEC,
         "mission": _infer_mission_from_argv(),
         "map_size": _infer_map_size_from_argv(),
         "policy_kwargs": {

@@ -74,15 +74,11 @@ game-specific percept, belief, mode, strategy, and action-resolution functions;
 serialization tests.
 `--game-source <path>` may be provided to record the original game source path
 in the generated manifest.
-`--agent-framework-dir <path>` may be provided to override the generic Cyborg
-framework directory used by generated live runtime adapters. If omitted, Maker
-uses `guide_contract.json`'s `agent_framework.path` when present, then
-`COGBASE_AGENT_FRAMEWORK_DIR`, then
-`~/metta/cogames-agents/coborg_framework`, then
-`~/coding/metta/cogames-agents/coborg_framework`, then
-`~/coding/metta2/metta/cogames-agents/coborg_framework` when present. For
-runnable symbolic or visual scaffolds, Maker validates that the selected
-framework source root imports `cogames_agents.cyborg` and exports the API used by
+`--agent-framework-dir <path>` may be provided for an explicit compatibility
+experiment with another Cyborg framework checkout. If omitted, Maker uses
+`src/agent_policies/frameworks/coborg` from this repository. For runnable
+symbolic or visual scaffolds, Maker validates that the selected framework source
+root imports `agent_policies.frameworks.coborg` and exports the API used by
 `agent/cyborg_agent.py` before writing output artifacts.
 
 The generated `maker_manifest.json` records the consumed guide bundle hash,

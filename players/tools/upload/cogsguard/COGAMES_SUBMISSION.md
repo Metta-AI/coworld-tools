@@ -15,7 +15,6 @@ cd agent-policies
 cogames upload \
   -p <short_name> \
   --include-files src/agent_policies \
-  --include-files src/cogames_agents \
   --setup-script tools/upload/cogsguard/nim_setup_script.py \
   -n <submission-name> \
   --dry-run
@@ -26,7 +25,6 @@ Example:
 ```bash
 cogames upload -p thinky \
   --include-files src/agent_policies \
-  --include-files src/cogames_agents \
   --setup-script tools/upload/cogsguard/nim_setup_script.py \
   -n my-thinky \
   --dry-run

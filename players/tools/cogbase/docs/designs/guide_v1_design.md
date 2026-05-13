@@ -23,10 +23,10 @@ tool, or explorer artifact is generated. The deprecated `eyes_v1` prototype can
 still inform targeted visual-artifact work, but it should not compete with
 `guide_v1` as a source of project truth.
 
-Guide generation also points runner prompts at the generic Cyborg policy
-framework (`cogames_agents.cyborg` under a configured `coborg_framework`
-checkout). The framework does not override game-source facts, but it is the
-target architecture for implementation guidance: percepts update belief,
+Guide generation also points runner prompts at this repository's Cyborg policy
+framework, `agent_policies.frameworks.coborg`. The framework does not override
+game-source facts, but it is the target architecture for implementation guidance:
+percepts update belief,
 deterministic modes emit symbolic intents, action resolution lowers intents to
 transport actions, and slower strategies emit validated mode directives.
 
@@ -153,8 +153,8 @@ Runners are invoked as CLI subprocesses:
 Both are given:
 - A prompt (via stdin or `-p` flag)
 - Access to the game source directory
-- Access to the configured Cyborg framework directory and its Python source
-  root
+- Access to the in-repo `agent_policies.frameworks.coborg` framework directory
+  and its Python source root
 - An output location to write their draft
 
 The runners use their built-in tool use (file reading, web search, etc.) to
@@ -255,16 +255,14 @@ python generate_guides.py /path/to/game/source --claude-model sonnet --codex-mod
 python generate_guides.py /path/to/game/source --runner clod
 python generate_guides.py /path/to/game/source --runner claude --runner codex
 
-# Override the generic Cyborg framework checkout
+# Explicitly override the Cyborg framework for a compatibility experiment
 python generate_guides.py /path/to/game/source \
-  --agent-framework-dir ~/metta/cogames-agents/coborg_framework
+  --agent-framework-dir /path/to/compatible/coborg
 ```
 
-When no framework override is provided, Guide resolves the first available
-framework checkout whose adjacent `src/` tree exposes `cogames_agents.cyborg`;
-the fallback order includes `~/metta/cogames-agents/coborg_framework`,
-`~/coding/metta/cogames-agents/coborg_framework`, and
-`~/coding/metta2/metta/cogames-agents/coborg_framework`.
+When no framework override is provided, Guide uses
+`src/agent_policies/frameworks/coborg` from this repository. It does not search
+external `cogames-agents` checkouts.
 
 ## File Layout
 

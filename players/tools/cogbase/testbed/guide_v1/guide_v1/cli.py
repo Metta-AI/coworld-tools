@@ -98,9 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent-framework-dir",
         type=Path,
         help=(
-            "Path to the generic Cyborg agent policy framework. Defaults to "
-            "$COGBASE_AGENT_FRAMEWORK_DIR, ~/metta/cogames-agents/coborg_framework, "
-            "or ~/coding/metta/cogames-agents/coborg_framework."
+            "Path to a Cyborg agent policy framework. Defaults to the in-repo "
+            "src/agent_policies/frameworks/coborg package."
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print generation plan and exit")

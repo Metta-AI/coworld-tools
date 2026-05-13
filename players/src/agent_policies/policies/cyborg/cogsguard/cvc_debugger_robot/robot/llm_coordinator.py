@@ -8,7 +8,7 @@ The coordinator only sees THIS agent's WorldSnapshot -- no shared state.
 
 Usage:
   Activated by passing llm_model to RobotPolicy:
-    class=robot.RobotPolicy,kw.llm_model=anthropic/claude-opus-4.6
+    class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy,kw.llm_model=anthropic/claude-opus-4.6
 """
 
 from __future__ import annotations

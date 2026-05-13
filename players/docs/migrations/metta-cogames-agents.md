@@ -17,5 +17,6 @@ Current targets:
 - Importable eval helpers and maps:
   `src/agent_policies/tools/eval/cogsguard/`
 
-Canonical imports use `agent_policies.*`. The `src/cogames_agents` tree is a
-compatibility shim only, not a package boundary to extend.
+Canonical imports use `agent_policies.*`. The historical `cogames_agents`,
+`cogamer`, `framework`, and `robot` import roots are not packaged in this repo;
+old imports and short policy specs should be migrated to canonical paths.

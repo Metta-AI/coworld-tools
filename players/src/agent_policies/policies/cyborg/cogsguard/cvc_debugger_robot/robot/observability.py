@@ -5,7 +5,7 @@ Each RobotAgent.step() pushes tick data to the ObservabilityHub, which
 broadcasts it to connected WebSocket clients.
 
 Activation (inline with game):
-  ROBOT_DEBUG=1 cogames play -m arena -p class=robot.RobotPolicy
+  ROBOT_DEBUG=1 cogames play -m arena -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy
 
 Standalone launcher (start game from debugger UI):
   python robot/launcher.py
@@ -23,6 +23,8 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Optional
+
+from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.policy_specs import ROBOT_POLICY_SPEC
 
 logger = logging.getLogger("robot.observability")
 
@@ -608,7 +610,7 @@ def _build_app(hub: ObservabilityHub):
     mission = body.get("mission", "machina_1")
     variant = body.get("variant", "talk")
     num_agents = body.get("num_agents", 8)
-    policy = body.get("policy", "class=robot.RobotPolicy")
+    policy = body.get("policy", ROBOT_POLICY_SPEC)
 
     async def event_stream():
       import subprocess as sp

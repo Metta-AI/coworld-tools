@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,13 +8,15 @@ from pathlib import Path
 from .guide_index import GuideBundle
 
 
-ENV_VAR = "COGBASE_AGENT_FRAMEWORK_DIR"
-FALLBACK_FRAMEWORK_DIRS: tuple[Path, ...] = (
-    Path("~/coding/agent-policies/src/agent_policies/frameworks/coborg"),
-    Path("~/metta/cogames-agents/coborg_framework"),
-    Path("~/coding/metta/cogames-agents/coborg_framework"),
-    Path("~/coding/metta2/metta/cogames-agents/coborg_framework"),
-)
+def _repo_coborg_framework_dir() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "src" / "agent_policies" / "frameworks" / "coborg"
+        if (candidate / "__init__.py").is_file():
+            return candidate
+    raise RuntimeError("could not find src/agent_policies/frameworks/coborg from Cogbase")
+
+
+DEFAULT_FRAMEWORK_DIR = _repo_coborg_framework_dir()
 REQUIRED_CYBORG_SYMBOLS: tuple[str, ...] = (
     "ActionCommand",
     "ActionIntent",
@@ -65,35 +66,10 @@ def build_agent_framework_ref(
 
 
 def _resolve_framework_dir(value: Path | None, *, bundle: GuideBundle | None) -> Path:
+    del bundle
     if value is not None:
         return value.expanduser().resolve()
-
-    contract_value = _framework_path_from_contract(bundle)
-    if contract_value is not None:
-        return contract_value.expanduser().resolve()
-
-    env_value = os.environ.get(ENV_VAR)
-    if env_value:
-        return Path(env_value).expanduser().resolve()
-
-    for candidate in FALLBACK_FRAMEWORK_DIRS:
-        resolved = candidate.expanduser()
-        if resolved.is_dir():
-            return resolved.resolve()
-
-    return FALLBACK_FRAMEWORK_DIRS[0].expanduser().resolve()
-
-
-def _framework_path_from_contract(bundle: GuideBundle | None) -> Path | None:
-    if bundle is None or bundle.contract is None:
-        return None
-    value = bundle.contract.get("agent_framework")
-    if not isinstance(value, dict):
-        return None
-    path = value.get("path")
-    if not isinstance(path, str) or not path:
-        return None
-    return Path(path)
+    return DEFAULT_FRAMEWORK_DIR.resolve()
 
 
 def validate_agent_framework_ref(agent_framework: AgentFrameworkRef) -> None:

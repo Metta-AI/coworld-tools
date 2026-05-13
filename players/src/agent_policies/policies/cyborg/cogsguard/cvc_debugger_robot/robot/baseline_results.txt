@@ -1,6 +1,6 @@
 === BASELINE EVALUATION (machina_1, 8 agents) ===
 Date: Wed Apr 16 2026 (post-Softy upgrades)
-Config: -m machina_1 -c 8 -p class=robot.RobotPolicy -r log
+Config: -m machina_1 -c 8 -p class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy -r log
 Seeds: 2 7 13 42 99
 
 ========================================

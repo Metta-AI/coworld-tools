@@ -73,9 +73,9 @@ symbolic-primary games, it also generates a starter Python agent scaffold under
 visual starter when the guide proves a serializable action wire contract, plus
 frame storage and mock VLM labeling tools. Generated live starters include
 `agent/framework_bootstrap.py` and `agent/cyborg_agent.py`, which point the
-artifact at the configured `cogames_agents.cyborg` framework and wrap the
-starter policy in Cyborg percept, belief, mode, strategy, and action-resolution
-boundaries. The generated visual starter can connect to a WebSocket, save
+artifact at this repository's `agent_policies.frameworks.coborg` framework and
+wrap the starter policy in Cyborg percept, belief, mode, strategy, and
+action-resolution boundaries. The generated visual starter can connect to a WebSocket, save
 frames, decode observations when possible, choose simple movement actions, and
 send only protocol-serialized actions. Maker can
 also run an offline Phase 4 bootstrap over captured raw observations or image

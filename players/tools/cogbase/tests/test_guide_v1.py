@@ -224,8 +224,8 @@ def _framework_ref(tmp_path: Path) -> AgentFrameworkRef:
     framework_dir.mkdir()
     package_source_root.mkdir()
     return AgentFrameworkRef(
-        name="cyborg",
+        name="coborg",
         framework_dir=framework_dir,
-        package="cogames_agents.cyborg",
+        package="agent_policies.frameworks.coborg",
         package_source_root=package_source_root,
     )

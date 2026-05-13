@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.policy_specs import ROBOT_POLICY_SPEC
+
 POLICIES_DIR = str(Path(__file__).parent.parent)
 
 
@@ -55,7 +57,7 @@ def run_single_eval(
   num_agents: int = 8,
   mission: str = "machina_1",
   variant: str = "talk",
-  policy: str = "class=robot.RobotPolicy",
+  policy: str = ROBOT_POLICY_SPEC,
 ) -> EvalResult:
   """Run a single headless eval episode. Returns parsed results. ~5-15s."""
   start = time.monotonic()
@@ -191,7 +193,7 @@ def run_multi_seed_eval(
   num_agents: int = 8,
   mission: str = "machina_1",
   variant: str = "talk",
-  policy: str = "class=robot.RobotPolicy",
+  policy: str = ROBOT_POLICY_SPEC,
   on_progress: Optional[callable] = None,
 ) -> EvalRun:
   """Run evals across seeds in parallel. Returns aggregated results."""
@@ -248,7 +250,7 @@ class EvalEngine:
     mission: str = "machina_1",
     variant: str = "talk",
     num_agents: int = 8,
-    policy: str = "class=robot.RobotPolicy",
+    policy: str = ROBOT_POLICY_SPEC,
   ) -> EvalResult:
     """Run a single quick eval synchronously."""
     return run_single_eval(seed, steps, num_agents, mission, variant, policy)
@@ -260,7 +262,7 @@ class EvalEngine:
     mission: str = "machina_1",
     variant: str = "talk",
     num_agents: int = 8,
-    policy: str = "class=robot.RobotPolicy",
+    policy: str = ROBOT_POLICY_SPEC,
     diff: Optional[str] = None,
   ) -> EvalRun:
     """Run multi-seed eval synchronously. Stores result in history."""

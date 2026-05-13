@@ -18,6 +18,7 @@ import threading
 import traceback
 
 from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.observability import ObservabilityHub, start_server
+from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.policy_specs import ROBOT_DEBUG_POLICY_SPEC
 
 
 def _run_game(hub: ObservabilityHub, params: dict) -> None:
@@ -45,7 +46,7 @@ def _run_game(hub: ObservabilityHub, params: dict) -> None:
 
   env_cfg.game.max_steps = steps
 
-  policy_spec = parse_policy_spec("class=robot.RobotPolicy,kw.debug=true", device="cpu")
+  policy_spec = parse_policy_spec(ROBOT_DEBUG_POLICY_SPEC, device="cpu")
   seed_rollout_rng(seed)
 
   console = Console(stderr=True)

@@ -11,8 +11,8 @@ attention to the former `cogames-agents` source split and the
 ## Resolved Direction
 
 The right package boundary is `agent_policies`, not a resurrected
-`cogames-agents` package. The old package name is useful only as a compatibility
-shim for downstream callers that still import historical paths.
+`cogames-agents` package. Historical import roots were removed after canonical
+repo-local references were migrated.
 
 Canonical structure:
 
@@ -28,11 +28,6 @@ src/agent_policies/
     cyborg/cogsguard/cvc_debugger_robot/
   tools/
     eval/cogsguard/
-
-src/cogames_agents/   # compatibility shim only
-src/cogamer/          # compatibility shim only
-src/framework/        # compatibility shim only
-src/robot/            # compatibility shim only
 ```
 
 ## Findings
@@ -53,7 +48,8 @@ Resolution:
   `src/agent_policies/tools/eval/cogsguard/`.
 - Root `pyproject.toml` now defines the `agent-policies` distribution.
 - Old `tools/packaging/cogames-agents-legacy` package files were removed.
-- `src/cogames_agents/` now contains only compatibility wrappers.
+- Historical `src/cogames_agents/`, `src/cogamer/`, `src/framework/`, and
+  `src/robot/` compatibility wrappers were removed.
 
 ### Coborg Contained Multiple Concepts Under One Directory
 
@@ -85,6 +81,9 @@ Resolution:
   is acceptable, but each serious policy should eventually get a manifest with
   owner, status, target game, import path or upload path, eval command, and
   packaging notes.
+- `tools/cogbase/` is an intentional standalone tool subtree with its own package
+  metadata, docs, tests, and lockfile. It should stay under `tools/` until it is
+  either promoted into `src/agent_policies/tools/` or intentionally split out.
 - Several historical docs under `docs/legacy/` intentionally preserve old
   `cogames-agents` paths. They should remain clearly marked as archaeology.
 - Some old research scripts still mention local `~/projects/cogames-agents`
@@ -93,5 +92,4 @@ Resolution:
 ## Validation Boundary
 
 Validation tests were renamed to `validation/agent-policies-tests/` and updated
-to use canonical `agent_policies.*` imports, with focused coverage for the
-compatibility shims.
+to use canonical `agent_policies.*` imports.

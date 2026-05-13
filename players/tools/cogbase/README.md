@@ -34,8 +34,8 @@ Early prototype. The importable `src/cogbase` package is still minimal, but
   plus a machine-readable `guide_contract.json` from a game source directory
   using selected Claude/Codex runner drafts, with synthesis when two runners are
   selected. Guide prompts are also given
-  the generic Cyborg policy framework location so implementation guidance is
-  written for the same framework Maker will use.
+  the in-repo `agent_policies.frameworks.coborg` framework location so
+  implementation guidance is written for the same framework Maker will use.
 - `maker_v1/` implements the first four slices of the next agent-making stage.
   It consumes the guide contract first, falls back to Markdown extraction when
   needed, classifies the observation surface, extracts candidate actions,
@@ -44,7 +44,7 @@ Early prototype. The importable `src/cogbase` package is still minimal, but
   generates starter Python agents for symbolic-primary games, and emits live
   visual starter agents when the guide proves a usable action wire contract.
   Generated live agents now include a `cyborg_agent.py` adapter that uses
-  `cogames_agents.cyborg` from the configured Cyborg framework checkout.
+  `agent_policies.frameworks.coborg` from this repository.
   Its Phase 4 bootstrap can decode raw observations, label image frames with a
   strict mock or AWS Bedrock Claude VLM budget, cache those labels, validate
   actions, emit a label-derived starter policy, and run local smoke tests
@@ -110,8 +110,9 @@ Current testbed entries:
   `guide_contract.json`, the machine-readable handoff consumed by downstream
   stages. This is the canonical front door for classifying symbolic vs visual
   observation surfaces and deciding what downstream artifacts a game needs.
-  It points guide prompts at the generic Cyborg policy framework by default,
-  with `--agent-framework-dir` or `COGBASE_AGENT_FRAMEWORK_DIR` for overrides.
+  It points guide prompts at `agent_policies.frameworks.coborg` by default;
+  `--agent-framework-dir` is available only for explicit experiments with a
+  compatible framework checkout.
 - **`maker_v1/`** -- Early next-stage agent maker. The implemented command
   consumes `guide_v1` outputs, preferring `guide_contract.json` over
   Markdown heuristics, generates build-plan artifacts, emits source-grounded

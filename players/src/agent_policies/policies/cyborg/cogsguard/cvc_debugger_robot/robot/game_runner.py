@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.observability import ObservabilityHub
+from agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.policy_specs import ROBOT_DEBUG_POLICY_SPEC
 
 
 @dataclass
@@ -31,7 +32,7 @@ class GameRequest:
   mission: str = "arena"
   seed: int = 42
   steps: int = 2000
-  policy: str = "class=robot.RobotPolicy,kw.debug=true"
+  policy: str = ROBOT_DEBUG_POLICY_SPEC
   num_agents: int = 4
   variant: str = "talk"
   render: str = "none"
@@ -46,7 +47,7 @@ class GameRequest:
 @dataclass
 class EvalRequest:
   id: str
-  policy: str = "class=robot.RobotPolicy,kw.debug=true"
+  policy: str = ROBOT_DEBUG_POLICY_SPEC
   mission: str = "arena"
   seeds: list[int] = field(default_factory=lambda: [42, 123, 456, 789, 1337])
   steps: int = 2000
@@ -79,7 +80,7 @@ class GameRunner:
       mission=params.get("mission", params.get("map", "arena")),
       seed=int(params.get("seed", 42)),
       steps=int(params.get("steps", 2000)),
-      policy=params.get("policy", "class=robot.RobotPolicy,kw.debug=true"),
+      policy=params.get("policy", ROBOT_DEBUG_POLICY_SPEC),
       num_agents=int(params.get("num_agents", params.get("players", 4))),
       variant=params.get("variant", "talk"),
       render=params.get("render", "none"),
@@ -95,7 +96,7 @@ class GameRunner:
     seeds = params.get("seeds", [42, 123, 456, 789, 1337])
     req = EvalRequest(
       id=eval_id,
-      policy=params.get("policy", "class=robot.RobotPolicy,kw.debug=true"),
+      policy=params.get("policy", ROBOT_DEBUG_POLICY_SPEC),
       mission=params.get("mission", params.get("map", "arena")),
       seeds=seeds,
       steps=int(params.get("steps", 2000)),
