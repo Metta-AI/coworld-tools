@@ -171,9 +171,11 @@ The belief state is the agent's working model of the world. It is:
 ### Conceptual layers
 
 1. **Self.** Role (crew / imposter / ghost), alive / dead, colour,
-   kill cooldown remaining (imposter), known teammate colours
-   (imposter), home position, current mode, current directive,
-   current phase (gameplay / interstitial / voting).
+   kill-ready state (imposter — true iff the lit kill button is
+   visible this frame; the bot does not estimate cooldown itself),
+   known teammate colours (imposter), home position, current mode,
+   current directive, current phase (gameplay / interstitial /
+   voting).
 2. **Perception.** Camera lock, self world position, visible actors
    (colour + position + last-seen tick), visible bodies, visible task
    icons, radar dots, interstitial state, voting parse when
@@ -208,8 +210,7 @@ The belief state is the agent's working model of the world. It is:
 6. **Directive.** Current mode, mode parameters, directive source
    (`llm` / `default`), issue tick, TTL, reasoning (debug only).
 7. **Flags.** Recent "wake up" events for the guidance loop to
-   notice — body seen, kill cooldown elapsed, new chat line, meeting
-   started, role revealed.
+   notice — body seen, new chat line, meeting started, role revealed.
 
 ### Invariants
 
@@ -560,8 +561,6 @@ Reflex conditions fire on **transitions**, not persistent state:
   without firing, so the bot does not repeatedly flee from the same
   corpse when it leaves and re-enters the viewport. Known body
   positions clear across meetings, game-over, and round resets.
-- `kill_cooldown_just_elapsed` fires on the tick the timer reaches
-  zero, not every tick after.
 - `voting_screen_appeared` fires on the tick the interstitial
   begins, not every tick of the voting phase.
 
@@ -868,9 +867,9 @@ Hybrid periodic + event-driven:
   snapshot.
 - **Triggered:** the inner loop raises a flag on the belief
   (`wake_up_reason`) when something important happens — new body,
-  kill cooldown elapsed, new chat, meeting started, role revealed,
-  directive TTL close to expiring. The guidance thread polls the
-  flag and prioritizes triggered snapshots over periodic ones.
+  new chat, meeting started, role revealed, directive TTL close to
+  expiring. The guidance thread polls the flag and prioritizes
+  triggered snapshots over periodic ones.
 - **Throttled:** hard cap on LLM calls per match (`LlmMaxCallsPerMatch`,
   currently 120 in `tuning.nim`) and per
   second (e.g. 1 per 500 ms). If we hit the cap, the loop stops
@@ -887,7 +886,7 @@ the belief state. Structure, not prose. Initial shape:
   "tick": int,
   "self": { "role": str, "color": str, "is_ghost": bool,
             "alive": bool, "position": [int, int],
-            "kill_cooldown_remaining": int,
+            "kill_ready": bool,
             "known_imposters": [color, ...] },
   "phase": "gameplay" | "voting" | "interstitial" | "game_over",
   "current_mode": { "name": str, "params": {...},
@@ -1201,7 +1200,6 @@ best-effort safety net only.
 { "t": tick, "kind": "vent_suspected",   "color": color, "position": [x,y],
   "vent_label": str, "distance": int, "probability_pct": int, "score": int }
 { "t": tick, "kind": "kill_committed",   "victim": color, "position": [x,y] }
-{ "t": tick, "kind": "kill_cooldown_ready" }
 { "t": tick, "kind": "task_started",     "task_index": int,
   "station_name": str, "selection_tier": "icon" | "checkout" | "geometry" }
 { "t": tick, "kind": "task_completed",   "task_index": int,

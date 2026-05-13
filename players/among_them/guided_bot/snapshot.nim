@@ -119,7 +119,6 @@ proc wakeReasonStr*(w: WakeReason): string =
   case w
   of WakePeriodic:              "periodic"
   of WakeBodySeen:              "body_seen"
-  of WakeKillCooldownReady:     "kill_cooldown_ready"
   of WakeChatObserved:          "chat_observed"
   of WakeMeetingStarted:        "meeting_started"
   of WakeRoleRevealed:          "role_revealed"
@@ -163,7 +162,10 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
     let room = roomNameAt(referenceData.map, belief.percep.selfX, belief.percep.selfY)
     if room != "unknown":
       selfObj["room"] = newJString(room)
-  selfObj["kill_cooldown_remaining"] = newJInt(belief.self.killCooldownRemaining)
+  # kill_ready reflects the lit kill button as seen by perception this
+  # frame — the sole authority on whether the imposter can strike. The
+  # bot does not track its own cooldown; only the live HUD state matters.
+  selfObj["kill_ready"] = newJBool(belief.percep.killReady)
   var impColors = newJArray()
   for c in belief.self.knownImposterColors:
     impColors.add newJString(colorName(c))

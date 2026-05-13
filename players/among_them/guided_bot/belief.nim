@@ -39,7 +39,6 @@ proc initSelfState*(): SelfState =
     colorIndex: -1,
     isGhost: false,
     alive: true,
-    killCooldownRemaining: 0,
     knownImposterColors: @[],
     failedKillCounts: [0, 0, 0, 0, 0, 0, 0, 0],
     phase: PhaseUnknown

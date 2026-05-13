@@ -284,7 +284,6 @@ type
     colorIndex*: int         ## -1 until observed.
     isGhost*: bool
     alive*: bool
-    killCooldownRemaining*: int
     knownImposterColors*: seq[int]
     failedKillCounts*: array[PlayerColorCount, int]
     phase*: GamePhase
@@ -410,7 +409,6 @@ type
   WakeReason* = enum
     WakePeriodic
     WakeBodySeen
-    WakeKillCooldownReady
     WakeChatObserved
     WakeMeetingStarted
     WakeRoleRevealed
