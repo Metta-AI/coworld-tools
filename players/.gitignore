@@ -3,6 +3,7 @@ __pycache__/
 .eval_results/
 .benchmarks/
 .pytest_cache/
+.ruff_cache/
 .venv/
 .nimcache/
 nimcache/
@@ -10,6 +11,12 @@ nimcache/
 *.dylib
 *.so
 *.o
+
+# macOS
+.DS_Store
+
+# Claude Code session locks
+**/.claude/scheduled_tasks.lock
 
 # Coworld manifest/image cache downloaded by `coworld download` (see e.g.
 # src/agent_policies/policies/cyborg/bitworld/coborg_among_them/scripts/play_local.sh).
