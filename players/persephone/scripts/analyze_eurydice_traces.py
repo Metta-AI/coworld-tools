@@ -59,6 +59,8 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "probe_failed",
         "probe_target_selected",
         "whisper_created",
+        "whisper_offer_state",
+        "whisper_system_message_observed",
         "raw",
         "select_task",
         "strategic_state_change",

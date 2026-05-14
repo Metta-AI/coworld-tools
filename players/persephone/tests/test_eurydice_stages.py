@@ -1819,6 +1819,72 @@ def test_ticks_before_first_offer_calculated() -> None:
     assert acc.ticks_before_first_offer == 15
 
 
+def test_whisper_offer_state_trace_fires_when_active_role_offers_changes() -> None:
+    """update_exchange_tracker should emit a whisper_offer_state event when
+    perception populates active_role_offers from a partner's offer."""
+    belief_state, accumulators, knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+    )
+    belief_state.active_role_offers = []
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        update_exchange_tracker(accumulators, knowledge, belief_state)
+        # Now the partner offers; trace should fire on the change.
+        belief_state.active_role_offers = [1]
+        update_exchange_tracker(accumulators, knowledge, belief_state)
+    finally:
+        set_logger(None)
+
+    events = [e for e in _json_events(lines) if e.get("type") == "whisper_offer_state"]
+    assert len(events) >= 2
+    assert events[-1]["active_role_offers"] == [1]
+    assert events[-1]["whisper_occupants"] == [0, 1]
+
+
+def test_whisper_offer_state_trace_skips_when_not_in_whisper() -> None:
+    belief_state, accumulators, knowledge = _initialized_state(
+        view=View.PLAYING,
+        in_whisper=False,
+    )
+    belief_state.active_role_offers = [1]
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        update_exchange_tracker(accumulators, knowledge, belief_state)
+    finally:
+        set_logger(None)
+
+    events = [e for e in _json_events(lines) if e.get("type") == "whisper_offer_state"]
+    assert events == []
+
+
+def test_whisper_system_message_observed_trace_recognizes_offer() -> None:
+    """A whisper system message containing 'offered role' should trace as
+    recognized so we can confirm perception parsed the partner's offer."""
+    belief_state, accumulators, knowledge = _initialized_state(
+        view=View.WHISPER,
+        in_whisper=True,
+        whisper_occupants=[0, 1],
+        chat_history=[_system_message("Y.TRI offered role", tick=10)],
+    )
+
+    lines = _capture_eurydice_logs("decisions")
+    try:
+        update_exchange_tracker(accumulators, knowledge, belief_state)
+    finally:
+        set_logger(None)
+
+    events = [
+        e for e in _json_events(lines) if e.get("type") == "whisper_system_message_observed"
+    ]
+    assert len(events) == 1
+    assert events[0]["recognized_pattern"] is True
+    assert "offered role" in events[0]["text"].lower()
+
+
 def test_exchange_tracker_and_chat_tracker_no_double_count() -> None:
     belief_state, accumulators, knowledge = _initialized_state(
         in_whisper=True,

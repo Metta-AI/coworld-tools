@@ -47,6 +47,8 @@ _PREV_ACTIVE_COLOR_OFFERS = "_eurydice_prev_active_color_offers"
 _PREV_ACTIVE_ROLE_OFFERS = "_eurydice_prev_active_role_offers"
 _PREV_PENDING_OFFERS = "_eurydice_prev_pending_offers"
 _INFO_SCREEN_RECONCILE_REASON = "_eurydice_info_screen_reconcile_reason"
+_WHISPER_OFFER_STATE_SNAPSHOT = "_eurydice_whisper_offer_state_snapshot"
+_WHISPER_SYSMSG_LAST_TICK = "_eurydice_whisper_sysmsg_last_tick"
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +677,127 @@ def _process_active_exchange_offers(
     belief_state.extra[_PREV_ACTIVE_COLOR_OFFERS] = current_color
     belief_state.extra[_PREV_ACTIVE_ROLE_OFFERS] = current_role
     belief_state.extra[_PREV_PENDING_OFFERS] = current_pending
+
+    _log_whisper_offer_state(belief_state)
+    _log_new_whisper_system_messages(belief_state)
+
+
+def _log_whisper_offer_state(belief_state: BeliefState) -> None:
+    """Trace the in-whisper offer/exchange state when it changes.
+
+    Diagnoses whether perception is populating active_role_offers /
+    active_color_offers / pending_offers when the partner offers in a
+    shared whisper. If a key pair joins the same whisper but the trace
+    never shows the partner index appearing in active_role_offers, the
+    deterministic FSM (and the LLM hook) has nothing to accept and will
+    keep offering past each other.
+    """
+    if not logger:
+        return
+    if getattr(belief_state, "view", None) != View.WHISPER:
+        return
+
+    occupants = list(getattr(belief_state, "whisper_occupants", []) or [])
+    active_role = list(getattr(belief_state, "active_role_offers", []) or [])
+    active_color = list(getattr(belief_state, "active_color_offers", []) or [])
+    pending = dict(getattr(belief_state, "pending_offers", {}) or {})
+    pending_entry = getattr(belief_state, "pending_entry", None)
+    last_event = getattr(belief_state, "last_exchange_event", None)
+
+    last_event_type = None
+    last_event_tick = None
+    last_event_participants: list[int] = []
+    if isinstance(last_event, dict):
+        last_event_type = last_event.get("type")
+        last_event_tick = last_event.get("tick")
+        last_event_participants = list(last_event.get("participants", []) or [])
+
+    snapshot = (
+        tuple(sorted(occupants)),
+        tuple(sorted(active_role)),
+        tuple(sorted(active_color)),
+        bool(pending.get("role")),
+        bool(pending.get("color")),
+        pending_entry,
+        last_event_type,
+        last_event_tick,
+        tuple(sorted(last_event_participants)),
+    )
+    if belief_state.extra.get(_WHISPER_OFFER_STATE_SNAPSHOT) == snapshot:
+        return
+    belief_state.extra[_WHISPER_OFFER_STATE_SNAPSHOT] = snapshot
+
+    logger.event(
+        "whisper_offer_state",
+        {
+            "view": "whisper",
+            "whisper_occupants": occupants,
+            "active_role_offers": active_role,
+            "active_color_offers": active_color,
+            "pending_role": bool(pending.get("role")),
+            "pending_color": bool(pending.get("color")),
+            "pending_entry": pending_entry,
+            "last_exchange_event_type": last_event_type,
+            "last_exchange_event_tick": last_event_tick,
+            "last_exchange_event_participants": last_event_participants,
+        },
+        LogLevel.DECISIONS,
+    )
+
+
+def _log_new_whisper_system_messages(belief_state: BeliefState) -> None:
+    """Trace new whisper messages so we can verify perception parses them.
+
+    Logs both system messages (sender_index is None) and player messages.
+    System messages drive active_role_offers / active_color_offers /
+    shared_roles. If the trace shows zero whisper messages of any kind,
+    the gap is upstream perception (orpheus.perception._chatroom OCR not
+    seeing any text). If we see player messages but no recognized system
+    text, the gap is the keyword matcher in orpheus.belief_update.
+    """
+    if not logger:
+        return
+
+    chat_history = getattr(belief_state, "chat_history", None)
+    if not chat_history:
+        return
+
+    last_logged_tick = belief_state.extra.get(_WHISPER_SYSMSG_LAST_TICK, -1)
+    new_max_tick = last_logged_tick
+
+    for record in chat_history:
+        if record.channel != "whisper":
+            continue
+        if record.tick <= last_logged_tick:
+            continue
+
+        new_max_tick = max(new_max_tick, record.tick)
+        text_lower = record.text.casefold()
+        is_system = record.sender_index is None
+        recognized = is_system and (
+            "offered role" in text_lower
+            or "role offered" in text_lower
+            or "offered color" in text_lower
+            or "color offered" in text_lower
+            or "shared roles" in text_lower
+            or "swapped colors" in text_lower
+            or "withdrew" in text_lower
+        )
+        logger.event(
+            "whisper_system_message_observed",
+            {
+                "tick": record.tick,
+                "text": record.text,
+                "is_system": is_system,
+                "sender_index": record.sender_index,
+                "recognized_pattern": recognized,
+                "occupants_at_message": list(record.occupants or []),
+            },
+            LogLevel.DECISIONS,
+        )
+
+    if new_max_tick != last_logged_tick:
+        belief_state.extra[_WHISPER_SYSMSG_LAST_TICK] = new_max_tick
 
 
 def _record_offer_by_index(
