@@ -1,6 +1,7 @@
 *.egg-info/
 __pycache__/
 .eval_results/
+.benchmarks/
 .pytest_cache/
 .venv/
 .nimcache/

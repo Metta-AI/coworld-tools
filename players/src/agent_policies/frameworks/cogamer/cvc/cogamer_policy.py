@@ -38,6 +38,32 @@ except ImportError:
 _LLM_INTERVAL = 500
 _LOG_INTERVAL = 500
 _LEARNINGS_DIR = os.environ.get("COGLET_LEARNINGS_DIR", "/tmp/coglet_learnings")
+_ELEMENTS = ("carbon", "oxygen", "germanium", "silicon")
+
+
+def _metrics_snapshot(summary: dict[str, Any]) -> dict[str, str | int | float | bool]:
+    inventory = summary.get("inventory", {})
+    team_resources = summary.get("team_resources", summary.get("resources", {}))
+    junctions = summary.get("junctions", {})
+    metrics: dict[str, str | int | float | bool] = {
+        "step": int(summary.get("step", 0) or 0),
+        "agent_id": int(summary.get("agent_id", 0) or 0),
+        "role": str(summary.get("role", "")),
+        "resource_bias": str(summary.get("resource_bias", "")),
+        "stalled": bool(summary.get("stalled", False)),
+        "oscillating": bool(summary.get("oscillating", False)),
+    }
+    if isinstance(inventory, dict):
+        metrics["heart_total"] = int(inventory.get("heart", 0) or 0)
+    if isinstance(team_resources, dict):
+        resources = {element: int(team_resources.get(element, 0) or 0) for element in _ELEMENTS}
+        metrics["team_resource_units"] = sum(resources.values())
+        metrics["resource_types_seen"] = sum(1 for amount in resources.values() if amount > 0)
+    if isinstance(junctions, dict):
+        metrics["friendly_junctions_visible"] = int(junctions.get("friendly", 0) or 0)
+        metrics["neutral_junctions_visible"] = int(junctions.get("neutral", 0) or 0)
+        metrics["enemy_junctions_visible"] = int(junctions.get("enemy", 0) or 0)
+    return metrics
 
 
 @dataclass
@@ -175,6 +201,7 @@ class CvCPolicyImpl(StatefulPolicyImpl[CvCAgentState]):
                     "resource_bias": state.resource_bias_from_llm,
                     "role_override": parsed.get("role"),
                     "objective": parsed.get("objective"),
+                    "metrics_snapshot": _metrics_snapshot(summary),
                 }
             )
             print(
