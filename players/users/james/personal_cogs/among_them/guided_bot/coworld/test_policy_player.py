@@ -75,6 +75,24 @@ class PolicyPlayerHelpersTest(unittest.TestCase):
         self.assertEqual(int(frame[0, 0]), 1)
         self.assertEqual(int(frame[0, 1]), 2)
 
+    def test_websocket_diagnostics_summarizes_bitscreen_activity(self) -> None:
+        diagnostics = policy_player.WebsocketDiagnostics(
+            protocol="bitscreen",
+            slot=3,
+            connected_at=1.0,
+        )
+        diagnostics.mark_bitscreen_message(bytes([0x21]) * 8192)
+        action_mask = diagnostics.mark_bitscreen_action(1, "hello")
+
+        summary = diagnostics.summary()
+        self.assertEqual(action_mask, int(policy_player.BITWORLD_ACTION_MASKS[1]))
+        self.assertIn("protocol=bitscreen", summary)
+        self.assertIn("slot=3", summary)
+        self.assertIn("messages=1", summary)
+        self.assertIn("actions=1", summary)
+        self.assertIn("chats=1", summary)
+        self.assertIn("last_chat_chars=5", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

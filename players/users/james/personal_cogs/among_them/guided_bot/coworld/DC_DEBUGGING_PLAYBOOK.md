@@ -5,6 +5,35 @@ disconnects from hosted Coworld Among Them games well before the game ends.
 This is a starting point for a fresh session — read it cold, don't assume
 prior context.
 
+## 0. 2026-05-14 resolution update
+
+The early-disconnect failure reproduced locally against the refreshed
+canonical `among_them` Coworld package (`among_them:0.1.20`,
+`cow_4e26463b-a768-4db3-9aa9-2af8f3e009e7`) with 8 guided_bot player
+containers. The wrapper diagnostics in `policy_player.py` showed every
+player closing at ~40 seconds / tick ~892 with:
+
+```text
+class=ConnectionClosedError code=1006 sent_code=1011 sent_reason='keepalive ping timeout'
+```
+
+That means the Python `websockets` client closed the connection after its
+own protocol-level keepalive ping timed out. The game server was still
+streaming binary frames, and the bot was still sending actions.
+
+`guided_bot/coworld/policy_player.py` now disables client keepalive pings
+with `ping_interval=None` for Coworld websocket connections and logs close
+diagnostics that include close codes, last frame/action, counters, and
+recv/send timing. A follow-up local Coworld play run using the fixed image
+`jamesboggs-guided-bot-coworld-wsfix-20260514-144036:latest` reached
+tick 2740+ for all 8 bots and ended by the configured time limit, not by the
+old 40-second keepalive failure.
+
+The older server-kick / no-op fallback hypothesis below is still useful
+context for gameplay and hosted-league analysis, but it is no longer the
+best explanation for the local Coworld websocket close reproduced in this
+session.
+
 ---
 
 ## 1. The actual problem (as of 2026-05-14)
@@ -500,23 +529,28 @@ So a future Claude can skip these traps directly:
 
 ## 10. Suggested next-session opening moves
 
-1. **Wire up `[trace:perception]` emission** so we have one more
+1. **Preserve the wrapper ping fix when rebuilding or uploading.** Any
+   Coworld image used for debugging should include
+   `WEBSOCKET_CONNECT_OPTIONS["ping_interval"] = None`; otherwise it can
+   reproduce the old 40-second self-close regardless of bot behavior.
+2. **Use the websocket close diagnostics before inferring policy failure.**
+   Check each `policy_agent_*.txt` for `BitWorld player websocket closed`;
+   `sent_reason='keepalive ping timeout'` points at the Python wrapper,
+   while a clean time-limit run should reach thousands of messages/actions
+   and close only after the game exits.
+3. **Wire up `[trace:perception]` emission** so we have one more
    stream to debug the localization regression with. (Search for
    `logPerception` in `bot.nim` — it's probably wired conditionally or
    not at all.)
-2. **Patch the "not localized → mask=0" path** in `bot.nim`'s
+4. **Patch the "not localized → mask=0" path** in `bot.nim`'s
    decision pipeline to emit a non-zero "keepalive wander" action.
    Rebuild `libguidedbot.dylib`. Re-run §7.4 self-play. Verify all
    8 agents survive to `maxTicks=10000` (or near it).
-3. **If self-play now survives, build a new image** with this patch
+5. **If self-play now survives, build a new image** with this patch
    *and* the same `GUIDED_BOT_TRACE_LEVEL=full` setting, submit it,
    and check the next league episode for whether our slot reaches
    ~4800 frames.
-4. **If self-play still doesn't survive**, instrument
-   `policy_player.py` to log each WS send and confirm masks are
-   actually being transmitted. The disconnect cause might be a Python
-   wrapper bug, not the policy logic.
-5. **Independently, raise the Bedrock cred issue with Softmax** — even
+6. **Independently, raise the Bedrock cred issue with Softmax** — even
    when we stop being kicked, the bot is playing without LLM
    guidance, which caps its strategic ceiling regardless.
 
@@ -528,6 +562,11 @@ What this session actually changed in the repo:
   from `events` → `full`.
 - `guided_bot/coworld/README.md` — added 2026-05-14 row to the
   submission log.
+- `guided_bot/coworld/policy_player.py` — added websocket close
+  diagnostics and disabled client keepalive pings for Coworld websocket
+  connections after reproducing `sent_reason='keepalive ping timeout'`.
+- `guided_bot/coworld/test_policy_player.py` — added focused coverage for
+  the websocket diagnostics summary.
 - New uploaded policy version
   `jamesboggs-guided-bot-coworld-20260514-092239:v1` is the **active
   champion** in the Among Them Daily league (membership
