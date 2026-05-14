@@ -1,29 +1,33 @@
 # cogbase
 
-Tools and skills for faster development of base agents for [cogames](https://github.com/Metta-AI/cogames).
+Tools and skills for faster development of base agents for
+[Coworld](https://github.com/Metta-AI/metta/tree/main/packages/coworld) games.
 
 ## What is this?
 
 Cogbase is a brick-by-brick effort to build up tools that make developing base
-agents for cogames faster, and ultimately automatic. Rather than pursuing an
-end-to-end auto-coding approach, the project focuses on human-in-the-loop
-pipelines that turn a game source tree into the artifacts an agent developer
-needs:
+agents for Coworld games faster, and ultimately automatic. Rather than pursuing
+an end-to-end auto-coding approach, the project focuses on human-in-the-loop
+pipelines that turn a game source tree (or a downloaded Coworld package) into
+the artifacts an agent developer needs:
 
 - **Game guides** -- source-grounded reference docs covering rules, protocol,
   observations, actions, lifecycle, training, robustness, and starter agents
 - **Perception systems** -- interpreting game observations
 - **Action systems** -- mapping decisions to valid game actions
+- **Coworld-compatible player packaging** -- Dockerfile and runtime contract
+  wiring so the generated agent can be run with `coworld run-episode` and
+  submitted with `coworld upload-policy` / `coworld submit`
 - **Other agent subsystems** as they emerge
 
-The intended scope is general-purpose for games in the cogames ecosystem, or
-for games with similarly inspectable source and agent/game protocols. Current
-prototypes have been exercised on multiple games, including Among Them, Cogs vs
-Clips, and Paint Arena, but the project is not meant to be specific to any one
-game.
+The intended scope is general-purpose for games in the Coworld ecosystem, or
+for games with similarly inspectable source and player/game protocols. Current
+prototypes have been exercised on multiple games, including Among Them, Cogs
+vs Clips, and Paint Arena, but the project is not meant to be specific to any
+one game.
 
-The goal: ship functional, usable cogame environments faster by reducing the
-human time and effort currently required to develop competent base agents.
+The goal: ship functional, usable Coworld players faster by reducing the human
+time and effort currently required to develop competent base agents.
 
 ## Status
 
@@ -72,8 +76,11 @@ terminology.
 
 ## Related projects
 
-- [CoGames](https://github.com/Metta-AI/cogames) -- the game environments these agents target
+- [Coworld](https://github.com/Metta-AI/metta/tree/main/packages/coworld) -- the
+  v2 tournament platform: CLI, manifest format, and player/game runtime
+  contract these agents target
 - [Metta](https://github.com/Metta-AI/metta) -- the underlying Metta framework
+  (BitWorld engine, mettagrid, Coworld)
 
 ## Setup
 

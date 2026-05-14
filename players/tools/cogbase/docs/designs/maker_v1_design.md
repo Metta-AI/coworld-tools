@@ -48,8 +48,9 @@ target environment explicitly allows that.
 - Use the VLM less over time as frame fixtures, parsers, and control policies
   improve.
 - Keep all generated game-specific code and data under an artifact directory.
-- Produce an agent that can be run, tested, iterated, and eventually submitted
-  through the target cogames/co-games contract.
+- Produce an agent that can be run, tested, iterated, and eventually
+  submitted through the Coworld contract (`coworld run-episode`,
+  `coworld upload-policy`, `coworld submit`).
 
 ## Non-Goals
 
@@ -120,8 +121,9 @@ discovery is not implemented yet.
 
 Optional:
 
-- Known season/cogames upload contract.
-- Existing player templates.
+- Downloaded Coworld manifest (`coworld_manifest.json` and linked
+  `game.protocols.player` doc) for the target package.
+- Existing player templates (`coworld make-policy <starter>`).
 - Existing frame fixtures or replays.
 - Human seed instructions for rare visual states.
 - VLM provider config.

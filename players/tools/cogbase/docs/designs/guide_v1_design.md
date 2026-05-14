@@ -8,8 +8,9 @@ The pipeline analyzes game source code through multiple LLM runners, synthesizes
 their outputs, and produces documents in dependency order so that later documents
 can build on earlier ones.
 
-The design target is general-purpose for cogames and similar inspectable
-agent/game codebases. Among Them is a validation target, not the scope boundary.
+The design target is general-purpose for Coworld games and similar
+inspectable agent/game codebases. Among Them is a validation target, not the
+scope boundary.
 
 `guide_v1` is a meta-pipeline toolkit. The guide documents and
 `guide_contract.json` files it creates are generated artifacts and should live
@@ -261,8 +262,8 @@ python generate_guides.py /path/to/game/source \
 ```
 
 When no framework override is provided, Guide uses
-`src/agent_policies/frameworks/coborg` from this repository. It does not search
-external `cogames-agents` checkouts.
+`src/agent_policies/frameworks/coborg` from this repository. It does not
+search external framework checkouts.
 
 ## File Layout
 

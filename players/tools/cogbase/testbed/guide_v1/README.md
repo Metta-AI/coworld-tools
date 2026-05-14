@@ -5,11 +5,11 @@ development. Analyzes a game's source code and produces a structured library
 of markdown references covering everything needed to go from "never seen this
 game" to "working agent that connects, perceives, decides, and acts."
 
-`guide_v1` is intended to be a general-purpose pipeline for cogames and nearby
-agent/game frameworks. It is not an Among Them-specific tool. The source
-directory is an input, the runners inspect that source directly, and the output
-documents should describe whatever game, protocol, observations, actions, and
-training surfaces the source actually exposes.
+`guide_v1` is intended to be a general-purpose pipeline for Coworld games and
+nearby agent/game frameworks. It is not an Among Them-specific tool. The
+source directory is an input, the runners inspect that source directly, and
+the output documents should describe whatever game, protocol, observations,
+actions, and training surfaces the source actually exposes.
 
 `guide_v1` itself is the meta-pipeline toolkit. Generated guide bundles are
 artifacts and belong under `output/`. A guide bundle contains human-readable
@@ -50,7 +50,7 @@ The document suite is organized around four principles:
 
 4. **Game-agnostic generality**: The structure is designed to work across
    real-time action, turn-based strategy, social deduction, card games,
-   platformers, puzzles, and other cogames-style agent environments.
+   platformers, puzzles, and other Coworld-style agent environments.
 
 ## Document Suite
 
@@ -286,8 +286,8 @@ python generate_guides.py <path_to_game_source> --runner claude --runner codex
 ```
 
 If `--agent-framework-dir` is omitted, Guide uses
-`src/agent_policies/frameworks/coborg` from this repository. It does not search
-external `cogames-agents` checkouts.
+`src/agent_policies/frameworks/coborg` from this repository. It does not
+search external framework checkouts.
 
 The output directory contains the final Markdown suite, `guide_contract.json`,
 and `.drafts/` subdirectories with whichever runner drafts were selected. When
