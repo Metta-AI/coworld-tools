@@ -51,7 +51,9 @@ from .log import logger
 
 
 ACTION_COOLDOWN_TICKS = 48
-OFFER_RESPONSE_TIMEOUT_TICKS = 72
+# Was 72 (3 s); paired with the key_exchange protocol-timeout bump above so
+# offerers wait long enough for the partner's accept menu sequence to land.
+OFFER_RESPONSE_TIMEOUT_TICKS = 144
 EXTRACT_TIMEOUT_TICKS = 96
 STALL_FIRST_MESSAGE_TICK = 48
 STALL_SECOND_MESSAGE_TICK = 144
@@ -449,6 +451,15 @@ class InWhisperMode(Mode):
             _transition_to_exit(belief_state, state, "color_exchange_timeout")
             return IdleTask()
 
+        llm_task = _llm_whisper_task(
+            belief_state,
+            state,
+            self.params,
+            {"offer_color", "accept_color", "exit_whisper", "hold"},
+        )
+        if llm_task is not None:
+            return llm_task
+
         if _pending_offer(belief_state, "color"):
             target_index = _offer_index("color", state.target_occupant, belief_state)
             if target_index is None:
@@ -535,6 +546,15 @@ class InWhisperMode(Mode):
             )
             _transition_to_exit(belief_state, state, "role_exchange_timeout")
             return IdleTask()
+
+        llm_task = _llm_whisper_task(
+            belief_state,
+            state,
+            self.params,
+            {"offer_role", "accept_role", "exit_whisper", "hold"},
+        )
+        if llm_task is not None:
+            return llm_task
 
         if _pending_offer(belief_state, "role"):
             target_index = _offer_index("role", state.target_occupant, belief_state)
@@ -1138,17 +1158,30 @@ def _llm_whisper_task(
         return None
 
     task = task_for_whisper_decision(result.decision, belief_state)
-    if result.decision.get("action") == "send_whisper":
+    action_name = result.decision.get("action")
+    if action_name == "send_whisper":
         state.messages_sent += 1
         state.waiting_for_response_since = tick
-    if result.decision.get("action") == "grant_entry":
+    if action_name == "grant_entry":
         _log_entry_granted(
             belief_state,
             state,
             player_index_to_id(getattr(belief_state, "pending_entry", None), belief_state),
         )
-    if result.decision.get("action") in {"deny_entry", "exit_whisper"}:
+    if action_name in {"deny_entry", "exit_whisper"}:
         _transition_to_exit(belief_state, state, "llm_exit_or_deny")
+    # Exchange decisions need to update FSM state (active_exchange_task,
+    # *_exchange_initiated) so the menu sequence is tracked across ticks.
+    # task_for_whisper_decision returns the raw exchange task; rewrap it
+    # through _begin_exchange_menu_task to set state correctly.
+    if action_name == "offer_role":
+        return _begin_exchange_menu_task(state, tick, "role_offer")
+    if action_name == "offer_color":
+        return _begin_exchange_menu_task(state, tick, "color_offer")
+    if action_name == "accept_role" and isinstance(task, AcceptRoleExchangeTask):
+        return _begin_exchange_menu_task(state, tick, "role_accept", task.player_index)
+    if action_name == "accept_color" and isinstance(task, AcceptColorExchangeTask):
+        return _begin_exchange_menu_task(state, tick, "color_accept", task.player_index)
     return task
 
 

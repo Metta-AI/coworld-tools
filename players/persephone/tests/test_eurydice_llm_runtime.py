@@ -18,7 +18,11 @@ from agents.eurydice.pipeline import initialize_eurydice_state, player_index_to_
 from agents.eurydice.strategic_state import StrategicState
 from agents.eurydice.types import Objective, Role, Team
 from agents.eurydice.whisper_mode import InWhisperMode, InWhisperParams
-from orpheus.tasks import GrantEntryTask
+from orpheus.tasks import (
+    AcceptRoleExchangeTask,
+    GrantEntryTask,
+    OfferRoleExchangeTask,
+)
 
 
 def _state() -> BeliefState:
@@ -599,3 +603,115 @@ def test_in_whisper_llm_control_can_grant_pending_entry() -> None:
     task = mode.select_task(belief_state, memory)
 
     assert isinstance(task, GrantEntryTask)
+
+
+def test_in_whisper_llm_control_can_accept_pending_role_offer(monkeypatch) -> None:
+    """LLM-driven whisper hook should accept a pending role offer.
+
+    Before this hook was wired into _role_exchange_task, the LLM only got
+    consulted on the first message and entry-grant decisions; exchange
+    decisions were fully deterministic. With the hook in place, a provider
+    that returns ``accept_role`` now drives the actual accept menu sequence.
+    """
+    from agents.eurydice.llm_context import DECISION_SCHEMA_VERSION
+
+    belief_state = _state()
+    belief_state.view = View.WHISPER
+    belief_state.in_whisper = True
+    belief_state.whisper_occupants = [0, 1]
+    belief_state.pending_entry = None
+    belief_state.active_role_offers = {1: 0}  # player 1 offered role to us
+    partner = player_index_to_id(1, belief_state)
+    assert partner is not None
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "accept_role",
+                "surface": "whisper",
+                "target": list(partner),
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": True,
+                "confidence": 0.9,
+                "rationale": "accept partner's role offer",
+            }
+
+    monkeypatch.setattr(
+        "agents.eurydice.whisper_mode.make_provider",
+        lambda name: Provider(),
+        raising=False,
+    )
+    # The actual import in _llm_whisper_task is local; patch via importable name
+    import agents.eurydice.llm_provider as llm_provider_mod
+
+    monkeypatch.setattr(llm_provider_mod, "make_provider", lambda name: Provider())
+
+    mode = InWhisperMode()
+    mode.params = InWhisperParams(llm_control="whispers", llm_provider="fake")
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    # Drive FSM through ENTER -> ASSESS -> ROLE_EXCHANGE
+    for _ in range(4):
+        task = mode.select_task(belief_state, memory)
+        if isinstance(task, AcceptRoleExchangeTask):
+            break
+
+    assert isinstance(task, AcceptRoleExchangeTask), (
+        f"expected AcceptRoleExchangeTask, got {type(task).__name__}"
+    )
+    assert task.player_index == 1
+
+
+def test_in_whisper_llm_control_can_proactively_offer_role(monkeypatch) -> None:
+    """LLM-driven whisper hook should also drive proactive role offers."""
+    from agents.eurydice.llm_context import DECISION_SCHEMA_VERSION
+
+    belief_state = _state()
+    belief_state.view = View.WHISPER
+    belief_state.in_whisper = True
+    belief_state.whisper_occupants = [0, 1]
+
+    class Provider:
+        name = "fake"
+
+        def decide(self, context, prompt):
+            del context, prompt
+            return {
+                "schema_version": DECISION_SCHEMA_VERSION,
+                "action": "offer_role",
+                "surface": "whisper",
+                "target": None,
+                "destination": None,
+                "hostage_targets": None,
+                "message": None,
+                "reveal_color": False,
+                "reveal_role": True,
+                "confidence": 0.8,
+                "rationale": "offer role to whisper occupant",
+            }
+
+    import agents.eurydice.llm_provider as llm_provider_mod
+
+    monkeypatch.setattr(llm_provider_mod, "make_provider", lambda name: Provider())
+
+    mode = InWhisperMode()
+    mode.params = InWhisperParams(llm_control="whispers", llm_provider="fake")
+    memory = ActionMemory()
+    mode.mode_enter(belief_state, memory)
+
+    for _ in range(4):
+        task = mode.select_task(belief_state, memory)
+        if isinstance(task, OfferRoleExchangeTask):
+            break
+
+    assert isinstance(task, OfferRoleExchangeTask), (
+        f"expected OfferRoleExchangeTask, got {type(task).__name__}"
+    )

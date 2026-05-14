@@ -95,9 +95,13 @@ INTERACTION_RANGE: int = 20
 INTERACTION_RANGE_SQ: int = INTERACTION_RANGE ** 2
 
 # Whisper protocol timeouts (ticks)
+# key_exchange was 96 (4s); live traces showed key-pair joins exiting on
+# protocol_timeout / role_exchange_timeout before either side could complete
+# the menu sequence and have the server confirm shared_roles. Bumped to 288
+# (12 s) so the in-whisper handshake actually has room to land.
 PROTOCOL_TIMEOUTS: dict[str, int] = {
     "standard": 240,      # 10 seconds
-    "key_exchange": 96,   # 4 seconds
+    "key_exchange": 288,  # 12 seconds
     "infiltration": 240,  # 10 seconds
     "stall": 288,         # 12 seconds
     "quick_verify": 144,  # 6 seconds
