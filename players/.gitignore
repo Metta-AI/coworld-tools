@@ -9,3 +9,7 @@ nimcache/
 *.dylib
 *.so
 *.o
+
+# Coworld manifest/image cache downloaded by `coworld download` (see e.g.
+# src/agent_policies/policies/cyborg/bitworld/coborg_among_them/scripts/play_local.sh).
+/coworld/
