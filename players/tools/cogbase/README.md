@@ -36,19 +36,17 @@ Early prototype. The importable `src/cogbase` package is still minimal, but
   selected. Guide prompts are also given
   the in-repo `agent_policies.frameworks.coborg` framework location so
   implementation guidance is written for the same framework Maker will use.
-- `maker_v1/` implements the first four slices of the next agent-making stage.
-  It consumes the guide contract first, falls back to Markdown extraction when
-  needed, classifies the observation surface, extracts candidate actions,
-  writes a build plan, manifest, VLM play card, and VLM request/response
-  schemas, generates a source-grounded decoder spec and decoder implementation,
-  generates starter Python agents for symbolic-primary games, and emits live
-  visual starter agents when the guide proves a usable action wire contract.
-  Generated live agents now include a `cyborg_agent.py` adapter that uses
-  `agent_policies.frameworks.coborg` from this repository.
-  Its Phase 4 bootstrap can decode raw observations, label image frames with a
-  strict mock or AWS Bedrock Claude VLM budget, cache those labels, validate
-  actions, emit a label-derived starter policy, and run local smoke tests
-  against a supplied game server command or already-running server.
+- `maker_v2/` is the canonical next agent-making stage, currently a fresh
+  scaffold. Its CLI exists but generation is not yet implemented. It is the
+  intended successor to `maker_v1` and is designed to be contract-first,
+  composable, and to lean on agent-driven generation instead of hand-coded
+  Python derivers. See [maker_v2 Design](docs/designs/maker_v2_design.md).
+- `maker_v1/` is the deprecated first-generation agent-making toolkit. It
+  still runs for short-term continuity but is not receiving new features, and
+  every entry point emits a deprecation warning. See
+  [maker_v1 Deprecation Note](docs/designs/maker_v1_deprecation.md) for the
+  rationale and [maker_v1 Design](docs/designs/maker_v1_design.md) for the
+  historical implementation notes.
 - `eyes_v1/` is deprecated as a primary pipeline stage. Its visual-analysis and
   capture-generation code is preserved as optional experimental tooling, but
   `guide_v1` owns canonical game understanding and documentation.
@@ -113,19 +111,25 @@ Current testbed entries:
   It points guide prompts at `agent_policies.frameworks.coborg` by default;
   `--agent-framework-dir` is available only for explicit experiments with a
   compatible framework checkout.
-- **`maker_v1/`** -- Early next-stage agent maker. The implemented command
-  consumes `guide_v1` outputs, preferring `guide_contract.json` over
-  Markdown heuristics, generates build-plan artifacts, emits source-grounded
-  observation decoders, creates starter Python agent scaffolds for
-  symbolic-primary games, creates live visual starter agents for visual/mixed
-  games with proven action serialization, uses the configured Cyborg policy
-  framework for generated live runtime adapters, can run offline VLM labeling with
-  mock or AWS Bedrock providers, and can seed a starter policy from validated
-  labels. It can also run local smoke tests for generated agents when given a
-  server command or WebSocket URL. See
-  [maker_v1 Design](docs/designs/maker_v1_design.md) for the full intended
-  path toward automatic run-config discovery, deterministic parser generation,
-  stronger policies, and submission packaging.
+- **`maker_v2/`** -- Canonical next-stage agent maker (fresh scaffold). CLI is
+  in place but no generation is implemented yet. Intended to replace the
+  deprecated `maker_v1` with a contract-first, composable pipeline that uses
+  agent-driven generation instead of large amounts of hand-coded Python
+  extraction. See [maker_v2 Design](docs/designs/maker_v2_design.md).
+- **`maker_v1/`** -- Deprecated first-generation agent maker. Preserved for
+  short-term continuity. The implemented command consumes `guide_v1` outputs,
+  preferring `guide_contract.json` over Markdown heuristics, generates
+  build-plan artifacts, emits source-grounded observation decoders, creates
+  starter Python agent scaffolds for symbolic-primary games, creates live
+  visual starter agents for visual/mixed games with proven action
+  serialization, uses the configured Cyborg policy framework for generated
+  live runtime adapters, can run offline VLM labeling with mock or AWS
+  Bedrock providers, and can seed a starter policy from validated labels. It
+  can also run local smoke tests for generated agents when given a server
+  command or WebSocket URL. Every entry point now emits a deprecation
+  warning. See
+  [maker_v1 Deprecation Note](docs/designs/maker_v1_deprecation.md) and
+  [maker_v1 Design](docs/designs/maker_v1_design.md).
 - **`eyes_v1/`** -- Deprecated visual exploration prototype. Keep it available
   for targeted/manual visual evidence work, frame fixtures, and capture-tool
   experiments after `guide_v1` identifies that a visual artifact is needed. Do

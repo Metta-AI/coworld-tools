@@ -26,13 +26,17 @@ or explorer work begins. Deprecated `eyes_v1` artifacts can still be useful for
 targeted visual evidence, but they should be generated only after `guide_v1` or
 a human operator identifies a concrete perception need.
 
-The next stage is `maker_v1`, described in
-`../../docs/designs/maker_v1_design.md`. It consumes `guide_contract.json`
-first, falls back to Markdown when a contract is unavailable, generates
-agent-build planning artifacts, and now emits starter symbolic agents for
-symbolic-primary games plus capture-only visual shells for visual or
-mixed/alternate games. It can also run offline visual bootstrap over captured
-image frames using either mock labels or AWS Bedrock Claude labels.
+The canonical next stage is `maker_v2`, described in
+`../../docs/designs/maker_v2_design.md`. `maker_v2` is currently a fresh
+scaffold and does not yet generate agents. While it is being built up, the
+deprecated `maker_v1` (see
+`../../docs/designs/maker_v1_deprecation.md`) remains runnable for short-term
+continuity. `maker_v1` consumes `guide_contract.json` first, falls back to
+Markdown when a contract is unavailable, generates agent-build planning
+artifacts, emits starter symbolic agents for symbolic-primary games plus
+capture-only visual shells for visual or mixed/alternate games, and can run
+offline visual bootstrap over captured image frames using either mock labels
+or AWS Bedrock Claude labels. New work should target `maker_v2`.
 
 ## Design Philosophy
 

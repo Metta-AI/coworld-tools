@@ -15,10 +15,17 @@ from .smoke import SmokeError, run_smoke_test
 LOGGER = logging.getLogger(__name__)
 
 
+_DEPRECATION_BANNER = (
+    "WARNING: maker_v1 is DEPRECATED. New work should go into maker_v2 "
+    "(testbed/maker_v2/). See docs/designs/maker_v1_deprecation.md."
+)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    LOGGER.warning(_DEPRECATION_BANNER)
 
     guide_dir = args.guide_dir.expanduser()
     if not guide_dir.exists() or not guide_dir.is_dir():

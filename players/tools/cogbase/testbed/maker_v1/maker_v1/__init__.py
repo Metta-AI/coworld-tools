@@ -1,4 +1,23 @@
+"""DEPRECATED: ``maker_v1`` is the deprecated first-generation agent-making
+toolkit for Cogbase. New work should target ``maker_v2`` under
+``testbed/maker_v2/``. See ``docs/designs/maker_v1_deprecation.md`` for the
+rationale and ``docs/designs/maker_v2_design.md`` for the replacement
+direction.
+
+This package is preserved for short-term continuity. It still runs, but it is
+not receiving new features and its entry points emit ``DeprecationWarning``.
+"""
+
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "maker_v1 is deprecated; new work should go into maker_v2 "
+    "(testbed/maker_v2/). See docs/designs/maker_v1_deprecation.md.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from .bootstrap import BootstrapResult, run_visual_bootstrap
 from .build_plan import MakerResult, generate_plan

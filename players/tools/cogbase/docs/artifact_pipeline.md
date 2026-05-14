@@ -8,10 +8,11 @@ are artifacts.
 ## Terms
 
 - **Meta-pipeline toolkit**: reusable generator code. `guide_v1` is the active
-  canonical toolkit for game understanding; `maker_v1` is the early toolkit
-  for turning guide bundles into runnable baseline agents; `eyes_v1` is a
-  deprecated visual exploration prototype kept for targeted artifact
-  experiments.
+  canonical toolkit for game understanding; `maker_v2` is the canonical (but
+  early-scaffold) toolkit for turning guide bundles into runnable baseline
+  agents; `maker_v1` is the deprecated first-generation maker, preserved for
+  short-term continuity; `eyes_v1` is a deprecated visual exploration
+  prototype kept for targeted artifact experiments.
 - **Generated artifact**: a game-specific output produced by a toolkit, such as
   a guide document, UI report, view explorer, captured frame set, fixture, test
   harness, policy scaffold, or final agent.
@@ -28,7 +29,7 @@ game source
      -> understanding artifacts
         guide docs, guide_contract.json, interface contracts,
         observation/action classifications
-  -> maker_v1
+  -> maker_v2  (canonical, early scaffold; replaces deprecated maker_v1)
      -> generated helper tools
         perception parsers, view explorers, capture tools, test harnesses
      -> helper-tool outputs
@@ -59,36 +60,22 @@ operator has identified a concrete visual-perception need.
 
 ## Agent-Making Stage
 
-`maker_v1` is the next stage after `guide_v1`. The implemented command consumes
-a guide bundle. It prefers the machine-readable `guide_contract.json` for
-observation surface, primary observation encoding, candidate actions, action
-wire format, and runtime notes; Markdown parsing remains a compatibility
-fallback for older guide bundles. Maker produces `maker_manifest.json`,
-`AGENT_BUILD_PLAN.md`, `visual_bootstrap/play_card.md`,
-`visual_bootstrap/vlm_request_schema.json`, `visual_bootstrap/vlm_schema.json`,
-a source-grounded `agent/perception/decoder_spec.json`,
-`DECODER_GENERATION_TASK.md`, and `agent/perception/decoder.py`. For
-symbolic-primary games, it also generates a starter Python agent scaffold under
-`agent/`. For visual or mixed/alternate games, it generates a conservative live
-visual starter when the guide proves a serializable action wire contract, plus
-frame storage and mock VLM labeling tools. Generated live starters include
-`agent/framework_bootstrap.py` and `agent/cyborg_agent.py`, which point the
-artifact at this repository's `agent_policies.frameworks.coborg` framework and
-wrap the starter policy in Cyborg percept, belief, mode, strategy, and
-action-resolution boundaries. The generated visual starter can connect to a WebSocket, save
-frames, decode observations when possible, choose simple movement actions, and
-send only protocol-serialized actions. Maker can
-also run an offline Phase 4 bootstrap over captured raw observations or image
-frames, optionally decode raw observations into PNG fixtures, label them with
-either mock labeling or AWS Bedrock Claude labeling, write structured labels
-and run reports under `visual_bootstrap/`, and generate a label-derived
-`agent/policy_from_labels.py`. Maker can also run a local smoke test against a
-supplied server command or already-running server, writing reports and logs
-under `smoke_tests/`. The full design still calls for automatic run-config
-discovery, deterministic parser generation, and final submit-ready agent
-packages.
+The canonical agent-making stage is `maker_v2`, a fresh scaffold under
+`testbed/maker_v2/`. It is intended to replace the deprecated `maker_v1`
+prototype with a contract-first, more composable pipeline that leans on
+agent-driven generation instead of large amounts of hand-coded Python
+extraction logic. See [maker_v2 Design](designs/maker_v2_design.md).
 
-See [maker_v1 Design](designs/maker_v1_design.md).
+`maker_v2` is early; its CLI exists but generation is not yet implemented.
+While `maker_v2` is filling in, the deprecated `maker_v1` toolkit remains
+available for short-term continuity. Its historical capabilities, status, and
+generated artifact set are documented in
+[maker_v1 Design](designs/maker_v1_design.md), and its retirement is recorded
+in [maker_v1 Deprecation Note](designs/maker_v1_deprecation.md). New games
+and new pipeline work should target `maker_v2`; falling back to `maker_v1`
+should be treated as a temporary measure, and any gap that forces such a
+fallback should be filed as a `maker_v2` requirement rather than a new
+`maker_v1` feature.
 
 ## Repository Rule
 
