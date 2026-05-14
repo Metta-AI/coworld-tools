@@ -42,16 +42,18 @@ Use `guide_v1` first:
    capture plans, frame fixtures, replay/global-view captures, parser tests, or
    instrumented harnesses.
 
-The `maker_v1` stage owns the next step: turning guide bundles into baseline
-agent artifacts. It now produces plan artifacts, starter symbolic agents for
-symbolic-primary games, capture-only visual shells for visual or
-mixed/alternate games, and an offline visual bootstrap loop over captured image
-frames using mock labels or AWS Bedrock Claude labels. `eyes_v1` code may be
-reused for targeted visual artifacts, but outputs from that reuse belong under
-an `output/<game>/`
-artifact directory and should not be treated as toolkit code or authoritative
-documentation. See `maker_v1_design.md` for the VLM-assisted visual bootstrap
-model.
+The maker stage owns the next step: turning guide bundles into baseline
+agent artifacts. The canonical maker is now `maker_v2` (see
+`maker_v2_design.md`), a fresh scaffold that replaces the deprecated
+`maker_v1` (see `maker_v1_deprecation.md`). Historically, `maker_v1` produced
+plan artifacts, starter symbolic agents for symbolic-primary games,
+capture-only visual shells for visual or mixed/alternate games, and an
+offline visual bootstrap loop over captured image frames using mock labels or
+AWS Bedrock Claude labels; that behavior remains available from the
+deprecated toolkit while `maker_v2` is built up. `eyes_v1` code may be reused
+for targeted visual artifacts, but outputs from that reuse belong under an
+`output/<game>/` artifact directory and should not be treated as toolkit code
+or authoritative documentation.
 
 ## Status
 

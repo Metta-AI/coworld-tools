@@ -1,6 +1,19 @@
 # maker_v1
 
-Status: early implementation. Phase 1 plan artifacts, Phase 2 symbolic agent
+> **DEPRECATED.** `maker_v1` is no longer the canonical Cogbase agent-making
+> stage. New work should go into [`maker_v2`](../maker_v2/). The code below is
+> preserved for short-term continuity and for any in-flight games that still
+> rely on it, but it is not receiving new features and every entry point emits
+> a deprecation warning. See
+> [`docs/designs/maker_v1_deprecation.md`](../../docs/designs/maker_v1_deprecation.md)
+> for the rationale and
+> [`docs/designs/maker_v2_design.md`](../../docs/designs/maker_v2_design.md)
+> for the replacement direction.
+
+Status: deprecated. The historical implementation notes below are kept for
+reference.
+
+Historical status: early implementation. Phase 1 plan artifacts, Phase 2 symbolic agent
 scaffolds, Phase 3 visual starter agents/VLM contract tooling, and Phase 4
 offline visual bootstrap exist. Visual and mixed games now receive a live
 `run_agent.py` when the guide proves a serializable action wire contract, such

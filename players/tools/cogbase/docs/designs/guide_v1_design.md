@@ -31,15 +31,18 @@ percepts update belief,
 deterministic modes emit symbolic intents, action resolution lowers intents to
 transport actions, and slower strategies emit validated mode directives.
 
-The downstream consumer is `maker_v1`, which reads the guide bundle's
-`guide_contract.json` first, falls back to Markdown for older bundles, writes
-build-plan artifacts, generates starter symbolic agents for symbolic-primary
-games, and emits live visual starter agents for visual or mixed/alternate
-games when the guide proves a serializable action wire contract. It can also
-run offline visual bootstrap over captured image frames with mock labels or
-AWS Bedrock Claude labels. The full design continues toward
-stronger baseline agent generation. See
-`maker_v1_design.md`.
+The canonical downstream consumer is `maker_v2`, a fresh scaffold that is
+intended to replace the deprecated `maker_v1`. `maker_v2` is contract-first
+and is meant to lean on agent-driven generation rather than hand-coded Python
+extraction; it is not yet implemented beyond the CLI scaffold. See
+`maker_v2_design.md`. While `maker_v2` is being built up, the deprecated
+`maker_v1` (see `maker_v1_deprecation.md` and `maker_v1_design.md`) remains
+runnable for short-term continuity: it reads `guide_contract.json` first,
+falls back to Markdown for older bundles, writes build-plan artifacts,
+generates starter symbolic agents for symbolic-primary games, emits live
+visual starter agents when the guide proves a serializable action wire
+contract, and can run offline visual bootstrap over captured image frames
+with mock labels or AWS Bedrock Claude labels.
 
 ## Architecture
 

@@ -1,8 +1,18 @@
 # maker_v1: Agent Generation And VLM Visual Bootstrap Design
 
+> **DEPRECATED.** `maker_v1` has been retired as the canonical agent-making
+> stage in favor of `maker_v2`. This document is preserved as historical
+> design context. See
+> [`maker_v1_deprecation.md`](maker_v1_deprecation.md) for the rationale and
+> [`maker_v2_design.md`](maker_v2_design.md) for the replacement direction.
+
 ## Status
 
-Design plus partial implementation. Phase 1 plan artifacts, Phase 2 symbolic
+Deprecated. The historical status notes below describe what was implemented
+under `maker_v1` before deprecation; they are kept for reference and do not
+imply ongoing development.
+
+Historical status: design plus partial implementation. Phase 1 plan artifacts, Phase 2 symbolic
 agent scaffolds, Phase 3 visual starter agents/VLM contract tooling, and Phase
 4 offline visual bootstrap are implemented under `testbed/maker_v1/`. Visual
 and mixed games now receive a live `run_agent.py` when the guide proves a
