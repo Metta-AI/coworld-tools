@@ -5,7 +5,7 @@
 > If you're touching strategy, directory layout, or submission workflow, touch
 > this file too. Stale missions are worse than no mission.
 >
-> Last reviewed: 2026-05-11
+> Last reviewed: 2026-05-13
 
 ---
 
@@ -28,10 +28,11 @@ Concretely, this repo is a workshop for multiple agents across multiple games:
 
 ## Goals, in priority order
 
-1. **Ship a working submission** to the active season for each game we care
-   about. "Working" means: passes `cogames` validation (or intentionally
-   `--skip-validation` for known no-op-startup failures), gets picked up by
-   the tournament runner, and plays real matches without crashing.
+1. **Ship a working submission** to the active league/season for each game we
+   care about. "Working" means: passes the relevant validation or smoke test,
+   gets picked up by the tournament runner, and plays real matches without
+   crashing. Among Them Daily now uses the v2 Coworld league flow; legacy
+   `cogames` seasons are a separate surface.
 2. **Win.** Climb the leaderboard. Beat the `starter` / `baseline` policies,
    then beat the top human/team submissions.
 3. **Self-improve.** Where feasible, let agents learn across games — memory
@@ -42,8 +43,8 @@ Concretely, this repo is a workshop for multiple agents across multiple games:
 
 ## Non-goals (for now)
 
-- Not building the cogames framework itself — that's Softmax's job, in
-  `~/coding/metta/packages/cogames`.
+- Not building the cogames/Coworld framework itself - that's Softmax's job, in
+  `~/coding/metta/packages/cogames` and `~/coding/metta/packages/coworld`.
 - Not inventing new games in this repo. If we want a new game, upstream it.
 - Not chasing every season. Pick one or two at a time and commit.
 
@@ -63,7 +64,8 @@ personal_cogs/
 │       ├── README.md       # agent-specific notes: strategy, status, scores
 │       ├── policy.py       # or nim sources + FFI wrapper, per pattern
 │       ├── build_*.py      # if Nim-backed
-│       └── cogames/        # submission-packaging subdir (ship.sh, etc.)
+│       ├── cogames/        # legacy bundle submission wrapper, when used
+│       └── coworld/        # Docker-image external-player submission wrapper
 └── notes/                  # cross-cutting experiments, post-mortems
 ```
 
@@ -90,8 +92,9 @@ being asked) apply here too. What follows is mission-specific.
 
 - **Start each session by re-reading `MISSION.md` and `COGAMES.md`.** They
   drift. The season you targeted last week may be gone. The CLI flags may
-  have changed. Trust live `cogames --help` over these files, and **update
-  these files when you notice drift.**
+  have changed. For current Among Them, trust `uv run coworld --help`,
+  `uv run coworld leagues`, and the latest `play_amongthem.md` over stale
+  legacy `cogames` docs. **Update these files when you notice drift.**
 - **Record submission results.** Every time you upload a policy, append a
   row to the agent's `README.md`: date, policy name, season, dry-run result,
   leaderboard score (fill in later). This is our only memory across
@@ -99,19 +102,30 @@ being asked) apply here too. What follows is mission-specific.
 - **Dump game memory** where possible. For LLM-driven agents, save per-game
   episodic/strategic memory to JSON so we can synthesize learnings into
   future system prompts. (Pattern from `SMART_BOT_GUIDE.md`.)
-- **Prefer live CLI help** over this doc, `COGAMES.md`, or `softmax.com/play.md`
-  when they disagree. Live CLI wins.
+- **Prefer current game-specific instructions and verify them live.** For
+  Among Them, `https://softmax.com/play_amongthem.md` is the current public
+  submission guide. The current Metta source guide uses `uv run coworld`,
+  `Among Them Daily`, and Observatory v2; `cogames season list` is legacy
+  and must not be used to decide Daily league status. Still verify commands
+  with the live CLI/API, and record any guide/package drift in the relevant
+  docs.
 
 ### Before shipping
 
-- Dry-run every submission (`ship.sh dry-run` or `cogames upload --dry-run`).
+- Validate every submission before spending a slot. For legacy bundle flows,
+  dry-run with `ship.sh dry-run` or `cogames upload --dry-run`; for current
+  Among Them Coworld submissions, build linux/amd64 with Docker, smoke-run
+  `/bin/guided_bot --help`, and prefer `uv run coworld run-episode` against
+  the downloaded `among_them` Coworld manifest when it is practical.
 - Only use `--skip-validation` for the known "Policy took no actions (all
   no-ops)" failure mode on perception-based bots that need >10 frames to
   localize. Never use it to route around real bugs. See
   `COGAMES.md` § validation gate for the decision tree.
-- Ship to the correct season. Verify with `cogames season show <name>`.
-  Freeplay seasons are safe for iteration; team/tournament seasons have
-  limited submission slots — don't burn one on a bad build.
+- Ship to the correct league/season. For current Among Them, verify
+  `Among Them Daily` with `uv run coworld leagues` and submit through
+  Coworld v2. For legacy bundle seasons, verify with
+  `cogames season show <name>`. Limited-submission competitions should not
+  get untested builds.
 
 ### When adding a new agent
 
@@ -119,8 +133,9 @@ being asked) apply here too. What follows is mission-specific.
 2. Copy the closest working agent as a template; rename every identifier.
 3. Get `cogames play` or the local equivalent working end-to-end *before*
    touching submission packaging.
-4. Then add the `cogames/` submission subdir and a `ship.sh` (or the
-   Python-only equivalent — see `COGAMES.md` § submission patterns).
+4. Then add the relevant submission wrapper: `cogames/` for legacy Python
+   bundles, or a Docker-image external-player path for current Among Them.
+   See `COGAMES.md` § submission patterns.
 5. Dry-run. Fix. Ship. Record.
 
 ### Self-improvement loop
@@ -145,7 +160,7 @@ None of this is required on day one. It's where we're heading.
 
 > Update this section whenever priorities shift. Don't let it rot.
 
-**As of 2026-05-11:**
+**As of 2026-05-13:**
 
 - **Current active Among Them agent:** `among_them/guided_bot/`.
   Use guided_bot for development, tests, local matches, traces, and
@@ -183,10 +198,10 @@ None of this is required on day one. It's where we're heading.
   FFI export, Python `bitworld_chat_messages(agent_ids)` hook, and
   local `pack_chat_packet` runner path. The LLM client now prefers AWS
   Bedrock credentials (`CLAUDE_CODE_USE_BEDROCK=1` locally,
-  `--use-bedrock`/`USE_BEDROCK=true` in cogames) and falls back to
-  direct Anthropic only when configured. Bedrock smoke and short live
-  meeting validation are verified; prompt quality still needs tuning
-  from longer traces.
+  `coworld upload-policy --use-bedrock` / `USE_BEDROCK=true` in Coworld
+  v2) and falls back to direct Anthropic only when configured. Bedrock
+  smoke and short live meeting validation are verified; prompt quality
+  still needs tuning from longer traces.
 - **Latest voting trace:** 8 guided_bot agents, 2 imposters, 600-tick
   kill cooldown, 600-tick vote timer, 16 tasks per crewmate, 90 seconds,
   seed 42, `--trace-level full`:
@@ -199,6 +214,37 @@ None of this is required on day one. It's where we're heading.
   All manifests closed; roles detected; two meetings per bot; 358
   successful LLM responses, 89 meeting actions, 6 chat lines, 12 vote
   attempts, and zero LLM failures.
+- **Current Among Them public route is Coworld v2.** The current
+  `play_amongthem.md` guide says to use a Metta checkout, `uv run coworld
+  download among_them`, `uv run coworld run-episode`, `uv run coworld
+  upload-policy`, and the **Among Them Daily** Observatory v2 league. Do
+  not use `cogames season list` or `cogames submit` to evaluate or enter
+  Among Them Daily.
+- **2026-05-12 public upload used the wrong tournament surface.**
+  `jamesboggs-guided-bot-public-20260512-152010:v1` was uploaded with
+  image `img_c95d02c7-56ee-40a9-977f-b9d01a215de0` and policy id
+  `de944167-b1ac-40d7-88ea-8c5495896795`, then submitted to the legacy
+  `among-them`/`competition` surface. Coworld v2 shows no Among Them Daily
+  submission for that policy version.
+- **Prior Among Them Daily Coworld submission is placed.** Fresh linux/amd64
+  Docker image `jamesboggs-guided-bot-coworld-20260511-142920:v1` was
+  uploaded via the `crane` workaround after Docker 29 hit the ECR
+  `HEAD` 403 path, then submitted to Among Them Daily as
+  `sub_3cc0fa25-c436-4b46-a4a3-f2b1a06ebad1` and placed as
+  `lpm_ed695228-4241-4c28-b16c-c9372462b133`. Do not reuse the older
+  `20260511-120701` Coworld image tags; smoke checks found they lacked
+  `/bin/guided_bot`.
+- **Latest Among Them Daily Coworld submission is placed.**
+  `jamesboggs-guided-bot-coworld-20260513-095131:v1` built and smoke-tested
+  locally, including `coworld run-episode` against `among_them:0.1.11`.
+  Standard `coworld upload-policy` again hit Docker 29's ECR manifest
+  `HEAD` 403 path; the image was completed with the `crane` workaround as
+  `img_b386faae-79ef-4f9e-81d9-32787588c736` with digest
+  `sha256:4fd6d88da39c74186fc8a0d5aef954b32eceeeb5eda1b98a4ffa20d907b16c54`.
+  Policy version id is `cdac788e-8ae0-4b07-81ca-8bd45a84ebad`; submission
+  `sub_9414c5e8-1e44-461b-a497-51b59cfa32d5` is placed as active champion
+  membership `lpm_290240c5-2eea-4648-b479-d428a22e43d2` in Daily division
+  `div_334593c6-da90-4651-98c7-606573ea1474`.
 - **Local live-test knobs exist.** Server-starting scripts support
   `--imposter-cooldown-ticks`, `--tasks-per-player`, and
   `--force-role {crewmate,imposter}` for focused live validation. Use
@@ -206,6 +252,11 @@ None of this is required on day one. It's where we're heading.
 
 ### Next
 
+- **Monitor latest Coworld v2 rounds and results.** Poll `uv run coworld
+  rounds --division div_334593c6-da90-4651-98c7-606573ea1474 --limit 10
+  --json` and `uv run coworld results
+  div_334593c6-da90-4651-98c7-606573ea1474 --json` after the next scheduled
+  Among Them Daily round includes the new policy version.
 - **LLM meeting tuning.** Tune the Bedrock meeting prompt/cadence from
   full-run `guidance.jsonl` and `events.jsonl`; current validation
   shows `meeting_action_received`, `chat_sent`, and `vote_attempted`
@@ -217,13 +268,13 @@ None of this is required on day one. It's where we're heading.
   See `among_them/guided_bot/IMPOSTER_CRITIQUE.md` and `TODO.md`.
 - **Ghost/body reflex cleanup.** Investigate the self-body flee loop and
   remaining ghost-state edge cases before optimizing imposter strategy.
-- **Submission attempt** once a live Among Them season is accessible.
-  Re-check `cogames season list` and `cogames season show` before any
-  upload because season availability has changed before.
 
 ## How to get unstuck
 
-- `cogames docs` — the CLI ships its own documentation, usually fresher
+- `uv run coworld --help`, `uv run coworld leagues`, and
+  `uv run coworld submissions` from `~/coding/metta` - current Among Them
+  Daily v2 operations.
+- `cogames docs` — the legacy CLI ships its own documentation, usually fresher
   than any external doc.
 - `cogames tutorial make-policy --amongthem -o policy.py` (or `--scripted`,
   `--trainable`) — generates a current starter template. Use the generated
@@ -231,6 +282,9 @@ None of this is required on day one. It's where we're heading.
 - `~/coding/metta/packages/cogames/` — the cogames source. Read
   `cli/submit.py` for the exact validation rules. Read `MISSION.md` in
   that package for the in-universe CvC briefing.
+- `~/coding/metta/packages/coworld/` - the Coworld v2 CLI/source used by
+  Among Them Daily Docker-image uploads, league submission, episodes, logs,
+  and standings.
 - `~/coding/metta/cogames-agents/` — Softmax's own scripted agents. Good
   prior art for registries, Nim integration, and teacher policies.
 - `~/coding/bitworld/among_them/players/` — canonical Among Them bots,
@@ -241,7 +295,8 @@ None of this is required on day one. It's where we're heading.
 
 - **The code wins.** If an agent beats the leaderboard, its strategy is
   correct for that season, regardless of what this file says.
-- **The CLI wins.** If this doc and `cogames --help` disagree, the CLI is
-  right. Fix this doc.
+- **The CLI wins.** If this doc and live `coworld --help` / `cogames --help`
+  disagree, the live CLI for the relevant tournament surface is right. Fix
+  this doc.
 - **Leaderboard wins.** Pretty strategies that don't score are folklore.
   The metric is the ranking.

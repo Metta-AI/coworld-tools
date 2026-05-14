@@ -1,16 +1,17 @@
 # COGAMES
 
-> **Living document.** The cogames CLI, the list of active seasons, and the
-> set of supported games all change regularly. **Re-read this at the start
-> of every session, and update it whenever you observe drift** (new seasons,
-> removed seasons, renamed commands, broken flows). If `cogames --help` and
-> this file disagree, the CLI is right — fix this file.
+> **Living document.** The cogames CLI, the Coworld v2 CLI, active seasons,
+> leagues, and supported games all change regularly. **Re-read this at the
+> start of every session, and update it whenever you observe drift** (new
+> seasons/leagues, removed competitions, renamed commands, broken flows).
+> Verify current game-specific public guides and live CLI/API behavior
+> together, then record any mismatch.
 >
-> Last reviewed: 2026-05-11 | cogames CLI: `/Users/jamesboggs/coding/personal_cogs/.venv/bin/cogames`
+> Last reviewed: 2026-05-13 | cogames CLI: `/Users/jamesboggs/coding/personal_cogs/.venv/bin/cogames` | Coworld CLI: `uv run coworld` from `~/coding/metta`
 
 ---
 
-## What cogames is
+## What cogames / Coworld are
 
 **cogames** is Softmax's multi-agent game framework and the evaluation
 harness for the **Alignment League Benchmark (ALB)** — a tournament suite
@@ -21,8 +22,11 @@ You interact with it as:
 
 - A **Python package** (`pip install cogames`) exposing game environments,
   policy base classes, and a `cogames` CLI.
-- A **tournament system** with seasons, leaderboards, teams, and matches
-  run by Softmax-hosted Docker workers.
+- A **legacy tournament system** with seasons, leaderboards, teams, and
+  matches run by Softmax-hosted Docker workers.
+- A **Coworld v2 tournament system** with leagues, divisions, rounds,
+  memberships, episodes, logs, and Docker-image policies. Current Among
+  Them Daily uses this path.
 - A **set of games** (currently Cogs vs Clips, Among Them, Four Score —
   see § games below).
 
@@ -32,6 +36,7 @@ Source & references on this machine:
 |---|---|
 | `COGAMES_CLI.md` (this repo) | Full `cogames` CLI reference — every command and subcommand walked via `--help`, with quirks and shared option patterns. Regenerate when the CLI version changes. |
 | `~/coding/metta/packages/cogames/` | The `cogames` Python package source (CLI, policy base classes, Docker runner, CvC game bindings). Authoritative. |
+| `~/coding/metta/packages/coworld/` | The Coworld v2 CLI/source. Current source of truth for Among Them Daily upload, league submission, standings, episodes, logs, and replays. |
 | `~/coding/metta/packages/cogames/MISSION.md` | In-universe briefing for CvC (the flagship game). |
 | `~/coding/metta/packages/cogames/Dockerfile.episode_runner` | The exact image tournament matches run in. Check this when debugging missing deps. |
 | `~/coding/metta/cogames-agents/` | Softmax's own scripted baselines and teacher policies. Good prior art. |
@@ -43,6 +48,8 @@ External references:
 
 - [softmax.com/play.md](https://softmax.com/play.md) — starter walkthrough.
   Sometimes lags the live CLI; treat CLI as authoritative.
+- [softmax.com/play_amongthem.md](https://softmax.com/play_amongthem.md) -
+  current public Among Them Daily Coworld v2 Docker-image submission guide.
 - [softmax.com/alignmentleague](https://www.softmax.com/alignmentleague)
 - [deepwiki.com/Metta-AI/cogames](https://deepwiki.com/Metta-AI/cogames)
 - [api.observatory.softmax-research.net/docs](https://api.observatory.softmax-research.net/docs) — OpenAPI spec for seasons/matches/leaderboards.
@@ -76,26 +83,35 @@ cogames version
 cogames --help
 ```
 
-Auth (needed for upload/submit):
+Legacy `cogames` auth (needed for bundle upload/submit):
 
 ```bash
 cogames auth login     # opens a browser to softmax.com/cli-login
 cogames auth status
 ```
 
+Coworld v2 auth (needed for current Among Them Daily):
+
+```bash
+cd ~/coding/metta
+uv run softmax login
+uv run coworld leagues
+```
+
 > Gotcha: `cogames auth status` may print "Run softmax login first" even
-> when things are fine, and running `softmax login` / `uv run softmax login`
-> uses a **different** package (`softmax-cli`) that may not be installed.
-> Always use `cogames auth login`.
+> when legacy auth is fine. That message refers to the Softmax auth flow used
+> by Coworld v2. Use `cogames auth login` for legacy `cogames` seasons and
+> `uv run softmax login` for Coworld v2 leagues.
 
-Docker is required for `--dry-run` validation (which runs your policy for
-10 steps in the real tournament image). Install Docker Desktop on macOS and
-ensure `docker info` succeeds before validating.
+Docker is required for legacy `--dry-run` validation and for current Coworld
+Docker-image uploads. Install Docker Desktop on macOS and ensure `docker info`
+succeeds before validating or uploading.
 
-## Games (as of 2026-05-11)
+## Games (as of 2026-05-13)
 
-> This is a living list. Confirm with `cogames season list` and
-> `cogames bitworld games` before relying on it.
+> This is a living list. Confirm legacy seasons with `cogames season list`.
+> Confirm current Among Them Daily with `uv run coworld leagues` from
+> `~/coding/metta`.
 
 ### Cogs vs Clips (CvC)
 
@@ -119,7 +135,9 @@ ensure `docker info` succeeds before validating.
 
 ### Among Them (BitWorld)
 
-**Status:** active game, season visibility fluctuates.
+**Status:** active game. The public Among Them instructions currently use the
+Coworld v2 Docker-image external-player flow from
+`softmax.com/play_amongthem.md`.
 
 **Local agent policy:** in this repo, `among_them/guided_bot/` is the
 active Among Them agent. `among_them/modulabot/` is fully deprecated and
@@ -143,12 +161,15 @@ ship the local modulabot unless James explicitly asks for it.
   of this).
 - **Phases:** gameplay, voting interstitials, result screens. Chat only
   during voting.
-- **Season:** `among-them` is visible to the authenticated CLI as of
-  2026-05-11 — "Among Them freeplay: policies compete in 8-player
-  BitWorld matches scored by role win rate." The API currently reports
-  `status: complete` and `public: false`, with `competition` as both
-  entry and leaderboard pool. Confirm with `cogames season list` and
-  `cogames season show among-them` before submitting.
+- **Current league:** Coworld v2 `Among Them Daily`, league id
+  `league_494db37d-d046-4cba-a99a-536b1439262f`, game coworld name
+  `among_them`. Discover it with `uv run coworld leagues`. Do not use
+  `cogames season list` for Among Them Daily; it lists the legacy
+  `among-them` season surface.
+- **Legacy season:** `among-them` is still visible to the authenticated
+  `cogames` CLI and accepted a 2026-05-12 submission, but that did not
+  create a Coworld v2 `Among Them Daily` league submission. Treat it as
+  legacy unless Softmax explicitly says otherwise.
 - **Package:** needs `pip install 'bitworld @ git+https://github.com/Metta-AI/bitworld.git'`
   for local episode runs; pinned SHA is in the cogames `pyproject.toml`
   (see `bitworld` extra). Pre-built Nim binaries live at
@@ -166,12 +187,12 @@ ship the local modulabot unless James explicitly asks for it.
   `libnottoodumb` shared library (when available) — *not* a reference
   pixel-perception implementation in Python. The scripted baselines are
   simpler, portable, pixel-only policies used as tournament opponents.
-- **Submission path:** Python policy subclass of `MultiAgentPolicy`.
-  For guided_bot, use `among_them/guided_bot/cogames/ship.sh`, which
-  bundles via `cogames upload --season` so Bedrock/secret flags are
-  supported. The 10-step validation gate trips up perception bots that
-  can't localize within 10 frames — use `--skip-validation` *only* for
-  documented validator limitations.
+- **Submission path:** current public Among Them submissions use a
+  standalone linux/amd64 Docker image, `COGAMES_ENGINE_WS_URL`, and
+  `uv run coworld upload-policy`, per `softmax.com/play_amongthem.md`.
+  For guided_bot, use `among_them/guided_bot/coworld/README.md`. The
+  older `among_them/guided_bot/cogames/ship.sh` path is legacy
+  Python-bundle tooling and does not submit to Among Them Daily v2.
 
 ### Four Score
 
@@ -187,15 +208,18 @@ ship the local modulabot unless James explicitly asks for it.
 New games join ALB periodically. Discover them via:
 
 ```bash
-cogames season list        # look for descriptions naming new games
-cogames bitworld games     # BitWorld-family games
-cogames play --help        # lists supported --game values
+cogames season list        # legacy cogames seasons
+cogames bitworld games     # legacy BitWorld-family games
+cogames play --help        # legacy supported --game values
+uv run coworld leagues     # current Coworld v2 leagues
 ```
 
-## Seasons
+## Legacy Seasons And Coworld V2 Leagues
 
-Seasons are the unit of tournament. Each has its own rules, pool, scoring,
-and submission limits. List and inspect:
+Legacy `cogames` seasons and Coworld v2 leagues are different tournament
+surfaces. Do not mix their status/submission commands.
+
+Legacy seasons are inspected with:
 
 ```bash
 cogames season list
@@ -207,14 +231,34 @@ cogames season leaderboard <SEASON>
 cogames season pool-config <SEASON> <POOL>
 ```
 
-Current seasons (2026-05-11):
+Coworld v2 leagues are inspected with:
+
+```bash
+cd ~/coding/metta
+uv run coworld leagues
+uv run coworld leagues <LEAGUE_ID> --json
+uv run coworld submissions --league <LEAGUE_ID> --mine
+uv run coworld memberships --mine
+uv run coworld rounds --division <DIVISION_ID>
+uv run coworld results <DIVISION_ID>
+```
+
+Current legacy seasons (2026-05-13):
 
 | Season | Game | Format |
 |---|---|---|
 | `beta-cvc` | Cogs vs Clips | Freeplay; qualify via self-play, then 20 matches vs random partners |
 | `beta-teams-tiny-fixed` | Teams | Multi-stage progressive culling; policies seeded into teams |
 | `beta-four-score` | Four Score | 4-player freeplay with rotated corner assignments |
-| `among-them` | Among Them | Visible to authenticated CLI; reports `status: complete`, `public: false`; 8-player BitWorld matches scored by role win rate |
+| `among-them` | Among Them | Legacy surface. Visible to authenticated CLI; accepted a 2026-05-12 submission but does not represent the current Among Them Daily Coworld v2 league. |
+
+Current Coworld v2 leagues observed with `uv run coworld leagues` (2026-05-13):
+
+| League | ID | Game |
+|---|---|---|
+| `Among Them Daily` | `league_494db37d-d046-4cba-a99a-536b1439262f` | `among_them` |
+| `Paintarena Daily` | `league_d42210d6-1925-41a6-a47a-44f23524a3f6` | `paintarena` |
+| `Cogs vs Clips Daily` | `league_4a6999b2-6130-4489-987b-48d82ae769d2` | `cogs_vs_clips` |
 
 Previously seen seasons, currently absent from `cogames season list` (may
 return; check before planning):
@@ -223,17 +267,53 @@ return; check before planning):
 
 > Verify this table with `cogames season list` — it changes.
 
-**Freeplay seasons** are cheap, unlimited, evergreen. Use them for
-iteration. **Team/tournament seasons** have limited submission slots and
-progressive elimination. Don't burn slots on untested builds.
+Legacy freeplay seasons are cheap, unlimited, evergreen. Coworld Daily
+leagues run scheduled rounds and divisions. In both systems, avoid burning
+submission slots or noisy versions on untested builds.
 
 ## Policy contract
 
-Policies subclass **`mettagrid.policy.policy.MultiAgentPolicy`** (for
-BitWorld games the required class name is `AmongThemPolicy`; for CvC it
-varies by mission — check the generated template).
+Most legacy `cogames upload` bundle policies subclass
+**`mettagrid.policy.policy.MultiAgentPolicy`**. Current public Among Them
+Daily instead uses the Coworld v2 external-player Docker contract: the runner
+sets `COGAMES_ENGINE_WS_URL`, the image receives raw packed 128x128 4-bit
+frames over websocket, and the image returns two-byte input packets.
 
 Two submission patterns:
+
+### Pattern 0 — Among Them public Docker image
+
+Current public Among Them guide and local Metta source use `coworld`, not
+`cogames.coworld`:
+
+```bash
+cd ~/coding/metta
+uv run softmax login
+uv run coworld leagues
+uv run coworld download among_them --output-dir ./coworld
+uv run python -m json.tool ./coworld/coworld_manifest.json
+
+docker build --platform=linux/amd64 -t "$IMAGE" <docker-context>
+uv run coworld run-episode ./coworld/coworld_manifest.json "$IMAGE"
+
+uv run coworld upload-policy "$IMAGE" \
+    --name "$POLICY_NAME" \
+    --use-bedrock \
+    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+uv run coworld submit "$POLICY_NAME:v1" \
+    --league league_494db37d-d046-4cba-a99a-536b1439262f
+uv run coworld submissions --policy "$POLICY_NAME:v1" --json
+```
+
+The website guide says to submit through the Among Them Daily league page.
+The local Coworld CLI also exposes `coworld submit POLICY --league LEAGUE_ID`,
+which enters the uploaded policy version into that v2 league.
+
+Docker 29 on macOS may still fail the ECR manifest publish with a registry
+`HEAD` 403 because Coworld's uploader shells out to plain `docker push`.
+That is an upload-tooling issue, not a reason to use the legacy `cogames`
+season surface.
 
 ### Pattern A — Pure Python
 
@@ -282,7 +362,7 @@ grep -hE "^import " among_them/players/<bot>/*.nim | sort -u
 
 ## Submission workflow
 
-The intended end-to-end flow:
+The intended legacy `cogames` end-to-end flow:
 
 ```bash
 # 1. Auth + pick season
@@ -317,10 +397,8 @@ cogames episode replay <EPISODE_ID>
 
 Or do it in one step with `cogames ship` (bundle + validate + upload +
 submit) when the policy does not need LLM credential flags. Current
-`cogames ship` does not expose `--use-bedrock` / `--secret-env`; for
-guided_bot use `among_them/guided_bot/cogames/ship.sh` or explicit
-`cogames upload --season ...` commands against `guided_bot`. The local
-modulabot is deprecated.
+public Among Them Daily does not use this bundle flow; use the Coworld
+Docker-image Pattern 0 above. The local modulabot is deprecated.
 
 ### Secrets / Bedrock (LLM credentials, etc.)
 
@@ -341,15 +419,28 @@ cogames upload -p ./my_policy -n my-bedrock-policy \
 ```
 
 `--use-bedrock` configures Softmax-provided Bedrock Claude access in the
-cogames runtime. Current `cogames upload` also requires `--llm-model`;
-guided_bot's `ship.sh` passes both by default and forwards the same
-model to guided_bot as `GUIDED_BOT_BEDROCK_MODEL`.
+legacy bundle runtime. Current `cogames upload` also requires `--llm-model`.
+
+For current Coworld v2 Docker-image policies, use `coworld upload-policy`:
+
+```bash
+uv run coworld upload-policy "$IMAGE" \
+    --name "$POLICY_NAME" \
+    --use-bedrock \
+    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+`--use-bedrock` stores `USE_BEDROCK=true` for the policy, and repeated
+`--secret-env KEY=VALUE` entries are stored as policy secret env. guided_bot
+also supports direct Anthropic through `--secret-env ANTHROPIC_API_KEY=...`,
+but Bedrock is preferred for submissions.
 
 See `~/coding/metta/packages/cogames/POLICY_SECRETS.md` for storage,
 scoping, and cleanup details.
 
 ## The 10-step validation gate
 
+This section applies to legacy `cogames upload` / `ship` bundle submissions.
 `--dry-run` (and `ship` without `--skip-validation`) runs your policy for
 **exactly 10 steps** in Docker and enforces `non_noop_actions > 0`.
 
@@ -396,13 +487,15 @@ Order of operations: `play` → `scrimmage` → `pickup`. Don't skip ahead.
 
 ## Useful things to remember
 
-- **Live CLI help is authoritative.** Always run `cogames <cmd> --help`
-  instead of trusting a doc.
+- **Live CLI help is authoritative.** Run `uv run coworld <cmd> --help` for
+  current Among Them Daily and `cogames <cmd> --help` for legacy seasons
+  instead of trusting stale docs.
 - **Run `cogames` from the repo root** when using `-f` includes. Paths in
   the bundle are resolved relative to cwd; the policy class file gets
   flattened to the bundle root, everything else preserves its relative path.
-- **Freeplay first.** Iterate on `beta-cvc` / `among-them` / similar
-  before spending a team-season submission slot.
+- **Right surface first.** Iterate on legacy freeplay seasons for legacy
+  games, but use Coworld v2 for Among Them Daily. A successful
+  `cogames submit --season among-them` is not a Daily league submission.
 - **Don't commit built `.so`/`.dylib`/`.dll` files** — they're
   platform-specific and rebuilt on demand.
 - **Don't hardcode absolute paths** in policy wrappers; the bundle layout
@@ -420,6 +513,8 @@ If this file looks wrong, it probably is. Checklist for a refresh:
 3. `cogames tutorial make-policy --help` — template types still `scripted`
    / `trainable` / `amongthem`?
 4. `cogames bitworld games` — any new BitWorld games beyond Among Them?
-5. Read any new docs in `~/coding/metta/packages/cogames/` or
-   `~/coding/metta/cogames-agents/docs/`.
-6. Update this file. Note the new "Last reviewed" date at the top.
+5. `uv run coworld --help`, `uv run coworld leagues`, and
+   `uv run coworld upload-policy --help` - Coworld v2 shape unchanged?
+6. Read any new docs in `~/coding/metta/packages/cogames/`,
+   `~/coding/metta/packages/coworld/`, or `~/coding/metta/cogames-agents/docs/`.
+7. Update this file. Note the new "Last reviewed" date at the top.
