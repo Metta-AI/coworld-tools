@@ -7,6 +7,7 @@ from pathlib import Path
 from .artifacts import write_text
 from .framework import AgentFrameworkRef
 from .guide_index import ActionCandidate, ActionWireContract, GuideBundle, ObservationSurface
+from .protocol_render import render_protocol, render_protocol_tests
 from .symbolic_agent import _render_framework_bootstrap
 
 
@@ -46,14 +47,14 @@ def generate_visual_agent_shell(
     write_text(files[0], _render_readme(bundle, surface, wire_contract, agent_framework))
     write_text(files[1], _render_framework_bootstrap(agent_framework))
     write_text(files[2], _render_cyborg_agent(action_ids, wire_contract))
-    write_text(files[3], _render_protocol(action_ids, wire_contract))
+    write_text(files[3], render_protocol(action_ids, wire_contract))
     write_text(files[4], _render_policy(action_ids, wire_contract))
     write_text(files[5], _render_action_controller(action_ids))
     write_text(files[6], _render_frame_store())
     write_text(files[7], _render_vlm_client(bundle.bundle_hash, action_ids))
     write_text(files[8], _render_live_runner())
     write_text(files[9], _render_capture_runner())
-    write_text(files[10], _render_protocol_tests(action_ids, wire_contract))
+    write_text(files[10], render_protocol_tests(wire_contract))
     write_text(files[11], _render_policy_tests(action_ids, wire_contract))
     write_text(files[12], _render_cyborg_agent_tests())
     write_text(files[13], _render_action_controller_tests(action_ids))
@@ -70,13 +71,13 @@ def _render_readme(
 ) -> str:
     return f"""# {bundle.game_slug} Visual Shell
 
-This is a generated `maker_v1` visual starter agent.
-
-It is intentionally conservative. The live starter can connect to a WebSocket,
-send an initial noop when the action wire contract is known, capture binary or
-JSON observations, decode raw observations when `agent/perception/decoder.py`
-can do so, choose a simple guide-derived movement action, and send only actions
-that serialize through the generated protocol layer.
+This is a generated `maker_v1` visual starter agent, shaped to ship as a
+Coworld player image. The live starter reads `COGAMES_ENGINE_WS_URL` from
+the runner's env, connects to the player websocket, captures binary or
+JSON observations, decodes raw observations when
+`agent/perception/decoder.py` can do so, chooses a simple guide-derived
+movement action, sends only actions that serialize through the generated
+protocol layer, and exits at episode end.
 
 Observation surface: `{surface.category}`.
 Action wire style: `{wire_contract.style}`.
@@ -85,19 +86,38 @@ Generated files:
 
 - `protocol.py`: serializes guide-derived action ids into the live wire format
 - `framework_bootstrap.py`: points this artifact at `{agent_framework.package}`
-  from `{agent_framework.framework_dir}`
+  from `{agent_framework.framework_dir}` (host-absolute path recorded at
+  generation time; update before building the Docker image)
 - `cyborg_agent.py`: adapts the starter policy into Cyborg percept, belief,
   mode, strategy directive, and action resolution boundaries
 - `policy.py`: conservative movement/exploration starter policy helper
 - `action_controller.py`: validates VLM action recommendations
 - `frame_store.py`: frame/message hashing and fixture storage
 - `vlm_client.py`: request builder and deterministic mock VLM response
-- `run_agent.py`: live starter WebSocket runner
+- `run_agent.py`: live Coworld entrypoint (WebSocket runner)
 - `run_visual_shell.py`: budgeted capture and mock-label WebSocket runner
 - `tests/`: local tests for the generated shell
 
-Use this scaffold as the first live policy surface. It is meant to run safely,
-not to be competitive before parser and policy refinement.
+## Coworld workflow
+
+```bash
+# Pull the target Coworld and read its protocol contract.
+uv run coworld download {bundle.game_slug} --output-dir ./coworld
+
+# Resolve the Cyborg framework dependency in the bundle's Dockerfile, then
+# build the player image.
+docker build --platform=linux/amd64 -t {bundle.game_slug}-player:latest .
+
+# Local episode (one image fills every slot).
+uv run coworld run-episode ./coworld/coworld_manifest.json {bundle.game_slug}-player:latest
+
+# Upload + submit to a league.
+uv run coworld upload-policy {bundle.game_slug}-player:latest --name {bundle.game_slug}-player
+uv run coworld submit {bundle.game_slug}-player --league league_...
+```
+
+Use this scaffold as the first live policy surface. It is meant to run
+safely, not to be competitive before parser and policy refinement.
 """
 
 
@@ -324,86 +344,6 @@ def choose_runtime_action(
         return agent.choose_action(observation, frame_index=frame_index, config=config)
     finally:
         agent.close()
-'''
-
-
-def _render_protocol(
-    action_ids: tuple[str, ...],
-    wire_contract: ActionWireContract,
-) -> str:
-    actions_json = json.dumps(list(action_ids), indent=4)
-    payloads_json = json.dumps(wire_contract.action_payloads, indent=4, sort_keys=True)
-    return f'''from __future__ import annotations
-
-from typing import Any
-
-
-ACTIONS: list[str] = {actions_json}
-ACTION_WIRE_STYLE = {wire_contract.style!r}
-DEFAULT_ACTION = {wire_contract.default_action!r}
-ACTION_PAYLOADS: dict[str, int] = {payloads_json}
-
-
-def normalize_action(action_id: str | None, config: dict[str, Any] | None = None) -> str:
-    if ACTION_WIRE_STYLE == "binary_button_mask":
-        if action_id in ACTION_PAYLOADS:
-            return str(action_id)
-        if DEFAULT_ACTION in ACTION_PAYLOADS:
-            return DEFAULT_ACTION
-        if "noop" in ACTION_PAYLOADS:
-            return "noop"
-        return next(iter(ACTION_PAYLOADS), DEFAULT_ACTION)
-
-    action_names = _action_names(config)
-    if action_id in action_names:
-        return str(action_id)
-    if DEFAULT_ACTION in action_names:
-        return DEFAULT_ACTION
-    if "noop" in action_names:
-        return "noop"
-    return action_names[0] if action_names else DEFAULT_ACTION
-
-
-def serialize_action(action_id: str | None, config: dict[str, Any] | None = None) -> bytes | dict[str, Any] | None:
-    action = normalize_action(action_id, config)
-    if ACTION_WIRE_STYLE == "binary_button_mask":
-        if action not in ACTION_PAYLOADS:
-            return None
-        mask = ACTION_PAYLOADS[action] & 0x7F
-        return bytes((0x00, mask))
-    if ACTION_WIRE_STYLE == "move_json":
-        return {{"move": action}}
-    if ACTION_WIRE_STYLE == "action_name_json":
-        return {{"type": "action", "action_name": action}}
-    if ACTION_WIRE_STYLE == "action_index_json":
-        action_names = _action_names(config)
-        try:
-            action_index = action_names.index(action)
-        except ValueError:
-            action_index = 0
-        return {{"type": "action", "action_index": action_index}}
-    return None
-
-
-def is_terminal_message(message: Any) -> bool:
-    return isinstance(message, dict) and (message.get("type") == "final" or message.get("done") is True)
-
-
-def _action_names(config: dict[str, Any] | None) -> list[str]:
-    if isinstance(config, dict):
-        names = config.get("action_names")
-        if _is_string_list(names):
-            return list(names)
-        policy_env = config.get("policy_env")
-        if isinstance(policy_env, dict):
-            names = policy_env.get("action_names")
-            if _is_string_list(names):
-                return list(names)
-    return list(ACTIONS)
-
-
-def _is_string_list(value: Any) -> bool:
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 '''
 
 
@@ -852,70 +792,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''
-
-
-def _render_protocol_tests(
-    action_ids: tuple[str, ...],
-    wire_contract: ActionWireContract,
-) -> str:
-    default = wire_contract.default_action
-    if wire_contract.style == "binary_button_mask" and wire_contract.action_payloads:
-        preferred = next((action for action in ("right", "down", "left", "up") if action in wire_contract.action_payloads), default)
-        expected = bytes((0x00, wire_contract.action_payloads.get(preferred, 0) & 0x7F))
-        assertion = f"assert serialize_action({preferred!r}) == {expected!r}"
-        fallback_assertion = f"assert serialize_action('__invalid__') == serialize_action({default!r})"
-    elif wire_contract.style == "move_json":
-        assertion = f'assert serialize_action({default!r}) == {{"move": {default!r}}}'
-        fallback_assertion = f"assert serialize_action('__invalid__') == serialize_action({default!r})"
-    elif wire_contract.style == "action_name_json":
-        assertion = f'assert serialize_action({default!r}) == {{"type": "action", "action_name": {default!r}}}'
-        fallback_assertion = f"assert serialize_action('__invalid__') == serialize_action({default!r})"
-    elif wire_contract.style == "action_index_json":
-        assertion = f'assert serialize_action({default!r}) == {{"type": "action", "action_index": 0}}'
-        fallback_assertion = f"assert serialize_action('__invalid__') == serialize_action({default!r})"
-    else:
-        assertion = "assert serialize_action(DEFAULT_ACTION) is None"
-        fallback_assertion = "assert serialize_action('__invalid__') is None"
-
-    return f'''from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
-from types import ModuleType
-
-
-def _load_agent_module(module_name: str) -> ModuleType:
-    path = Path(__file__).resolve().parents[1] / (module_name + ".py")
-    unique_name = "_generated_" + Path(__file__).resolve().parents[2].name + "_" + module_name
-    spec = importlib.util.spec_from_file_location(unique_name, path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[unique_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_protocol = _load_agent_module("protocol")
-DEFAULT_ACTION = _protocol.DEFAULT_ACTION
-is_terminal_message = _protocol.is_terminal_message
-serialize_action = _protocol.serialize_action
-
-
-def test_serialize_supported_action() -> None:
-    {assertion}
-
-
-def test_invalid_action_falls_back() -> None:
-    {fallback_assertion}
-
-
-def test_terminal_message_detection() -> None:
-    assert is_terminal_message({{"type": "final"}})
-    assert is_terminal_message({{"done": True}})
-    assert not is_terminal_message({{"type": "observation"}})
 '''
 
 

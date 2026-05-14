@@ -7,6 +7,7 @@ from pathlib import Path
 from .artifacts import write_text
 from .framework import AgentFrameworkRef, REQUIRED_CYBORG_SYMBOLS
 from .guide_index import ActionCandidate, ActionWireContract, GuideBundle, ObservationSurface
+from .protocol_render import render_protocol, render_protocol_tests
 
 
 def generate_symbolic_agent(
@@ -39,10 +40,10 @@ def generate_symbolic_agent(
     write_text(files[0], _render_agent_readme(bundle, surface, wire_contract, agent_framework))
     write_text(files[1], _render_framework_bootstrap(agent_framework))
     write_text(files[2], _render_cyborg_agent(action_ids, wire_contract))
-    write_text(files[3], _render_protocol(action_ids, wire_contract))
+    write_text(files[3], render_protocol(action_ids, wire_contract))
     write_text(files[4], _render_policy(action_ids, wire_contract))
     write_text(files[5], _render_runner())
-    write_text(files[6], _render_protocol_tests(action_ids, wire_contract))
+    write_text(files[6], render_protocol_tests(wire_contract))
     write_text(files[7], _render_policy_tests())
     write_text(files[8], _render_cyborg_agent_tests())
     return files
@@ -56,31 +57,54 @@ def _render_agent_readme(
 ) -> str:
     return f"""# {bundle.game_slug} Generated Symbolic Agent
 
-This is a generated `maker_v1` Phase 2 symbolic baseline.
+This is a generated `maker_v1` Phase 2 symbolic baseline. It is shaped to
+ship as a Coworld player image (one Docker process per player slot, reading
+`COGAMES_ENGINE_WS_URL` from the runner's env).
 
-It is intentionally small:
+Contents of this directory:
 
-- `run_agent.py` connects to the player WebSocket URL from
-  `COGAMES_ENGINE_WS_URL` or the first CLI argument.
-- `framework_bootstrap.py` points the artifact at the Cyborg framework source
-  tree and imports `{agent_framework.package}`.
-- `cyborg_agent.py` adapts the generated starter policy into the Cyborg
-  runtime: percept, belief, mode, strategy directive, and action resolver.
-- `protocol.py` serializes selected action ids into the guide-derived wire
-  format.
-- `policy.py` contains a conservative starter policy helper for unit tests and
+- `run_agent.py` — Coworld entrypoint. Reads `COGAMES_ENGINE_WS_URL`,
+  connects to the player websocket, plays the episode, exits.
+- `framework_bootstrap.py` — points the artifact at the Cyborg framework
+  source tree and imports `{agent_framework.package}`. **Host-absolute path
+  recorded at generation time; update before building the Docker image.**
+- `cyborg_agent.py` — adapts the generated starter policy into the Cyborg
+  runtime: percept, belief, mode, strategy directive, action resolver.
+- `protocol.py` — serializes selected action ids into the guide-derived
+  wire format.
+- `policy.py` — conservative starter policy helper for unit tests and
   iterative refinement.
-- `tests/` contains game-scoped action serialization and starter policy tests.
+- `tests/` — game-scoped action serialization and starter policy tests.
 
 Observation surface: `{surface.category}`.
 Action wire style: `{wire_contract.style}`.
 Agent framework: `{agent_framework.framework_dir}`
 Framework package: `{agent_framework.package}`
 
-## Run
+## Coworld workflow
 
 ```bash
-python run_agent.py
+# Pull the target Coworld package and read its protocol contract.
+uv run coworld download {bundle.game_slug} --output-dir ./coworld
+
+# Resolve the Cyborg framework dependency in the Dockerfile (see comments),
+# then build the player image.
+docker build --platform=linux/amd64 -t {bundle.game_slug}-player:latest .
+
+# Local episode (one image fills every slot).
+uv run coworld run-episode ./coworld/coworld_manifest.json {bundle.game_slug}-player:latest
+
+# Upload + submit to a league.
+uv run coworld upload-policy {bundle.game_slug}-player:latest --name {bundle.game_slug}-player
+uv run coworld submit {bundle.game_slug}-player --league league_...
+```
+
+## Quick local run (no Docker)
+
+For iteration before packaging:
+
+```bash
+COGAMES_ENGINE_WS_URL='ws://127.0.0.1:8080/player?slot=0&token=...' python run_agent.py
 ```
 
 This scaffold is an artifact, not toolkit code. Regenerate it from
@@ -337,70 +361,6 @@ def choose_runtime_action(
 '''
 
 
-def _render_protocol(
-    action_ids: tuple[str, ...],
-    wire_contract: ActionWireContract,
-) -> str:
-    actions_json = json.dumps(list(action_ids), indent=4)
-    return f'''from __future__ import annotations
-
-from typing import Any
-
-
-ACTIONS: list[str] = {actions_json}
-ACTION_WIRE_STYLE = {wire_contract.style!r}
-DEFAULT_ACTION = {wire_contract.default_action!r}
-
-
-def normalize_action(action_id: str | None, config: dict[str, Any] | None = None) -> str:
-    action_names = _action_names(config)
-    if action_id in action_names:
-        return str(action_id)
-    if DEFAULT_ACTION in action_names:
-        return DEFAULT_ACTION
-    if "noop" in action_names:
-        return "noop"
-    return action_names[0] if action_names else DEFAULT_ACTION
-
-
-def serialize_action(action_id: str | None, config: dict[str, Any] | None = None) -> dict[str, Any]:
-    action = normalize_action(action_id, config)
-    if ACTION_WIRE_STYLE == "move_json":
-        return {{"move": action}}
-    if ACTION_WIRE_STYLE == "action_name_json":
-        return {{"type": "action", "action_name": action}}
-    if ACTION_WIRE_STYLE == "action_index_json":
-        action_names = _action_names(config)
-        try:
-            action_index = action_names.index(action)
-        except ValueError:
-            action_index = 0
-        return {{"type": "action", "action_index": action_index}}
-    return {{}}
-
-
-def is_terminal_message(message: Any) -> bool:
-    return isinstance(message, dict) and (message.get("type") == "final" or message.get("done") is True)
-
-
-def _action_names(config: dict[str, Any] | None) -> list[str]:
-    if isinstance(config, dict):
-        names = config.get("action_names")
-        if _is_string_list(names):
-            return list(names)
-        policy_env = config.get("policy_env")
-        if isinstance(policy_env, dict):
-            names = policy_env.get("action_names")
-            if _is_string_list(names):
-                return list(names)
-    return list(ACTIONS)
-
-
-def _is_string_list(value: Any) -> bool:
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
-'''
-
-
 def _render_policy(
     action_ids: tuple[str, ...],
     wire_contract: ActionWireContract,
@@ -515,66 +475,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''
-
-
-def _render_protocol_tests(
-    action_ids: tuple[str, ...],
-    wire_contract: ActionWireContract,
-) -> str:
-    default = wire_contract.default_action
-    if wire_contract.style == "move_json":
-        assertion = f'assert serialize_action({default!r}) == {{"move": {default!r}}}'
-    elif wire_contract.style == "action_name_json":
-        assertion = f'assert serialize_action({default!r}) == {{"type": "action", "action_name": {default!r}}}'
-    elif wire_contract.style == "action_index_json":
-        assertion = f'assert serialize_action({default!r}) == {{"type": "action", "action_index": 0}}'
-    else:
-        assertion = "assert serialize_action(DEFAULT_ACTION) == {}"
-
-    return f'''from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
-from types import ModuleType
-
-
-def _load_agent_module(module_name: str) -> ModuleType:
-    path = Path(__file__).resolve().parents[1] / (module_name + ".py")
-    unique_name = "_generated_" + Path(__file__).resolve().parents[2].name + "_" + module_name
-    old_path = list(sys.path)
-    sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location(unique_name, path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[unique_name] = module
-    try:
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.path[:] = old_path
-
-
-_protocol = _load_agent_module("protocol")
-DEFAULT_ACTION = _protocol.DEFAULT_ACTION
-is_terminal_message = _protocol.is_terminal_message
-serialize_action = _protocol.serialize_action
-
-
-def test_serialize_default_action() -> None:
-    {assertion}
-
-
-def test_invalid_action_falls_back() -> None:
-    assert serialize_action("__invalid__") == serialize_action(DEFAULT_ACTION)
-
-
-def test_terminal_message_detection() -> None:
-    assert is_terminal_message({{"type": "final"}})
-    assert is_terminal_message({{"done": True}})
-    assert not is_terminal_message({{"type": "observation"}})
 '''
 
 

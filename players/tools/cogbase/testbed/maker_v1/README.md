@@ -35,6 +35,8 @@ exactly the same way every time. In the current slice, Maker produces:
   `agent/protocol.py`, `agent/policy.py`, `agent/run_agent.py`,
   `agent/frame_store.py`, `agent/vlm_client.py`, `agent/run_visual_shell.py`,
   and `agent/tests/` for visual-primary or mixed/alternate games
+- `Dockerfile` and `.dockerignore` at the bundle root that wrap
+  `agent/run_agent.py` into a Coworld-compatible player image
 - `visual_bootstrap/frames/`, `visual_bootstrap/labels/`,
   `visual_bootstrap/decoded_frames/`, `visual_bootstrap/cache/`, and
   `visual_bootstrap/runs/` when `--visual-bootstrap` is run
@@ -42,6 +44,26 @@ exactly the same way every time. In the current slice, Maker produces:
   `--build-policy-from-labels` is run
 - `smoke_tests/runs/`, `smoke_tests/logs/`, and `smoke_tests/live_runs/` when
   `--smoke-test` is run
+
+The generated bundle is shaped to ship through the
+[Coworld CLI](https://github.com/Metta-AI/metta/tree/main/packages/coworld):
+
+```bash
+docker build --platform=linux/amd64 -t <game>-player:latest .
+uv run coworld run-episode ./coworld/coworld_manifest.json <game>-player:latest
+uv run coworld upload-policy <game>-player:latest --name <game>-player
+uv run coworld submit <game>-player --league league_...
+```
+
+`agent/run_agent.py` is the container entrypoint. It reads
+`COGAMES_ENGINE_WS_URL` from the runner's env, connects to the player
+websocket, plays the episode, and exits. `agent/framework_bootstrap.py`
+records host-absolute paths to the Cyborg framework at generation time, so
+the generated `Dockerfile` documents how to vendor or pip-install
+`agent_policies` into the image before building. Coworld manifest ingestion
+and starter-policy template seeding (`coworld make-policy`) are listed as
+not-yet-implemented in `maker_manifest.json` and are tracked for future
+slices.
 
 The full design continues from these artifacts toward stronger baseline agents.
 For visual games, that means first generating a game-specific decoder from

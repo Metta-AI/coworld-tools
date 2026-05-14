@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .artifacts import write_json, write_text
+from .coworld_packaging import write_coworld_packaging
 from .decoder_spec import generate_decoder_artifacts
 from .framework import (
     AgentFrameworkRef,
@@ -236,6 +237,11 @@ def _build_manifest(
                 if generated_visual_shell
                 else []
             ),
+            *(
+                ["coworld_player_dockerfile_generation"]
+                if generated_symbolic_agent or generated_visual_shell
+                else []
+            ),
         ],
         "not_implemented": [
             "automatic_run_config_discovery",
@@ -243,7 +249,8 @@ def _build_manifest(
             "additional_vlm_provider_adapters",
             "parser_generation",
             "policy_refinement_from_decoder_parser_fixtures",
-            "cogames_submission_packaging",
+            "coworld_manifest_ingestion",
+            "coworld_starter_policy_template_seeding",
             *(["unknown_surface_agent_scaffold"] if not generated_symbolic_agent and not generated_visual_shell else []),
         ],
         "generated_files": [str(path.relative_to(output_dir)) for path in generated_files],
@@ -344,8 +351,7 @@ Evidence:
 
 1. Validate the candidate action registry against `INTERFACE_CONTRACT.md` and
    source code.
-2. Review the generated `agent/` scaffold if this is a symbolic-primary,
-   visual-primary, or mixed/alternate game. The live runner should use the
+2. Review the generated `agent/` scaffold. The live runner should use the
    Cyborg runtime adapter in `agent/cyborg_agent.py`; `policy.py` and
    `protocol.py` remain small testable helpers.
 3. Run generated action serialization tests before sending any live actions.
@@ -361,6 +367,45 @@ Evidence:
    decoded frame labels exist for a starter rule set.
 8. Measure VLM calls per episode and replace repeated VLM labels with
    deterministic parser tests.
+
+## Coworld Deployment
+
+This bundle is generated to be packaged as a Coworld player image. The
+generated `Dockerfile` and `.dockerignore` at the bundle root wrap
+`agent/run_agent.py` into the container shape Coworld expects.
+
+1. Download the target Coworld and read its manifest so the protocol your
+   player implements matches what the runner will serve:
+
+   ```bash
+   uv run coworld download {bundle.game_slug} --output-dir ./coworld
+   python -m json.tool ./coworld/coworld_manifest.json | less
+   ```
+
+2. Resolve the Cyborg framework dependency inside the generated `Dockerfile`
+   (see the commented `(A) vendor` / `(B) pip install` block). Then build:
+
+   ```bash
+   docker build --platform=linux/amd64 -t {bundle.game_slug}-player:latest .
+   ```
+
+3. Local episode (one image fills every slot):
+
+   ```bash
+   uv run coworld run-episode ./coworld/coworld_manifest.json {bundle.game_slug}-player:latest
+   ```
+
+4. Upload the policy version and submit it to a league:
+
+   ```bash
+   uv run coworld upload-policy {bundle.game_slug}-player:latest --name {bundle.game_slug}-player
+   uv run coworld submit {bundle.game_slug}-player --league league_...
+   ```
+
+If the Coworld package ships a starter-policy template (`coworld make-policy
+{bundle.game_slug} -o policy.py`), prefer its `_choose_actions` shape for
+the policy logic; this generator's `policy.py` is a starter scaffold, not a
+substitute for the official template.
 """
 
 
@@ -374,7 +419,7 @@ def _generate_agent_artifacts(
     agent_framework: AgentFrameworkRef,
 ) -> tuple[Path, ...]:
     if surface.category == "symbolic_primary":
-        return generate_symbolic_agent(
+        agent_files = generate_symbolic_agent(
             bundle=bundle,
             output_dir=output_dir,
             surface=surface,
@@ -382,8 +427,10 @@ def _generate_agent_artifacts(
             wire_contract=wire_contract,
             agent_framework=agent_framework,
         )
+        packaging_files = write_coworld_packaging(output_dir, agent_framework=agent_framework)
+        return (*agent_files, *packaging_files)
     if surface.category in {"visual_primary", "mixed_or_alternate"}:
-        return generate_visual_agent_shell(
+        agent_files = generate_visual_agent_shell(
             bundle=bundle,
             output_dir=output_dir,
             surface=surface,
@@ -391,6 +438,8 @@ def _generate_agent_artifacts(
             wire_contract=wire_contract,
             agent_framework=agent_framework,
         )
+        packaging_files = write_coworld_packaging(output_dir, agent_framework=agent_framework)
+        return (*agent_files, *packaging_files)
 
     agent_readme = output_dir / "agent" / "README.md"
     write_text(agent_readme, _render_agent_placeholder_readme(bundle, surface))

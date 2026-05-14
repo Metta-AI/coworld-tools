@@ -17,13 +17,15 @@ are artifacts.
   harness, policy scaffold, or final agent.
 - **Artifact pipeline**: the downstream chain where one generated artifact
   becomes input to later generation steps.
-- **Final agent**: the submitted base agent or policy package that plays the
-  target cogame.
+- **Final agent**: the submitted base agent that plays the target Coworld
+  game. Generated as a Coworld-compatible player image — a Docker container
+  whose entrypoint reads `COGAMES_ENGINE_WS_URL` from the runner's env and
+  speaks the game's player websocket protocol.
 
 ## Flow
 
 ```text
-game source
+game source (or downloaded Coworld package)
   -> guide_v1
      -> understanding artifacts
         guide docs, guide_contract.json, interface contracts,
@@ -35,8 +37,11 @@ game source
         captured frames, metadata, fixtures, traces
      -> agent implementation artifacts
         perception code, action code, policy scaffold, tests
+     -> coworld packaging
+        Dockerfile, .dockerignore, agent/run_agent.py entrypoint
      -> final base agent
-        submit-ready cogames policy/player
+        submit-ready Coworld player image
+        (coworld upload-policy + coworld submit)
 ```
 
 The generated artifacts form their own pipeline. They are not just reports to
