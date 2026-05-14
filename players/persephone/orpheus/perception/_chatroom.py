@@ -15,7 +15,7 @@ from ._common import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
-from ._ocr import normalize_text, read_text_any_color, read_text_at
+from ._ocr import GLYPH_H, normalize_text, read_text_any_color, read_text_at
 from ._sprites import detect_sprite_shape, read_sprite_color, scan_sprite_row, scan_sprite_row_with_shapes
 from .types import ChatMessage, ChatroomBarState, ChatroomPerception
 
@@ -127,40 +127,78 @@ def _parse_bottom_bar(frame: np.ndarray, result: ChatroomPerception) -> None:
 def _parse_messages(frame: np.ndarray, result: ChatroomPerception) -> None:
     """Best-effort OCR of visible chat messages.
 
-    Messages are in the area y=10 to y=BAR_Y-1 (117), 7px per line.
-    System messages are in color 8. Player messages have a sprite at x=2
-    then text at x=10 in the sender's color.
+    The bitworld renderer (rendering/renderer.ts) stacks whisper messages
+    from the BOTTOM of the message area: with msgArea.y=10, h=108 the
+    bottom-most slot's top-y is msgAreaBot - lineH = 111, the next is 104,
+    etc. So row top-y values are 111, 104, 97, ..., 13. Iterating from the
+    top (y=10, 17, ...) misses every actual message because the rows are
+    off by 3 px.
+
+    Most system messages additionally render with a leading sender-sprite
+    glyph (sim.ts uses ``pref(pi)`` = "\\x01<pi>" which drawRichText turns
+    into a player sprite, advancing cx by PLAYER_W=7 before the text and
+    then a 4px space). The actual COLOR_HUD_ALERT text therefore begins at
+    x = 2 + PLAYER_W + SPACE_WIDTH = 13 even though drawChatMsg is called
+    with x=2. To find the text regardless of how many leading sprites the
+    message has, we scan each row for the leftmost column with an alert
+    pixel and start the OCR from there.
     """
     msg_top = 10
-    msg_bot = BAR_Y - 1
+    msg_bot = BAR_Y - 1  # 118
     line_h = 7
 
-    for y in range(msg_top, msg_bot, line_h):
-        if y + line_h > msg_bot:
-            break
+    # Build row top-y values from bottom up to mirror the renderer math
+    # (msgAreaBot - n*lineH for n=1, 2, ...), then iterate top-down so
+    # messages are appended in chronological order (oldest first).
+    rows: list[int] = []
+    y = msg_bot - line_h
+    while y >= msg_top + 1 and y + GLYPH_H <= msg_bot:
+        rows.append(y)
+        y -= line_h
 
-        # Check for system message (color 8 text)
-        sys_text = read_text_at(frame, 2, y, COLOR_HUD_ALERT, 25)
+    # When a pending entry indicator is shown, the bottom slot at y=111 is
+    # the "WANTS IN" indicator (already extracted by _parse_pending_entry),
+    # not a chat message. Skip it so we don't double-count.
+    if result.has_pending_entry and rows:
+        rows = rows[1:]
+
+    for row_y in reversed(rows):
+        # System message (alert color). Scan for the first column with an
+        # alert pixel inside this row's GLYPH_H span and OCR from there
+        # (skips the leading sender sprite, if any).
+        sys_text = _read_alert_text_at_row(frame, row_y)
         if sys_text and len(sys_text.strip()) >= 2:
             result.messages.append(ChatMessage(
                 sender_color=None,
                 sender_shape=None,
                 is_system=True,
                 text=sys_text.strip(),
-                y_position=y,
+                y_position=row_y,
             ))
             continue
 
-        # Check for player message: sprite at x=2, text at x=10
-        sender_color = read_sprite_color(frame, 2, y)
+        # Player message: sprite at x=2, text at x=10 in sender's color.
+        sender_color = read_sprite_color(frame, 2, row_y)
         if sender_color:
-            sender_shape = detect_sprite_shape(frame, 2, y)
-            text_result = read_text_any_color(frame, 10, y)
+            sender_shape = detect_sprite_shape(frame, 2, row_y)
+            text_result = read_text_any_color(frame, 10, row_y)
             if text_result:
                 result.messages.append(ChatMessage(
                     sender_color=sender_color,
                     sender_shape=sender_shape,
                     is_system=False,
                     text=text_result[0],
-                    y_position=y,
+                    y_position=row_y,
                 ))
+
+
+def _read_alert_text_at_row(frame: np.ndarray, y: int) -> str:
+    """Find the leftmost alert-colored column at row y and OCR from there."""
+    if y < 0 or y + GLYPH_H > frame.shape[0]:
+        return ""
+    row_band = frame[y:y + GLYPH_H, :]
+    alert_columns = np.any(row_band == COLOR_HUD_ALERT, axis=0)
+    nonzero = np.flatnonzero(alert_columns)
+    if nonzero.size == 0:
+        return ""
+    return read_text_at(frame, int(nonzero[0]), y, COLOR_HUD_ALERT, 30)

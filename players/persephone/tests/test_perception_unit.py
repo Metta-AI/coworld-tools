@@ -672,3 +672,126 @@ class TestRoleReveal:
         assert result.role_reveal.role is None
         assert result.role_reveal.room is None
         assert result.role_reveal.round_schedule == [(180, 1), (120, 2), (45, 1)]
+
+
+# ---------------------------------------------------------------------------
+# Chatroom message OCR (system messages)
+# ---------------------------------------------------------------------------
+#
+# The bitworld renderer (rendering/renderer.ts) stacks whisper messages from
+# the BOTTOM of the message area:
+#
+#   msgArea: x=0, y=10, w=128, h=108  (msgAreaBot = 118)
+#   for showCount messages: y_top_first = msgAreaBot - showCount*lineH
+#   each subsequent message is at y += lineH (lineH = 7)
+#
+# So one message lands at y=111, two messages at y=104 and y=111, etc.
+# System messages are drawn in COLOR_HUD_ALERT (8) and most begin with a
+# leading sender sprite (`pref(pi)` = "\x01<pi>" in sim.ts), which advances
+# cx by PLAYER_W=7 before the text. With the rendered " " also = 4 px, the
+# actual text starts at x=2 + PLAYER_W + SPACE_WIDTH = 13 even though the
+# drawChatMsg call passes x=2.
+
+from orpheus.perception._chatroom import parse_chatroom
+
+
+_WHISPER_MSG_AREA_TOP = 10
+_WHISPER_MSG_AREA_BOT = BAR_Y - 1  # 118
+_WHISPER_LINE_H = 7
+_TEXT_X_AFTER_LEADING_SPRITE = 2 + PLAYER_W + SPACE_WIDTH  # 13
+
+
+def _row_y(slot_from_bottom: int) -> int:
+    """Renderer's top-y for the slot-th message from the bottom (1 = bottom)."""
+    return _WHISPER_MSG_AREA_BOT - slot_from_bottom * _WHISPER_LINE_H
+
+
+class TestChatroomMessages:
+    def test_parse_messages_finds_system_message_at_bottom_row(self):
+        """A single system message is rendered at y=111. OCR must find it."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        # Draw "OFFERED ROLE" at the bottom-most slot, after the sender-sprite
+        # gap, in the alert color the renderer uses.
+        _draw_text(
+            frame,
+            "OFFERED ROLE",
+            _TEXT_X_AFTER_LEADING_SPRITE,
+            _row_y(1),
+            COLOR_HUD_ALERT,
+        )
+
+        result = parse_chatroom(frame)
+
+        assert len(result.messages) == 1
+        msg = result.messages[0]
+        assert msg.is_system is True
+        assert "OFFERED ROLE" in msg.text.upper()
+        assert msg.y_position == _row_y(1)
+
+    def test_parse_messages_finds_two_stacked_system_messages_chronologically(
+        self,
+    ):
+        """Two messages render at y=104 (older) and y=111 (newer); OCR returns
+        them in chronological order (oldest first)."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        # Two messages stacked: showCount=2 -> y starts at msgAreaBot - 2*lineH
+        # = 104, then increments by lineH to 111.
+        _draw_text(frame, "GRANTED", _TEXT_X_AFTER_LEADING_SPRITE, _row_y(2), COLOR_HUD_ALERT)
+        _draw_text(frame, "OFFERED COLOR", _TEXT_X_AFTER_LEADING_SPRITE, _row_y(1), COLOR_HUD_ALERT)
+
+        result = parse_chatroom(frame)
+
+        texts = [m.text.upper() for m in result.messages]
+        assert any("GRANTED" in t for t in texts), texts
+        assert any("OFFERED COLOR" in t for t in texts), texts
+        # Chronological order: older (y=104) first, newer (y=111) second.
+        granted_idx = next(i for i, t in enumerate(texts) if "GRANTED" in t)
+        offered_idx = next(i for i, t in enumerate(texts) if "OFFERED COLOR" in t)
+        assert granted_idx < offered_idx
+
+    def test_parse_messages_handles_message_with_no_leading_sprite(self):
+        """A few sysmsg templates ("ROLE XCHG: ...", "LEADER SUMMIT") have no
+        leading sender sprite, so text begins at x=2 directly. Render this in
+        the second-from-bottom slot so it doesn't collide with the pending
+        entry detection region (which is exclusive of LEADER SUMMIT in the
+        real game anyway -- the renderer fillRect-clears the bang row when
+        a pending entry is shown)."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        _draw_text(frame, "LEADER SUMMIT", 2, _row_y(2), COLOR_HUD_ALERT)
+
+        result = parse_chatroom(frame)
+
+        assert len(result.messages) >= 1
+        assert any("LEADER SUMMIT" in m.text.upper() for m in result.messages)
+
+    def test_parse_messages_skips_pending_entry_indicator_row(self):
+        """When pending_entry is shown, the bottom slot at y=111 is the
+        "WANTS IN" indicator (already extracted by _parse_pending_entry).
+        OCR must not also append it as a chat message."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+        # Plant the pending-entry alert flag (color 8 in the indicator strip
+        # at y=BAR_Y-9..BAR_Y-3, x=2..4) so _parse_pending_entry sets
+        # has_pending_entry=True.
+        for y in range(BAR_Y - 9, BAR_Y - 3):
+            for x in range(2, 5):
+                frame[y, x] = COLOR_HUD_ALERT
+        # The pending indicator overlays the bottom row text "WANTS IN".
+        _draw_text(frame, "WANTS IN", _TEXT_X_AFTER_LEADING_SPRITE, _row_y(1), COLOR_HUD_ALERT)
+        # And there's an actual older system message above it.
+        _draw_text(frame, "GRANTED", _TEXT_X_AFTER_LEADING_SPRITE, _row_y(2), COLOR_HUD_ALERT)
+
+        result = parse_chatroom(frame)
+
+        assert result.has_pending_entry is True
+        texts = [m.text.upper() for m in result.messages]
+        assert any("GRANTED" in t for t in texts), texts
+        # WANTS IN belongs to the indicator, not the message log.
+        assert not any("WANTS IN" in t for t in texts), texts
+
+    def test_parse_messages_returns_empty_when_message_area_blank(self):
+        """An empty whisper view (no chat yet) produces no messages."""
+        frame = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=np.uint8)
+
+        result = parse_chatroom(frame)
+
+        assert result.messages == []
