@@ -136,6 +136,93 @@ def test_whisper_exit_clears_state() -> None:
     assert belief_state.menu_state is None
 
 
+def test_role_xchg_system_message_completes_shared_roles() -> None:
+    """Server-side text "ROLE XCHG: <pref>, <pref>" is the actual whisper-view
+    completion message (sim.ts cr.messages.push at line 670). The text
+    "shared roles" only appears in full.log, never in a rendered frame, so
+    perception will see "ROLE XCHG: ..." -- belief_update must recognize it
+    as the same shared_roles completion event."""
+    belief_state = BeliefState(player_count=10, my_index=0)
+    text = f"ROLE XCHG: {_system_ref(0)}, {_system_ref(1)}"
+    chatroom = ChatroomPerception(
+        occupant_colors=[_color(0), _color(1)],
+        occupant_shapes=[_shape(0), _shape(1)],
+        messages=[
+            ChatMessage(
+                sender_color=None,
+                sender_shape=None,
+                is_system=True,
+                text=text,
+                y_position=104,
+            )
+        ],
+    )
+    # Simulate a previous active offer that this completion event should clear.
+    belief_state.active_role_offers = [1]
+
+    _apply(belief_state, _frame(View.WHISPER, chatroom=chatroom))
+
+    assert belief_state.last_exchange_event is not None
+    assert belief_state.last_exchange_event["type"] == "shared_roles"
+    assert sorted(belief_state.last_exchange_event["participants"]) == [0, 1]
+    # Active offer cleared by participants of the completion.
+    assert belief_state.active_role_offers == []
+    # my_exchange_partner is set to the other participant.
+    assert belief_state.my_exchange_partner == 1
+
+
+def test_color_xchg_system_message_completes_swapped_colors() -> None:
+    """Same fix for color exchange: in-whisper text is "COLOR XCHG: ..."
+    (sim.ts:654), not "swapped colors"."""
+    belief_state = BeliefState(player_count=10, my_index=0)
+    text = f"COLOR XCHG: {_system_ref(0)}, {_system_ref(1)}"
+    chatroom = ChatroomPerception(
+        occupant_colors=[_color(0), _color(1)],
+        occupant_shapes=[_shape(0), _shape(1)],
+        messages=[
+            ChatMessage(
+                sender_color=None,
+                sender_shape=None,
+                is_system=True,
+                text=text,
+                y_position=104,
+            )
+        ],
+    )
+    belief_state.active_color_offers = [1]
+
+    _apply(belief_state, _frame(View.WHISPER, chatroom=chatroom))
+
+    assert belief_state.last_exchange_event is not None
+    assert belief_state.last_exchange_event["type"] == "swapped_colors"
+    assert sorted(belief_state.last_exchange_event["participants"]) == [0, 1]
+    assert belief_state.active_color_offers == []
+
+
+def test_legacy_shared_roles_keyword_still_recognized() -> None:
+    """Existing tests/fixtures use the literal 'shared roles' phrasing.
+    The new ROLE XCHG branch must not break the legacy keyword path."""
+    belief_state = BeliefState(player_count=10, my_index=0)
+    chatroom = ChatroomPerception(
+        occupant_colors=[_color(0), _color(1)],
+        occupant_shapes=[_shape(0), _shape(1)],
+        messages=[
+            ChatMessage(
+                sender_color=None,
+                sender_shape=None,
+                is_system=True,
+                text=f"{_system_ref(0)} and {_system_ref(1)} shared roles",
+                y_position=104,
+            )
+        ],
+    )
+
+    _apply(belief_state, _frame(View.WHISPER, chatroom=chatroom))
+
+    assert belief_state.last_exchange_event is not None
+    assert belief_state.last_exchange_event["type"] == "shared_roles"
+
+
 def test_cooldowns_tick_down_and_expire() -> None:
     """Cooldown values decrement and are removed once they hit zero."""
     belief_state = BeliefState(cooldowns={"chat": 2, "shout": 1})

@@ -691,7 +691,12 @@ def _apply_whisper_system_message(
 ) -> None:
     text = message.text.casefold()
 
-    if "shared roles" in text:
+    # The actual in-whisper text on completion is "ROLE XCHG: <pref>, <pref>"
+    # (sim.ts line 670). The "shared roles" phrasing exists only in the
+    # server-side full.log via this.log(). Recognize both so the deterministic
+    # FSM and the LLM hook can react to the real rendered message; the legacy
+    # keyword stays in place so existing fixtures/tests keep working.
+    if "shared roles" in text or "role xchg" in text:
         participants = _completion_participants(belief_state, message)
         _set_exchange_event(belief_state, "shared_roles", participants)
         _clear_completed_offers(belief_state.active_role_offers, participants)
@@ -702,7 +707,7 @@ def _apply_whisper_system_message(
                     break
         return
 
-    if "swapped colors" in text:
+    if "swapped colors" in text or "color xchg" in text:
         participants = _completion_participants(belief_state, message)
         _set_exchange_event(belief_state, "swapped_colors", participants)
         _clear_completed_offers(belief_state.active_color_offers, participants)
