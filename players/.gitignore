@@ -42,3 +42,10 @@ modulabot_runs/
 .env
 .env.local
 credentials.json
+
+# Claude Code local state. `settings.local.json` is per-developer
+# permission overrides; `scheduled_tasks.lock` is a runtime lock written
+# by the scheduler. Neither belongs in version control. Shared config
+# (`.claude/settings.json`, agents, hooks) is still committed.
+**/.claude/settings.local.json
+**/.claude/scheduled_tasks.lock
