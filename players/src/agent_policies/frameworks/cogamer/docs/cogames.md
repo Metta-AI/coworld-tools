@@ -85,3 +85,10 @@ Tournament format: multi-stage elimination. Policies qualify via self-play, get 
 ## Learnings & Experience
 
 Games write experience to `/tmp/coglet_learnings/{game_id}.json` containing snapshots, LLM logs, and per-agent state.
+
+Benchmark local variants with:
+
+```bash
+python tools/benchmark/cogamer/bench_variant.py baseline --runs 3 --agents 8 --steps 10000
+python tools/benchmark/cogamer/bench_variant.py aor-guide --analyze-only --compare-to baseline
+```

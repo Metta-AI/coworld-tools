@@ -20,6 +20,7 @@ and max steps when applicable.
   of `cogames-agents`; importable helpers live under
   `src/agent_policies/tools/eval/cogsguard/`.
 - `benchmark/cogsguard/`: legacy CogsGuard benchmark entrypoints.
+- `benchmark/cogamer/`: Cogamer learnings-file metrics and variant comparison.
 - `compare/cogsguard/`: parity, regression, and policy comparison scripts.
 - `upload/cogsguard/`: legacy CoGames submission notes for CogsGuard policies.
 - `cogbase/`: standalone prototype meta-pipeline for generating game guides and
