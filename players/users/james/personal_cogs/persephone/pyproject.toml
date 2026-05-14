@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# Disable importnb plugin which double-collects .py files as notebooks.
+addopts = "-p no:importnb"
+testpaths = ["tests"]

@@ -1,0 +1,26 @@
+{
+  "view": "role_reveal",
+  "source": {
+    "tick": 63,
+    "date": "2026-05-10",
+    "seed": 102
+  },
+  "assertions": {
+    "role_reveal.panel_index": 3,
+    "role_reveal.round_schedule": [
+      [
+        25,
+        1
+      ],
+      [
+        40,
+        2
+      ],
+      [
+        75,
+        1
+      ]
+    ]
+  },
+  "note": "Live round-schedule panel from a custom three-round config; verifies non-default duration and hostage-count row parsing."
+}

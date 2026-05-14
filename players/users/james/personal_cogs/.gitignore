@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Native build artifacts (see modulabot/nim_perception/.gitignore for
+# the scoped rules; this repeats them at the root so top-level `git
+# add` never grabs a stale .dylib).
+*.dylib
+*.so
+*.dll
+nimcache/
+
+# Cogames submission artifacts — these are generated per-run and not
+# worth versioning.
+*.cogames-bundle.zip
+runs/
+
+# Per-agent trace dumps (written when MODULABOT_TRACE_DIR is set).
+# Opt-in artifacts, not source code.
+modulabot_runs/
+
+# Local secrets (env files, credentials). Commit a `.env.example`
+# instead if a template is needed.
+.env
+.env.local
+credentials.json
+
+# Claude Code local state. `settings.local.json` is per-developer
+# permission overrides; `scheduled_tasks.lock` is a runtime lock written
+# by the scheduler. Neither belongs in version control. Shared config
+# (`.claude/settings.json`, agents, hooks) is still committed.
+**/.claude/settings.local.json
+**/.claude/scheduled_tasks.lock

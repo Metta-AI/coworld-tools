@@ -1,0 +1,5 @@
+{"tick":0,"wall_ms":6,"agent_id":0,"type":"session_start"}
+{"tick":0,"wall_ms":6,"agent_id":0,"type":"phase_change","from":"unknown","to":"interstitial"}
+{"tick":138,"wall_ms":5311,"agent_id":0,"type":"role_known","role":"crewmate"}
+{"tick":138,"wall_ms":5311,"agent_id":0,"type":"self_color_known","color_index":0}
+{"tick":138,"wall_ms":5311,"agent_id":0,"type":"phase_change","from":"interstitial","to":"playing"}

@@ -1,0 +1,33 @@
+# Build artifacts — never commit.
+# Per MISSION.md: ".so/.dylib/.dll are platform-specific, rebuilt on demand."
+libguidedbot.dylib
+libguidedbot.so
+guidedbot.dll
+libguidedbot.dylib.abi
+libguidedbot.so.abi
+guidedbot.dll.abi
+
+# CLI binary built from guided_bot.nim at the agent root.
+/guided_bot
+
+# Nim compile cache.
+nimcache/
+.nimcache/
+
+# Python bytecode from the cogames wrapper.
+__pycache__/
+*.pyc
+
+# Test binaries.
+/test/smoke
+/test/perception_test
+/test/data_test
+/test/localize_test
+/test/actors_test
+/test/tasks_test
+/test/ocr_voting_test
+/test/navigation_test
+voting_diag_test
+
+# Frame dumps and trace output (can be large — never commit).
+traces/

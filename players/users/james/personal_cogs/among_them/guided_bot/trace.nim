@@ -1,0 +1,745 @@
+## Structured trace writer — phase 4.
+##
+## Emits structured JSONL trace output per DESIGN.md section 11, enabling
+## post-match replay and offline analysis. Each call to openTrace generates
+## a unique session subdirectory under the root trace dir:
+##
+##   <GUIDED_BOT_TRACE_DIR>/
+##     <ISO-timestamp>-<pid>-<instance>/
+##       manifest.json    (round metadata, tuning snapshot, schema version)
+##       events.jsonl     (body_seen, chat_observed, meeting_started, ...)
+##       decisions.jsonl  (per-frame mode / branch / intent)
+##       modes.jsonl      (mode_entered / mode_exited)
+##       guidance.jsonl   (snapshot_sent / llm_response / directive_published)
+##       reflexes.jsonl   (reflex_fired / reflex_suppressed)
+##       snapshots.jsonl  (periodic full-belief snapshots)
+##       perception.jsonl (per-frame perception output for overlays)
+##       frames.bin       (optional, gated by TraceFull)
+##
+## Multiple bots in the same process get unique session directories via a
+## monotonic instance counter, mirroring modulabot's TraceWriter design.
+##
+## Tracing is opt-in via GUIDED_BOT_TRACE_DIR / GUIDED_BOT_TRACE_LEVEL
+## env vars (or per-instance override via the FFI guidedbot_set_trace_dir
+## export). When off, every log* call is near-zero-cost (check
+## trace == nil early return).
+##
+## GC-safety: the guidance worker thread cannot access ref/seq/string
+## objects on the main thread. Worker-thread trace events are pushed
+## onto a Channel[string] and drained by the main thread in
+## decideNextMask. See guidance.nim for the channel setup.
+##
+## See DESIGN.md section 11 for the full schema.
+
+import std/[json, os, streams, times]
+import types
+import perception
+import navigation
+import snapshot as snapshotMod
+
+const
+  TraceSchemaVersion* = 1
+  ## Periodic snapshot interval (in ticks). Snapshots are also
+  ## emitted on major events via wake reasons.
+  SnapshotIntervalTicks = 240  ## ~10s at 24Hz.
+
+# Process-wide monotonic counter so multiple bots in the same process
+# (e.g. 8 agents via play_match.py) get unique session directories
+# even when the wall-clock second and PID are identical.
+var instanceCounter {.global.}: int = 0
+
+type
+  TraceLevel* = enum
+    TraceOff
+    TraceEvents       ## events.jsonl only
+    TraceDecisions    ## events + decisions + modes + reflexes + guidance
+    TraceFull         ## all of the above + snapshots + frames.bin
+
+  StreamKind* = enum
+    skEvents
+    skDecisions
+    skModes
+    skGuidance
+    skReflexes
+    skSnapshots
+    skPerception
+
+  TraceWriter* = ref object
+    level*: TraceLevel
+    rootDir*: string
+    botIndex*: int              ## Index of this bot within the policy (-1 = unknown).
+    useStderr*: bool            ## When true, emit prefixed JSONL to stderr instead of files.
+    ## File streams for each JSONL output (nil when useStderr).
+    eventsFile: FileStream
+    decisionsFile: FileStream
+    modesFile: FileStream
+    guidanceFile: FileStream
+    reflexesFile: FileStream
+    snapshotsFile: FileStream
+    perceptionFile: FileStream ## Per-frame perception output; nil unless TraceDecisions+.
+    framesFile: FileStream      ## Binary append; nil unless TraceFull.
+    ## Manifest state — written on open, updated on close.
+    startTick: int
+    endTick: int
+    outcome: string             ## "crew_wins" / "imps_win" / "" (unknown).
+    role: string
+    ## Mode entry tracking for duration calculation.
+    modeEntryTick*: int
+    ## Snapshot cadence tracking.
+    lastSnapshotTick: int
+
+# ---------------------------------------------------------------------------
+# Helpers — JSON serialization for trace payloads
+# ---------------------------------------------------------------------------
+
+proc modeStr(mode: ModeName): string =
+  case mode
+  of ModeIdle:             "idle"
+  of ModeTaskCompleting:   "task_completing"
+  of ModeReporting:        "reporting"
+  of ModePretending:       "pretending"
+  of ModeHunting:          "hunting"
+  of ModeFleeing:          "fleeing"
+  of ModeAlibiBuilding:    "alibi_building"
+  of ModeMeeting:          "meeting"
+
+proc sourceStr(source: DirectiveSource): string =
+  case source
+  of SourceDefault: "default"
+  of SourceLlm:     "llm"
+  of SourceReflex:  "reflex"
+
+proc disciplineStr(d: ActionDiscipline): string =
+  case d
+  of DisciplineNoOp:       "noop"
+  of DisciplineNormal:     "normal"
+  of DisciplineTaskHold:   "task_hold"
+  of DisciplineKillStrike: "kill_strike"
+  of DisciplineReport:     "report"
+  of DisciplineWander:     "wander"
+
+proc phaseStr(phase: GamePhase): string =
+  case phase
+  of PhaseUnknown:      "unknown"
+  of PhaseLobby:        "lobby"
+  of PhaseGameplay:     "gameplay"
+  of PhaseInterstitial: "interstitial"
+  of PhaseVoting:       "voting"
+  of PhaseGameOver:     "game_over"
+
+proc interstitialKindStr(kind: InterstitialKind): string =
+  case kind
+  of NotInterstitial: "not_interstitial"
+  of InterstitialUnknown: "unknown"
+  of InterstitialRoleReveal: "role_reveal"
+  of InterstitialRoleRevealCrewmate: "role_reveal_crewmate"
+  of InterstitialRoleRevealImposter: "role_reveal_imposter"
+  of InterstitialVoting: "voting"
+  of InterstitialVoteResult: "vote_result"
+  of InterstitialGameOver: "game_over"
+
+proc roleStr(role: BotRole): string =
+  case role
+  of RoleUnknown:  "unknown"
+  of RoleCrewmate: "crewmate"
+  of RoleImposter: "imposter"
+
+proc paramsToJson*(params: ModeParams): JsonNode =
+  ## Serialize mode params to a JSON object. Only includes non-default
+  ## fields relevant to the active mode.
+  result = newJObject()
+  case params.mode
+  of ModeIdle:
+    if params.idleLingerValid:
+      result["linger_at"] = %*[params.idleLingerAt.x, params.idleLingerAt.y]
+    result["near_group"] = newJBool(params.idleNearGroup)
+  of ModeTaskCompleting:
+    var tgt = newJObject()
+    case params.tcTarget.kind
+    of TgtIndex:
+      tgt["kind"] = newJString("index")
+      tgt["task_index"] = newJInt(params.tcTarget.taskIndex)
+    of TgtNearestMandatory:
+      tgt["kind"] = newJString("nearest_mandatory")
+    of TgtNearestAny:
+      tgt["kind"] = newJString("nearest_any")
+    of TgtSpecificRoom:
+      tgt["kind"] = newJString("specific_room")
+      tgt["room_id"] = newJInt(params.tcTarget.roomId)
+    result["target"] = tgt
+    result["abandon_on_nearby_body"] = newJBool(params.tcAbandonOnNearbyBody)
+  of ModeReporting:
+    result["body_location"] = %*[params.repBodyLocation.x,
+                                  params.repBodyLocation.y]
+  of ModePretending:
+    var tgt = newJObject()
+    case params.preTarget.kind
+    of TgtIndex:
+      tgt["kind"] = newJString("index")
+      tgt["task_index"] = newJInt(params.preTarget.taskIndex)
+    of TgtNearestMandatory:
+      tgt["kind"] = newJString("nearest_mandatory")
+    of TgtNearestAny:
+      tgt["kind"] = newJString("nearest_any")
+    of TgtSpecificRoom:
+      tgt["kind"] = newJString("specific_room")
+      tgt["room_id"] = newJInt(params.preTarget.roomId)
+    result["target"] = tgt
+    result["loiter_ticks"] = newJInt(params.preLoiterTicks)
+    result["may_swap_on_witness"] = newJBool(params.preMaySwapOnWitness)
+  of ModeHunting:
+    result["preferred_target"] = newJInt(params.huntPreferredTarget)
+    result["max_witnesses"] = newJInt(params.huntMaxWitnesses)
+    result["opportunistic"] = newJBool(params.huntOpportunistic)
+    result["cover_mode"] = newJString(modeStr(params.huntCoverMode))
+  of ModeFleeing:
+    result["away_from"] = %*[params.fleeAwayFrom.x, params.fleeAwayFrom.y]
+    result["min_distance"] = newJInt(params.fleeMinDistance)
+    result["duration_ticks"] = newJInt(params.fleeDurationTicks)
+  of ModeAlibiBuilding:
+    result["companion_color"] = newJInt(params.aliCompanionColor)
+    result["room_id"] = newJInt(params.aliRoomId)
+    result["min_duration_ticks"] = newJInt(params.aliMinDurationTicks)
+  of ModeMeeting:
+    result["want_to_speak_first"] = newJBool(params.meetWantToSpeakFirst)
+
+proc intentToJson(intent: ActionIntent): JsonNode =
+  result = newJObject()
+  if intent.steerValid:
+    result["steer_to"] = %*[intent.steerTo.x, intent.steerTo.y]
+  else:
+    result["steer_to"] = newJNull()
+  result["press_a"] = newJBool(intent.pressA)
+  result["press_b"] = newJBool(intent.pressB)
+  case intent.cursor
+  of CursorNone:  result["cursor"] = newJString("none")
+  of CursorLeft:  result["cursor"] = newJString("left")
+  of CursorRight: result["cursor"] = newJString("right")
+  if intent.chat.len > 0:
+    result["chat"] = newJString(intent.chat)
+  result["discipline"] = newJString($intent.discipline)
+
+proc ventPolicyStr(policy: VentPolicy): string =
+  case policy
+  of VentNever:  "never"
+  of VentIfSafe: "if_safe"
+  of VentAlways: "always"
+
+proc navToJson(state: ActionState): JsonNode =
+  ## Serialize action-layer navigation diagnostics. State stores waypoint
+  ## indices for fast access; trace emits waypoint IDs for stable replay.
+  let graph = navGraph()[]
+  result = newJObject()
+
+  var path = newJArray()
+  for wpIdx in state.strategicPath:
+    if wpIdx >= 0 and wpIdx < graph.waypoints.len:
+      path.add(newJInt(graph.waypoints[wpIdx].id))
+    else:
+      path.add(newJInt(wpIdx))
+  result["strategic_path"] = path
+
+  if state.currentEdgeTo >= 0 and state.currentEdgeTo < graph.waypoints.len:
+    result["current_wp"] = newJInt(graph.waypoints[state.currentEdgeTo].id)
+  else:
+    result["current_wp"] = newJNull()
+
+  result["current_edge"] = newJInt(state.currentEdgeIdx)
+  result["edge_progress"] = newJInt(state.pathProgress)
+  var edgeLength = 0
+  if state.currentEdgeIdx >= 0 and state.currentEdgeIdx < graph.edges.len:
+    if graph.edges[state.currentEdgeIdx].isVent:
+      edgeLength = 1
+    else:
+      let pathIdx = walkingEdgeIndex(graph, state.currentEdgeIdx)
+      if pathIdx >= 0 and pathIdx < graph.paths.len:
+        edgeLength = graph.paths[pathIdx].points.len
+  result["edge_length"] = newJInt(edgeLength)
+  result["arrived"] = newJBool(state.arrivedAtWaypoint)
+  result["vent_policy"] = newJString(ventPolicyStr(state.ventPolicy))
+  if state.navErrorReason.len > 0:
+    result["last_error"] = newJString(state.navErrorReason)
+  result["goal_x"] = newJInt(state.currentGoal.x)
+  result["goal_y"] = newJInt(state.currentGoal.y)
+  result["current_wp_from"] = newJInt(
+    if state.currentEdgeFrom >= 0 and state.currentEdgeFrom < graph.waypoints.len:
+      graph.waypoints[state.currentEdgeFrom].id
+    else:
+      -1
+  )
+  if state.lastLookaheadValid:
+    result["lookahead_x"] = newJInt(state.lastLookahead.x)
+    result["lookahead_y"] = newJInt(state.lastLookahead.y)
+
+const StreamPrefix: array[StreamKind, string] = [
+  skEvents:     "[trace:events] ",
+  skDecisions:  "[trace:decisions] ",
+  skModes:      "[trace:modes] ",
+  skGuidance:   "[trace:guidance] ",
+  skReflexes:   "[trace:reflexes] ",
+  skSnapshots:  "[trace:snapshots] ",
+  skPerception: "[trace:perception] ",
+]
+
+proc writeStderr(trace: TraceWriter, kind: StreamKind, line: string) =
+  ## Write a prefixed trace line to stderr. Used in hosted containers
+  ## where only stdout/stderr are captured.
+  stderr.write(StreamPrefix[kind])
+  stderr.write(line)
+  stderr.write("\n")
+  flushFile(stderr)
+
+proc writeLine(fs: FileStream, line: string) =
+  ## Write a line + newline to a file stream, flushing immediately so
+  ## data survives unclean shutdown. No-op if stream is nil.
+  if fs != nil:
+    fs.write(line)
+    fs.write("\n")
+    fs.flush()
+
+# ---------------------------------------------------------------------------
+# Manifest
+# ---------------------------------------------------------------------------
+
+proc writeManifest(trace: TraceWriter, final: bool = false) =
+  ## Write (or overwrite) the manifest.json file.
+  ## In stderr mode, emits manifest as a trace event instead.
+  var m = newJObject()
+  m["trace_schema_version"] = newJInt(TraceSchemaVersion)
+  m["bot"] = newJString("guided_bot")
+  m["level"] = newJString($trace.level)
+  m["start_tick"] = newJInt(trace.startTick)
+  m["created_at"] = newJString(now().format("yyyy-MM-dd'T'HH:mm:sszzz"))
+  if trace.botIndex >= 0:
+    m["bot_index"] = newJInt(trace.botIndex)
+  if trace.role.len > 0:
+    m["role"] = newJString(trace.role)
+  if final:
+    m["end_tick"] = newJInt(trace.endTick)
+    if trace.outcome.len > 0:
+      m["outcome"] = newJString(trace.outcome)
+    m["closed"] = newJBool(true)
+  else:
+    m["closed"] = newJBool(false)
+  if trace.useStderr:
+    var wrapper = newJObject()
+    wrapper["kind"] = newJString("manifest")
+    wrapper["manifest"] = m
+    writeStderr(trace, skEvents, $wrapper)
+  else:
+    let path = trace.rootDir / "manifest.json"
+    writeFile(path, m.pretty())
+
+# ---------------------------------------------------------------------------
+# Public API — lifecycle
+# ---------------------------------------------------------------------------
+
+proc openTrace*(rootDir: string, level: TraceLevel, botIndex: int = -1): TraceWriter =
+  ## Create a trace writer. When rootDir is "stderr", emits prefixed
+  ## JSONL to stderr (for hosted containers where only captured output
+  ## is available). Otherwise creates a unique session subdirectory
+  ## under rootDir and opens file handles.
+  ##
+  ## Returns nil if tracing is off or rootDir is empty.
+  if level == TraceOff or rootDir.len == 0:
+    return nil
+
+  # Stderr mode: emit prefixed lines to stderr, no files.
+  if rootDir == "stderr":
+    inc instanceCounter
+    result = TraceWriter(
+      level: level,
+      rootDir: "stderr",
+      botIndex: botIndex,
+      useStderr: true,
+      startTick: 0,
+      endTick: 0,
+      outcome: "",
+      role: "",
+      modeEntryTick: 0,
+      lastSnapshotTick: -1000
+    )
+    return
+
+  # Generate unique session directory.
+  let ts = now().format("yyyy-MM-dd'T'HH-mm-ss")
+  let pid = getCurrentProcessId()
+  let n = instanceCounter
+  inc instanceCounter
+  let sessionDir = rootDir / (ts & "-" & $pid & "-" & $n)
+  createDir(sessionDir)
+
+  result = TraceWriter(
+    level: level,
+    rootDir: sessionDir,
+    botIndex: botIndex,
+    useStderr: false,
+    startTick: 0,
+    endTick: 0,
+    outcome: "",
+    role: "",
+    modeEntryTick: 0,
+    lastSnapshotTick: -1000
+  )
+
+  # Open JSONL streams based on trace level.
+  # TraceEvents: events only.
+  result.eventsFile = newFileStream(sessionDir / "events.jsonl", fmWrite)
+
+  if level >= TraceDecisions:
+    result.decisionsFile = newFileStream(sessionDir / "decisions.jsonl", fmWrite)
+    result.modesFile = newFileStream(sessionDir / "modes.jsonl", fmWrite)
+    result.reflexesFile = newFileStream(sessionDir / "reflexes.jsonl", fmWrite)
+    result.guidanceFile = newFileStream(sessionDir / "guidance.jsonl", fmWrite)
+    result.perceptionFile = newFileStream(sessionDir / "perception.jsonl", fmWrite)
+
+  if level >= TraceFull:
+    result.snapshotsFile = newFileStream(sessionDir / "snapshots.jsonl", fmWrite)
+    result.framesFile = newFileStream(sessionDir / "frames.bin", fmWrite)
+
+  # Write the initial manifest.
+  writeManifest(result, final = false)
+
+proc closeTrace*(trace: TraceWriter) =
+  ## Flush and close all trace file handles. Update the manifest with
+  ## end-tick and outcome.
+  if trace == nil:
+    return
+
+  # Update manifest with final state.
+  writeManifest(trace, final = true)
+
+  if trace.useStderr:
+    return
+
+  # Close all streams.
+  if trace.eventsFile != nil:
+    trace.eventsFile.close()
+    trace.eventsFile = nil
+  if trace.decisionsFile != nil:
+    trace.decisionsFile.close()
+    trace.decisionsFile = nil
+  if trace.modesFile != nil:
+    trace.modesFile.close()
+    trace.modesFile = nil
+  if trace.guidanceFile != nil:
+    trace.guidanceFile.close()
+    trace.guidanceFile = nil
+  if trace.reflexesFile != nil:
+    trace.reflexesFile.close()
+    trace.reflexesFile = nil
+  if trace.snapshotsFile != nil:
+    trace.snapshotsFile.close()
+    trace.snapshotsFile = nil
+  if trace.perceptionFile != nil:
+    trace.perceptionFile.close()
+    trace.perceptionFile = nil
+  if trace.framesFile != nil:
+    trace.framesFile.close()
+    trace.framesFile = nil
+
+# ---------------------------------------------------------------------------
+# Public API — per-event writers
+# ---------------------------------------------------------------------------
+
+proc logDecision*(trace: TraceWriter, belief: Belief,
+                  intent: ActionIntent, branchId: string,
+                  actionState: ActionState, mask: uint8 = 0) =
+  ## Log one decision record to decisions.jsonl (DESIGN.md section 11.3).
+  ## Called once per frame from bot.nim:decideNextMask after applyIntent()
+  ## so the final button mask is available.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+
+  # Track end tick for the manifest.
+  trace.endTick = belief.tick
+
+  var rec = newJObject()
+  rec["t"] = newJInt(belief.tick)
+  rec["mode"] = newJString(modeStr(belief.directive.mode))
+  rec["directive_source"] = newJString(sourceStr(belief.directive.source))
+  rec["directive_issued_at"] = newJInt(belief.directive.issuedAtTick)
+  rec["params"] = paramsToJson(belief.directive.params)
+  rec["branch_id"] = newJString(branchId)
+  rec["intent"] = intentToJson(intent)
+  rec["discipline"] = newJString(disciplineStr(intent.discipline))
+  rec["mask"] = newJInt(int(mask))
+  # Self position for correlating with camera localization.
+  rec["self_x"] = newJInt(belief.percep.selfX)
+  rec["self_y"] = newJInt(belief.percep.selfY)
+  rec["localized"] = newJBool(belief.percep.localized)
+  if intent.discipline == DisciplineNormal:
+    rec["nav"] = navToJson(actionState)
+  if belief.directive.reasoning.len > 0:
+    rec["reason"] = newJString(belief.directive.reasoning)
+  if trace.useStderr:
+    writeStderr(trace, skDecisions, $rec)
+  else:
+    trace.decisionsFile.writeLine($rec)
+
+proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Belief) =
+  ## Log full per-frame perception output to perception.jsonl for
+  ## offline visualization. Coordinates from percept are screen-space;
+  ## camera/self coordinates from belief are world-space.
+  ## Skipped in stderr mode — too voluminous for captured output.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+  if trace.useStderr:
+    return
+  if trace.perceptionFile == nil:
+    return
+
+  trace.endTick = tick
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["phase"] = newJString(phaseStr(belief.self.phase))
+  rec["interstitial"] = newJBool(percept.interstitial.isInterstitial)
+  rec["interstitial_kind"] =
+    newJString(interstitialKindStr(belief.percep.interstitialKind))
+  rec["black_pixel_count"] = newJInt(percept.interstitial.blackPixelCount)
+  rec["localized"] = newJBool(belief.percep.localized)
+  rec["camera_x"] = newJInt(belief.percep.cameraX)
+  rec["camera_y"] = newJInt(belief.percep.cameraY)
+  rec["camera_score"] = newJInt(belief.percep.cameraScore)
+  rec["self_x"] = newJInt(belief.percep.selfX)
+  rec["self_y"] = newJInt(belief.percep.selfY)
+  rec["self_color"] = newJInt(belief.self.colorIndex)
+  rec["role"] = newJString(roleStr(belief.self.role))
+  rec["is_ghost"] = newJBool(belief.self.isGhost)
+  rec["kill_ready"] = newJBool(belief.percep.killReady)
+
+  var crewmates = newJArray()
+  for cm in percept.actors.crewmates:
+    var obj = newJObject()
+    obj["x"] = newJInt(cm.x)
+    obj["y"] = newJInt(cm.y)
+    obj["color"] = newJInt(cm.colorIndex)
+    obj["flip_h"] = newJBool(cm.flipH)
+    crewmates.add obj
+  rec["crewmates"] = crewmates
+
+  var bodies = newJArray()
+  for body in percept.actors.bodies:
+    var obj = newJObject()
+    obj["x"] = newJInt(body.x)
+    obj["y"] = newJInt(body.y)
+    obj["color"] = newJInt(body.colorIndex)
+    bodies.add obj
+  rec["bodies"] = bodies
+
+  var ghosts = newJArray()
+  for ghost in percept.actors.ghosts:
+    var obj = newJObject()
+    obj["x"] = newJInt(ghost.x)
+    obj["y"] = newJInt(ghost.y)
+    obj["flip_h"] = newJBool(ghost.flipH)
+    ghosts.add obj
+  rec["ghosts"] = ghosts
+
+  var taskIcons = newJArray()
+  for icon in percept.taskPercept.taskIcons:
+    var obj = newJObject()
+    obj["x"] = newJInt(icon.x)
+    obj["y"] = newJInt(icon.y)
+    taskIcons.add obj
+  rec["task_icons"] = taskIcons
+
+  var radarDots = newJArray()
+  for dot in percept.taskPercept.radarDots:
+    var obj = newJObject()
+    obj["x"] = newJInt(dot.x)
+    obj["y"] = newJInt(dot.y)
+    radarDots.add obj
+  rec["radar_dots"] = radarDots
+
+  var maskCount = 0
+  for b in percept.ignoreMask.data:
+    if b != 0'u8:
+      inc maskCount
+  rec["ignore_mask_count"] = newJInt(maskCount)
+
+  if percept.votingParse.valid:
+    var voting = newJObject()
+    voting["player_count"] = newJInt(percept.votingParse.playerCount)
+    voting["cursor"] = newJInt(percept.votingParse.cursor)
+    voting["self_slot"] = newJInt(percept.votingParse.selfSlot)
+
+    var playerCount = percept.votingParse.playerCount
+    if playerCount < 0:
+      playerCount = 0
+    if playerCount > percept.votingParse.slots.len:
+      playerCount = percept.votingParse.slots.len
+
+    var slots = newJArray()
+    for i in 0 ..< playerCount:
+      let slot = percept.votingParse.slots[i]
+      var obj = newJObject()
+      obj["color"] = newJInt(slot.colorIndex)
+      obj["alive"] = newJBool(slot.alive)
+      slots.add obj
+    voting["slots"] = slots
+
+    var choices = newJArray()
+    for i in 0 ..< playerCount:
+      choices.add newJInt(percept.votingParse.choices[i])
+    voting["choices"] = choices
+
+    var chatLines = newJArray()
+    for line in percept.votingParse.chatLines:
+      var obj = newJObject()
+      obj["speakerColor"] = newJInt(line.speakerColor)
+      obj["y"] = newJInt(line.y)
+      obj["text"] = newJString(line.text)
+      chatLines.add obj
+    voting["chat_lines"] = chatLines
+    rec["voting"] = voting
+  else:
+    rec["voting"] = newJNull()
+
+  trace.perceptionFile.writeLine($rec)
+
+proc logModeEntered*(trace: TraceWriter, tick: int, fromMode, toMode: ModeName,
+                    params: ModeParams, reason: string) =
+  ## Log a mode_entered event to modes.jsonl (DESIGN.md section 11.5).
+  ## Called from bot.nim:switchMode after onEnter completes.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+
+  trace.modeEntryTick = tick
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["kind"] = newJString("mode_entered")
+  rec["mode"] = newJString(modeStr(toMode))
+  rec["params"] = paramsToJson(params)
+  rec["from_mode"] = newJString(modeStr(fromMode))
+  rec["reason"] = newJString(reason)
+  if trace.useStderr:
+    writeStderr(trace, skModes, $rec)
+  else:
+    trace.modesFile.writeLine($rec)
+
+proc logModeExited*(trace: TraceWriter, tick: int, mode: ModeName,
+                   durationTicks: int) =
+  ## Log a mode_exited event to modes.jsonl (DESIGN.md section 11.5).
+  ## Called from bot.nim:switchMode before onExit runs.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["kind"] = newJString("mode_exited")
+  rec["mode"] = newJString(modeStr(mode))
+  rec["duration_ticks"] = newJInt(durationTicks)
+  if trace.useStderr:
+    writeStderr(trace, skModes, $rec)
+  else:
+    trace.modesFile.writeLine($rec)
+
+proc logReflexFired*(trace: TraceWriter, tick: int, name: string,
+                    fromMode, toMode: ModeName, toParams: ModeParams) =
+  ## Log a reflex_fired event to reflexes.jsonl (DESIGN.md section 11.6).
+  ## Called from bot.nim:reconcileDirective when a reflex fires.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["kind"] = newJString("reflex_fired")
+  rec["name"] = newJString(name)
+  rec["from_mode"] = newJString(modeStr(fromMode))
+  rec["to_mode"] = newJString(modeStr(toMode))
+  rec["to_params"] = paramsToJson(toParams)
+  if trace.useStderr:
+    writeStderr(trace, skReflexes, $rec)
+  else:
+    trace.reflexesFile.writeLine($rec)
+
+proc logGuidanceEvent*(trace: TraceWriter, payload: string) =
+  ## Log a guidance event to guidance.jsonl (DESIGN.md section 11.4).
+  ## The payload is a pre-serialized JSON string pushed from the
+  ## guidance worker thread via a channel, then drained on the main
+  ## thread and forwarded here.
+  if trace == nil or trace.level < TraceDecisions:
+    return
+  # The payload is already a complete JSON line.
+  if trace.useStderr:
+    writeStderr(trace, skGuidance, payload)
+  else:
+    trace.guidanceFile.writeLine(payload)
+
+proc logGameEvent*(trace: TraceWriter, kind: string, tick: int,
+                  payload: string) =
+  ## Log a game event to events.jsonl (DESIGN.md section 11.2).
+  ## Called from bot.nim after belief merge procs detect game events.
+  if trace == nil:
+    return
+
+  # Update end tick and role if we learn it.
+  trace.endTick = tick
+
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  rec["kind"] = newJString(kind)
+  # Merge any additional payload fields.
+  if payload.len > 0:
+    try:
+      let extra = parseJson(payload)
+      if extra.kind == JObject:
+        for key, val in extra:
+          rec[key] = val
+    except CatchableError:
+      rec["detail"] = newJString(payload)
+  if trace.useStderr:
+    writeStderr(trace, skEvents, $rec)
+  else:
+    trace.eventsFile.writeLine($rec)
+
+proc logSnapshot*(trace: TraceWriter, tick: int, belief: Belief,
+                  modeSummary: JsonNode = nil) =
+  ## Log a periodic full-belief snapshot to snapshots.jsonl.
+  ## Called from bot.nim:decideNextMask at SnapshotIntervalTicks cadence.
+  if trace == nil or trace.level < TraceFull:
+    return
+  if tick - trace.lastSnapshotTick < SnapshotIntervalTicks:
+    return
+  trace.lastSnapshotTick = tick
+
+  let snapJson = snapshotMod.renderSnapshot(belief, modeSummary)
+  var rec = newJObject()
+  rec["t"] = newJInt(tick)
+  try:
+    rec["snapshot"] = parseJson(snapJson)
+  except CatchableError:
+    rec["snapshot_raw"] = newJString(snapJson)
+  if trace.useStderr:
+    writeStderr(trace, skSnapshots, $rec)
+  else:
+    trace.snapshotsFile.writeLine($rec)
+
+proc logFrame*(trace: TraceWriter, frame: openArray[uint8]) =
+  ## Append a raw frame to frames.bin. Only active at TraceFull.
+  ## Skipped in stderr mode — binary data is not useful in captured logs.
+  if trace == nil or trace.level < TraceFull:
+    return
+  if trace.useStderr:
+    return
+  if trace.framesFile == nil:
+    return
+  # Write raw bytes — each frame is FrameLen bytes.
+  for b in frame:
+    trace.framesFile.write(b)
+
+proc setRole*(trace: TraceWriter, role: string) =
+  ## Update the role in the trace manifest. Called when the bot
+  ## discovers its role.
+  if trace == nil:
+    return
+  trace.role = role
+
+proc setOutcome*(trace: TraceWriter, outcome: string) =
+  ## Update the outcome in the trace manifest. Called on game_over.
+  if trace == nil:
+    return
+  trace.outcome = outcome

@@ -1,0 +1,7 @@
+{"tick":0,"wall_ms":6,"branch_id":"interstitial.wait","intent":"interstitial, idle","from":null,"duration_ticks_in_prev_branch":null,"action":0,"role":"unknown","phase":"interstitial"}
+{"tick":137,"wall_ms":5788,"branch_id":"crew.task.navigate","intent":"navigating to task 11","from":"interstitial.wait","duration_ticks_in_prev_branch":137,"action":12,"role":"crewmate","phase":"playing","goal":{"name":"task_11","index":11,"pos":[127,55]}}
+{"tick":218,"wall_ms":9837,"branch_id":"crew.task.start_hold","intent":"holding task 22","from":"crew.task.navigate","duration_ticks_in_prev_branch":81,"action":1,"role":"crewmate","phase":"playing"}
+{"tick":219,"wall_ms":9889,"branch_id":"crew.task.continue_hold","intent":"holding task","from":"crew.task.start_hold","duration_ticks_in_prev_branch":1,"action":1,"role":"crewmate","phase":"playing"}
+{"tick":303,"wall_ms":13963,"branch_id":"crew.task.navigate","intent":"navigating to task 19","from":"crew.task.continue_hold","duration_ticks_in_prev_branch":84,"action":6,"role":"crewmate","phase":"playing","goal":{"name":"task_19","index":19,"pos":[69,127]}}
+{"tick":375,"wall_ms":17537,"branch_id":"crew.task.start_hold","intent":"holding task 21","from":"crew.task.navigate","duration_ticks_in_prev_branch":72,"action":1,"role":"crewmate","phase":"playing"}
+{"tick":376,"wall_ms":17588,"branch_id":"crew.task.continue_hold","intent":"holding task","from":"crew.task.start_hold","duration_ticks_in_prev_branch":1,"action":1,"role":"crewmate","phase":"playing"}

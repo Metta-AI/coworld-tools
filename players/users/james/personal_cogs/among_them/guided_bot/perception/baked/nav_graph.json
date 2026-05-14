@@ -1,0 +1,3331 @@
+{
+  "version": 1,
+  "waypoints": [
+    {
+      "id": 0,
+      "x": 536,
+      "y": 103,
+      "kind": "home",
+      "room": "Cafeteria",
+      "label": "home"
+    },
+    {
+      "id": 1,
+      "x": 538,
+      "y": 138,
+      "kind": "button",
+      "room": "Cafeteria",
+      "label": "emergency_button"
+    },
+    {
+      "id": 2,
+      "x": 562,
+      "y": 473,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 3,
+      "x": 675,
+      "y": 429,
+      "kind": "task",
+      "room": "Coms",
+      "label": "Upload Data From Communications"
+    },
+    {
+      "id": 4,
+      "x": 582,
+      "y": 277,
+      "kind": "task",
+      "room": "Admin Hallway",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 5,
+      "x": 452,
+      "y": 39,
+      "kind": "task",
+      "room": "North Cafeteria",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 6,
+      "x": 518,
+      "y": 330,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 7,
+      "x": 400,
+      "y": 304,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 8,
+      "x": 846,
+      "y": 230,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Fix Wires"
+    },
+    {
+      "id": 9,
+      "x": 360,
+      "y": 301,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Download Data"
+    },
+    {
+      "id": 10,
+      "x": 436,
+      "y": 303,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Calibrate Distributor"
+    },
+    {
+      "id": 11,
+      "x": 408,
+      "y": 242,
+      "kind": "task",
+      "room": "MedBay",
+      "label": "Submit Scan"
+    },
+    {
+      "id": 12,
+      "x": 380,
+      "y": 301,
+      "kind": "task",
+      "room": "Electrical",
+      "label": "Divert Power"
+    },
+    {
+      "id": 13,
+      "x": 768,
+      "y": 102,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Divert Power"
+    },
+    {
+      "id": 14,
+      "x": 876,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Divert Power"
+    },
+    {
+      "id": 15,
+      "x": 194,
+      "y": 336,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Divert Power"
+    },
+    {
+      "id": 16,
+      "x": 210,
+      "y": 90,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Divert Power"
+    },
+    {
+      "id": 17,
+      "x": 305,
+      "y": 214,
+      "kind": "task",
+      "room": "Security",
+      "label": "Divert Power"
+    },
+    {
+      "id": 18,
+      "x": 154,
+      "y": 217,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Divert Power"
+    },
+    {
+      "id": 19,
+      "x": 131,
+      "y": 252,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Start Reactor"
+    },
+    {
+      "id": 20,
+      "x": 115,
+      "y": 194,
+      "kind": "task",
+      "room": "Reactor",
+      "label": "Unlock Manifolds"
+    },
+    {
+      "id": 21,
+      "x": 772,
+      "y": 356,
+      "kind": "task",
+      "room": "Shields",
+      "label": "Divert Power"
+    },
+    {
+      "id": 22,
+      "x": 711,
+      "y": 427,
+      "kind": "task",
+      "room": "Shields",
+      "label": "Prime Shields"
+    },
+    {
+      "id": 23,
+      "x": 723,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav Hallway",
+      "label": "Divert Power"
+    },
+    {
+      "id": 24,
+      "x": 739,
+      "y": 103,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Clear Asteroids"
+    },
+    {
+      "id": 25,
+      "x": 424,
+      "y": 230,
+      "kind": "task",
+      "room": "MedBay",
+      "label": "Inspect Sample"
+    },
+    {
+      "id": 26,
+      "x": 605,
+      "y": 275,
+      "kind": "task",
+      "room": "Admin",
+      "label": "Upload Data"
+    },
+    {
+      "id": 27,
+      "x": 170,
+      "y": 406,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Align Engine Output"
+    },
+    {
+      "id": 28,
+      "x": 170,
+      "y": 164,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Align Engine Output"
+    },
+    {
+      "id": 29,
+      "x": 678,
+      "y": 314,
+      "kind": "task",
+      "room": "Admin",
+      "label": "Swipe Card"
+    },
+    {
+      "id": 30,
+      "x": 620,
+      "y": 47,
+      "kind": "task",
+      "room": "North Cafeteria",
+      "label": "Download Data"
+    },
+    {
+      "id": 31,
+      "x": 904,
+      "y": 233,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Chart Course"
+    },
+    {
+      "id": 32,
+      "x": 896,
+      "y": 258,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Stabilize Steering"
+    },
+    {
+      "id": 33,
+      "x": 896,
+      "y": 204,
+      "kind": "task",
+      "room": "Nav",
+      "label": "Download Data"
+    },
+    {
+      "id": 34,
+      "x": 634,
+      "y": 440,
+      "kind": "task",
+      "room": "Coms",
+      "label": "Download Data"
+    },
+    {
+      "id": 35,
+      "x": 494,
+      "y": 427,
+      "kind": "task",
+      "room": "Storage",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 36,
+      "x": 194,
+      "y": 401,
+      "kind": "task",
+      "room": "Lower Engine",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 37,
+      "x": 194,
+      "y": 159,
+      "kind": "task",
+      "room": "Upper Engine",
+      "label": "Fuel Engines"
+    },
+    {
+      "id": 38,
+      "x": 675,
+      "y": 205,
+      "kind": "task",
+      "room": "O2",
+      "label": "Clean O2 Filter"
+    },
+    {
+      "id": 39,
+      "x": 731,
+      "y": 71,
+      "kind": "task",
+      "room": "Weapons",
+      "label": "Download Data"
+    },
+    {
+      "id": 40,
+      "x": 638,
+      "y": 68,
+      "kind": "task",
+      "room": "East Cafeteria",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 41,
+      "x": 659,
+      "y": 220,
+      "kind": "task",
+      "room": "O2",
+      "label": "Empty Garbage"
+    },
+    {
+      "id": 42,
+      "x": 606,
+      "y": 339,
+      "kind": "vent",
+      "room": "Admin",
+      "label": "vent_A1",
+      "vent_group": "A",
+      "vent_index": 1
+    },
+    {
+      "id": 43,
+      "x": 742,
+      "y": 269,
+      "kind": "vent",
+      "room": "Nav Hallway",
+      "label": "vent_A2",
+      "vent_group": "A",
+      "vent_index": 2
+    },
+    {
+      "id": 44,
+      "x": 640,
+      "y": 147,
+      "kind": "vent",
+      "room": "East Cafeteria",
+      "label": "vent_A3",
+      "vent_group": "A",
+      "vent_index": 3
+    },
+    {
+      "id": 45,
+      "x": 730,
+      "y": 75,
+      "kind": "vent",
+      "room": "Weapons",
+      "label": "vent_B1",
+      "vent_group": "B",
+      "vent_index": 1
+    },
+    {
+      "id": 46,
+      "x": 880,
+      "y": 219,
+      "kind": "vent",
+      "room": "Nav",
+      "label": "vent_B2",
+      "vent_group": "B",
+      "vent_index": 2
+    },
+    {
+      "id": 47,
+      "x": 746,
+      "y": 427,
+      "kind": "vent",
+      "room": "Shields",
+      "label": "vent_C1",
+      "vent_group": "C",
+      "vent_index": 1
+    },
+    {
+      "id": 48,
+      "x": 880,
+      "y": 267,
+      "kind": "vent",
+      "room": "Nav",
+      "label": "vent_C2",
+      "vent_group": "C",
+      "vent_index": 2
+    },
+    {
+      "id": 49,
+      "x": 342,
+      "y": 225,
+      "kind": "vent",
+      "room": "MedBay",
+      "label": "vent_D1",
+      "vent_group": "D",
+      "vent_index": 1
+    },
+    {
+      "id": 50,
+      "x": 358,
+      "y": 303,
+      "kind": "vent",
+      "room": "Electrical",
+      "label": "vent_D2",
+      "vent_group": "D",
+      "vent_index": 2
+    },
+    {
+      "id": 51,
+      "x": 302,
+      "y": 279,
+      "kind": "vent",
+      "room": "Security",
+      "label": "vent_D3",
+      "vent_group": "D",
+      "vent_index": 3
+    },
+    {
+      "id": 52,
+      "x": 93,
+      "y": 94,
+      "kind": "vent",
+      "room": "",
+      "label": "vent_E1",
+      "vent_group": "E",
+      "vent_index": 1
+    },
+    {
+      "id": 53,
+      "x": 138,
+      "y": 277,
+      "kind": "vent",
+      "room": "Reactor",
+      "label": "vent_E2",
+      "vent_group": "E",
+      "vent_index": 2
+    },
+    {
+      "id": 54,
+      "x": 248,
+      "y": 413,
+      "kind": "vent",
+      "room": "Lower Engine",
+      "label": "vent_E3",
+      "vent_group": "E",
+      "vent_index": 3
+    },
+    {
+      "id": 55,
+      "x": 116,
+      "y": 201,
+      "kind": "vent",
+      "room": "Reactor",
+      "label": "vent_F1",
+      "vent_group": "F",
+      "vent_index": 1
+    },
+    {
+      "id": 56,
+      "x": 248,
+      "y": 89,
+      "kind": "vent",
+      "room": "Upper Engine",
+      "label": "vent_F2",
+      "vent_group": "F",
+      "vent_index": 2
+    },
+    {
+      "id": 75,
+      "x": 570,
+      "y": 284,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 84,
+      "x": 658,
+      "y": 387,
+      "kind": "intersection",
+      "room": "Coms Hallway",
+      "label": ""
+    },
+    {
+      "id": 85,
+      "x": 786,
+      "y": 217,
+      "kind": "intersection",
+      "room": "Nav Hallway",
+      "label": ""
+    },
+    {
+      "id": 86,
+      "x": 731,
+      "y": 380,
+      "kind": "intersection",
+      "room": "Shields",
+      "label": ""
+    },
+    {
+      "id": 87,
+      "x": 577,
+      "y": 388,
+      "kind": "doorway",
+      "room": "Coms Hallway",
+      "label": ""
+    },
+    {
+      "id": 88,
+      "x": 541,
+      "y": 317,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 89,
+      "x": 451,
+      "y": 434,
+      "kind": "doorway",
+      "room": "Electrial Hallway",
+      "label": ""
+    },
+    {
+      "id": 90,
+      "x": 540,
+      "y": 232,
+      "kind": "doorway",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 91,
+      "x": 415,
+      "y": 328,
+      "kind": "doorway",
+      "room": "Electrical",
+      "label": ""
+    },
+    {
+      "id": 92,
+      "x": 262,
+      "y": 377,
+      "kind": "doorway",
+      "room": "Electrial Hallway Bend",
+      "label": ""
+    },
+    {
+      "id": 93,
+      "x": 216,
+      "y": 322,
+      "kind": "doorway",
+      "room": "Lower Engine",
+      "label": ""
+    },
+    {
+      "id": 94,
+      "x": 174,
+      "y": 250,
+      "kind": "doorway",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 95,
+      "x": 262,
+      "y": 250,
+      "kind": "doorway",
+      "room": "Security",
+      "label": ""
+    },
+    {
+      "id": 96,
+      "x": 216,
+      "y": 176,
+      "kind": "doorway",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 97,
+      "x": 264,
+      "y": 121,
+      "kind": "doorway",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 98,
+      "x": 427,
+      "y": 121,
+      "kind": "doorway",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 99,
+      "x": 374,
+      "y": 200,
+      "kind": "doorway",
+      "room": "MedBay",
+      "label": ""
+    },
+    {
+      "id": 100,
+      "x": 661,
+      "y": 120,
+      "kind": "doorway",
+      "room": "East Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 101,
+      "x": 745,
+      "y": 194,
+      "kind": "doorway",
+      "room": "Weapons",
+      "label": ""
+    },
+    {
+      "id": 102,
+      "x": 825,
+      "y": 237,
+      "kind": "doorway",
+      "room": "Nav",
+      "label": ""
+    },
+    {
+      "id": 103,
+      "x": 657,
+      "y": 420,
+      "kind": "doorway",
+      "room": "Coms",
+      "label": ""
+    },
+    {
+      "id": 107,
+      "x": 485,
+      "y": 119,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 108,
+      "x": 536,
+      "y": 65,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 109,
+      "x": 593,
+      "y": 118,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 110,
+      "x": 536,
+      "y": 176,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 111,
+      "x": 463,
+      "y": 196,
+      "kind": "poi",
+      "room": "Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 112,
+      "x": 618,
+      "y": 195,
+      "kind": "poi",
+      "room": "East Cafeteria",
+      "label": ""
+    },
+    {
+      "id": 124,
+      "x": 366,
+      "y": 428,
+      "kind": "intersection",
+      "room": "Electrial Hallway",
+      "label": ""
+    },
+    {
+      "id": 125,
+      "x": 370,
+      "y": 385,
+      "kind": "intersection",
+      "room": "Electrical",
+      "label": ""
+    },
+    {
+      "id": 127,
+      "x": 409,
+      "y": 353,
+      "kind": "intersection",
+      "room": "Electrical",
+      "label": ""
+    },
+    {
+      "id": 128,
+      "x": 322,
+      "y": 427,
+      "kind": "intersection",
+      "room": "Electrial Hallway",
+      "label": ""
+    },
+    {
+      "id": 129,
+      "x": 301,
+      "y": 383,
+      "kind": "intersection",
+      "room": "Electrial Hallway Bend",
+      "label": ""
+    },
+    {
+      "id": 130,
+      "x": 209,
+      "y": 243,
+      "kind": "intersection",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 134,
+      "x": 362,
+      "y": 128,
+      "kind": "intersection",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 135,
+      "x": 209,
+      "y": 257,
+      "kind": "intersection",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 136,
+      "x": 224,
+      "y": 257,
+      "kind": "intersection",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 137,
+      "x": 224,
+      "y": 243,
+      "kind": "intersection",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 138,
+      "x": 216,
+      "y": 250,
+      "kind": "intersection",
+      "room": "Reactor Hallway",
+      "label": ""
+    },
+    {
+      "id": 140,
+      "x": 381,
+      "y": 128,
+      "kind": "intersection",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 141,
+      "x": 371,
+      "y": 121,
+      "kind": "intersection",
+      "room": "MedBay Hallway",
+      "label": ""
+    },
+    {
+      "id": 143,
+      "x": 732,
+      "y": 123,
+      "kind": "intersection",
+      "room": "Weapons",
+      "label": ""
+    },
+    {
+      "id": 145,
+      "x": 802,
+      "y": 237,
+      "kind": "intersection",
+      "room": "Nav Hallway",
+      "label": ""
+    },
+    {
+      "id": 148,
+      "x": 786,
+      "y": 266,
+      "kind": "intersection",
+      "room": "Nav Hallway",
+      "label": ""
+    },
+    {
+      "id": 149,
+      "x": 754,
+      "y": 278,
+      "kind": "intersection",
+      "room": "Nav Hallway",
+      "label": ""
+    },
+    {
+      "id": 150,
+      "x": 754,
+      "y": 354,
+      "kind": "intersection",
+      "room": "Shields",
+      "label": ""
+    },
+    {
+      "id": 151,
+      "x": 738,
+      "y": 353,
+      "kind": "intersection",
+      "room": "Shields",
+      "label": ""
+    },
+    {
+      "id": 153,
+      "x": 551,
+      "y": 280,
+      "kind": "intersection",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 154,
+      "x": 540,
+      "y": 278,
+      "kind": "intersection",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 156,
+      "x": 552,
+      "y": 290,
+      "kind": "intersection",
+      "room": "Admin Hallway",
+      "label": ""
+    },
+    {
+      "id": 157,
+      "x": 599,
+      "y": 291,
+      "kind": "intersection",
+      "room": "Admin",
+      "label": ""
+    },
+    {
+      "id": 158,
+      "x": 671,
+      "y": 297,
+      "kind": "intersection",
+      "room": "Admin",
+      "label": ""
+    },
+    {
+      "id": 159,
+      "x": 672,
+      "y": 334,
+      "kind": "intersection",
+      "room": "Admin",
+      "label": ""
+    }
+  ],
+  "edges": [
+    {
+      "src": 98,
+      "dst": 5,
+      "cost": 92
+    },
+    {
+      "src": 98,
+      "dst": 90,
+      "cost": 171
+    },
+    {
+      "src": 98,
+      "dst": 1,
+      "cost": 118
+    },
+    {
+      "src": 98,
+      "dst": 0,
+      "cost": 116
+    },
+    {
+      "src": 30,
+      "dst": 98,
+      "cost": 223
+    },
+    {
+      "src": 98,
+      "dst": 40,
+      "cost": 232
+    },
+    {
+      "src": 100,
+      "dst": 98,
+      "cost": 248
+    },
+    {
+      "src": 1,
+      "dst": 44,
+      "cost": 106
+    },
+    {
+      "src": 5,
+      "dst": 90,
+      "cost": 228
+    },
+    {
+      "src": 90,
+      "dst": 1,
+      "cost": 95
+    },
+    {
+      "src": 1,
+      "dst": 0,
+      "cost": 66
+    },
+    {
+      "src": 0,
+      "dst": 90,
+      "cost": 153
+    },
+    {
+      "src": 90,
+      "dst": 30,
+      "cost": 217
+    },
+    {
+      "src": 40,
+      "dst": 90,
+      "cost": 203
+    },
+    {
+      "src": 90,
+      "dst": 100,
+      "cost": 171
+    },
+    {
+      "src": 44,
+      "dst": 90,
+      "cost": 135
+    },
+    {
+      "src": 5,
+      "dst": 0,
+      "cost": 119
+    },
+    {
+      "src": 0,
+      "dst": 30,
+      "cost": 116
+    },
+    {
+      "src": 30,
+      "dst": 5,
+      "cost": 171
+    },
+    {
+      "src": 0,
+      "dst": 40,
+      "cost": 116
+    },
+    {
+      "src": 40,
+      "dst": 30,
+      "cost": 28
+    },
+    {
+      "src": 40,
+      "dst": 100,
+      "cost": 61
+    },
+    {
+      "src": 100,
+      "dst": 0,
+      "cost": 132
+    },
+    {
+      "src": 44,
+      "dst": 100,
+      "cost": 35
+    },
+    {
+      "src": 100,
+      "dst": 1,
+      "cost": 130
+    },
+    {
+      "src": 100,
+      "dst": 30,
+      "cost": 89
+    },
+    {
+      "src": 100,
+      "dst": 5,
+      "cost": 241
+    },
+    {
+      "src": 44,
+      "dst": 40,
+      "cost": 80
+    },
+    {
+      "src": 30,
+      "dst": 44,
+      "cost": 108
+    },
+    {
+      "src": 44,
+      "dst": 0,
+      "cost": 122
+    },
+    {
+      "src": 44,
+      "dst": 5,
+      "cost": 231
+    },
+    {
+      "src": 40,
+      "dst": 1,
+      "cost": 128
+    },
+    {
+      "src": 5,
+      "dst": 1,
+      "cost": 141
+    },
+    {
+      "src": 1,
+      "dst": 30,
+      "cost": 130
+    },
+    {
+      "src": 112,
+      "dst": 90,
+      "cost": 93
+    },
+    {
+      "src": 98,
+      "dst": 112,
+      "cost": 221
+    },
+    {
+      "src": 30,
+      "dst": 112,
+      "cost": 149
+    },
+    {
+      "src": 112,
+      "dst": 40,
+      "cost": 135
+    },
+    {
+      "src": 44,
+      "dst": 112,
+      "cost": 57
+    },
+    {
+      "src": 112,
+      "dst": 100,
+      "cost": 92
+    },
+    {
+      "src": 100,
+      "dst": 110,
+      "cost": 147
+    },
+    {
+      "src": 110,
+      "dst": 112,
+      "cost": 90
+    },
+    {
+      "src": 112,
+      "dst": 109,
+      "cost": 87
+    },
+    {
+      "src": 109,
+      "dst": 108,
+      "cost": 78
+    },
+    {
+      "src": 108,
+      "dst": 112,
+      "cost": 163
+    },
+    {
+      "src": 112,
+      "dst": 107,
+      "cost": 163
+    },
+    {
+      "src": 111,
+      "dst": 112,
+      "cost": 155
+    },
+    {
+      "src": 90,
+      "dst": 111,
+      "cost": 91
+    },
+    {
+      "src": 111,
+      "dst": 98,
+      "cost": 89
+    },
+    {
+      "src": 5,
+      "dst": 111,
+      "cost": 161
+    },
+    {
+      "src": 111,
+      "dst": 107,
+      "cost": 86
+    },
+    {
+      "src": 111,
+      "dst": 0,
+      "cost": 129
+    },
+    {
+      "src": 1,
+      "dst": 111,
+      "cost": 105
+    },
+    {
+      "src": 111,
+      "dst": 110,
+      "cost": 81
+    },
+    {
+      "src": 109,
+      "dst": 111,
+      "cost": 161
+    },
+    {
+      "src": 110,
+      "dst": 107,
+      "cost": 77
+    },
+    {
+      "src": 107,
+      "dst": 108,
+      "cost": 74
+    },
+    {
+      "src": 109,
+      "dst": 110,
+      "cost": 81
+    },
+    {
+      "src": 110,
+      "dst": 98,
+      "cost": 131
+    },
+    {
+      "src": 5,
+      "dst": 40,
+      "cost": 198
+    },
+    {
+      "src": 5,
+      "dst": 112,
+      "cost": 244
+    },
+    {
+      "src": 108,
+      "dst": 111,
+      "cost": 160
+    },
+    {
+      "src": 111,
+      "dst": 30,
+      "cost": 229
+    },
+    {
+      "src": 40,
+      "dst": 111,
+      "cost": 226
+    },
+    {
+      "src": 111,
+      "dst": 100,
+      "cost": 228
+    },
+    {
+      "src": 44,
+      "dst": 111,
+      "cost": 197
+    },
+    {
+      "src": 107,
+      "dst": 5,
+      "cost": 93
+    },
+    {
+      "src": 107,
+      "dst": 98,
+      "cost": 59
+    },
+    {
+      "src": 0,
+      "dst": 107,
+      "cost": 57
+    },
+    {
+      "src": 107,
+      "dst": 1,
+      "cost": 61
+    },
+    {
+      "src": 1,
+      "dst": 110,
+      "cost": 39
+    },
+    {
+      "src": 107,
+      "dst": 109,
+      "cost": 120
+    },
+    {
+      "src": 109,
+      "dst": 30,
+      "cost": 82
+    },
+    {
+      "src": 30,
+      "dst": 107,
+      "cost": 164
+    },
+    {
+      "src": 107,
+      "dst": 40,
+      "cost": 173
+    },
+    {
+      "src": 40,
+      "dst": 109,
+      "cost": 68
+    },
+    {
+      "src": 107,
+      "dst": 100,
+      "cost": 189
+    },
+    {
+      "src": 44,
+      "dst": 107,
+      "cost": 166
+    },
+    {
+      "src": 1,
+      "dst": 109,
+      "cost": 63
+    },
+    {
+      "src": 108,
+      "dst": 5,
+      "cost": 94
+    },
+    {
+      "src": 30,
+      "dst": 108,
+      "cost": 91
+    },
+    {
+      "src": 108,
+      "dst": 40,
+      "cost": 116
+    },
+    {
+      "src": 108,
+      "dst": 100,
+      "cost": 147
+    },
+    {
+      "src": 100,
+      "dst": 109,
+      "cost": 69
+    },
+    {
+      "src": 0,
+      "dst": 109,
+      "cost": 63
+    },
+    {
+      "src": 109,
+      "dst": 98,
+      "cost": 179
+    },
+    {
+      "src": 109,
+      "dst": 90,
+      "cost": 135
+    },
+    {
+      "src": 0,
+      "dst": 112,
+      "cost": 132
+    },
+    {
+      "src": 112,
+      "dst": 1,
+      "cost": 112
+    },
+    {
+      "src": 100,
+      "dst": 39,
+      "cost": 102
+    },
+    {
+      "src": 39,
+      "dst": 45,
+      "cost": 4
+    },
+    {
+      "src": 45,
+      "dst": 100,
+      "cost": 97
+    },
+    {
+      "src": 100,
+      "dst": 24,
+      "cost": 85
+    },
+    {
+      "src": 24,
+      "dst": 13,
+      "cost": 29
+    },
+    {
+      "src": 13,
+      "dst": 100,
+      "cost": 114
+    },
+    {
+      "src": 24,
+      "dst": 45,
+      "cost": 32
+    },
+    {
+      "src": 39,
+      "dst": 24,
+      "cost": 35
+    },
+    {
+      "src": 13,
+      "dst": 39,
+      "cost": 49
+    },
+    {
+      "src": 45,
+      "dst": 13,
+      "cost": 49
+    },
+    {
+      "src": 39,
+      "dst": 101,
+      "cost": 129
+    },
+    {
+      "src": 101,
+      "dst": 45,
+      "cost": 125
+    },
+    {
+      "src": 24,
+      "dst": 101,
+      "cost": 93
+    },
+    {
+      "src": 101,
+      "dst": 13,
+      "cost": 103
+    },
+    {
+      "src": 23,
+      "dst": 101,
+      "cost": 26
+    },
+    {
+      "src": 101,
+      "dst": 38,
+      "cost": 74
+    },
+    {
+      "src": 41,
+      "dst": 101,
+      "cost": 96
+    },
+    {
+      "src": 23,
+      "dst": 38,
+      "cost": 48
+    },
+    {
+      "src": 38,
+      "dst": 41,
+      "cost": 22
+    },
+    {
+      "src": 41,
+      "dst": 23,
+      "cost": 70
+    },
+    {
+      "src": 85,
+      "dst": 101,
+      "cost": 50
+    },
+    {
+      "src": 101,
+      "dst": 102,
+      "cost": 97
+    },
+    {
+      "src": 102,
+      "dst": 85,
+      "cost": 47
+    },
+    {
+      "src": 8,
+      "dst": 102,
+      "cost": 24
+    },
+    {
+      "src": 102,
+      "dst": 48,
+      "cost": 72
+    },
+    {
+      "src": 32,
+      "dst": 102,
+      "cost": 79
+    },
+    {
+      "src": 102,
+      "dst": 31,
+      "cost": 81
+    },
+    {
+      "src": 46,
+      "dst": 102,
+      "cost": 62
+    },
+    {
+      "src": 102,
+      "dst": 14,
+      "cost": 71
+    },
+    {
+      "src": 33,
+      "dst": 102,
+      "cost": 84
+    },
+    {
+      "src": 8,
+      "dst": 48,
+      "cost": 54
+    },
+    {
+      "src": 32,
+      "dst": 8,
+      "cost": 61
+    },
+    {
+      "src": 8,
+      "dst": 31,
+      "cost": 59
+    },
+    {
+      "src": 46,
+      "dst": 8,
+      "cost": 38
+    },
+    {
+      "src": 8,
+      "dst": 14,
+      "cost": 48
+    },
+    {
+      "src": 33,
+      "dst": 8,
+      "cost": 60
+    },
+    {
+      "src": 48,
+      "dst": 14,
+      "cost": 65
+    },
+    {
+      "src": 46,
+      "dst": 48,
+      "cost": 48
+    },
+    {
+      "src": 48,
+      "dst": 33,
+      "cost": 69
+    },
+    {
+      "src": 31,
+      "dst": 48,
+      "cost": 44
+    },
+    {
+      "src": 48,
+      "dst": 32,
+      "cost": 20
+    },
+    {
+      "src": 32,
+      "dst": 46,
+      "cost": 45
+    },
+    {
+      "src": 31,
+      "dst": 32,
+      "cost": 28
+    },
+    {
+      "src": 32,
+      "dst": 33,
+      "cost": 54
+    },
+    {
+      "src": 14,
+      "dst": 32,
+      "cost": 62
+    },
+    {
+      "src": 31,
+      "dst": 46,
+      "cost": 30
+    },
+    {
+      "src": 14,
+      "dst": 31,
+      "cost": 40
+    },
+    {
+      "src": 31,
+      "dst": 33,
+      "cost": 32
+    },
+    {
+      "src": 33,
+      "dst": 46,
+      "cost": 22
+    },
+    {
+      "src": 46,
+      "dst": 14,
+      "cost": 17
+    },
+    {
+      "src": 14,
+      "dst": 33,
+      "cost": 20
+    },
+    {
+      "src": 102,
+      "dst": 43,
+      "cost": 96
+    },
+    {
+      "src": 21,
+      "dst": 86,
+      "cost": 51
+    },
+    {
+      "src": 86,
+      "dst": 47,
+      "cost": 53
+    },
+    {
+      "src": 47,
+      "dst": 22,
+      "cost": 35
+    },
+    {
+      "src": 22,
+      "dst": 86,
+      "cost": 66
+    },
+    {
+      "src": 86,
+      "dst": 84,
+      "cost": 76
+    },
+    {
+      "src": 84,
+      "dst": 87,
+      "cost": 81
+    },
+    {
+      "src": 87,
+      "dst": 103,
+      "cost": 100
+    },
+    {
+      "src": 103,
+      "dst": 84,
+      "cost": 33
+    },
+    {
+      "src": 21,
+      "dst": 47,
+      "cost": 90
+    },
+    {
+      "src": 22,
+      "dst": 21,
+      "cost": 114
+    },
+    {
+      "src": 86,
+      "dst": 103,
+      "cost": 97
+    },
+    {
+      "src": 103,
+      "dst": 34,
+      "cost": 31
+    },
+    {
+      "src": 34,
+      "dst": 3,
+      "cost": 45
+    },
+    {
+      "src": 3,
+      "dst": 103,
+      "cost": 22
+    },
+    {
+      "src": 87,
+      "dst": 89,
+      "cost": 153
+    },
+    {
+      "src": 89,
+      "dst": 88,
+      "cost": 156
+    },
+    {
+      "src": 88,
+      "dst": 87,
+      "cost": 85
+    },
+    {
+      "src": 87,
+      "dst": 6,
+      "cost": 86
+    },
+    {
+      "src": 87,
+      "dst": 2,
+      "cost": 91
+    },
+    {
+      "src": 35,
+      "dst": 87,
+      "cost": 113
+    },
+    {
+      "src": 88,
+      "dst": 6,
+      "cost": 28
+    },
+    {
+      "src": 6,
+      "dst": 35,
+      "cost": 125
+    },
+    {
+      "src": 35,
+      "dst": 2,
+      "cost": 86
+    },
+    {
+      "src": 2,
+      "dst": 6,
+      "cost": 165
+    },
+    {
+      "src": 35,
+      "dst": 89,
+      "cost": 46
+    },
+    {
+      "src": 88,
+      "dst": 35,
+      "cost": 150
+    },
+    {
+      "src": 2,
+      "dst": 88,
+      "cost": 164
+    },
+    {
+      "src": 6,
+      "dst": 89,
+      "cost": 131
+    },
+    {
+      "src": 89,
+      "dst": 2,
+      "cost": 127
+    },
+    {
+      "src": 75,
+      "dst": 4,
+      "cost": 15
+    },
+    {
+      "src": 26,
+      "dst": 75,
+      "cost": 39
+    },
+    {
+      "src": 75,
+      "dst": 29,
+      "cost": 122
+    },
+    {
+      "src": 42,
+      "dst": 26,
+      "cost": 64
+    },
+    {
+      "src": 29,
+      "dst": 42,
+      "cost": 85
+    },
+    {
+      "src": 26,
+      "dst": 29,
+      "cost": 91
+    },
+    {
+      "src": 29,
+      "dst": 4,
+      "cost": 113
+    },
+    {
+      "src": 4,
+      "dst": 26,
+      "cost": 24
+    },
+    {
+      "src": 9,
+      "dst": 50,
+      "cost": 3
+    },
+    {
+      "src": 9,
+      "dst": 12,
+      "cost": 20
+    },
+    {
+      "src": 12,
+      "dst": 7,
+      "cost": 21
+    },
+    {
+      "src": 7,
+      "dst": 10,
+      "cost": 36
+    },
+    {
+      "src": 91,
+      "dst": 7,
+      "cost": 30
+    },
+    {
+      "src": 10,
+      "dst": 91,
+      "cost": 33
+    },
+    {
+      "src": 91,
+      "dst": 12,
+      "cost": 46
+    },
+    {
+      "src": 9,
+      "dst": 91,
+      "cost": 66
+    },
+    {
+      "src": 50,
+      "dst": 91,
+      "cost": 67
+    },
+    {
+      "src": 12,
+      "dst": 50,
+      "cost": 23
+    },
+    {
+      "src": 7,
+      "dst": 50,
+      "cost": 42
+    },
+    {
+      "src": 9,
+      "dst": 7,
+      "cost": 41
+    },
+    {
+      "src": 124,
+      "dst": 89,
+      "cost": 87
+    },
+    {
+      "src": 92,
+      "dst": 54,
+      "cost": 42
+    },
+    {
+      "src": 54,
+      "dst": 36,
+      "cost": 59
+    },
+    {
+      "src": 36,
+      "dst": 27,
+      "cost": 26
+    },
+    {
+      "src": 27,
+      "dst": 54,
+      "cost": 81
+    },
+    {
+      "src": 36,
+      "dst": 92,
+      "cost": 78
+    },
+    {
+      "src": 92,
+      "dst": 93,
+      "cost": 73
+    },
+    {
+      "src": 93,
+      "dst": 15,
+      "cost": 28
+    },
+    {
+      "src": 15,
+      "dst": 92,
+      "cost": 87
+    },
+    {
+      "src": 36,
+      "dst": 15,
+      "cost": 141
+    },
+    {
+      "src": 15,
+      "dst": 54,
+      "cost": 118
+    },
+    {
+      "src": 27,
+      "dst": 15,
+      "cost": 167
+    },
+    {
+      "src": 93,
+      "dst": 27,
+      "cost": 153
+    },
+    {
+      "src": 36,
+      "dst": 93,
+      "cost": 127
+    },
+    {
+      "src": 93,
+      "dst": 54,
+      "cost": 104
+    },
+    {
+      "src": 20,
+      "dst": 94,
+      "cost": 81
+    },
+    {
+      "src": 94,
+      "dst": 18,
+      "cost": 41
+    },
+    {
+      "src": 55,
+      "dst": 94,
+      "cost": 78
+    },
+    {
+      "src": 94,
+      "dst": 19,
+      "cost": 44
+    },
+    {
+      "src": 53,
+      "dst": 94,
+      "cost": 47
+    },
+    {
+      "src": 18,
+      "dst": 53,
+      "cost": 66
+    },
+    {
+      "src": 19,
+      "dst": 18,
+      "cost": 44
+    },
+    {
+      "src": 18,
+      "dst": 20,
+      "cost": 48
+    },
+    {
+      "src": 55,
+      "dst": 18,
+      "cost": 44
+    },
+    {
+      "src": 53,
+      "dst": 20,
+      "cost": 92
+    },
+    {
+      "src": 53,
+      "dst": 19,
+      "cost": 28
+    },
+    {
+      "src": 55,
+      "dst": 53,
+      "cost": 85
+    },
+    {
+      "src": 20,
+      "dst": 19,
+      "cost": 64
+    },
+    {
+      "src": 19,
+      "dst": 55,
+      "cost": 57
+    },
+    {
+      "src": 20,
+      "dst": 55,
+      "cost": 7
+    },
+    {
+      "src": 95,
+      "dst": 51,
+      "cost": 52
+    },
+    {
+      "src": 51,
+      "dst": 17,
+      "cost": 72
+    },
+    {
+      "src": 17,
+      "dst": 95,
+      "cost": 57
+    },
+    {
+      "src": 96,
+      "dst": 28,
+      "cost": 51
+    },
+    {
+      "src": 28,
+      "dst": 37,
+      "cost": 26
+    },
+    {
+      "src": 37,
+      "dst": 96,
+      "cost": 29
+    },
+    {
+      "src": 96,
+      "dst": 97,
+      "cost": 74
+    },
+    {
+      "src": 97,
+      "dst": 37,
+      "cost": 85
+    },
+    {
+      "src": 37,
+      "dst": 56,
+      "cost": 111
+    },
+    {
+      "src": 56,
+      "dst": 16,
+      "cost": 38
+    },
+    {
+      "src": 16,
+      "dst": 37,
+      "cost": 131
+    },
+    {
+      "src": 97,
+      "dst": 16,
+      "cost": 66
+    },
+    {
+      "src": 56,
+      "dst": 97,
+      "cost": 38
+    },
+    {
+      "src": 99,
+      "dst": 49,
+      "cost": 42
+    },
+    {
+      "src": 11,
+      "dst": 99,
+      "cost": 56
+    },
+    {
+      "src": 99,
+      "dst": 25,
+      "cost": 62
+    },
+    {
+      "src": 25,
+      "dst": 49,
+      "cost": 84
+    },
+    {
+      "src": 49,
+      "dst": 11,
+      "cost": 73
+    },
+    {
+      "src": 11,
+      "dst": 25,
+      "cost": 21
+    },
+    {
+      "src": 56,
+      "dst": 55,
+      "is_vent": true,
+      "vent_group": "F"
+    },
+    {
+      "src": 52,
+      "dst": 53,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 53,
+      "dst": 54,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 54,
+      "dst": 52,
+      "is_vent": true,
+      "vent_group": "E"
+    },
+    {
+      "src": 51,
+      "dst": 49,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 49,
+      "dst": 50,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 50,
+      "dst": 51,
+      "is_vent": true,
+      "vent_group": "D"
+    },
+    {
+      "src": 42,
+      "dst": 44,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 44,
+      "dst": 43,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 43,
+      "dst": 42,
+      "is_vent": true,
+      "vent_group": "A"
+    },
+    {
+      "src": 45,
+      "dst": 46,
+      "is_vent": true,
+      "vent_group": "B"
+    },
+    {
+      "src": 47,
+      "dst": 48,
+      "is_vent": true,
+      "vent_group": "C"
+    },
+    {
+      "src": 125,
+      "dst": 124,
+      "cost": 45
+    },
+    {
+      "src": 124,
+      "dst": 125,
+      "cost": 45
+    },
+    {
+      "src": 127,
+      "dst": 125,
+      "cost": 52
+    },
+    {
+      "src": 91,
+      "dst": 127,
+      "cost": 27
+    },
+    {
+      "src": 128,
+      "dst": 124,
+      "cost": 44
+    },
+    {
+      "src": 129,
+      "dst": 128,
+      "cost": 52
+    },
+    {
+      "src": 92,
+      "dst": 129,
+      "cost": 41
+    },
+    {
+      "src": 110,
+      "dst": 90,
+      "cost": 58
+    },
+    {
+      "src": 138,
+      "dst": 130,
+      "cost": 10
+    },
+    {
+      "src": 130,
+      "dst": 135,
+      "cost": 14
+    },
+    {
+      "src": 135,
+      "dst": 136,
+      "cost": 15
+    },
+    {
+      "src": 136,
+      "dst": 137,
+      "cost": 14
+    },
+    {
+      "src": 137,
+      "dst": 130,
+      "cost": 15
+    },
+    {
+      "src": 137,
+      "dst": 138,
+      "cost": 11
+    },
+    {
+      "src": 138,
+      "dst": 136,
+      "cost": 11
+    },
+    {
+      "src": 135,
+      "dst": 138,
+      "cost": 10
+    },
+    {
+      "src": 138,
+      "dst": 94,
+      "cost": 42
+    },
+    {
+      "src": 94,
+      "dst": 95,
+      "cost": 88
+    },
+    {
+      "src": 95,
+      "dst": 138,
+      "cost": 46
+    },
+    {
+      "src": 96,
+      "dst": 138,
+      "cost": 74
+    },
+    {
+      "src": 138,
+      "dst": 93,
+      "cost": 72
+    },
+    {
+      "src": 94,
+      "dst": 135,
+      "cost": 38
+    },
+    {
+      "src": 135,
+      "dst": 93,
+      "cost": 68
+    },
+    {
+      "src": 93,
+      "dst": 136,
+      "cost": 68
+    },
+    {
+      "src": 136,
+      "dst": 95,
+      "cost": 41
+    },
+    {
+      "src": 95,
+      "dst": 137,
+      "cost": 41
+    },
+    {
+      "src": 137,
+      "dst": 96,
+      "cost": 70
+    },
+    {
+      "src": 96,
+      "dst": 130,
+      "cost": 70
+    },
+    {
+      "src": 94,
+      "dst": 130,
+      "cost": 38
+    },
+    {
+      "src": 141,
+      "dst": 140,
+      "cost": 13
+    },
+    {
+      "src": 140,
+      "dst": 134,
+      "cost": 19
+    },
+    {
+      "src": 134,
+      "dst": 141,
+      "cost": 12
+    },
+    {
+      "src": 141,
+      "dst": 98,
+      "cost": 56
+    },
+    {
+      "src": 97,
+      "dst": 141,
+      "cost": 107
+    },
+    {
+      "src": 141,
+      "dst": 99,
+      "cost": 80
+    },
+    {
+      "src": 99,
+      "dst": 134,
+      "cost": 77
+    },
+    {
+      "src": 140,
+      "dst": 99,
+      "cost": 75
+    },
+    {
+      "src": 143,
+      "dst": 100,
+      "cost": 72
+    },
+    {
+      "src": 101,
+      "dst": 143,
+      "cost": 76
+    },
+    {
+      "src": 143,
+      "dst": 24,
+      "cost": 23
+    },
+    {
+      "src": 13,
+      "dst": 143,
+      "cost": 44
+    },
+    {
+      "src": 143,
+      "dst": 45,
+      "cost": 49
+    },
+    {
+      "src": 39,
+      "dst": 143,
+      "cost": 52
+    },
+    {
+      "src": 85,
+      "dst": 145,
+      "cost": 26
+    },
+    {
+      "src": 145,
+      "dst": 148,
+      "cost": 35
+    },
+    {
+      "src": 148,
+      "dst": 85,
+      "cost": 49
+    },
+    {
+      "src": 145,
+      "dst": 102,
+      "cost": 23
+    },
+    {
+      "src": 148,
+      "dst": 43,
+      "cost": 45
+    },
+    {
+      "src": 149,
+      "dst": 148,
+      "cost": 37
+    },
+    {
+      "src": 43,
+      "dst": 149,
+      "cost": 16
+    },
+    {
+      "src": 151,
+      "dst": 150,
+      "cost": 16
+    },
+    {
+      "src": 150,
+      "dst": 86,
+      "cost": 35
+    },
+    {
+      "src": 86,
+      "dst": 151,
+      "cost": 30
+    },
+    {
+      "src": 150,
+      "dst": 21,
+      "cost": 19
+    },
+    {
+      "src": 150,
+      "dst": 149,
+      "cost": 76
+    },
+    {
+      "src": 43,
+      "dst": 150,
+      "cost": 90
+    },
+    {
+      "src": 151,
+      "dst": 43,
+      "cost": 86
+    },
+    {
+      "src": 151,
+      "dst": 21,
+      "cost": 35
+    },
+    {
+      "src": 154,
+      "dst": 90,
+      "cost": 46
+    },
+    {
+      "src": 88,
+      "dst": 154,
+      "cost": 39
+    },
+    {
+      "src": 154,
+      "dst": 153,
+      "cost": 12
+    },
+    {
+      "src": 75,
+      "dst": 153,
+      "cost": 21
+    },
+    {
+      "src": 153,
+      "dst": 88,
+      "cost": 41
+    },
+    {
+      "src": 90,
+      "dst": 153,
+      "cost": 52
+    },
+    {
+      "src": 154,
+      "dst": 75,
+      "cost": 32
+    },
+    {
+      "src": 156,
+      "dst": 88,
+      "cost": 31
+    },
+    {
+      "src": 153,
+      "dst": 156,
+      "cost": 10
+    },
+    {
+      "src": 156,
+      "dst": 75,
+      "cost": 20
+    },
+    {
+      "src": 154,
+      "dst": 156,
+      "cost": 17
+    },
+    {
+      "src": 90,
+      "dst": 156,
+      "cost": 63
+    },
+    {
+      "src": 75,
+      "dst": 157,
+      "cost": 32
+    },
+    {
+      "src": 157,
+      "dst": 4,
+      "cost": 23
+    },
+    {
+      "src": 42,
+      "dst": 157,
+      "cost": 51
+    },
+    {
+      "src": 157,
+      "dst": 26,
+      "cost": 18
+    },
+    {
+      "src": 156,
+      "dst": 157,
+      "cost": 47
+    },
+    {
+      "src": 158,
+      "dst": 157,
+      "cost": 74
+    },
+    {
+      "src": 29,
+      "dst": 158,
+      "cost": 20
+    },
+    {
+      "src": 159,
+      "dst": 29,
+      "cost": 22
+    },
+    {
+      "src": 42,
+      "dst": 159,
+      "cost": 68
+    },
+    {
+      "src": 0,
+      "dst": 108,
+      "cost": 38
+    },
+    {
+      "src": 2,
+      "dst": 84,
+      "cost": 170
+    },
+    {
+      "src": 3,
+      "dst": 84,
+      "cost": 51
+    },
+    {
+      "src": 3,
+      "dst": 86,
+      "cost": 105
+    },
+    {
+      "src": 3,
+      "dst": 87,
+      "cost": 118
+    },
+    {
+      "src": 3,
+      "dst": 151,
+      "cost": 126
+    },
+    {
+      "src": 4,
+      "dst": 153,
+      "cost": 32
+    },
+    {
+      "src": 4,
+      "dst": 154,
+      "cost": 42
+    },
+    {
+      "src": 4,
+      "dst": 156,
+      "cost": 35
+    },
+    {
+      "src": 5,
+      "dst": 140,
+      "cost": 136
+    },
+    {
+      "src": 5,
+      "dst": 141,
+      "cost": 143
+    },
+    {
+      "src": 6,
+      "dst": 156,
+      "cost": 55
+    },
+    {
+      "src": 6,
+      "dst": 154,
+      "cost": 62
+    },
+    {
+      "src": 6,
+      "dst": 153,
+      "cost": 64
+    },
+    {
+      "src": 6,
+      "dst": 75,
+      "cost": 73
+    },
+    {
+      "src": 7,
+      "dst": 127,
+      "cost": 53
+    },
+    {
+      "src": 8,
+      "dst": 145,
+      "cost": 47
+    },
+    {
+      "src": 9,
+      "dst": 10,
+      "cost": 77
+    },
+    {
+      "src": 9,
+      "dst": 127,
+      "cost": 85
+    },
+    {
+      "src": 10,
+      "dst": 12,
+      "cost": 57
+    },
+    {
+      "src": 10,
+      "dst": 127,
+      "cost": 61
+    },
+    {
+      "src": 10,
+      "dst": 50,
+      "cost": 78
+    },
+    {
+      "src": 11,
+      "dst": 140,
+      "cost": 125
+    },
+    {
+      "src": 11,
+      "dst": 141,
+      "cost": 136
+    },
+    {
+      "src": 11,
+      "dst": 134,
+      "cost": 132
+    },
+    {
+      "src": 12,
+      "dst": 127,
+      "cost": 65
+    },
+    {
+      "src": 15,
+      "dst": 135,
+      "cost": 87
+    },
+    {
+      "src": 15,
+      "dst": 138,
+      "cost": 97
+    },
+    {
+      "src": 15,
+      "dst": 130,
+      "cost": 101
+    },
+    {
+      "src": 15,
+      "dst": 136,
+      "cost": 93
+    },
+    {
+      "src": 16,
+      "dst": 134,
+      "cost": 167
+    },
+    {
+      "src": 16,
+      "dst": 141,
+      "cost": 173
+    },
+    {
+      "src": 16,
+      "dst": 137,
+      "cost": 184
+    },
+    {
+      "src": 16,
+      "dst": 140,
+      "cost": 186
+    },
+    {
+      "src": 17,
+      "dst": 137,
+      "cost": 93
+    },
+    {
+      "src": 17,
+      "dst": 136,
+      "cost": 98
+    },
+    {
+      "src": 17,
+      "dst": 130,
+      "cost": 108
+    },
+    {
+      "src": 17,
+      "dst": 138,
+      "cost": 103
+    },
+    {
+      "src": 18,
+      "dst": 130,
+      "cost": 70
+    },
+    {
+      "src": 19,
+      "dst": 135,
+      "cost": 80
+    },
+    {
+      "src": 20,
+      "dst": 130,
+      "cost": 114
+    },
+    {
+      "src": 21,
+      "dst": 149,
+      "cost": 90
+    },
+    {
+      "src": 21,
+      "dst": 43,
+      "cost": 104
+    },
+    {
+      "src": 22,
+      "dst": 151,
+      "cost": 95
+    },
+    {
+      "src": 22,
+      "dst": 150,
+      "cost": 100
+    },
+    {
+      "src": 22,
+      "dst": 84,
+      "cost": 119
+    },
+    {
+      "src": 23,
+      "dst": 85,
+      "cost": 68
+    },
+    {
+      "src": 23,
+      "dst": 143,
+      "cost": 91
+    },
+    {
+      "src": 23,
+      "dst": 145,
+      "cost": 92
+    },
+    {
+      "src": 25,
+      "dst": 140,
+      "cost": 123
+    },
+    {
+      "src": 25,
+      "dst": 141,
+      "cost": 134
+    },
+    {
+      "src": 25,
+      "dst": 134,
+      "cost": 131
+    },
+    {
+      "src": 26,
+      "dst": 153,
+      "cost": 56
+    },
+    {
+      "src": 26,
+      "dst": 154,
+      "cost": 66
+    },
+    {
+      "src": 27,
+      "dst": 92,
+      "cost": 104
+    },
+    {
+      "src": 27,
+      "dst": 129,
+      "cost": 140
+    },
+    {
+      "src": 27,
+      "dst": 128,
+      "cost": 185
+    },
+    {
+      "src": 28,
+      "dst": 130,
+      "cost": 112
+    },
+    {
+      "src": 28,
+      "dst": 138,
+      "cost": 122
+    },
+    {
+      "src": 28,
+      "dst": 135,
+      "cost": 126
+    },
+    {
+      "src": 28,
+      "dst": 137,
+      "cost": 118
+    },
+    {
+      "src": 29,
+      "dst": 157,
+      "cost": 91
+    },
+    {
+      "src": 34,
+      "dst": 84,
+      "cost": 63
+    },
+    {
+      "src": 34,
+      "dst": 87,
+      "cost": 120
+    },
+    {
+      "src": 34,
+      "dst": 86,
+      "cost": 126
+    },
+    {
+      "src": 34,
+      "dst": 151,
+      "cost": 147
+    },
+    {
+      "src": 35,
+      "dst": 124,
+      "cost": 128
+    },
+    {
+      "src": 35,
+      "dst": 125,
+      "cost": 161
+    },
+    {
+      "src": 36,
+      "dst": 129,
+      "cost": 114
+    },
+    {
+      "src": 36,
+      "dst": 128,
+      "cost": 159
+    },
+    {
+      "src": 37,
+      "dst": 130,
+      "cost": 90
+    },
+    {
+      "src": 37,
+      "dst": 138,
+      "cost": 100
+    },
+    {
+      "src": 37,
+      "dst": 135,
+      "cost": 104
+    },
+    {
+      "src": 38,
+      "dst": 85,
+      "cost": 116
+    },
+    {
+      "src": 38,
+      "dst": 143,
+      "cost": 139
+    },
+    {
+      "src": 38,
+      "dst": 145,
+      "cost": 140
+    },
+    {
+      "src": 41,
+      "dst": 85,
+      "cost": 128
+    },
+    {
+      "src": 41,
+      "dst": 145,
+      "cost": 151
+    },
+    {
+      "src": 41,
+      "dst": 143,
+      "cost": 161
+    },
+    {
+      "src": 4,
+      "dst": 42,
+      "cost": 72
+    },
+    {
+      "src": 42,
+      "dst": 75,
+      "cost": 78
+    },
+    {
+      "src": 43,
+      "dst": 145,
+      "cost": 75
+    },
+    {
+      "src": 43,
+      "dst": 85,
+      "cost": 89
+    },
+    {
+      "src": 44,
+      "dst": 109,
+      "cost": 59
+    },
+    {
+      "src": 44,
+      "dst": 143,
+      "cost": 105
+    },
+    {
+      "src": 47,
+      "dst": 150,
+      "cost": 76
+    },
+    {
+      "src": 47,
+      "dst": 151,
+      "cost": 77
+    },
+    {
+      "src": 47,
+      "dst": 84,
+      "cost": 106
+    },
+    {
+      "src": 49,
+      "dst": 134,
+      "cost": 105
+    },
+    {
+      "src": 49,
+      "dst": 141,
+      "cost": 116
+    },
+    {
+      "src": 49,
+      "dst": 140,
+      "cost": 113
+    },
+    {
+      "src": 50,
+      "dst": 127,
+      "cost": 86
+    },
+    {
+      "src": 51,
+      "dst": 136,
+      "cost": 87
+    },
+    {
+      "src": 51,
+      "dst": 137,
+      "cost": 92
+    },
+    {
+      "src": 51,
+      "dst": 135,
+      "cost": 102
+    },
+    {
+      "src": 51,
+      "dst": 138,
+      "cost": 98
+    },
+    {
+      "src": 53,
+      "dst": 135,
+      "cost": 79
+    },
+    {
+      "src": 53,
+      "dst": 138,
+      "cost": 89
+    },
+    {
+      "src": 54,
+      "dst": 129,
+      "cost": 76
+    },
+    {
+      "src": 55,
+      "dst": 130,
+      "cost": 110
+    },
+    {
+      "src": 56,
+      "dst": 96,
+      "cost": 100
+    },
+    {
+      "src": 28,
+      "dst": 56,
+      "cost": 137
+    },
+    {
+      "src": 56,
+      "dst": 134,
+      "cost": 138
+    },
+    {
+      "src": 84,
+      "dst": 151,
+      "cost": 97
+    },
+    {
+      "src": 8,
+      "dst": 85,
+      "cost": 65
+    },
+    {
+      "src": 87,
+      "dst": 156,
+      "cost": 108
+    },
+    {
+      "src": 75,
+      "dst": 88,
+      "cost": 49
+    },
+    {
+      "src": 4,
+      "dst": 88,
+      "cost": 64
+    },
+    {
+      "src": 89,
+      "dst": 125,
+      "cost": 120
+    },
+    {
+      "src": 89,
+      "dst": 128,
+      "cost": 132
+    },
+    {
+      "src": 75,
+      "dst": 90,
+      "cost": 69
+    },
+    {
+      "src": 88,
+      "dst": 90,
+      "cost": 85
+    },
+    {
+      "src": 92,
+      "dst": 128,
+      "cost": 89
+    },
+    {
+      "src": 93,
+      "dst": 130,
+      "cost": 82
+    },
+    {
+      "src": 93,
+      "dst": 137,
+      "cost": 82
+    },
+    {
+      "src": 94,
+      "dst": 137,
+      "cost": 53
+    },
+    {
+      "src": 95,
+      "dst": 130,
+      "cost": 56
+    },
+    {
+      "src": 95,
+      "dst": 135,
+      "cost": 56
+    },
+    {
+      "src": 96,
+      "dst": 135,
+      "cost": 84
+    },
+    {
+      "src": 97,
+      "dst": 134,
+      "cost": 101
+    },
+    {
+      "src": 98,
+      "dst": 140,
+      "cost": 49
+    },
+    {
+      "src": 98,
+      "dst": 134,
+      "cost": 68
+    },
+    {
+      "src": 101,
+      "dst": 145,
+      "cost": 74
+    },
+    {
+      "src": 102,
+      "dst": 148,
+      "cost": 52
+    },
+    {
+      "src": 103,
+      "dst": 151,
+      "cost": 117
+    },
+    {
+      "src": 110,
+      "dst": 154,
+      "cost": 104
+    },
+    {
+      "src": 111,
+      "dst": 140,
+      "cost": 130
+    },
+    {
+      "src": 124,
+      "dst": 129,
+      "cost": 91
+    },
+    {
+      "src": 124,
+      "dst": 127,
+      "cost": 93
+    },
+    {
+      "src": 125,
+      "dst": 128,
+      "cost": 77
+    },
+    {
+      "src": 91,
+      "dst": 125,
+      "cost": 75
+    },
+    {
+      "src": 7,
+      "dst": 125,
+      "cost": 95
+    },
+    {
+      "src": 127,
+      "dst": 128,
+      "cost": 125
+    },
+    {
+      "src": 93,
+      "dst": 129,
+      "cost": 112
+    },
+    {
+      "src": 130,
+      "dst": 136,
+      "cost": 21
+    },
+    {
+      "src": 135,
+      "dst": 137,
+      "cost": 21
+    },
+    {
+      "src": 94,
+      "dst": 136,
+      "cost": 53
+    },
+    {
+      "src": 107,
+      "dst": 140,
+      "cost": 108
+    },
+    {
+      "src": 97,
+      "dst": 140,
+      "cost": 120
+    },
+    {
+      "src": 107,
+      "dst": 141,
+      "cost": 115
+    },
+    {
+      "src": 145,
+      "dst": 149,
+      "cost": 67
+    },
+    {
+      "src": 8,
+      "dst": 148,
+      "cost": 76
+    },
+    {
+      "src": 149,
+      "dst": 151,
+      "cost": 81
+    },
+    {
+      "src": 85,
+      "dst": 149,
+      "cost": 80
+    },
+    {
+      "src": 153,
+      "dst": 157,
+      "cost": 52
+    },
+    {
+      "src": 158,
+      "dst": 159,
+      "cost": 37
+    },
+    {
+      "src": 26,
+      "dst": 158,
+      "cost": 75
+    },
+    {
+      "src": 42,
+      "dst": 158,
+      "cost": 96
+    },
+    {
+      "src": 4,
+      "dst": 158,
+      "cost": 97
+    },
+    {
+      "src": 157,
+      "dst": 159,
+      "cost": 99
+    },
+    {
+      "src": 26,
+      "dst": 159,
+      "cost": 109
+    },
+    {
+      "src": 4,
+      "dst": 159,
+      "cost": 119
+    }
+  ]
+}

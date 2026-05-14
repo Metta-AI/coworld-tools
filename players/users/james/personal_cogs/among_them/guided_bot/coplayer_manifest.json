@@ -1,0 +1,7 @@
+{
+  "author": "jamesboggs",
+  "name": "guided_bot",
+  "image_uri": "ghcr.io/jamesboggs/bitworld-guided-bot:latest",
+  "binary": "/bin/guided_bot",
+  "games": ["among_them"]
+}
