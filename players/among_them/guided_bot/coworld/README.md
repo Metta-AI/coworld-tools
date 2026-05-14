@@ -1,84 +1,102 @@
-# guided_bot Coworld / BitWorld policy image
+# guided_bot public Among Them image
 
-The private daily Among Them flow expects a Coworld policy upload: a Docker
-image-backed policy version with a `container_image_id`. Do not use
-`guided_bot/cogames/ship.sh` for that path; it creates the older zip/S3 policy
-format.
+The current public Among Them submission guide is
+<https://softmax.com/play_amongthem.md>. It uses a standalone linux/amd64 Docker
+image uploaded with the Coworld v2 CLI, not the older Python policy bundle path
+and not the legacy `cogames submit --season among-them` surface.
 
-The same image also fits BitWorld's `coplayer_manifest.json` tournament runner
-contract: the manifest points at `/bin/guided_bot`, and the runner may invoke it
-as:
+This directory contains guided_bot's image entrypoint. The Dockerfile builds
+`libguidedbot.so`, installs the small Python bridge, and exposes
+`/bin/guided_bot`.
 
-```sh
-/bin/guided_bot --address:host.docker.internal --port:2000 \
-  --name:guided_bot-t1 --slot:0 --token:...
+## Runtime Contract
+
+The hosted runner starts the image with:
+
+```text
+COGAMES_ENGINE_WS_URL=ws://<game-service>:8080/player?slot=<slot>&token=<token>
 ```
 
-The player manifest for that path is
-`guided_bot/coplayer_manifest.json`. Update its `image_uri` if you push the
-image under a different registry/name.
+The raw Among Them player protocol is:
 
-Build from the `among_them/` directory:
+- receive binary websocket frames, one packed 128x128 4-bit screen per message
+  (`8192` bytes);
+- maintain the local 4-frame stack expected by `AmongThemPolicy`;
+- send one input packet per frame: packet kind `0`, then one button-mask byte.
+
+`policy_player.py` also still supports the generic JSON `coworld.player.v1`
+protocol for older/local Coworld adapters. In auto mode it reads the first
+message and chooses raw BitWorld when the first message is binary.
+
+## Build
+
+Run from `personal_cogs/among_them`:
 
 ```sh
-export IMAGE=ghcr.io/jamesboggs/bitworld-guided-bot:latest
+export IMAGE=jamesboggs-guided-bot-public:$(date +%Y%m%d-%H%M%S)
 
-docker build --platform=linux/amd64 \
-  --provenance=false \
-  -f guided_bot/coworld/Dockerfile \
+docker buildx build \
+  --platform linux/amd64 \
   -t "$IMAGE" \
+  --load \
+  -f guided_bot/coworld/Dockerfile \
   .
+
+docker run --rm --platform linux/amd64 "$IMAGE" /bin/guided_bot --help
 ```
 
-Upload the image-backed policy without submitting it to a season:
+## Upload And Submit
+
+Use the Metta checkout's Coworld v2 CLI:
 
 ```sh
-export POLICY_NAME=$USER-guided-bot-coworld-$(date +%Y%m%d-%H%M%S)
+cd /Users/jamesboggs/coding/metta
+uv run softmax login
+uv run coworld leagues
+uv run coworld download among_them --output-dir ./coworld
+uv run python -m json.tool ./coworld/coworld_manifest.json
 
-PYTHONPATH=/Users/jamesboggs/coding/metta/packages/coworld/src:/Users/jamesboggs/coding/metta/packages/softmax-cli/src \
-  /Users/jamesboggs/coding/metta/.venv/bin/python -m coworld upload-policy "$IMAGE" \
-  --name "$POLICY_NAME"
+# Optional but preferred before upload: local Coworld smoke episode.
+uv run coworld run-episode ./coworld/coworld_manifest.json "$IMAGE"
+
+export POLICY_NAME=jamesboggs-guided-bot-public-$(date +%Y%m%d-%H%M%S)
+
+uv run coworld upload-policy "$IMAGE" \
+  --name "$POLICY_NAME" \
+  --use-bedrock \
+  --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+uv run coworld submit "$POLICY_NAME:v1" \
+  --league league_494db37d-d046-4cba-a99a-536b1439262f
+uv run coworld submissions --policy "$POLICY_NAME:v1" --json
+uv run coworld memberships --mine --policy "$POLICY_NAME:v1" --json
 ```
 
-Then submit that uploaded policy version through the private Softmax website. To
-verify a policy upload, query the policy name you passed to `--name`; the latest
-version must have a non-null `container_image_id`.
+The website guide says to submit through the Among Them Daily league page in
+Observatory v2. The local Coworld CLI also exposes `coworld submit POLICY
+--league LEAGUE_ID`, which enters the uploaded policy version into that same
+v2 league.
 
-The Coworld policy upload API currently does not expose the older cogames
-`--use-bedrock` / `--secret-env` flags. Without runtime credentials, guided_bot
-falls back to non-LLM behavior instead of failing startup.
+`coworld upload-policy --use-bedrock` stores `USE_BEDROCK=true` for the policy.
+Repeated `--secret-env KEY=VALUE` flags store additional policy secret env;
+guided_bot uses `GUIDED_BOT_BEDROCK_MODEL` when present and otherwise falls
+back to its compiled Bedrock default.
 
-On 2026-05-11, Docker 29 on macOS pushed the ECR layers but failed the
-standard `cogames coworld upload-policy` path with a registry `HEAD` 403
-when writing the final manifest. The accepted workaround was to push the
-`docker image save` tarball with `gcr.io/go-containerregistry/crane:debug`
-using the same temporary ECR credentials from `/v2/container_images/upload`,
-then call `/v2/container_images/upload/complete` and
-`/stats/policies/docker-img/complete`.
+Docker 29 on macOS can push the ECR layers and then fail the final manifest
+publish with a registry `HEAD` 403. The successful workaround on 2026-05-12 was
+to use the same temporary upload credentials and publish the linux/amd64 OCI
+manifest via `aws ecr put-image`, then call the Coworld image-complete and
+policy-complete APIs. The current Coworld uploader still shells out to plain
+`docker push`, so this failure mode may recur.
 
-Do not reuse the earlier `jamesboggs-guided-bot-coworld-20260511-120701`
-ECR/local tags; later smoke checks found those image tags lacked
-`/bin/guided_bot`. The verified 2026-05-11 upload was
-`jamesboggs-guided-bot-coworld-20260511-142920:v1`, with
-`container_image_id=img_e621b15a-84f0-4230-8a3c-37990afd7a35`,
-policy version `29c89f00-03c2-4a04-aa87-35f1b56a40a2`, and Among Them Daily
-submission `sub_3cc0fa25-c436-4b46-a4a3-f2b1a06ebad1` placed as
-`lpm_ed695228-4241-4c28-b16c-c9372462b133`.
+For the full pain-point report from the 2026-05-12 submission, see
+[`SUBMISSION_PAIN_POINTS_2026-05-12.md`](SUBMISSION_PAIN_POINTS_2026-05-12.md).
 
-## Runtime
+## Submission Log
 
-`/bin/guided_bot` is a tiny wrapper around `policy_player.py`.
-
-The default runtime protocol is auto-detected:
-
-- BitWorld/Among Them raw `/player` websocket: binary 8192-byte 4bpp frames in,
-  binary input/chat packets out. This is the protocol described by
-  `~/coding/bitworld/docs/player_protocol_spec.md` and used by
-  `games_server/tournament_server.nim`.
-- JSON `coworld.player.v1`: `player_config` / `observation` messages in,
-  `action_index` / `action_name` responses out. This remains supported for
-  generic Coworld adapters.
-
-The Dockerfile compiles `libguidedbot.so` during image build. The runtime image
-keeps the source tree only so the existing wrapper can locate its baked data and
-ABI stamp; it should not rebuild the Nim library at tournament startup.
+| Date | Policy version | Season | Build / upload result | Submission result |
+|---|---|---|---|---|
+| 2026-05-11 | `jamesboggs-guided-bot-coworld-20260511-142920:v1` | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | linux/amd64 Docker build passed; smoke verified `/bin/guided_bot`; upload completed with the ECR manifest workaround | placed as `lpm_ed695228-4241-4c28-b16c-c9372462b133`; score pending |
+| 2026-05-12 | `jamesboggs-guided-bot-public-20260512-152010:v1` | legacy `among-them` only | linux/amd64 `docker buildx build --load` passed; `/bin/guided_bot --help` smoke passed; image `img_c95d02c7-56ee-40a9-977f-b9d01a215de0` ready with digest `sha256:8da0ec28fb35ec43cd7084e2bc58d5f62628ac5fb8c6a7a91b021e071c8a6771` | policy id `de944167-b1ac-40d7-88ea-8c5495896795`; submitted to legacy `competition`, but Coworld v2 showed no Among Them Daily submission for this policy |
+| 2026-05-13 | `jamesboggs-guided-bot-coworld-20260513-095131:v1` | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | linux/amd64 `docker buildx build --load` passed; `/bin/guided_bot --help` smoke passed; `coworld run-episode` against `among_them:0.1.11` completed; standard upload hit Docker 29 ECR `HEAD` 403 and completed via `crane`; image `img_b386faae-79ef-4f9e-81d9-32787588c736` digest `sha256:4fd6d88da39c74186fc8a0d5aef954b32eceeeb5eda1b98a4ffa20d907b16c54`; Bedrock env stored | policy id `cdac788e-8ae0-4b07-81ca-8bd45a84ebad`; submitted as `sub_9414c5e8-1e44-461b-a497-51b59cfa32d5`; placed as active champion `lpm_290240c5-2eea-4648-b479-d428a22e43d2` in `div_334593c6-da90-4651-98c7-606573ea1474` |
+| 2026-05-14 | `jamesboggs-guided-bot-coworld-20260514-092239:v1` | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | First submission with `GUIDED_BOT_TRACE_LEVEL=full` (bumped from `events` in Dockerfile to diagnose the early-websocket-close pattern seen in round 379 logs); linux/amd64 `docker buildx build --load` passed; `/bin/guided_bot --help` smoke passed; `coworld run-episode` against `among_them:0.1.14` completed with `[trace:decisions\|modes\|snapshots\|events]` lines (~315 per agent log, up from ~11 at events-only); standard upload succeeded on first try with no Docker 29 ECR 403 workaround needed; image `img_bfb9eadc-1ad7-4e48-ba9e-99df6a0d1938` (local manifest-list digest `sha256:a1fb7c731d3ad0deb5811d284d1ab9e93cbf23181e425b0bac0ffbbdbab50820`); Bedrock env stored | policy version id `96327238-9a16-484f-843b-ab735bc97d29`; submitted as `sub_ed4f9d4d-b9cb-4f50-a139-e9b422d475c4`; placed as active champion `lpm_5324f856-8a27-49e7-84c7-3a7efd0e9cd2` in `div_334593c6-da90-4651-98c7-606573ea1474` |

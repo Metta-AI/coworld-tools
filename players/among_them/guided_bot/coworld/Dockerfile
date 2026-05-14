@@ -25,7 +25,12 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV GUIDED_BOT_TRACE_DIR=stderr
-ENV GUIDED_BOT_TRACE_LEVEL=events
+ENV GUIDED_BOT_TRACE_LEVEL=full
+# Disable the LLM guidance worker while we isolate the ~700-tick
+# disconnect. The strategy loop falls back to defaultDirectiveFor +
+# reflexes (mode_registry.nim + reflex.nim) — the symbolic path.
+# Unset or set to 0 to re-enable.
+ENV GUIDED_BOT_LLM_DISABLE=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

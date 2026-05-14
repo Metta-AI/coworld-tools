@@ -5,7 +5,10 @@ social-deduction game in the cogames Alignment League Benchmark. An 8-player
 Among-Us clone running over the same 128x128 4-bit palette interface as the
 rest of BitWorld, with 2 imposters and 8 tasks per player by default.
 
-Current season: `among-them` (verify with `cogames season list`).
+Current public competition: Coworld v2 **Among Them Daily** (verify from
+`~/coding/metta` with `uv run coworld leagues`). The legacy `cogames`
+`among-them` season is a separate surface and should not be used for Daily
+league status or submission.
 
 ## Active agent
 
@@ -39,11 +42,10 @@ the current prompt.
 - One agent per subdirectory. Each has its own `README.md` answering:
   what strategy, current status, leaderboard score once submitted, what's
   next.
-- Submission bundle root is the agent directory (e.g. `guided_bot/`). The
-  cogames `ship` command gets `-f <agent_dir>`; everything the policy
-  imports must live inside that directory. Code under `common/` that
-  an agent's submission needs is bundled via `-f among_them/common/...`
-  alongside the agent dir.
+- Legacy submission bundle root is the agent directory (e.g. `guided_bot/`).
+  The `cogames ship` command gets `-f <agent_dir>`; everything the policy
+  imports must live inside that directory. Current Among Them Daily uses
+  the Docker-image Coworld flow in `guided_bot/coworld/` instead.
 
 ## Reference material
 
@@ -85,7 +87,8 @@ Scripts that start a local Nim server need the pre-built binaries:
 | `among_them` (server) | `~/coding/bitworld/out/among_them` | `AMONG_THEM_BINARY=<path>` or `--server-binary` |
 | `nottoodumb` (filler bot) | `~/coding/bitworld/out/nottoodumb` | `FILLER_BOT_BINARY=<path>` or `--filler-binary` |
 
-Docker is required for `cogames ship --dry-run` / `cogames upload --dry-run`.
+Docker is required for the public Among Them Docker-image submission flow and
+for legacy `cogames upload --dry-run` validation.
 
 ---
 
@@ -132,8 +135,8 @@ work unless James explicitly asks for another policy.
 | [All-agent match](#all-agent-match-play_matchpy) | Starts server, fills all slots with agents | No (starts its own) | `scripts/play_match.py` |
 | [Standalone server](#standalone-server-serverpy) | Start a server only, print host:port | n/a | `scripts/server.py` |
 | [Capture frames](#capture-frames-capturepy) | Passive capture to .npy (no policy) | No (starts its own) | `scripts/capture.py` |
-| [Tournament submission](#tournament-submission-shipsh) | Bundle + validate + upload + submit | Cloud (Softmax infra) | `guided_bot/cogames/ship.sh` |
-| [Upload without submitting](#upload-without-submitting) | Bundle + upload only | Cloud (Softmax infra) | `cogames upload` + `cogames submit` |
+| [Public submission](#public-submission-docker-image) | Build linux/amd64 image + upload + submit | Cloud (Softmax infra) | `guided_bot/coworld/README.md` |
+| Legacy bundle upload | Older Python bundle path | Cloud (Softmax infra) | `guided_bot/cogames/ship.sh` |
 
 > `cogames play` does **not** support Among Them -- it only works for
 > CvC-family games. Use the scripts above for all Among Them local runs.
@@ -294,95 +297,59 @@ James explicitly asks for modulabot.
 
 ---
 
-## Tournament submission (`ship.sh`)
+## Public submission (Docker image)
 
-Use guided_bot's submission wrapper for active Among Them submissions:
+The current public Among Them instructions are
+<https://softmax.com/play_amongthem.md>. They submit a standalone linux/amd64
+Docker image to the Coworld v2 **Among Them Daily** league. The image connects
+to the hosted runner through `COGAMES_ENGINE_WS_URL`; the flow does not use the
+older Python policy bundle or the legacy `cogames submit --season among-them`
+surface.
+
+Use guided_bot's image path:
 
 ```bash
-cd /Users/jamesboggs/coding/personal_cogs/among_them/guided_bot/cogames
-export SEASON=among-them
-export POLICY_NAME="$USER-guided-bot-$(date +%Y%m%d-%H%M%S)"
-./ship.sh dry-run
-# If dry-run passes:
-./ship.sh ship
-# If dry-run builds/runs cleanly but fails only "Policy took no actions",
-# use:
-./ship.sh ship-skip-validation
+cd /Users/jamesboggs/coding/personal_cogs/among_them
+export IMAGE=jamesboggs-guided-bot-public:$(date +%Y%m%d-%H%M%S)
+export POLICY_NAME=jamesboggs-guided-bot-public-$(date +%Y%m%d-%H%M%S)
+
+docker buildx build \
+    --platform linux/amd64 \
+    -t "$IMAGE" \
+    --load \
+    -f guided_bot/coworld/Dockerfile \
+    .
+
+docker run --rm --platform linux/amd64 "$IMAGE" /bin/guided_bot --help
 ```
 
-Current `cogames ship` does not expose LLM credential flags. For
-guided_bot, the wrapper uses `cogames upload --season`, which validates,
-uploads, and submits unless `--no-submit` is present. To run it directly
-from the repo root:
+Then use the Coworld v2 CLI from the Metta checkout:
 
 ```bash
-.venv/bin/cogames upload \
-    -p class=amongthem_policy.AmongThemPolicy \
-    -f among_them/guided_bot/cogames/amongthem_policy.py \
-    -f among_them/guided_bot \
-    -f among_them/common/perception_kernels \
+cd /Users/jamesboggs/coding/metta
+uv run softmax login
+uv run coworld leagues
+uv run coworld download among_them --output-dir ./coworld
+uv run coworld run-episode ./coworld/coworld_manifest.json "$IMAGE"
+
+uv run coworld upload-policy "$IMAGE" \
+    --name "$POLICY_NAME" \
     --use-bedrock \
-    --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-    -n "$USER-guided-bot-$(date +%Y%m%d-%H%M%S)" \
-    --season among-them \
-    --dry-run          # remove once dry-run is clean
+    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+uv run coworld submit "$POLICY_NAME:v1" \
+    --league league_494db37d-d046-4cba-a99a-536b1439262f
+uv run coworld submissions --policy "$POLICY_NAME:v1" --json
 ```
 
-Do not ship modulabot unless James explicitly asks for a modulabot
-submission.
+See [`guided_bot/coworld/README.md`](guided_bot/coworld/README.md) for the
+runtime protocol, Coworld v2 status commands, and the Docker 29 ECR manifest
+workaround.
 
-### Upload without submitting
-
-Split the process into separate steps when you want to upload first and
-submit later, or submit an already-uploaded policy to a different season:
-
-```bash
-POLICY_NAME="$USER-guided-bot-$(date +%Y%m%d-%H%M%S)"
-
-# 1. Bundle
-cogames create-bundle \
-    -p class=amongthem_policy.AmongThemPolicy \
-    -o submission.zip \
-    -f among_them/guided_bot/cogames/amongthem_policy.py \
-    -f among_them/guided_bot \
-    -f among_them/common/perception_kernels
-
-# 2. Upload only (validates in Docker unless --skip-validation is passed)
-cogames upload -p ./submission.zip \
-    -n "$POLICY_NAME" \
-    --use-bedrock \
-    --llm-model global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-    --secret-env GUIDED_BOT_BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-    --no-submit
-
-# 3. Submit to a season
-cogames submit "$POLICY_NAME" --season among-them
-
-# 4. Track
-cogames submissions --season among-them --policy "$POLICY_NAME"
-cogames season matches among-them --limit 20
-```
-
-### Secrets (LLM keys)
-
-If the policy needs an API key at runtime:
-
-```bash
-cogames upload -p ./submission.zip -n my-llm-policy \
-    --secret-env ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### The 10-step validation gate
-
-`--dry-run` (and `ship` without `--skip-validation`) runs the policy for
-exactly 10 steps in Docker and requires at least one non-NOOP action.
-
-Pixel-perception bots often spend the first 10 frames in an interstitial
-(role-reveal splash) and emit only NOOPs by design. For that specific
-failure -- `"Policy took no actions (all no-ops)"` -- and **only** that
-failure, `--skip-validation` is appropriate. Any other dry-run error
-(import failure, traceback, ABI mismatch) means fix the bug.
+Do not ship modulabot unless James explicitly asks for a modulabot submission.
+The old `guided_bot/cogames/ship.sh` path is legacy bundle tooling only; it does
+not create the Docker-image-backed policy version expected by
+`play_amongthem.md`.
 
 ---
 
@@ -417,6 +384,8 @@ the schema, trace levels, and output layout.
 | `FILLER_BOT_BINARY` | Override path to the Nim `nottoodumb` filler bot binary. |
 | `GUIDED_BOT_TRACE_DIR` | Enable guided_bot JSONL tracing to this directory. |
 | `GUIDED_BOT_TRACE_LEVEL` | `off`, `events`, `decisions`, or `full`; prefer the play-script `--trace-level` flag. |
+| `USE_BEDROCK` | Set by `coworld upload-policy --use-bedrock`; makes guided_bot prefer AWS Bedrock credentials. |
+| `GUIDED_BOT_BEDROCK_MODEL` | Optional Bedrock model override for Coworld submissions. |
 | `ANTHROPIC_API_KEY` | Enables guided_bot's LLM guidance loop in submissions/local runs. |
 
 ---
@@ -430,5 +399,11 @@ the schema, trace levels, and output layout.
 - Imposter kill cooldown: 1200 ticks.
 - Action space: 27 discrete actions (directional + A/B combinations).
 
-If the tournament configuration differs from these defaults for a given
-season, check `cogames season show among-them` for the exact config.
+If the hosted configuration differs from these defaults, download and inspect
+the Coworld manifest:
+
+```bash
+cd /Users/jamesboggs/coding/metta
+uv run coworld download among_them --output-dir ./coworld
+uv run python -m json.tool ./coworld/coworld_manifest.json
+```

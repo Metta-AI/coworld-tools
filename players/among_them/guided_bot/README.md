@@ -230,7 +230,7 @@ guided_bot/
   coplayer_manifest.json    # BitWorld tournament-runner player manifest
   guided_bot.nim            # CLI entry + library gate
   coworld/
-    Dockerfile              # linux/amd64 policy image for Coworld/private daily
+    Dockerfile              # linux/amd64 policy image for public Among Them
     policy_player.py        # /bin/guided_bot BitWorld + Coworld websocket bridge
     README.md               # image build, upload, and runtime notes
   modes/
@@ -246,7 +246,7 @@ guided_bot/
     waypoint_editor.py      # GUI tool for waypoint graph editing
   cogames/
     amongthem_policy.py     # cogames MultiAgentPolicy wrapper
-    ship.sh                 # dry-run / upload / ship convenience wrapper
+    ship.sh                 # legacy Python-bundle dry-run / upload wrapper
     README.md
   test/
     smoke.nim               # phase-0 pipeline smoke test
@@ -537,11 +537,18 @@ See DESIGN.md §11 for the exact JSON schemas.
 
 ## Submissions
 
-See [`cogames/README.md`](cogames/README.md). Phase 5 added fallback-only
-playability: the bot emits non-NOOP actions from tick 1 on gameplay frames
-(passes the cogames 10-step validation gate on fixture data). As of
-2026-05-11, the real `among-them` Observatory season is accessible and
-accepts uploads, but reports `status: complete` / `public: false`.
+Use [`coworld/README.md`](coworld/README.md) for the current public Among Them
+Daily Coworld v2 Docker-image flow from
+<https://softmax.com/play_amongthem.md>. The older
+[`cogames/README.md`](cogames/README.md) Python-bundle wrapper remains only
+for legacy bundle experiments and does not submit to Among Them Daily.
+
+Phase 5 added fallback-only playability: the bot emits non-NOOP actions from
+tick 1 on gameplay frames. For the current public image flow, the local smoke
+check is the linux/amd64 image build plus `/bin/guided_bot --help`; when
+practical, also run `uv run coworld run-episode` against the downloaded
+`among_them` Coworld manifest. The hosted runner drives the image through
+`COGAMES_ENGINE_WS_URL`.
 
 The `mettagrid.bitworld` import is now optional in `amongthem_policy.py`
 (inline fallback constants) so the policy loads in Docker images that
@@ -549,13 +556,15 @@ only ship `mettagrid` without the `bitworld` extra.
 
 ## Submission log
 
-| Date | Policy name | Season | Dry-run | Leaderboard |
+| Date | Policy name | Season | Validation / upload | Leaderboard |
 |---|---|---|---|---|
 | 2026-05-01 | jamesboggs-guided-bot-fallback-test | among-them | **blocked**: season 404 | — |
 | 2026-05-01 | jamesboggs-guided-bot-dryrun | beta-cvc (fallback) | import fixed, Nim build attempted | — |
 | 2026-05-11 | jamesboggs-guided-bot-20260511-115205:v1 | among-them | Docker dry-run built library, connected 8 players, completed 10-step episode; failed only known no-op gate, shipped with `--skip-validation` | pending |
-| 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-120701:v1 | none — Coworld image upload for private daily website | linux/amd64 Docker build passed; container smoke loaded `AmongThemPolicy` and stepped slot 3; image upload completed via `crane` after Docker 29 ECR `HEAD` failure | website submission pending |
+| 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-120701:v1 | none — Coworld image upload for daily website | linux/amd64 Docker build passed; container smoke loaded `AmongThemPolicy` and stepped slot 3; image upload completed via `crane` after Docker 29 ECR `HEAD` failure | website submission pending |
 | 2026-05-11 | jamesboggs-guided-bot-coworld-20260511-142920:v1 | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | linux/amd64 Docker build passed; smoke verified `/bin/guided_bot` and `(4, 128, 128)` pixel policy env; standard upload hit Docker 29 ECR `HEAD` 403 and completed via `crane` | placed (`lpm_ed695228-4241-4c28-b16c-c9372462b133`); score pending |
+| 2026-05-12 | jamesboggs-guided-bot-public-20260512-152010:v1 | legacy `among-them` only | linux/amd64 `docker buildx build --load` passed; `/bin/guided_bot --help` smoke passed; public-guide upload completed via local Coworld uploader plus ECR `put-image` manifest workaround | policy id `de944167-b1ac-40d7-88ea-8c5495896795`; submitted to legacy `competition`, but Coworld v2 showed no Among Them Daily submission for this policy |
+| 2026-05-13 | jamesboggs-guided-bot-coworld-20260513-095131:v1 | Among Them Daily (`league_494db37d-d046-4cba-a99a-536b1439262f`) | linux/amd64 `docker buildx build --load` passed; `/bin/guided_bot --help` smoke passed; `coworld run-episode` against `among_them:0.1.11` completed; standard upload hit Docker 29 ECR `HEAD` 403 and completed via `crane`; image `img_b386faae-79ef-4f9e-81d9-32787588c736` digest `sha256:4fd6d88da39c74186fc8a0d5aef954b32eceeeb5eda1b98a4ffa20d907b16c54`; Bedrock env stored | policy id `cdac788e-8ae0-4b07-81ca-8bd45a84ebad`; submitted as `sub_9414c5e8-1e44-461b-a497-51b59cfa32d5`; placed as active champion `lpm_290240c5-2eea-4648-b479-d428a22e43d2` in `div_334593c6-da90-4651-98c7-606573ea1474` |
 
 ## Change log (recent)
 

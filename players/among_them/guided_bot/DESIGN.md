@@ -39,9 +39,14 @@
 >   LLM clients (`curly` + `jsony`, ~60 LOC each). We adapt these.
 > - `bitworld/among_them/players/italkalot.nim` — existence proof of a
 >   Nim-native Among Them bot making live LLM calls.
-> - `metta/packages/cogames/POLICY_SECRETS.md` and `cogames upload
->   --use-bedrock` — how LLM credentials reach the policy subprocess.
->   Bedrock is preferred; direct Anthropic remains a fallback.
+> - `https://softmax.com/play_amongthem.md` — current public Among Them
+>   Docker-image submission guide; use Coworld v2 / `uv run coworld`, not
+>   legacy `cogames submit`, for Among Them Daily.
+> - `metta/packages/coworld` / `coworld upload-policy --use-bedrock` and
+>   legacy `metta/packages/cogames/POLICY_SECRETS.md` / `cogames upload
+>   --use-bedrock` — how LLM credentials reach hosted policy subprocesses.
+>   Bedrock is still preferred when credentials are available; direct
+>   Anthropic remains a fallback.
 >
 > **Deprecated reference:** the local `among_them/modulabot/` tree is
 > historical-only. Do not inspect, modify, test, run, or rely on it for
@@ -77,9 +82,10 @@
 6. **Graceful degradation.** If the LLM is slow, rate-limited, or
    transiently unreachable, the bot keeps playing competently on the
    most recent directive or the default.
-7. **Cogames-submission-ready.** Bundle format, Nim-via-ctypes wrapper,
-   and validation gate follow the current guided_bot submission wrapper.
-   LLM keys flow in via `--secret-env` (cogames' documented mechanism).
+7. **Cogames-submission-ready.** The current public Among Them path ships
+   a linux/amd64 Docker image whose `/bin/guided_bot` connects via
+   `COGAMES_ENGINE_WS_URL`. The older Nim-via-ctypes Python bundle remains
+   available as legacy tooling.
 
 ### Non-goals (v0)
 
@@ -1061,11 +1067,15 @@ fix them before shipping.
 
 ### 9.3 Validation gate
 
-Dry-run (`cogames upload --dry-run`) is expected to pass *without*
-`--skip-validation`. The default directive must emit a non-no-op
-action within the first 10 ticks. Since the LLM rarely comes back
-within 10 ticks of game start, this means the default directive is
-what passes the gate, not the LLM.
+For the current public Docker-image path, local validation is the
+linux/amd64 image build plus a smoke run of `/bin/guided_bot --help`.
+The hosted runner then drives the image through `COGAMES_ENGINE_WS_URL`.
+
+For the legacy Python-bundle path, dry-run (`cogames upload --dry-run`)
+is expected to pass *without* `--skip-validation`. The default directive
+must emit a non-no-op action within the first 10 ticks. Since the LLM
+rarely comes back within 10 ticks of game start, this means the default
+directive is what passes the gate, not the LLM.
 
 ---
 
@@ -1086,10 +1096,15 @@ sidecar. Justification:
 4. The cogames bundle is already "Nim compiled into shared lib + thin
    Python wrapper" for guided_bot. No need to add a second Python
    subprocess lifecycle.
-5. Bedrock access flows in through `cogames upload --use-bedrock`
-   (`USE_BEDROCK=true`, AWS env vars, or ECS task-role metadata).
-   Direct Anthropic API keys still work through `--secret-env
-   ANTHROPIC_API_KEY=...` when Bedrock is disabled.
+5. In the legacy bundle flow, Bedrock access flows in through
+   `cogames upload --use-bedrock` (`USE_BEDROCK=true`, AWS env vars, or
+   ECS task-role metadata). In the current Coworld v2 Docker-image flow,
+   `coworld upload-policy --use-bedrock` stores the same `USE_BEDROCK=true`
+   policy env, and repeated `--secret-env KEY=VALUE` flags store provider
+   or model overrides such as `GUIDED_BOT_BEDROCK_MODEL=...`. Direct
+   Anthropic API keys still work through `--secret-env ANTHROPIC_API_KEY=...`
+   when Bedrock is disabled. Without credentials the bot must keep playing
+   on defaults.
 
 **Python sidecar remains a viable fallback** if the threading or the
 libcurl dependency turns painful. Preserved as §10.4 below.
@@ -1351,7 +1366,7 @@ adapters in v0 — we upgrade tools when we change the schema.
 | Question | Resolution |
 |---|---|
 | LLM lives in sidecar vs. in-process | **In-Nim worker thread** (§10). Sidecar is fallback. |
-| LLM is part of submission or optional | **Part of submission.** Secrets via `--secret-env`. |
+| LLM is part of submission or optional | **Part of submission when credentials are available; defaults are mandatory.** Legacy bundle secrets use `cogames upload --secret-env`; current Coworld v2 image secrets use `coworld upload-policy --use-bedrock` / `--secret-env`. |
 | What the LLM sees | **JSON dump of curated belief subset** (§8.3). Token budget deferred. |
 | Mode scratch state reset semantics | **Reset on mode switch, preserved across directive changes within mode** (§5.6). |
 | Action layer owns navigation | **Yes.** Modes emit `steer_to`; action layer does waypoint routing and tactical steering (§4.4, §6). |
@@ -1484,7 +1499,7 @@ Per the v0.1 checklist, decisions resolved or explicitly deferred.
 
 | # | Topic | Resolution | Section |
 |---|---|---|---|
-| D1 | LLM in submission | First-class, via `--secret-env`. | §1 goal 5, §10 |
+| D1 | LLM in submission | First-class when credentials are available; safe defaults remain mandatory. | §1 goal 5, §10 |
 | D2 | LLM host process | In-Nim worker thread. | §10 |
 | D3 | Belief state writable by | Inner-loop update stage only; directive slot writable by guidance thread. | §3 invariants |
 | D4 | Mode scratch lifecycle | Reset on mode switch, persist within mode. | §5.6 |

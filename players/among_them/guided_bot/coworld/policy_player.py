@@ -1,9 +1,9 @@
 """Coworld / BitWorld player bridge for guided_bot.
 
-The private daily Among Them flow launches uploaded policy images as
-Coworld player containers. Depending on the runner, this process either speaks
-the raw BitWorld `/player` binary protocol or the generic JSON
-``coworld.player.v1`` policy protocol.
+The public Among Them flow launches uploaded Docker policy images as external
+player containers. Depending on the runner, this process either speaks the raw
+BitWorld `/player` binary protocol or the generic JSON ``coworld.player.v1``
+policy protocol.
 """
 
 from __future__ import annotations
