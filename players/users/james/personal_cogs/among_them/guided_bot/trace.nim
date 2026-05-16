@@ -17,7 +17,7 @@
 ##       frames.bin       (optional, gated by TraceFull)
 ##
 ## Multiple bots in the same process get unique session directories via a
-## monotonic instance counter, mirroring modulabot's TraceWriter design.
+## monotonic instance counter for multi-agent Coworld sessions.
 ##
 ## Tracing is opt-in via GUIDED_BOT_TRACE_DIR / GUIDED_BOT_TRACE_LEVEL
 ## env vars (or per-instance override via the FFI guidedbot_set_trace_dir
@@ -44,7 +44,7 @@ const
   SnapshotIntervalTicks = 240  ## ~10s at 24Hz.
 
 # Process-wide monotonic counter so multiple bots in the same process
-# (e.g. 8 agents via play_match.py) get unique session directories
+# (for example, 8 agents in one Coworld match) get unique session directories
 # even when the wall-clock second and PID are identical.
 var instanceCounter {.global.}: int = 0
 
@@ -481,12 +481,11 @@ proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Bel
   ## Log full per-frame perception output to perception.jsonl for
   ## offline visualization. Coordinates from percept are screen-space;
   ## camera/self coordinates from belief are world-space.
-  ## Skipped in stderr mode — too voluminous for captured output.
+  ## In stderr mode, emits prefixed perception JSONL. Raw frames remain
+  ## file-only because binary frame data is not useful in captured logs.
   if trace == nil or trace.level < TraceDecisions:
     return
-  if trace.useStderr:
-    return
-  if trace.perceptionFile == nil:
+  if not trace.useStderr and trace.perceptionFile == nil:
     return
 
   trace.endTick = tick
@@ -575,6 +574,7 @@ proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Bel
     for i in 0 ..< playerCount:
       let slot = percept.votingParse.slots[i]
       var obj = newJObject()
+      obj["slot"] = newJInt(i)
       obj["color"] = newJInt(slot.colorIndex)
       obj["alive"] = newJBool(slot.alive)
       slots.add obj
@@ -597,7 +597,10 @@ proc logPerception*(trace: TraceWriter, tick: int, percept: Percept, belief: Bel
   else:
     rec["voting"] = newJNull()
 
-  trace.perceptionFile.writeLine($rec)
+  if trace.useStderr:
+    writeStderr(trace, skPerception, $rec)
+  else:
+    trace.perceptionFile.writeLine($rec)
 
 proc logModeEntered*(trace: TraceWriter, tick: int, fromMode, toMode: ModeName,
                     params: ModeParams, reason: string) =

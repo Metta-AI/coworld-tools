@@ -45,7 +45,7 @@ proc initSelfState*(): SelfState =
   )
 
 proc initPerceptionState*(): PerceptionState =
-  PerceptionState(
+  result = PerceptionState(
     cameraX: 0, cameraY: 0,
     lastCameraX: 0, lastCameraY: 0,
     cameraScore: 0,
@@ -73,6 +73,8 @@ proc initPerceptionState*(): PerceptionState =
     votingSelfSlot: -1,
     votingPlayerCount: 0
   )
+  for i in 0 ..< PlayerColorCount:
+    result.votingSlotColors[i] = -1
 
 proc initMemoryState*(): MemoryState =
   result.lastMeetingEndTick = 0
@@ -513,6 +515,8 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
     belief.percep.votingCursor = -1
     belief.percep.votingSelfSlot = -1
     belief.percep.votingPlayerCount = 0
+    for i in 0 ..< PlayerColorCount:
+      belief.percep.votingSlotColors[i] = -1
     belief.social.currentMeetingChat = @[]
     return
   # Copy voting parse results into perception state.
@@ -520,9 +524,12 @@ proc mergeVotingPercept*(belief: var Belief, voting: VotingParse) =
   belief.percep.votingCursor = voting.cursor
   belief.percep.votingSelfSlot = voting.selfSlot
   belief.percep.votingPlayerCount = voting.playerCount
+  for i in 0 ..< PlayerColorCount:
+    belief.percep.votingSlotColors[i] = -1
   for i in 0 ..< voting.playerCount:
     let ci = voting.slots[i].colorIndex
     if ci >= 0 and ci < PlayerColorCount:
+      belief.percep.votingSlotColors[i] = ci
       belief.memory.perPlayer[ci].alive = voting.slots[i].alive
   for voter in 0 ..< PlayerColorCount:
     let choice = voting.choices[voter]

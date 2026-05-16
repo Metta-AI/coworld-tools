@@ -212,6 +212,27 @@ proc testVotingChatSpeakerAttribution() =
   expect(sawFirst, "wrapped chat first row parsed")
   expect(sawSecond, "wrapped chat second row parsed")
 
+proc testVotingParserAcceptsShuffledSlotColors() =
+  var frame = loadFixture("voting_real_1432.bin")
+  let
+    layout = voteGridLayout(8)
+    shuffled = [2, 3, 6, 7, 0, 5, 4, 1]
+  for slot, colorIndex in shuffled:
+    let (cx, cy) = voteCellOrigin(layout, 8, slot)
+    drawTintedPlayer(
+      frame,
+      cx + (VoteCellW - referenceData.sprites.player.width) div 2,
+      cy + 1,
+      colorIndex)
+
+  let parsed = parseVotingScreen(frame, referenceData.sprites, -1)
+  expect(parsed.valid, "shuffled voting fixture parses as voting")
+  expectEq(parsed.playerCount, 8,
+           "shuffled voting fixture: player count")
+  for slot, colorIndex in shuffled:
+    expectEq(parsed.slots[slot].colorIndex, colorIndex,
+             &"shuffled voting fixture: slot {slot} color")
+
 # ---------------------------------------------------------------------------
 # 5. findText on synthetic frame
 # ---------------------------------------------------------------------------
@@ -350,6 +371,7 @@ proc main() =
   testBestGlyph()
   testReadRun()
   testVotingChatSpeakerAttribution()
+  testVotingParserAcceptsShuffledSlotColors()
   testFindText()
   testClassifyInterstitial()
   testGameOverPhaseUpdate()

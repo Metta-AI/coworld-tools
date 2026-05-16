@@ -374,11 +374,17 @@ proc parseVotingCandidate(
   if not voteSkipTextMatches(frame, layout.skipX, layout.skipY):
     return
 
-  # 2. Strict slot check — each slot's colour must match its index.
+  # 2. Slot sprite check. The server draws voting slots in live player order,
+  # which can differ from color order, so validate distinct player colors
+  # instead of requiring colorIndex == slotIndex.
+  var seenColors: array[MaxPlayers, bool]
   for i in 0 ..< count:
     let slot = parseVoteSlot(frame, sprites, count, i)
-    if slot.colorIndex != i:
-      return  # Colour mismatch → reject this player count.
+    if slot.colorIndex < 0 or slot.colorIndex >= MaxPlayers:
+      return  # Missing/unrecognized player sprite.
+    if seenColors[slot.colorIndex]:
+      return  # Duplicate colour → reject this player count.
+    seenColors[slot.colorIndex] = true
     result.slots[i] = slot
 
   # All slots validated → parse succeeds.

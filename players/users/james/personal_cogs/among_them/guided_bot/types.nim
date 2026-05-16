@@ -344,6 +344,10 @@ type
     votingCursor*: int       ## Current cursor slot, playerCount=SKIP, -1=unknown.
     votingSelfSlot*: int     ## Our slot index, -1=unknown.
     votingPlayerCount*: int  ## Number of players in the grid.
+    votingSlotColors*: array[PlayerColorCount, int]
+      ## Slot index -> player color index. Coworld player join order can differ
+      ## from color order, so meeting logic must use this map before reading
+      ## per-player memory. Entries are -1 when unknown.
 
   PlayerSummary* = object
     role*: BotRole             ## RoleUnknown until evidence (role reveal, deduction).

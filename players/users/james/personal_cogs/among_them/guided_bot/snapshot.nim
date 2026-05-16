@@ -140,6 +140,19 @@ proc voteChoiceName(target: int): string =
   else:
     colorName(target)
 
+proc votingSlotColor(belief: Belief, slot: int): int =
+  let playerCount = max(0, belief.percep.votingPlayerCount)
+  if slot < 0 or slot >= playerCount:
+    return -1
+  if slot < PlayerColorCount and belief.percep.votingValid:
+    let mapped = belief.percep.votingSlotColors[slot]
+    if mapped >= 0 and mapped < PlayerColorCount:
+      return mapped
+  if slot < PlayerColorCount:
+    slot
+  else:
+    -1
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -320,18 +333,32 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
     meetingObj["player_count"] = newJInt(belief.percep.votingPlayerCount)
     meetingObj["self_slot"] = newJInt(belief.percep.votingSelfSlot)
     meetingObj["cursor"] = newJInt(belief.percep.votingCursor)
+    var slotColors = newJArray()
+    for slot in 0 ..< max(0, belief.percep.votingPlayerCount):
+      let color = votingSlotColor(belief, slot)
+      if color >= 0:
+        var scObj = newJObject()
+        scObj["slot"] = newJInt(slot)
+        scObj["color"] = newJString(colorName(color))
+        slotColors.add scObj
+    meetingObj["slot_colors"] = slotColors
     var selectable = newJArray()
-    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
-      if i != belief.percep.votingSelfSlot and belief.memory.perPlayer[i].alive:
-        selectable.add newJString(colorName(i))
+    for slot in 0 ..< max(0, belief.percep.votingPlayerCount):
+      let color = votingSlotColor(belief, slot)
+      if color >= 0 and slot != belief.percep.votingSelfSlot and
+         belief.memory.perPlayer[color].alive:
+        selectable.add newJString(colorName(color))
     meetingObj["selectable_players"] = selectable
     var alivePlayers = newJArray()
     var deadPlayers = newJArray()
-    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
-      if belief.memory.perPlayer[i].alive:
-        alivePlayers.add newJString(colorName(i))
+    for slot in 0 ..< max(0, belief.percep.votingPlayerCount):
+      let color = votingSlotColor(belief, slot)
+      if color < 0:
+        continue
+      if belief.memory.perPlayer[color].alive:
+        alivePlayers.add newJString(colorName(color))
       else:
-        deadPlayers.add newJString(colorName(i))
+        deadPlayers.add newJString(colorName(color))
     meetingObj["alive_players"] = alivePlayers
     meetingObj["dead_players"] = deadPlayers
     meetingObj["self_can_vote"] = newJBool(
@@ -349,20 +376,24 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
     var ledgerObj = newJObject()
     var concreteMemoryEvidencePlayers = newJArray()
     var probabilisticMemoryEvidencePlayers = newJArray()
-    for i in 0 ..< max(0, belief.percep.votingPlayerCount):
-      let ps = belief.memory.perPlayer[i]
+    for slot in 0 ..< max(0, belief.percep.votingPlayerCount):
+      let color = votingSlotColor(belief, slot)
+      if color < 0:
+        continue
+      let ps = belief.memory.perPlayer[color]
       var playerObj = newJObject()
+      playerObj["slot"] = newJInt(slot)
       playerObj["vote_legal"] = newJBool(
-        i != belief.percep.votingSelfSlot and
+        slot != belief.percep.votingSelfSlot and
         ps.alive and
         not (belief.self.role == RoleImposter and
-             i in belief.self.knownImposterColors))
+             color in belief.self.knownImposterColors))
       playerObj["current_vote"] = newJString(voteChoiceName(
-        belief.social.votesCast[i]))
+        belief.social.votesCast[color]))
 
       var votesReceived = newJArray()
       for voter in 0 ..< PlayerColorCount:
-        if belief.social.votesCast[voter] == i:
+        if belief.social.votesCast[voter] == color:
           votesReceived.add newJString(colorName(voter))
       playerObj["votes_received_from"] = votesReceived
 
@@ -432,9 +463,9 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
       playerObj["has_probabilistic_memory_evidence"] =
         newJBool(hasProbabilisticMemoryEvidence)
       if hasConcreteMemoryEvidence:
-        concreteMemoryEvidencePlayers.add newJString(colorName(i))
+        concreteMemoryEvidencePlayers.add newJString(colorName(color))
       if hasProbabilisticMemoryEvidence:
-        probabilisticMemoryEvidencePlayers.add newJString(colorName(i))
+        probabilisticMemoryEvidencePlayers.add newJString(colorName(color))
       playerObj["incriminating"] = incriminating
 
       var exculpatory = newJArray()
@@ -450,7 +481,7 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
 
       var chatMentions = newJArray()
       for cl in belief.social.recentChat:
-        if cl.text.textNamesColor(i):
+        if cl.text.textNamesColor(color):
           var ev = newJObject()
           ev["tick"] = newJInt(cl.tick)
           ev["speaker"] = newJString(colorName(cl.speakerColor))
@@ -460,7 +491,7 @@ proc renderSnapshot*(belief: Belief, modeSummary: JsonNode = nil): string =
           chatMentions.add ev
       playerObj["chat_mentions"] = chatMentions
 
-      ledgerObj[colorName(i)] = playerObj
+      ledgerObj[colorName(color)] = playerObj
     meetingObj["evidence_ledger"] = ledgerObj
     meetingObj["players_with_concrete_memory_evidence"] =
       concreteMemoryEvidencePlayers

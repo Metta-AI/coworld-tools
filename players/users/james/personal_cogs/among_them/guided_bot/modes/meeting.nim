@@ -55,15 +55,45 @@ proc skipSlotFor(playerCount: int): int {.inline.} =
   ## keep the old fallback target so navigation still moves rather than idles.
   if playerCount > 0: playerCount else: 8
 
+proc voteSlotColor(belief: Belief, slot, playerCount: int): int =
+  ## Resolve a voting grid slot to the player color stored in long-term memory.
+  ## Older/local fixtures happened to be color-ordered; Coworld can draw slots
+  ## in live player order, so the parser-owned map is authoritative when known.
+  if slot < 0 or slot >= playerCount:
+    return -1
+  if slot < PlayerColorCount and belief.percep.votingValid:
+    let mapped = belief.percep.votingSlotColors[slot]
+    if mapped >= 0 and mapped < PlayerColorCount:
+      return mapped
+  if slot < PlayerColorCount:
+    slot
+  else:
+    -1
+
+proc voteSlotForColor(belief: Belief, color, playerCount: int): int =
+  ## Resolve an LLM/action color target to its current voting grid slot.
+  if color < 0 or color >= PlayerColorCount:
+    return -1
+  if belief.percep.votingValid:
+    for slot in 0 ..< min(playerCount, PlayerColorCount):
+      if belief.percep.votingSlotColors[slot] == color:
+        return slot
+  if color < playerCount:
+    color
+  else:
+    -1
+
 proc selfVoteSlot(belief: Belief): int =
   ## Best known voting slot for this bot. The voting parser's explicit marker
-  ## wins; color index is only a fallback because the vote grid is color-ordered.
+  ## wins; color index is only a fallback for legacy color-ordered fixtures.
   if belief.percep.votingSelfSlot >= 0:
     return belief.percep.votingSelfSlot
   if belief.self.colorIndex >= 0 and
-     (belief.percep.votingPlayerCount <= 0 or
-      belief.self.colorIndex < belief.percep.votingPlayerCount):
-    return belief.self.colorIndex
+     belief.percep.votingPlayerCount > 0:
+    let slot = voteSlotForColor(
+      belief, belief.self.colorIndex, belief.percep.votingPlayerCount)
+    if slot >= 0:
+      return slot
   -1
 
 proc isSelfVoteSlot(belief: Belief, slot: int): bool =
@@ -71,16 +101,21 @@ proc isSelfVoteSlot(belief: Belief, slot: int): bool =
   selfSlot >= 0 and slot == selfSlot
 
 proc isSelectableVoteSlot(belief: Belief, slot, playerCount: int): bool =
+  let color = voteSlotColor(belief, slot, playerCount)
   slot >= 0 and slot < playerCount and
+    color >= 0 and
     not isSelfVoteSlot(belief, slot) and
-    belief.memory.perPlayer[slot].alive
+    belief.memory.perPlayer[color].alive
 
-proc isKnownImposterTeammate(belief: Belief, slot: int): bool =
-  belief.self.role == RoleImposter and slot in belief.self.knownImposterColors
+proc isKnownImposterTeammate(belief: Belief, slot, playerCount: int): bool =
+  let color = voteSlotColor(belief, slot, playerCount)
+  belief.self.role == RoleImposter and
+    color >= 0 and
+    color in belief.self.knownImposterColors
 
 proc isSafeVoteSlot(belief: Belief, slot, playerCount: int): bool =
   isSelectableVoteSlot(belief, slot, playerCount) and
-    not isKnownImposterTeammate(belief, slot)
+    not isKnownImposterTeammate(belief, slot, playerCount)
 
 proc shortestCursorDir(current, target, ring: int): CursorDir =
   ## Compute the shortest direction to move from `current` to `target`
@@ -103,17 +138,18 @@ proc targetSlotForAction(belief: Belief, action: MeetingAction,
                          playerCount: int): int =
   ## Map a MeetingActVote target to a slot index.
   ## target == -1 → SKIP (slot playerCount).
-  ## target >= 0 → color index (== slot index in Among Them).
+  ## target >= 0 → player color index, resolved through the current slot map.
   let skipSlot = skipSlotFor(playerCount)
   result =
-    if action.target < 0 or action.target >= playerCount:
+    if action.target < 0:
       skipSlot
     else:
-      action.target
+      let slot = voteSlotForColor(belief, action.target, playerCount)
+      if slot >= 0: slot else: skipSlot
   if result >= 0 and result < playerCount and
-     (not belief.memory.perPlayer[result].alive or
+     (not isSelectableVoteSlot(belief, result, playerCount) or
       isSelfVoteSlot(belief, result) or
-      isKnownImposterTeammate(belief, result)):
+      isKnownImposterTeammate(belief, result, playerCount)):
     result = skipSlot
 
 proc legalVoteSlotOrSkip(belief: Belief, slot, playerCount: int): int =
@@ -165,22 +201,28 @@ proc soloTrustScore(ps: PlayerSummary): int =
   min(MeetingSoloTrustMaxScore,
       ps.soloWithSelfTicks div MeetingSoloTrustTicksPerPoint)
 
-proc crewSuspicionScore(belief: Belief, slot: int): int =
-  let ps = belief.memory.perPlayer[slot]
+proc crewSuspicionScore(belief: Belief, slot, playerCount: int): int =
+  let color = voteSlotColor(belief, slot, playerCount)
+  if color < 0:
+    return 0
+  let ps = belief.memory.perPlayer[color]
   if ps.role == RoleImposter:
     result += 100
   result += ps.timesWitnessedKill * 20
   result += ps.timesWitnessedVent * 50
   result += ps.nearVentEvidenceScore
   result += ps.bodyEvidenceScore
-  result += belief.chatSuspicionScore(slot)
-  result += belief.votesReceivedScore(slot)
+  result += belief.chatSuspicionScore(color)
+  result += belief.votesReceivedScore(color)
   result -= ps.soloTrustScore
 
-proc imposterPlausibleVoteScore(belief: Belief, slot: int): int =
-  let ps = belief.memory.perPlayer[slot]
-  belief.chatSuspicionScore(slot) * 2 +
-    belief.votesReceivedScore(slot) +
+proc imposterPlausibleVoteScore(belief: Belief, slot, playerCount: int): int =
+  let color = voteSlotColor(belief, slot, playerCount)
+  if color < 0:
+    return low(int)
+  let ps = belief.memory.perPlayer[color]
+  belief.chatSuspicionScore(color) * 2 +
+    belief.votesReceivedScore(color) +
     ps.bodyEvidenceScore div 2 +
     ps.nearVentEvidenceScore div 2 +
     ps.timesWitnessedKill * 6 -
@@ -199,7 +241,7 @@ proc pickCrewVoteSlot(belief: Belief, playerCount: int): int =
   for slot in 0 ..< playerCount:
     if not isSelectableVoteSlot(belief, slot, playerCount):
       continue
-    let score = crewSuspicionScore(belief, slot)
+    let score = crewSuspicionScore(belief, slot, playerCount)
     if score > bestScore:
       bestScore = score
       bestSlot = slot
@@ -218,7 +260,7 @@ proc pickImposterVoteSlot(belief: Belief, playerCount: int): int =
   for slot in 0 ..< playerCount:
     if not isSafeVoteSlot(belief, slot, playerCount):
       continue
-    let score = imposterPlausibleVoteScore(belief, slot)
+    let score = imposterPlausibleVoteScore(belief, slot, playerCount)
     if score > bestScore:
       bestScore = score
       bestSlot = slot

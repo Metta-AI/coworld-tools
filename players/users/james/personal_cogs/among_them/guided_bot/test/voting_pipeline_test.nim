@@ -11,6 +11,7 @@ import ../belief
 import ../bot
 import ../tuning
 import ../perception/voting
+import ../modes/meeting
 
 const FixtureDir = currentSourcePath().parentDir / "fixtures"
 
@@ -67,6 +68,22 @@ proc setCursor(frame: var seq[uint8], count, slot: int) =
         if x >= 0 and x < ScreenWidth:
           frame[y * ScreenWidth + x] = CursorColor
 
+proc initShuffledMeetingBelief(): Belief =
+  result = initBelief()
+  result.tick = 100
+  result.self.phase = PhaseVoting
+  result.self.role = RoleCrewmate
+  result.self.colorIndex = 2
+  result.percep.votingValid = true
+  result.percep.votingCursor = 4
+  result.percep.votingSelfSlot = 0
+  result.percep.votingPlayerCount = 8
+  let shuffled = [2, 3, 6, 7, 0, 5, 4, 1]
+  for slot, colorIndex in shuffled:
+    result.percep.votingSlotColors[slot] = colorIndex
+  for colorIndex in 0 ..< PlayerColorCount:
+    result.memory.perPlayer[colorIndex].alive = true
+
 proc testVotingCursorRefreshesAfterPhaseVoting() =
   var frame7 = loadFixture("voting_real_1432.bin")
   var frame0 = loadFixture("voting_real_1432.bin")
@@ -105,6 +122,25 @@ proc testRightNeighborAutoVoteConfirms() =
   expectEq(b.belief.percep.votingSelfSlot, 7,
            "auto-vote replay self slot parsed")
   expect(sawA, "evidence-target auto-vote eventually presses A")
+
+proc testMeetingVoteTargetUsesSlotColorMap() =
+  var belief = initShuffledMeetingBelief()
+  var scratch: ModeScratch
+  meeting.onEnter(belief, defaultParamsFor(belief), scratch)
+  scratch.meetPendingActions.add MeetingAction(
+    kind: MeetingActVote,
+    target: 0)
+
+  let voteIntent = meeting.decide(belief, defaultParamsFor(belief), scratch)
+  expectEq(scratch.meetVoteTarget, 4,
+           "meeting vote target maps red color to slot 4")
+  expectEq(voteIntent.cursor, CursorNone,
+           "meeting vote target already under cursor does not move")
+
+  scratch.meetPendingActions.add MeetingAction(kind: MeetingActConfirmVote)
+  let confirmIntent = meeting.decide(belief, defaultParamsFor(belief), scratch)
+  expect(confirmIntent.pressA,
+         "meeting confirm presses A on mapped vote slot")
 
 proc syntheticVotingParse(chatText: string): VotingParse =
   result = initVotingParse()
@@ -160,6 +196,7 @@ proc testVotingChatMergeTracksNewContent() =
 proc main() =
   testVotingCursorRefreshesAfterPhaseVoting()
   testRightNeighborAutoVoteConfirms()
+  testMeetingVoteTargetUsesSlotColorMap()
   testVotingChatMergeTracksNewContent()
 
   if failures == 0:
