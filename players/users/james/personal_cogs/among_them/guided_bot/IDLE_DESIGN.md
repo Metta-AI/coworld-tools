@@ -18,11 +18,9 @@ runs before the role is known. It is:
 - **The initial mode for all bots.** `initBot` constructs scratch
   with `ModeScratch(mode: ModeIdle)` (`bot.nim:69`). The bot starts
   in idle on the very first frame.
-- **The mechanism that passes the cogames 10-step validation gate.**
-  The validation dry-run requires the bot to emit non-zero button
-  masks within the first 10 frames. Idle's cardinal-direction cycling
-  guarantees movement from frame 1, before localization or role
-  detection.
+- **The startup movement bootstrap.** Idle emits non-zero movement masks from
+  frame 1, before localization or role detection. That keeps the bot active
+  while Coworld validation and gameplay are still establishing context.
 - **Transient by design.** Once the role is detected (crewmate or
   imposter), `reconcileDirective` (`bot.nim:241-247`) detects the
   stale idle default and immediately switches to `task_completing`

@@ -1,8 +1,7 @@
-## FFI exports for the cogames training / tournament harness.
+## FFI exports for the Coworld policy image.
 ##
-## Mirrors `modulabot/ffi/lib.nim` with a renamed symbol prefix
-## (`guidedbot_*`). The Python wrapper in `cogames/amongthem_policy.py`
-## loads this shared library via ctypes.
+## The Python wrapper in `coworld/amongthem_policy.py` loads this shared
+## library via ctypes.
 ##
 ## `actionIndexForMask` maps a button mask to the index in
 ## `TrainableMasks`. That index is the action index the Python side

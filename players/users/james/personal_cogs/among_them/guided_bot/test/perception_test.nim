@@ -1,6 +1,6 @@
 ## Phase-1.0 perception tests. Runs against the real fixture frames in
 ## `test/fixtures/*.bin` — 128×128 uint8 palette-index dumps captured
-## from a real Among Them game (see `extract_fixtures.py`).
+## from a real Among Them game.
 ##
 ## Exit 0 iff every check below passes. Failures print a concrete
 ## "expected / got" line so regressions are immediately diagnosable
@@ -95,7 +95,7 @@ proc testPixelHelpers() =
 
   # `blackPixelCount` is a linear scan. Ground truth (computed by
   # counting zero bytes in the fixture file; see
-  # `extract_fixtures.py`):
+  # historical fixture extraction):
   #   interstitial_0.bin -> 16067
   #   gameplay_200.bin   ->    60
   # We allow exact equality; the fixtures are fixed byte streams.

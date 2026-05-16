@@ -41,7 +41,7 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != "amongthem_policy":
         raise
-    from guided_bot.cogames.amongthem_policy import (
+    from guided_bot.coworld.amongthem_policy import (
         AmongThemPolicy,
         BITWORLD_ACTION_NAMES,
     )

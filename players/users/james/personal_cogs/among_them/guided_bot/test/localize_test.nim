@@ -242,7 +242,7 @@ proc testReseedAtHome() =
 proc testBotPipeline() =
   ## Verify the bot pipeline calls localize on gameplay frames and
   ## skips it on interstitials, populating the belief's perception
-  ## fields appropriately. This is the same path the FFI / cogames
+  ## fields appropriately. This is the same path the FFI / Coworld
   ## entry exercises.
   var bot = initBot()
 

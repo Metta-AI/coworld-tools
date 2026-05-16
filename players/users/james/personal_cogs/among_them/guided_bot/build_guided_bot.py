@@ -1,11 +1,7 @@
 """Build helper for the guided_bot Nim shared library.
 
-Phase 0: builds from the self-contained Nim sources in this directory.
-No bitworld / nimby lookup yet (phase 1 adds the `--path:` switches
-for imports from `common/` and `among_them/sim.nim` upstream).
-
-Mirrors `modulabot/build_modulabot.py` in spirit so the phase-1 upgrade
-is a contained diff.
+Builds from the guided_bot Nim sources in this directory for the current
+Coworld policy image.
 """
 
 from __future__ import annotations

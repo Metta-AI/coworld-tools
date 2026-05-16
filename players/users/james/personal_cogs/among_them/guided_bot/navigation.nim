@@ -69,7 +69,7 @@ proc parseNavPathsBlob(blob: string, edges: seq[NavEdge]):
     tuple[paths: seq[NavPath], edgeToPathIndex: seq[int]] =
   ## Parse perception/baked/nav_paths.bin.
   ##
-  ## The authoritative format is the one written by tools/bake_nav.py:
+  ## The authoritative format is the checked-in baked navigation blob:
   ##   u32 num_walking_edges
   ##   u32 total_points
   ##   repeated num_walking_edges:

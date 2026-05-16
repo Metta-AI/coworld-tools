@@ -1,21 +1,13 @@
 ## Static perception reference data — palette, player colours, sprite
 ## atlas, map raster, ASCII font, map metadata. Phase 1.1.
 ##
-## DESIGN.md §15 picks between "pre-baked Nim binary blobs" and "PNG
-## ``staticRead`` + a Nim PNG decoder". We took door #1: the Nim tool
-## ``among_them/guided_bot/tools/bake_assets.nim`` reads the upstream
-## ``~/coding/bitworld`` checkout directly (using the same
-## ``bitworld/aseprite`` parser the live server uses) and writes raw
-## binaries into ``perception/baked/``. This module pulls them in via
-## ``staticRead`` so the runtime Nim build has no PNG decoder
-## dependency, no nimby dependency, and no runtime file I/O. Re-bake
-## when the upstream Among Them assets change — see the agent
-## README's "Regenerating baked assets" section.
+## The current implementation consumes pre-baked raw blobs from
+## ``perception/baked/`` via ``staticRead``. The old local asset-baking
+## helper was removed during the Coworld-only cleanup; any future regeneration
+## workflow should be added through the repo-local UV/Coworld path.
 ##
-## Layout of each blob is documented in ``tools/bake_assets.nim``. The
-## ``BakeSchemaVersion`` constant must match the one in the bake tool;
-## a mismatch fires a compile-time assert and stops the build before
-## any kernel reads garbage.
+## ``BakeSchemaVersion`` pins the blob layout. A mismatch fires a compile-time
+## assert and stops the build before any kernel reads garbage.
 ##
 ## All exported sub-records, constants, and the consolidated
 ## :class:`ReferenceData` value are designed to be the single source of
@@ -91,9 +83,8 @@ const
   PaletteColorTableSize* = 16
 
   ## Bake schema version — must match
-  ## ``BakeSchemaVersion`` in ``tools/bake_assets.nim``. Bumped on any
-  ## blob layout change. A mismatch is a compile-time assertion (see
-  ## bottom of this module).
+  ## Blob layout version. Bumped on any blob layout change. A mismatch is a
+  ## compile-time assertion (see bottom of this module).
   BakeSchemaVersion* = 1
 
 # ---------------------------------------------------------------------------
@@ -201,7 +192,7 @@ type
 
   Sprites* = object
     ## Six reference sprites sliced from spritesheet.png. Order matches
-    ## :data:`SpriteColumns` in ``tools/bake_assets.nim``.
+    ## the baked sprite column order.
     player*: Sprite
     body*: Sprite
     ghost*: Sprite
@@ -250,15 +241,15 @@ const
 # directory never silently mis-feeds the kernels.
 static:
   doAssert PaletteBlob.len == PaletteColorTableSize * 3,
-    "perception/data: palette.bin wrong size; re-run tools/bake_assets.nim"
+    "perception/data: palette.bin wrong size; regenerate baked perception data"
   doAssert SpritesBlob.len == 6 * SpriteSize * SpriteSize,
-    "perception/data: sprites.bin wrong size; re-run tools/bake_assets.nim"
+    "perception/data: sprites.bin wrong size; regenerate baked perception data"
   doAssert MapPixelsBlob.len == MapWidth * MapHeight,
-    "perception/data: map_pixels.bin wrong size; re-run tools/bake_assets.nim"
+    "perception/data: map_pixels.bin wrong size; regenerate baked perception data"
   doAssert WalkMaskBlob.len == MapWidth * MapHeight,
-    "perception/data: walk_mask.bin wrong size; re-run tools/bake_assets.nim"
+    "perception/data: walk_mask.bin wrong size; regenerate baked perception data"
   doAssert WallMaskBlob.len == MapWidth * MapHeight,
-    "perception/data: wall_mask.bin wrong size; re-run tools/bake_assets.nim"
+    "perception/data: wall_mask.bin wrong size; regenerate baked perception data"
 
 # ---------------------------------------------------------------------------
 # Loaders (run once at module init)

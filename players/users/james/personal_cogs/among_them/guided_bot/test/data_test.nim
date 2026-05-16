@@ -15,7 +15,7 @@
 ##
 ## To regenerate the baked blobs (whenever the upstream bitworld
 ## checkout's Among Them assets change):
-##   among_them/guided_bot/tools/bake_assets.sh
+##   future UV/Coworld asset regeneration workflow
 ## (Override BITWORLD_DIR to point elsewhere; defaults to
 ## ~/coding/bitworld.)
 

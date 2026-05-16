@@ -6,7 +6,7 @@
 >
 > **Implementation:** `modes/meeting.nim`
 >
-> Last updated: 2026-05-12
+> Last updated: 2026-05-15
 
 ---
 
@@ -121,7 +121,7 @@ together; the queue handles sequencing.
 | Kind | Effect |
 |---|---|
 | `MeetingActSpeak` | Sets `intent.chat = text`; `bot.nim` queues it through `action.emitChat`, `guidedbot_take_chat`, and the Python WebSocket chat hook. |
-| `MeetingActVote` | Sets `meetVoteTarget` and begins cursor navigation toward the target slot. Self-targets, dead targets, invalid targets, and known imposter teammates are rewritten to SKIP. Symbolic evidence score is not a hard veto for LLM votes. |
+| `MeetingActVote` | Resolves the requested color target to the current voting slot, sets `meetVoteTarget`, and begins cursor navigation. Self-targets, dead targets, invalid targets, and known imposter teammates are rewritten to SKIP. Symbolic evidence score is not a hard veto for LLM votes. |
 | `MeetingActConfirmVote` | Runs the pending target or current cursor through the same legality guard, sets `meetVoteConfirmed = true`, and emits A only after the cursor is on that legal target. Illegal targets are redirected to SKIP. |
 | `MeetingActUnvote` | Emits B press (deselects). Clears `meetVoteTarget`. |
 | `MeetingActWait` | No-op for one tick. |
@@ -138,7 +138,9 @@ real-time cursor position.
 ### 5.1 Voting ring
 
 The cursor moves through a wrapped ring of positions:
-- Slots 0..`playerCount-1`: player slots (color index == slot index).
+- Slots 0..`playerCount-1`: player slots. The player color at each slot comes
+  from `belief.percep.votingSlotColors[slot]`; Coworld may draw slots in live
+  join order rather than color order.
 - Slot `playerCount`: SKIP.
 - Ring size: `playerCount + 1`.
 
@@ -157,8 +159,9 @@ For 8 players (ring size 9), worst case is 4 cursor moves.
 
 `targetSlotForAction`:
 - `target == -1` → SKIP (slot `playerCount`).
-- `target >= 0` → color index (== slot index, per the Among Them
-  voting grid where slot `i` has color index `i`).
+- `target >= 0` → player color index. The meeting mode resolves that color to
+  a live voting slot through `votingSlotColors`; it only falls back to
+  `slot == color` when no parser-owned slot map is available.
 
 ### 5.4 Edge-triggered cursor pulses
 
@@ -199,8 +202,9 @@ If cursor position is unknown, `navigateToSlot` falls back to CursorRight.
 Crewmate fallback requires evidence. It scores known-imposter role memory,
 hard witnessed venting, probabilistic near-vent appearances,
 distance-weighted near-body sightings, witnessed-kill counts, visible
-vote dots, and chat mentions, then subtracts solo-survival trust; if no
-score reaches `MeetingCrewEvidenceThreshold`, it votes SKIP.
+vote dots, and chat mentions by resolved player color, then subtracts
+solo-survival trust; if no score reaches `MeetingCrewEvidenceThreshold`, it
+votes SKIP.
 
 The LLM prompt uses the same weighting direction but keeps the uncertainty
 visible in chat. A repeated `near_vent_appearance`,
@@ -263,9 +267,7 @@ The C FFI export `guidedbot_take_chat(handle, agentId, buffer, bufferLen)`
 drains that pending line. The Python policy polls it after `step_batch`
 and exposes both:
 
-- `bitworld_chat_messages(agent_ids)` for the tournament BitWorld runner.
-- `last_chat(agent_id)` for local `scripts/_lib.py`, which sends
-  `pack_chat_packet(text)` on the player websocket.
+- `bitworld_chat_messages(agent_ids)` for the Coworld/BitWorld runner.
 
 ---
 
@@ -414,17 +416,18 @@ During meetings, the snapshot (`snapshot.nim`) includes:
 - `current_mode.summary`, including pending action count, vote target
   slot, cursor, player count, estimated ticks left, last LLM action age,
   and active cursor movement.
-- `meeting` — player count, self slot, cursor, selectable players,
-  observed votes, per-player `evidence_ledger`, and recent alibi witnesses.
+- `meeting` — player count, self slot, cursor, slot-to-color mapping,
+  selectable players, observed votes, per-player `evidence_ledger`, and recent
+  alibi witnesses.
 - `memory.per_player` — alive/role status, last-seen room, near-body
   counts, distance-weighted near-body score, solo-survival trust,
   witnessed-kill counts, hard witnessed-vent counts, probabilistic
-  near-vent appearance score/probability, and ejection state for each
-  voting slot during meetings.
-- `meeting.evidence_ledger` — for each player: legality, current vote,
-  voters targeting them, incriminating evidence, exculpatory evidence,
-  and chat mentions that the LLM must classify as accusation, defense,
-  alibi, or noise.
+  near-vent appearance score/probability, and ejection state keyed by player
+  color.
+- `meeting.evidence_ledger` — for each player: current voting slot, legality,
+  current vote, voters targeting them, incriminating evidence, exculpatory
+  evidence, and chat mentions that the LLM must classify as accusation,
+  defense, alibi, or noise.
 - `new_chat` — newly observed transcript lines that triggered the current
   chat wake-up, with speaker colours and text.
 - `visible_chat` and `recent_chat` — current OCR-visible chat plus the
@@ -447,6 +450,9 @@ results, merged into belief by `mergeVotingPercept`:
   SKIP, `-1` if unknown.
 - `votingSelfSlot: int` — our slot index, used for self-vote guards.
 - `votingPlayerCount: int` — total players in the grid.
+- `votingSlotColors: array[PlayerColorCount, int]` — slot index to player
+  color index. This is authoritative for Coworld meetings because slot order
+  can differ from color order.
 - `votingValid: bool` — whether the current frame parsed successfully.
 - Voting slot alive/dead state — merged into `memory.perPlayer[ci].alive`,
   so fallback strategy and LLM guards can skip dead slots.

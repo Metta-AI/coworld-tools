@@ -4,7 +4,7 @@
 ## DESIGN.md §9.2 requirements:
 ##   - Play every phase without crashing.
 ##   - Have at least one non-no-op action within the first 10 frames.
-##     (Passes the cogames 10-step validation gate.)
+##     (Keeps Coworld validation/gameplay active from the first frame.)
 ##   - Mode transitions happen (at minimum idle -> task_completing or
 ##     equivalent default when role is detected).
 ##
@@ -70,7 +70,7 @@ proc disableLlm() =
 proc testValidationGate() =
   ## Replay gameplay fixtures as if they're consecutive frames. The bot
   ## must emit at least one non-NOOP mask within the first 10 frames.
-  ## This mirrors the cogames 10-step dry-run gate (DESIGN.md §9.3).
+  ## This mirrors the early-frame activity requirement.
   disableLlm()
   var b = initBot()
   defer: destroyBot(b)
@@ -89,7 +89,7 @@ proc testValidationGate() =
   var sawNonNoop = false
   var firstNonNoopTick = -1
 
-  # Feed 10 frames (matching the cogames validation gate window).
+  # Feed 10 frames to cover the early-frame validation window.
   for i in 0 ..< 10:
     # Cycle through the gameplay fixtures to give the bot diverse
     # visual input for localization and task detection.
@@ -100,7 +100,7 @@ proc testValidationGate() =
 
   expect(sawNonNoop,
     "validation gate: non-NOOP mask must appear within 10 frames " &
-    "(cogames dry-run requires non_noop_actions > 0)")
+    "(early validation requires non_noop_actions > 0)")
   if firstNonNoopTick > 0:
     echo &"  validation gate: first non-NOOP at tick {firstNonNoopTick}"
 

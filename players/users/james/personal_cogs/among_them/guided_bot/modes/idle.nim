@@ -1,6 +1,6 @@
 ## Mode: `idle`. Pre-localization and pre-role-detection behavior.
 ## Wanders toward the map centre to give the localizer gameplay-map
-## pixels and to pass the cogames 10-step validation gate.
+## pixels and to keep Coworld validation/gameplay active from the first frame.
 ##
 ## Once the role is detected, `reconcileDirective` in `bot.nim`
 ## immediately transitions to task_completing (crew) or hunting

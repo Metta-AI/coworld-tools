@@ -28,8 +28,8 @@ Every living bot voted; the ghost did not.
 | Time in alibi | majority | 80% |
 
 Game timed out. The original "53/48 tasks" count was a trace-analysis error:
-the server can reset after game-over inside one `play_match.py --duration`
-window, so productivity summaries must stop at the first game-over event.
+long runs can include post-game reset behavior, so productivity summaries must
+stop at the first game-over event.
 
 ---
 

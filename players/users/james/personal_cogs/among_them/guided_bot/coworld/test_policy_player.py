@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "cogames"))
+sys.path.insert(0, str(ROOT / "coworld"))
 
 spec = importlib.util.spec_from_file_location(
     "guided_bot_coworld_policy_player",
