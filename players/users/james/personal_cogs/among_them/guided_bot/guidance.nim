@@ -98,6 +98,19 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
       meetingHistory.setLen(0)
     wasInMeeting = snap.isMeeting
 
+    if not snap.isMeeting and not gameplayLlmDirectivesEnabled():
+      var ev = newJObject()
+      ev["t"] = newJInt(snap.tick)
+      ev["kind"] = newJString("guidance_suppressed")
+      ev["reason"] = newJString("gameplay_directives_disabled")
+      ev["suppressed_request_kind"] = newJString("gameplay")
+      if snap.id.len > 0:
+        ev["snapshot_id"] = newJString(snap.id)
+      if snap.trigger.len > 0:
+        ev["trigger"] = newJString(snap.trigger)
+      runtime[].traceEventChan.send($ev)
+      continue
+
     # Build the LLM request.
     var req: LlmRequest
     if snap.isMeeting:

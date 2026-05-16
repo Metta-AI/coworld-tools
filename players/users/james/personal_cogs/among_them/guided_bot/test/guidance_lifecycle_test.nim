@@ -37,6 +37,7 @@ proc main() =
   # without touching the network. startGuidance is intentionally tested
   # directly. This matters on machines with Bedrock credentials.
   putEnv("GUIDED_BOT_LLM_DISABLE", "1")
+  putEnv("GUIDED_BOT_LLM_GAMEPLAY_DIRECTIVES", "1")
   delEnv("ANTHROPIC_API_KEY")
   delEnv("COGAMES_LLM_PROVIDER")
   delEnv("COGAMES_LLM_MODEL")
@@ -107,6 +108,49 @@ proc main() =
                &"bot {i}: failure snapshot id")
       expectEq(events[1]["reason"].getStr(), "no_key",
                &"bot {i}: no-provider reason")
+
+  # When gameplay directives are disabled, a non-meeting snapshot should
+  # never become an LLM call or directive. This is a worker-side guard for
+  # the bot-level snapshot gate.
+  putEnv("GUIDED_BOT_LLM_DISABLE", "0")
+  putEnv("GUIDED_BOT_LLM_GAMEPLAY_DIRECTIVES", "0")
+
+  var suppressedState = initGuidanceState()
+  let suppressedWriter = openTrace(traceRoot / "suppressed_gameplay",
+                                  TraceDecisions, 99)
+  startGuidance(suppressedState)
+  expect(suppressedState.running, "suppressed gameplay: guidance started")
+
+  let submitted = submitSnapshot(suppressedState, Snapshot(
+    id: "suppressed-gameplay",
+    tick: 3000,
+    payloadJson: """{"kind":"gameplay"}""",
+    isMeeting: false,
+    trigger: "periodic"
+  ))
+  expect(submitted, "suppressed gameplay: snapshot submitted")
+
+  for _ in 0 ..< 100:
+    drainGuidanceTraceEvents(suppressedState, suppressedWriter)
+    sleep(10)
+
+  stopGuidance(suppressedState)
+  closeTrace(suppressedWriter)
+
+  let suppressedEvents = readGuidanceEvents(suppressedWriter.rootDir)
+  expectEq(suppressedEvents.len, 1,
+           "suppressed gameplay: exactly one guidance event")
+  if suppressedEvents.len == 1:
+    expectEq(suppressedEvents[0]["t"].getInt(), 3000,
+             "suppressed gameplay: event tick")
+    expectEq(suppressedEvents[0]["kind"].getStr(), "guidance_suppressed",
+             "suppressed gameplay: event kind")
+    expectEq(suppressedEvents[0]["reason"].getStr(),
+             "gameplay_directives_disabled",
+             "suppressed gameplay: reason")
+    expectEq(suppressedEvents[0]["suppressed_request_kind"].getStr(),
+             "gameplay",
+             "suppressed gameplay: request kind")
 
   if failures == 0:
     echo "guidance_lifecycle_test: PASS"

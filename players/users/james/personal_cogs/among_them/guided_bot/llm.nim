@@ -21,6 +21,7 @@ import tuning
 const
   AnthropicKeyEnv* = "ANTHROPIC_API_KEY"
   GuidedBotLlmDisableEnv* = "GUIDED_BOT_LLM_DISABLE"
+  GuidedBotLlmGameplayDirectivesEnv* = "GUIDED_BOT_LLM_GAMEPLAY_DIRECTIVES"
   GuidedBotLlmProviderEnv* = "GUIDED_BOT_LLM_PROVIDER"
   GuidedBotLlmModelEnv* = "GUIDED_BOT_LLM_MODEL"
   GuidedBotBedrockModelEnv* = "GUIDED_BOT_BEDROCK_MODEL"
@@ -87,6 +88,16 @@ proc envFlag(name: string): bool =
 
 proc llmDisabled(): bool =
   envFlag(GuidedBotLlmDisableEnv)
+
+proc gameplayLlmDirectivesEnabled*(): bool =
+  ## Controls whether non-meeting snapshots may produce LLM gameplay
+  ## directives. Defaults to enabled to preserve local full-LLM behavior;
+  ## set GUIDED_BOT_LLM_GAMEPLAY_DIRECTIVES=0/false/off to keep gameplay
+  ## mode control symbolic while allowing meeting LLM actions.
+  let value = getEnv(GuidedBotLlmGameplayDirectivesEnv, "").strip().toLowerAscii()
+  if value.len == 0:
+    return true
+  value notin ["0", "false", "no", "off", "disabled"]
 
 proc configuredProvider(): string =
   result = getEnv(GuidedBotLlmProviderEnv, "").strip().toLowerAscii()
@@ -155,9 +166,9 @@ proc directAnthropicModel(): string =
   let direct = getEnv(GuidedBotAnthropicModelEnv, "").strip()
   if direct.len > 0:
     return direct
-  let cogames = getEnv(CogamesLlmModelEnv, "").strip()
-  if cogames.len > 0:
-    return cogames
+  let platformModel = getEnv(CogamesLlmModelEnv, "").strip()
+  if platformModel.len > 0:
+    return platformModel
   DefaultAnthropicModel
 
 proc bedrockModel(): string =
@@ -254,7 +265,7 @@ proc parseAwsCredentialLines(output: string): AwsCredentials =
     else: discard
 
 proc fetchContainerCredentials(): (bool, AwsCredentials, string) =
-  ## Resolve ECS task-role credentials when cogames grants Bedrock via
+  ## Resolve ECS task-role credentials when Coworld grants Bedrock via
   ## `--use-bedrock`. The endpoint and token are local metadata; no
   ## user secrets are logged.
   let rel = getEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "").strip()

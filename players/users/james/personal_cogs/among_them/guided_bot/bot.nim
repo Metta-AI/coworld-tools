@@ -184,9 +184,14 @@ proc snapshotTrigger(bot: Bot): string =
     return ""
 
   let tick = bot.belief.tick
+  let gameplayDirectivesEnabled = gameplayLlmDirectivesEnabled()
+  let inVotingPhase = bot.belief.self.phase == PhaseVoting
 
-  # Always submit if wake-up reasons are pending.
+  # Always submit if wake-up reasons are pending, except when gameplay
+  # LLM directives are disabled and the wake-up did not happen in a meeting.
   if bot.belief.flags.wakeReasons.len > 0:
+    if not gameplayDirectivesEnabled and not inVotingPhase:
+      return ""
     var reasons: seq[string] = @[]
     for w in WakeReason:
       if w in bot.belief.flags.wakeReasons:
@@ -196,13 +201,16 @@ proc snapshotTrigger(bot: Bot): string =
   # Meetings need several single-action LLM calls (speak -> vote ->
   # confirm) inside a short voting timer, so use a faster cadence than
   # the gameplay strategy loop while the meeting is still undecided.
-  if bot.belief.self.phase == PhaseVoting and
+  if inVotingPhase and
      bot.modeScratch.mode == ModeMeeting and
      not bot.modeScratch.meetVoteConfirmed and
      bot.modeScratch.meetPendingActions.len == 0 and
      (tick - bot.guidance.lastCallTick >= MeetingLlmActionPeriodTicks or
       bot.guidance.lastCallTick < 0):
     return "meeting_action"
+
+  if not gameplayDirectivesEnabled:
+    return ""
 
   # Periodic submission every GuidancePeriodTicks.
   if tick - bot.guidance.lastCallTick >= GuidancePeriodTicks or
@@ -289,7 +297,7 @@ proc reconcileDirective(bot: var Bot) =
   # (crewmate or imposter), the original "unknown role" default is stale.
   # Re-evaluate so the bot transitions to task_completing or hunting
   # immediately on role detection — without waiting for the LLM. This
-  # is the mechanism that passes the cogames 10-step validation gate.
+  # keeps the bot active before role/localization context is available.
   if cur == ModeIdle and
      bot.belief.directive.source == SourceDefault and
      bot.belief.self.role != RoleUnknown:
