@@ -6,25 +6,25 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.debug_agent import DebugHarness
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.prereq_trace import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.debug_agent import DebugHarness
+from policies.scripted.cogsguard.scripted_agent.cogsguard.prereq_trace import (
     format_prereq_trace_line,
     prereq_missing,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.role_trace import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.role_trace import (
     count_role_transitions,
     count_steps_with_roles,
     format_role_trace_line,
     summarize_role_counts,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.rollout_trace import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.rollout_trace import (
     TRACE_RESOURCES,
     format_resource_trace_line,
     inventory_delta,
     inventory_snapshot,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.types import ROLE_TO_STRUCTURE_TYPE, Role, StructureType
-from agent_policies.policies.scripted.cogsguard.scripted_agent.utils import is_adjacent
+from policies.scripted.cogsguard.scripted_agent.cogsguard.types import ROLE_TO_STRUCTURE_TYPE, Role, StructureType
+from policies.scripted.cogsguard.scripted_agent.utils import is_adjacent
 from cogsguard.missions.machina_1 import GEAR_COSTS
 
 

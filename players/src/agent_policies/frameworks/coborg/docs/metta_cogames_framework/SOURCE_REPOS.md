@@ -10,12 +10,6 @@ Generated: 2026-05-11
 
 - [Persephone / Orpheus](/Users/jamesboggs/coding/personal_cogs/persephone)
 - [Among Them / guided_bot](/Users/jamesboggs/coding/personal_cogs/among_them/guided_bot)
-- [Cogs v Clips / Bulbacog](/Users/jamesboggs/coding/cogames_playground/bulbacog)
-
-The originally requested Bulbacog path,
-`/Users/jamesboggs/coding/cogames_sandbox/bulbacog`, was not present when the
-framework report was created. The inspected local tree was
-`/Users/jamesboggs/coding/cogames_playground/bulbacog`.
 
 ## Notes
 

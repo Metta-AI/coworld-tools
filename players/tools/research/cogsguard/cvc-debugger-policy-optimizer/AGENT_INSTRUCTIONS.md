@@ -35,7 +35,7 @@ CvC is a grid-based multi-agent game. Two teams ("cogs" and "clips") compete on 
 ## The Robot Policy Architecture
 
 The robot policy lives in
-`src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot/`.
+`policies/cyborg/cogsguard/cvc_debugger_robot/robot/`.
 Key files:
 
 - `policy.py` -- Entry point. Each agent runs: perceive -> listen -> update memory -> draft role -> build snapshot -> decide -> execute -> record.
@@ -180,11 +180,11 @@ python /app/eval_harness.py --seeds 42,500,5000
 
 ## Rules and Constraints
 
-1. **Only edit files in `src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot/`.** Never modify game rules, cogames, or other policies.
+1. **Only edit files in `policies/cyborg/cogsguard/cvc_debugger_robot/robot/`.** Never modify game rules, cogames, or other policies.
 2. **Never break the policy.** After every edit, run a quick 3-seed eval to verify it still works.
 3. **Git checkpoint improvements.** After any score improvement >= 2 points:
    ```bash
-   cd /app/repo && git add -A src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot/ && git commit -m "robot: <description> (avg: X.X -> Y.Y)"
+   cd /app/repo && git add -A policies/cyborg/cogsguard/cvc_debugger_robot/robot/ && git commit -m "robot: <description> (avg: X.X -> Y.Y)"
    ```
 4. **Create branches at milestones.** At 40+, 50+, 60+, 75+:
    ```bash
@@ -192,7 +192,7 @@ python /app/eval_harness.py --seeds 42,500,5000
    ```
 5. **Save policy snapshots.** Copy policy dir at milestones:
    ```bash
-   cp -r /app/repo/src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot /app/snapshots/robot-v<N>-score-<X>/
+   cp -r /app/repo/policies/cyborg/cogsguard/cvc_debugger_robot/robot /app/snapshots/robot-v<N>-score-<X>/
    ```
 6. **Log everything.** Append eval results to `/app/results.jsonl`.
 7. **Be incremental.** Make one focused change at a time. Test. Commit if improved. Move on.

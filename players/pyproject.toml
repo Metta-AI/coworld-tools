@@ -23,14 +23,28 @@ test = ["pytest", "pytest-xdist", "ruff"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
 include = [
   "agent_policies",
   "agent_policies.*",
+  "policies",
+  "policies.*",
 ]
 
 [tool.setuptools.package-data]
 agent_policies = [
+  "**/*.html",
+  "**/*.json",
+  "**/*.lock",
+  "**/*.map",
+  "**/*.md",
+  "**/*.nim",
+  "**/*.nims",
+  "**/*.txt",
+  "**/.nim-version",
+  "**/.nimby-version",
+]
+policies = [
   "**/*.html",
   "**/*.json",
   "**/*.lock",

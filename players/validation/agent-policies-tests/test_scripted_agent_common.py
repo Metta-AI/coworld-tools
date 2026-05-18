@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agent_policies.policies.scripted.cogsguard.scripted_agent.buggy.context import PlankyContext
-from agent_policies.policies.scripted.cogsguard.scripted_agent.buggy.entity_map import Entity as BuggyEntity
-from agent_policies.policies.scripted.cogsguard.scripted_agent.buggy.entity_map import EntityMap as BuggyEntityMap
-from agent_policies.policies.scripted.cogsguard.scripted_agent.buggy.goal import evaluate_goals as evaluate_buggy_goals
-from agent_policies.policies.scripted.cogsguard.scripted_agent.common.context import StateSnapshot
-from agent_policies.policies.scripted.cogsguard.scripted_agent.common.goal import Goal, evaluate_goals
-from agent_policies.policies.scripted.cogsguard.scripted_agent.common.trace import TraceLog
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cranky.context import CogasContext
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cranky.entity_map import Entity as CrankyEntity
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cranky.entity_map import EntityMap as CrankyEntityMap
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cranky.goal import evaluate_goals as evaluate_cranky_goals
+from policies.scripted.cogsguard.scripted_agent.buggy.context import PlankyContext
+from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import Entity as BuggyEntity
+from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import EntityMap as BuggyEntityMap
+from policies.scripted.cogsguard.scripted_agent.buggy.goal import evaluate_goals as evaluate_buggy_goals
+from policies.scripted.cogsguard.scripted_agent.common.context import StateSnapshot
+from policies.scripted.cogsguard.scripted_agent.common.goal import Goal, evaluate_goals
+from policies.scripted.cogsguard.scripted_agent.common.trace import TraceLog
+from policies.scripted.cogsguard.scripted_agent.cranky.context import CogasContext
+from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import Entity as CrankyEntity
+from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import EntityMap as CrankyEntityMap
+from policies.scripted.cogsguard.scripted_agent.cranky.goal import evaluate_goals as evaluate_cranky_goals
 
 from mettagrid.simulator import Action
 

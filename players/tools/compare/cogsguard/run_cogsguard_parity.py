@@ -8,7 +8,7 @@ import importlib
 from collections import Counter
 from typing import Any, Optional
 
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (
     diff_action_counts,
     move_success_rate,
     update_action_counts,

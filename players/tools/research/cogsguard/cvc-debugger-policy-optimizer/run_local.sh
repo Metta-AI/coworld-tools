@@ -11,8 +11,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-POLICY_PATH="src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot"
-POLICY_SPEC="class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy"
+POLICY_PATH="policies/cyborg/cogsguard/cvc_debugger_robot/robot"
+POLICY_SPEC="class=policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy"
 RESULTS_DIR="$SCRIPT_DIR/results"
 RESULTS_FILE="$RESULTS_DIR/results.jsonl"
 SNAPSHOTS_DIR="$SCRIPT_DIR/snapshots"

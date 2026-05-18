@@ -15,7 +15,7 @@ Trainable tutorial coming later. For now, this tutorial focuses on the scripted 
 ## CogsGuard context
 
 The built-in CoGsGuard scripted baselines live at
-`src/agent_policies/policies/scripted/cogsguard/scripted_agent/cogsguard/`. Use them as references when you want
+`policies/scripted/cogsguard/scripted_agent/cogsguard/`. Use them as references when you want
 richer role logic or navigation beyond the template generated below.
 
 ## Check the CLI (optional)

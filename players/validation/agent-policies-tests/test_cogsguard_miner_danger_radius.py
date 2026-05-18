@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.miner import MinerAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.types import CogsguardAgentState, Role, StructureInfo, StructureType
-from agent_policies.policies.scripted.cogsguard.scripted_agent.types import CellType
+from policies.scripted.cogsguard.scripted_agent.cogsguard.miner import MinerAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.types import CogsguardAgentState, Role, StructureInfo, StructureType
+from policies.scripted.cogsguard.scripted_agent.types import CellType
 
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 

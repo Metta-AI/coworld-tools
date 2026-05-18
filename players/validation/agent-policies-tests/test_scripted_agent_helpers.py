@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.role_mix import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.role_mix import (
     build_role_plan,
     default_role_counts,
     normalize_counts,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.utils import move_toward
+from policies.scripted.cogsguard.scripted_agent.utils import move_toward
 
 
 @pytest.mark.parametrize(

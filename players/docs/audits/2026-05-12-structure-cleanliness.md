@@ -41,9 +41,9 @@ still behaving like an external `cogames_agents` install was required.
 Resolution:
 
 - CogsGuard scripted Python/Nim/evolution modules moved to
-  `src/agent_policies/policies/scripted/cogsguard/`.
+  `policies/scripted/cogsguard/`.
 - BitWorld Among Them Python policies moved to
-  `src/agent_policies/policies/cyborg/bitworld/among_them/`.
+  `policies/cyborg/bitworld/among_them/`.
 - CogsGuard eval maps and metric helpers moved to
   `src/agent_policies/tools/eval/cogsguard/`.
 - Root `pyproject.toml` now defines the `agent-policies` distribution.
@@ -62,7 +62,7 @@ Resolution:
 - Self-improving policy framework:
   `src/agent_policies/frameworks/cyborg_evolution/`.
 - Concrete CVC robot policy:
-  `src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/`.
+  `policies/cyborg/cogsguard/cvc_debugger_robot/`.
 
 ### Cogamer Is A Framework, Not A Policy Snapshot
 

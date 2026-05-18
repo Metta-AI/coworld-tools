@@ -32,5 +32,5 @@ cogames upload -p thinky \
 
 The setup script downloads the Nim compiler via nimby, syncs Nim dependencies,
 and compiles `nim_agents.nim`. The `.nim-version` and `.nimby-version` files
-live inside `src/agent_policies/policies/scripted/cogsguard/nim_agents/` so
+live inside `policies/scripted/cogsguard/nim_agents/` so
 they are bundled with the package source.

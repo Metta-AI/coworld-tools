@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.evolution.cogsguard.evolution import (
+from policies.scripted.cogsguard.evolution.cogsguard.evolution import (
     BehaviorDef,
     BehaviorSource,
     RoleCatalog,
@@ -22,7 +22,7 @@ from agent_policies.policies.scripted.cogsguard.evolution.cogsguard.evolution im
     record_role_score,
     role_selection_weight,
 )
-from agent_policies.policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
+from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
     EvolutionaryRoleCoordinator,
 )
 
@@ -282,7 +282,7 @@ class TestParityMetricsInterface:
     def test_update_action_counts(self) -> None:
         from collections import Counter  # noqa: PLC0415
 
-        from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
+        from policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
             update_action_counts,
         )
 
@@ -295,7 +295,7 @@ class TestParityMetricsInterface:
         assert counts["attack"] == 1
 
     def test_update_move_stats(self) -> None:
-        from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
+        from policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
             update_move_stats,
         )
 
@@ -311,7 +311,7 @@ class TestParityMetricsInterface:
     def test_diff_action_counts(self) -> None:
         from collections import Counter  # noqa: PLC0415
 
-        from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
+        from policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (  # noqa: PLC0415
             diff_action_counts,
         )
 

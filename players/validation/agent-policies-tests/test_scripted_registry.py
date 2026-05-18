@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.scripted_registry import list_scripted_agent_names, resolve_scripted_agent_uri
+from policies.scripted.cogsguard.scripted_registry import list_scripted_agent_names, resolve_scripted_agent_uri
 
 from mettagrid.policy.loader import resolve_policy_class_path
 

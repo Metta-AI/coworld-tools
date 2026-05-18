@@ -15,7 +15,7 @@ from mettagrid.policy.policy import PolicySpec
 from mettagrid.runner.rollout import run_episode_local
 
 # Ensure scripted policy registration in test process.
-discover_and_register_policies("agent_policies.policies.scripted.cogsguard")
+discover_and_register_policies("policies.scripted.cogsguard")
 
 DETERMINISM_CASES: tuple[tuple[type, int, int], ...] = (
     (PlankyMinerGear, 100, 11),

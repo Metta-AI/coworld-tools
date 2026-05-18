@@ -2,18 +2,19 @@
 
 Importable policy and agent-framework workspace for Metta-AI projects.
 
-The canonical Python package is `agent_policies`. It assimilates the useful
-parts of the old `cogames-agents` source together with Coborg, Cogamer, and
-other policy/framework code:
+There are two installable Python packages:
 
-- `src/agent_policies/frameworks/`: reusable agent frameworks such as Coborg,
-  Cogamer, and the cyborg evolution framework.
-- `src/agent_policies/policies/`: concrete importable policies, separated by
-  policy style and target game/system.
-- `src/agent_policies/tools/`: importable tooling helpers such as eval metrics
-  and eval definitions.
-- `policies/`: copied policy projects that are not yet normalized into the
-  importable package, including generated snapshots and non-Python players.
+- `agent_policies` (under `src/agent_policies/`): reusable agent frameworks
+  (Coborg, Cogamer, cyborg evolution) plus importable tooling helpers such as
+  eval metrics and eval definitions.
+- `policies` (top-level): concrete importable policies, separated by policy
+  style (symbolic / cyborg / neural / scripted) and target game/system. The
+  same tree also holds runnable non-importable policy snapshots — generated
+  artifacts and non-Python players — that share the family directories with
+  their importable siblings.
+
+Other top-level directories:
+
 - `tools/`: eval, upload, benchmark, compare, Cogbase, and research tooling.
 - `users/`: contributor-owned active repos mounted as submodules.
 - `docs/`: policy catalog, provenance, migrations, tutorials, and experiment
@@ -21,9 +22,11 @@ other policy/framework code:
 
 ## Current State
 
-The repo now has a root `pyproject.toml` for the `agent-policies` distribution.
-Canonical imports use `agent_policies.*`. Historical import roots such as
-`cogames_agents`, `cogamer`, `framework`, and `robot` are not packaged.
+The repo has a root `pyproject.toml` for the `agent-policies` distribution.
+Canonical imports use `agent_policies.frameworks.*`, `agent_policies.tools.*`,
+and (for concrete policies) `policies.*` directly. Historical import roots
+such as `cogames_agents`, `cogamer`, `framework`, and `robot` are not
+packaged.
 
 The repo now contains copied source snapshots from the high-signal policy
 sources identified in the consolidation plan, `tools/cogbase` as the base-agent
@@ -32,10 +35,11 @@ meta-pipeline toolkit, plus `users/relh/co-gas` as a submodule. See
 
 ## Working Rules
 
-- Put importable shared Python source under `src/agent_policies/`.
 - Put reusable agent frameworks under `src/agent_policies/frameworks/`.
-- Put concrete importable policies under `src/agent_policies/policies/`.
-- Put runnable non-importable policy snapshots under `policies/<family>/`.
+- Put importable eval/tooling helpers under `src/agent_policies/tools/`.
+- Put concrete importable policies under the top-level `policies/` tree.
+- Put runnable non-importable policy snapshots under `policies/<family>/`
+  alongside their importable siblings.
 - Put shared execution or analysis workflows under `tools/`.
 - Keep Cogbase under `tools/cogbase/`; it is a standalone prototype toolkit for
   generating game guides and base-agent artifacts.

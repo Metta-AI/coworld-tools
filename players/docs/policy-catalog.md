@@ -24,17 +24,17 @@ container-image policies should live next to the policy they implement.
 
 | Project | Family | Path | Source | Targets | Notes |
 | --- | --- | --- | --- | --- | --- |
-| CogsGuard scripted agents | scripted | `src/agent_policies/policies/scripted/cogsguard/scripted_agent` | metta `cogames-agents` | CogsGuard/CvC | Python scripted policies from the old `cogames_agents` package. |
-| CogsGuard Nim agents | scripted | `src/agent_policies/policies/scripted/cogsguard/nim_agents` | metta `cogames-agents` | CogsGuard/CvC | Nim lives with the scripted CogsGuard family. |
-| CogsGuard evolution helpers | scripted | `src/agent_policies/policies/scripted/cogsguard/evolution` | metta `cogames-agents` | CogsGuard/CvC | Role/policy evolution code for CogsGuard scripted policies. |
+| CogsGuard scripted agents | scripted | `policies/scripted/cogsguard/scripted_agent` | metta `cogames-agents` | CogsGuard/CvC | Python scripted policies from the old `cogames_agents` package. |
+| CogsGuard Nim agents | scripted | `policies/scripted/cogsguard/nim_agents` | metta `cogames-agents` | CogsGuard/CvC | Nim lives with the scripted CogsGuard family. |
+| CogsGuard evolution helpers | scripted | `policies/scripted/cogsguard/evolution` | metta `cogames-agents` | CogsGuard/CvC | Role/policy evolution code for CogsGuard scripted policies. |
 | Coborg framework | framework | `src/agent_policies/frameworks/coborg` | metta `cogames-agents` | CoGames/BitWorld agents | Former `cogames_agents.cyborg` fast-loop/slow-loop runtime plus docs/examples. |
 | Cyborg evolution framework | framework | `src/agent_policies/frameworks/cyborg_evolution` | `Metta-AI/policies` | Game-pluggable agents | Self-improving policy framework copied from the standalone policies repo. |
-| CVC debugger robot | cyborg | `src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot` | `Metta-AI/cvc-debugger` | CogsGuard/CvC | Robot policy and tests extracted without the debugger web UI. |
+| CVC debugger robot | cyborg | `policies/cyborg/cogsguard/cvc_debugger_robot` | `Metta-AI/cvc-debugger` | CogsGuard/CvC | Robot policy and tests extracted without the debugger web UI. |
 | Cogamer framework | framework | `src/agent_policies/frameworks/cogamer` | `Metta-AI/cogamer` | CogsGuard/CvC | Program-table/LLM policy core and skills, excluding API/control-plane code. |
 | Cogamer CVC generated policy | cyborg | `policies/cyborg/cogamer/generated/cvc-policy` | `Metta-AI/cogamer-policy-cvc` | CogsGuard/CvC | Generated product artifact preserved as a runnable source snapshot. |
 | Cogamer Cogony generated policy | cyborg | `policies/cyborg/cogamer/generated/cogony-policy` | `Metta-AI/cogamer-policy-cogony` | Cogony | Generated product artifact preserved as a runnable source snapshot. |
 | Cogora CVC player cog | cyborg | `policies/cyborg/cogamer/cogora` | `Metta-AI/cogora` | CogsGuard/CvC | COG/player-cog prior art and SDK surface. |
-| BitWorld Among Them Python policies | cyborg | `src/agent_policies/policies/cyborg/bitworld/among_them` | metta `cogames-agents`, `Metta-AI/bitworld` | Among Them | Importable Python policy module. |
+| BitWorld Among Them Python policies | cyborg | `policies/cyborg/bitworld/among_them` | metta `cogames-agents`, `Metta-AI/bitworld` | Among Them | Importable Python policy module. |
 | BitWorld Among Them project snapshots | cyborg | `policies/cyborg/bitworld/among-them` | `Metta-AI/bitworld` | Among Them | Non-importable project source such as `mod-talks`. |
 | BitWorld player policies | symbolic | `policies/symbolic/bitworld` | `Metta-AI/bitworld` | BitWorld games | Serious player-policy projects copied without the surrounding game code. |
 | Cogames attempts policies | neural | `policies/neural/cogames-attempts` | `Metta-AI/cogames-attempts` | CogsGuard/CvC | Trainable policy, heterogeneous policy, and scripted-teacher research. |

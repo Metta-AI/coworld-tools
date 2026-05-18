@@ -7,11 +7,11 @@ standalone `cogames-agents` package.
 Current targets:
 
 - CogsGuard/CvC scripted policies:
-  `src/agent_policies/policies/scripted/cogsguard/`
+  `policies/scripted/cogsguard/`
 - Coborg runtime and framework pieces:
   `src/agent_policies/frameworks/coborg/`
 - BitWorld Among Them cyborg policy code:
-  `src/agent_policies/policies/cyborg/bitworld/among_them/`
+  `policies/cyborg/bitworld/among_them/`
 - Evals, benchmarks, comparisons, upload notes, and research helpers:
   `tools/`
 - Importable eval helpers and maps:

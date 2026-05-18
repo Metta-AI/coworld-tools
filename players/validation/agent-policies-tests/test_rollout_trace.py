@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.rollout_trace import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.rollout_trace import (
     TRACE_RESOURCES,
     format_resource_trace_line,
     inventory_delta,

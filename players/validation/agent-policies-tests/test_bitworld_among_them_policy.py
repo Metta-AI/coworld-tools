@@ -5,8 +5,8 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import pytest
-from agent_policies.policies.cyborg.bitworld import among_them
-from agent_policies.policies.cyborg.bitworld.among_them import (
+from policies.cyborg.bitworld import among_them
+from policies.cyborg.bitworld.among_them import (
     SCOUT_TASK_HOLD_TICKS,
     TASK_ICON_TARGET_X_OFFSET,
     TASK_ICON_TARGET_Y_OFFSET,
@@ -209,7 +209,7 @@ def test_bitworld_among_them_scout_accepts_packed_frames() -> None:
 def test_bitworld_among_them_scout_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("bitworld_among_them_scout")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemScoutPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemScoutPolicy"
     )
 
 
@@ -463,7 +463,7 @@ def test_bitworld_among_them_llm_talk_is_clipped_to_chat_limit() -> None:
 def test_bitworld_among_them_cyborg_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("bitworld_among_them_cyborg")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemCyborgPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemCyborgPolicy"
     )
 
 
@@ -502,7 +502,7 @@ def test_bitworld_among_them_signal_runner_accepts_packed_frames() -> None:
 def test_bitworld_among_them_signal_runner_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("amongthem_signal_runner")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemSignalRunnerPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemSignalRunnerPolicy"
     )
 
 
@@ -551,7 +551,7 @@ def test_bitworld_among_them_beacon_uses_state_task_arrow() -> None:
 def test_bitworld_among_them_beacon_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("bitworld_among_them_beacon")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemBeaconPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemBeaconPolicy"
     )
 
 
@@ -606,7 +606,7 @@ def test_bitworld_among_them_native_ace_does_not_vote_on_sparse_playfield(monkey
 def test_bitworld_among_them_task_marshal_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("amongthem_task_marshal")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemTaskMarshalPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemTaskMarshalPolicy"
     )
 
 
@@ -614,7 +614,7 @@ def test_bitworld_among_them_nottoodumb_short_name_resolves() -> None:
     assert BitWorldAmongThemNotTooDumbPolicy.short_names == ["bitworld_among_them_nottoodumb"]
     assert (
         resolve_policy_class_path("bitworld_among_them_nottoodumb")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemNotTooDumbPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemNotTooDumbPolicy"
     )
 
 
@@ -653,7 +653,7 @@ def test_bitworld_among_them_variant_short_names_resolve() -> None:
     for policy_class in policy_classes:
         assert (
             resolve_policy_class_path(policy_class.short_names[0])
-            == f"agent_policies.policies.cyborg.bitworld.among_them.{policy_class.__name__}"
+            == f"policies.cyborg.bitworld.among_them.{policy_class.__name__}"
         )
 
 
@@ -755,7 +755,7 @@ def test_bitworld_among_them_circuit_sentinel_holds_centered_task_icon() -> None
 def test_bitworld_among_them_circuit_sentinel_short_name_resolves() -> None:
     assert (
         resolve_policy_class_path("amongthem_circuit_sentinel")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemCircuitSentinelPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemCircuitSentinelPolicy"
     )
 
 
@@ -770,7 +770,7 @@ def test_bitworld_among_them_cyborg_emits_meeting_chat() -> None:
     assert policy.bitworld_chat_messages([3]) == ["skip unless sus"]
     assert (
         resolve_policy_class_path("bitworld_among_them_cyborg")
-        == "agent_policies.policies.cyborg.bitworld.among_them.BitWorldAmongThemCyborgPolicy"
+        == "policies.cyborg.bitworld.among_them.BitWorldAmongThemCyborgPolicy"
     )
 
 

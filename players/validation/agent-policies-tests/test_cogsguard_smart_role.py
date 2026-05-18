@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.policy import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.policy import (
     SmartRoleAgentSnapshot,
     SmartRoleCoordinator,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.types import Role
+from policies.scripted.cogsguard.scripted_agent.cogsguard.types import Role
 
 
 def _snapshot(*, step: int, role: Role) -> SmartRoleAgentSnapshot:

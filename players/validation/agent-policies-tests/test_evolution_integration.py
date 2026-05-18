@@ -13,11 +13,11 @@ from __future__ import annotations
 import random
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.evolution.cogsguard.evolution import (
+from policies.scripted.cogsguard.evolution.cogsguard.evolution import (
     BehaviorDef,
     BehaviorSource,
 )
-from agent_policies.policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
+from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
     EvolutionaryRoleCoordinator,
 )
 

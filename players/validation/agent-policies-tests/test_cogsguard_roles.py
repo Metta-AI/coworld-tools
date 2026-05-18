@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import pytest
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.aligner import AlignerAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.miner import MinerAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.policy import CogsguardAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.scout import ScoutAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.scrambler import ScramblerAgentPolicyImpl
-from agent_policies.policies.scripted.cogsguard.scripted_agent.cogsguard.types import (
+from policies.scripted.cogsguard.scripted_agent.cogsguard.aligner import AlignerAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.miner import MinerAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.policy import CogsguardAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.scout import ScoutAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.scrambler import ScramblerAgentPolicyImpl
+from policies.scripted.cogsguard.scripted_agent.cogsguard.types import (
     CogsguardAgentState,
     Role,
     StructureInfo,
     StructureType,
 )
-from agent_policies.policies.scripted.cogsguard.scripted_agent.types import CellType
+from policies.scripted.cogsguard.scripted_agent.types import CellType
 
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 

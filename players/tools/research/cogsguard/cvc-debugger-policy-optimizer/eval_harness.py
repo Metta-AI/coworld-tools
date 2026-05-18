@@ -34,7 +34,7 @@ QUICK_SEEDS = [42, 500, 5000]
 DEFAULT_MISSION = 'machina_1'
 DEFAULT_NUM_AGENTS = 8
 DEFAULT_STEPS = 1000
-DEFAULT_POLICY = 'class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy'
+DEFAULT_POLICY = 'class=policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy'
 DEFAULT_TIMEOUT = 180
 
 

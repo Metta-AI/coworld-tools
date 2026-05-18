@@ -10,7 +10,7 @@ from agent_policies.tools.eval.cogsguard.evals.planky_evals import PlankyMultiRo
 from mettagrid.policy.loader import discover_and_register_policies
 from mettagrid.policy.policy import PolicySpec
 
-discover_and_register_policies("agent_policies.policies.scripted.cogsguard")
+discover_and_register_policies("policies.scripted.cogsguard")
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_scripted_baselines_report.py"
 

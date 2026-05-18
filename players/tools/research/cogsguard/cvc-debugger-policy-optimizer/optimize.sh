@@ -7,8 +7,8 @@ set -euo pipefail
 
 WORKDIR="/app"
 REPO_ROOT="${REPO_ROOT:-${WORKDIR}/repo}"
-POLICY_PATH="src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/robot"
-POLICY_SPEC="class=agent_policies.policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy"
+POLICY_PATH="policies/cyborg/cogsguard/cvc_debugger_robot/robot"
+POLICY_SPEC="class=policies.cyborg.cogsguard.cvc_debugger_robot.robot.RobotPolicy"
 RESULTS_FILE="${WORKDIR}/results/results.jsonl"
 SNAPSHOTS_DIR="${WORKDIR}/snapshots"
 LOG_FILE="${WORKDIR}/optimizer.log"
