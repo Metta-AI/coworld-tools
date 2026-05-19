@@ -19,6 +19,8 @@ into this curated tree.
 
 - `scripted/cogsguard/`: importable CogsGuard scripted policies (Python +
   Nim).
+- `amongthem/starter/`: canonical source for the bundled Among Them starter
+  player.
 - `cyborg/bitworld/among_them/`: importable BitWorld Among Them policy.
 - `cyborg/bitworld/coborg_among_them/`: importable BitWorld Among Them
   policy built on the Coborg framework
