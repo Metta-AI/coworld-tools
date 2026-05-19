@@ -1,0 +1,3 @@
+[policy]
+class_path = "cogony_policy.cogamer_policy.CogonyPolicy"
+setup_script = "setup_policy.py"

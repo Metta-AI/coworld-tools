@@ -16,7 +16,7 @@ snapshots into this repo; it did not delete, archive, close, or mark any origina
 | `games/werecog` | `Metta-AI/cogame-werecog` | Python / MettaGrid / CoGames | Werewolf/social-deduction MettaGrid game. |
 | `games/euchre` | `Metta-AI/cogame-euchre` | Python / MettaGrid | Euchre card-game package built from the cogame template. |
 | `games/bombercog` | `Metta-AI/bomber-cog` | Python / MettaGrid | Bomberman-style deathmatch game. |
-| `games/cogony` | `Metta-AI/cogame-cogony` | Python / MettaGrid / web server | Cogs-vs-Clips-derived game with bundled policy packages and browser server. |
+| `games/cogony` | `Metta-AI/cogame-cogony`, `Metta-AI/cogamer-policy-cogony` | Python / MettaGrid / web server | Cogs-vs-Clips-derived game with bundled baseline, Toolsy, and Cogamer policy packages. |
 | `games/cogisis` | `Metta-AI/cogame-cogisis` | Python game server | Nemesis-style first-party Python engine, not MettaGrid. |
 | `games/liarliar` | `Metta-AI/liarliar` | JavaScript / Coworld | Browser-first bomb-manual Coworld game with manifest and Dockerfile. |
 | `games/persephones_escape` | `Metta-AI/persephones-escape` | TypeScript / Coworld | Hidden-role social deduction Coworld game; manifest currently uses an older nested Cogame manifest shape. |
