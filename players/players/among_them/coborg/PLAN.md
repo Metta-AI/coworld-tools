@@ -20,7 +20,7 @@ Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
    `among_them/__init__.py`, which eagerly imports `mettagrid` (heavy
    Bazel + Nim build). Sibling placement keeps this parallel experiment
    decoupled from the production scripted policy.
-2. Is the **first concrete in-repo user** of the `players_lib.coborg`
+2. Is the **first concrete in-repo user** of the `players.player_sdk`
    Cyborg two-loop runtime (`AgentRuntime` + modes + strategy runner). The
    existing `players/among_them/scripted/__init__.py` is a
    `mettagrid.policy.policy.AgentPolicy` screen-space scripted policy, NOT a
@@ -88,10 +88,10 @@ session should proceed under them unless James says otherwise.
   runner** under `packages/coworld/`, including the `coworld` CLI we use
   for local play and the WebSocket protocol the agent must speak.
 
-### 3.1 Coborg framework — the runtime we're using
+### 3.1 Coworld Player SDK — the runtime we're using
 
-- Package: `players_lib.coborg`
-- Source dir: `~/coding/players/src/players_lib/coborg/`
+- Package: `players.player_sdk`
+- Source dir: `~/coding/players/players/player_sdk/`
 - Key files:
   - `__init__.py` — public re-exports (read first; this is the API surface).
   - `runtime.py` — `AgentRuntime`, `Reflex`, `ReflexRule`, `RuntimeContext`.
@@ -497,7 +497,7 @@ The single positional `player_images` arg is reused for every player slot.
 
 - `coworld/Dockerfile`: base `python:3.12-slim`. Steps:
   1. `pip install --no-cache-dir uv` (or use `pip` directly).
-  2. Copy the players repo (or just `src/`) into `/srv/players`.
+  2. Copy the players repo (or just `players/`) into `/srv/players`.
   3. `pip install -e /srv/players[cogames]`.
   4. `ENV PYTHONUNBUFFERED=1`.
   5. `ENTRYPOINT ["/srv/players/.../coborg_among_them/coworld/entrypoint.sh"]`.
@@ -650,9 +650,9 @@ These were drafted in the plan but not explicitly confirmed:
 
 | Need | Path |
 |---|---|
-| Coborg framework code | `~/coding/players/src/players_lib/coborg/` |
-| Coborg framework docs | `…/coborg/docs/metta_cogames_framework/README.md` |
-| Coborg toy example | `…/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
+| Player SDK framework code | `~/coding/players/players/player_sdk/` |
+| Player SDK framework docs | `…/player_sdk/docs/metta_cogames_framework/README.md` |
+| Player SDK toy example | `…/player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
 | Existing scripted Among Them (state-vector reference) | `~/coding/players/players/among_them/scripted/__init__.py` |
 | BitWorld Among Them game source (Nim) | `~/coding/bitworld/among_them/` |
 | Game constants (source of truth) | `~/coding/bitworld/among_them/{cogame,coworld}_manifest.json`, `config.json` |

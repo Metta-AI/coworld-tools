@@ -1,7 +1,7 @@
-"""Coborg-based Among Them agent (P0 scaffold).
+"""Coworld Player SDK-based Among Them agent (P0 scaffold).
 
 The agent plugs ``perceive -> update_belief -> mode decide -> action resolve``
-into :class:`players_lib.coborg.AgentRuntime` and ships as a
+into :class:`players.player_sdk.AgentRuntime` and ships as a
 single Docker image consumed by the Coworld tournament runner. P0 wires a
 deterministic noop policy through the full stack; subsequent phases land
 perception, crewmate, meetings, and imposter behavior.
@@ -12,14 +12,14 @@ plan and durable architecture notes.
 
 from __future__ import annotations
 
-from players_lib.coborg import (
+from players.player_sdk import (
     AgentRuntime,
     ModeDirective,
     ModeRegistry,
     SynchronousStrategyRunner,
     TraceSink,
 )
-from players_lib.coborg.trace import MetricsSink
+from players.player_sdk.trace import MetricsSink
 
 from players.among_them.coborg.action import (
     resolve_action,

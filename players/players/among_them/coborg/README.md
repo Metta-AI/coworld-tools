@@ -1,8 +1,8 @@
 # coborg_among_them
 
 A pure-Python Among Them agent built on the
-[`players_lib.coborg`](../../../../src/players_lib/coborg/) two-loop
-Cyborg runtime. This is the framework's **first concrete in-repo game client**.
+[`players.player_sdk`](../../player_sdk/) two-loop Cyborg runtime (the
+Coworld Player SDK). This is the SDK's **first concrete in-repo game client**.
 
 > **Status (2026-05-13)**: Planning complete, implementation not started. The
 > durable implementation plan is [`PLAN.md`](./PLAN.md). The next session
@@ -143,9 +143,9 @@ A convenience wrapper at `scripts/play_local.sh` will land in P0.
 | Need | Path |
 |---|---|
 | **The plan** | [`./PLAN.md`](./PLAN.md) |
-| Coborg framework code | `~/coding/players/src/players_lib/coborg/` |
-| Coborg architecture doc | `…/coborg/docs/metta_cogames_framework/README.md` |
-| Coborg toy example (assembly pattern to mirror) | `…/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
+| Player SDK framework code | `~/coding/players/players/player_sdk/` |
+| Player SDK architecture doc | `…/player_sdk/docs/metta_cogames_framework/README.md` |
+| Player SDK toy example (assembly pattern to mirror) | `…/player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
 | Existing scripted Among Them (state-vector reference) | `../__init__.py` |
 | Current production bot (do **not** modify) | `~/coding/personal_cogs/among_them/guided_bot/` |
 | Nim perception — shared kernels (port source) | `~/coding/personal_cogs/among_them/common/perception_kernels/` |

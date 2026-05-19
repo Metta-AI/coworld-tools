@@ -290,7 +290,7 @@ python generate_guides.py <path_to_game_source> --runner claude --runner codex
 ```
 
 If `--agent-framework-dir` is omitted, Guide uses
-`src/players_lib/coborg` from this repository. It does not
+`players/player_sdk` from this repository. It does not
 search external framework checkouts.
 
 The output directory contains the final Markdown suite, `guide_contract.json`,

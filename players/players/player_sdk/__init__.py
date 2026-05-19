@@ -1,15 +1,15 @@
-"""Reusable two-loop cyborg-agent framework.
+"""Coworld Player SDK — reusable two-loop cyborg-agent framework.
 
 The package implements the Coborg architecture documented under
-``src/players_lib/coborg/docs/metta_cogames_framework``: a fast symbolic
+``players/player_sdk/docs/metta_cogames_framework``: a fast symbolic
 inner loop connected to a slower strategy loop through typed mode
 directives.
 """
 
-from players_lib.coborg.buffers import OverwriteBuffer
-from players_lib.coborg.modes import DirectiveValidationError, Mode, ModeRegistry
-from players_lib.coborg.runtime import AgentRuntime, Reflex, ReflexRule, RuntimeContext
-from players_lib.coborg.strategy import (
+from players.player_sdk.buffers import OverwriteBuffer
+from players.player_sdk.modes import DirectiveValidationError, Mode, ModeRegistry
+from players.player_sdk.runtime import AgentRuntime, Reflex, ReflexRule, RuntimeContext
+from players.player_sdk.strategy import (
     AsyncStrategy,
     AsyncStrategyRunner,
     ManualStrategyRunner,
@@ -18,7 +18,7 @@ from players_lib.coborg.strategy import (
     SynchronousStrategyRunner,
     ThreadedStrategyRunner,
 )
-from players_lib.coborg.trace import (
+from players.player_sdk.trace import (
     ListMetricsSink,
     ListTraceSink,
     LoggingMetricsSink,
@@ -31,7 +31,7 @@ from players_lib.coborg.trace import (
     TraceSink,
     WandbMetricsSink,
 )
-from players_lib.coborg.types import (
+from players.player_sdk.types import (
     ActionCommand,
     ActionIntent,
     BeliefSnapshot,

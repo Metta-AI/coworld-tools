@@ -13,10 +13,11 @@ The repo contains four things:
    Coworld-compatible Docker image that can be uploaded via
    `coworld upload-policy` and either `coworld submit`-ted to a league or
    bundled into a game's `coworld_manifest.json`.
-2. **The Coborg agent framework** — under `src/players_lib/coborg/`.
-   The intended framework and starter template for future agent
-   development in this repo. New policies should prefer Coborg over
-   ad-hoc scaffolding.
+2. **The Coworld Player SDK** — under `players/player_sdk/`. The
+   importable two-loop (strategy/reflex) agent framework (formerly
+   known as Coborg) and starter template for future agent development
+   in this repo. New policies should prefer the Player SDK over ad-hoc
+   scaffolding.
 3. **Cogbase** — under `tools/cogbase/`. A standalone meta-pipeline
    toolkit whose goal is to accelerate, and ultimately automate, the
    generation of initial starter policies (game guides, perception,
@@ -31,14 +32,12 @@ The repo contains four things:
 ## Layout
 
 ```
-players/             # Concrete players, one subdir per Coworld game
+players/             # Concrete players plus the shared SDK
   among_them/        #   BitWorld "Among Them"
   cogsguard/         #   Cogs vs Clips
   paintarena/        #   Paint Arena (reserved)
   infinite_blocks/   #   Infinite Blocks (reserved)
-src/players_lib/     # Importable shared library package (`players_lib`)
-  coborg/            #   Coborg agent framework
-  eval/              #   Eval/metric helpers reused across players
+  player_sdk/        #   Coworld Player SDK (two-loop agent framework)
 tools/cogbase/       # Standalone Cogbase toolkit (own pyproject)
 users/               # Contributor-owned active projects (incubation)
 validation/          # Repo-wide pytest suite
@@ -76,26 +75,22 @@ indexed from that tool's own README.
 ## Python packages
 
 This repo's `pyproject.toml` declares one distribution, `players`, that
-installs two top-level importable packages. The distribution exists for
-local development (`uv sync`, `pip install -e .`, test imports) rather
-than for PyPI publication.
-
-- `players_lib` (from `src/players_lib/`): the Coborg framework plus
-  importable eval/tooling helpers.
-- `players` (from the top-level `players/` tree): concrete importable
-  game players.
+installs the top-level `players` package — game subpackages plus the
+shared `players.player_sdk`. The distribution exists for local
+development (`uv sync`, `pip install -e .`, test imports) rather than
+for PyPI publication.
 
 `tools/cogbase/` is a separate distribution with its own
 `pyproject.toml` and is not pulled in by installing `players`.
 
 ## Working Rules
 
-- Put reusable agent framework code under `src/players_lib/coborg/`
-  (and any future frameworks as siblings under `src/players_lib/`).
-- Put importable eval/tooling helpers under `src/players_lib/eval/`.
+- Put reusable agent framework code under `players/player_sdk/`.
 - Put concrete importable policies under `players/<game>/<policy>/`.
-- Keep `tools/cogbase/` standalone; do not import it from
-  `players_lib` or `players`.
+- Put game-specific eval/tooling helpers under
+  `players/<game>/` (e.g. `players/cogsguard/eval_result_metrics.py`,
+  `players/cogsguard/evals/`).
+- Keep `tools/cogbase/` standalone; do not import it from `players`.
 - Keep active personal projects under `users/<handle>/<project>` until
   they are intentionally promoted into the shared `players/` tree.
 - Keep policy-language sources next to the policy that owns them (Nim,

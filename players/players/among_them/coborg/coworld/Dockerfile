@@ -25,10 +25,10 @@ RUN pip install --upgrade pip \
       "pydantic>=2.12.2" \
       "websockets>=13.0"
 
-# Copy only what's needed to install + run the package. Copying ``src/``
+# Copy only what's needed to install + run the package. Copying ``players/``
 # (rather than the whole repo) keeps the image small and stable.
 COPY pyproject.toml README.md ./
-COPY src ./src
+COPY players ./players
 RUN pip install --no-deps -e .
 
 COPY players/among_them/coborg/coworld/entrypoint.sh /usr/local/bin/entrypoint.sh

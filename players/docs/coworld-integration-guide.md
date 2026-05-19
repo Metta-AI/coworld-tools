@@ -251,7 +251,7 @@ expected to be:
   itself never restarts a player container, so absence of reconnect logic
   is acceptable.
 
-The Coborg framework under `src/players_lib/coborg/` already wires the
+The Coworld Player SDK under `players/player_sdk/` already wires the
 websocket loop, stdout-trace pattern, and entrypoint shape; new players
 should prefer it over an ad-hoc scaffold, and the Among Them Coborg player
 at `players/among_them/coborg/` is the worked example.

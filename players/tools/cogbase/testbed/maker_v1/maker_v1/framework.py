@@ -8,15 +8,15 @@ from pathlib import Path
 from .guide_index import GuideBundle
 
 
-def _repo_coborg_framework_dir() -> Path:
+def _repo_player_sdk_framework_dir() -> Path:
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "src" / "players_lib" / "coborg"
+        candidate = parent / "players" / "player_sdk"
         if (candidate / "__init__.py").is_file():
             return candidate
-    raise RuntimeError("could not find src/players_lib/coborg from Cogbase")
+    raise RuntimeError("could not find players/player_sdk from Cogbase")
 
 
-DEFAULT_FRAMEWORK_DIR = _repo_coborg_framework_dir()
+DEFAULT_FRAMEWORK_DIR = _repo_player_sdk_framework_dir()
 REQUIRED_CYBORG_SYMBOLS: tuple[str, ...] = (
     "ActionCommand",
     "ActionIntent",
@@ -108,12 +108,6 @@ def _derive_package_path(framework_dir: Path) -> tuple[str, Path]:
             current = current.parent
         parts.reverse()
         return ".".join(parts), current
-
-    source_root = framework_dir.parent / "src"
-    if source_root.is_dir():
-        for child in source_root.iterdir():
-            if child.is_dir() and (child / "__init__.py").is_file():
-                return child.name, source_root
 
     return framework_dir.name, framework_dir.parent
 

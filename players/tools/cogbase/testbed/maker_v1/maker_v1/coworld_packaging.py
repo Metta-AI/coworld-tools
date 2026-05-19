@@ -6,7 +6,7 @@ runner exposes, plays the episode, and exits. This module renders the
 :file:`Dockerfile` and :file:`.dockerignore` that wrap a generated agent
 into that shape.
 
-The image still depends on the in-repo ``players_lib`` framework, which
+The image still depends on the in-repo ``players.player_sdk`` framework, which
 ``agent/framework_bootstrap.py`` imports via absolute path. The generated
 Dockerfile documents the two supported ways to supply the framework inside
 the image (vendor the source, or pip-install a wheel) without choosing
@@ -76,7 +76,7 @@ COPY agent/ /app/agent/
 # match (or set PYTHONPATH so the import resolves):
 #
 # (A) Vendor the framework source into the image:
-#     COPY ./vendor/players_lib/ /app/players_lib/
+#     COPY ./vendor/players/ /app/players/
 #     ENV PYTHONPATH=/app
 #
 # (B) Pip-install a published wheel (when one is available):

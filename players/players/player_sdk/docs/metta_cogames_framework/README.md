@@ -2,11 +2,12 @@
 
 Generated: 2026-05-11
 
-The importable implementation is `players_lib.coborg`. The
-framework described here is called the Cyborg framework.
+The importable implementation is `players.player_sdk` (the Coworld
+Player SDK). The framework described here is called the Cyborg
+framework.
 
 The Python implementation lives in
-[`src/players_lib/coborg`](../..).
+[`players/player_sdk`](../..).
 For a shorter usage guide, see [`PYTHON_FRAMEWORK.md`](PYTHON_FRAMEWORK.md).
 
 ## Executive Summary
@@ -136,7 +137,7 @@ framework.
 ### What The Package Provides
 
 The public package is
-[`src/players_lib/coborg`](../..).
+[`players/player_sdk`](../..).
 It provides:
 
 - Typed mode directives and mode parameters.
@@ -640,7 +641,7 @@ class Mode:
 ```
 
 For production Python code, use the concrete classes in
-`players_lib.coborg` rather than copying this sketch.
+`players.player_sdk` rather than copying this sketch.
 
 ## Design Invariants
 

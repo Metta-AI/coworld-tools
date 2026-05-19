@@ -7,7 +7,7 @@ exactly one mode is active at all times.
 
 from __future__ import annotations
 
-from players_lib.coborg import EmptyModeParams, Mode
+from players.player_sdk import EmptyModeParams, Mode
 
 from players.among_them.coborg.types import (
     ActionState,

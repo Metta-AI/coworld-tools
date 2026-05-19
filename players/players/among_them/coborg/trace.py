@@ -13,7 +13,7 @@ import logging
 import sys
 from typing import TextIO
 
-from players_lib.coborg.trace import (
+from players.player_sdk.trace import (
     LoggingMetricsSink,
     LoggingTraceSink,
     MetricsSink,

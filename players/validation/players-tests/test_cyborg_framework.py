@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from players_lib.coborg import (
+from players.player_sdk import (
     ActionCommand,
     ActionIntent,
     AgentRuntime,
@@ -22,7 +22,7 @@ from players_lib.coborg import (
     StrategyResult,
     SynchronousStrategyRunner,
 )
-from players_lib.coborg.types import BeliefSnapshot
+from players.player_sdk.types import BeliefSnapshot
 
 
 class Observation:

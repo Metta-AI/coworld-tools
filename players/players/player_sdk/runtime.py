@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Generic, TypeAlias, TypeVar
 
-from players_lib.coborg.modes import ModeRegistry
-from players_lib.coborg.strategy import StrategyRunner
-from players_lib.coborg.trace import MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
-from players_lib.coborg.types import (
+from players.player_sdk.modes import ModeRegistry
+from players.player_sdk.strategy import StrategyRunner
+from players.player_sdk.trace import MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
+from players.player_sdk.types import (
     BeliefSnapshot,
     ModeDecision,
     ModeDecisionStatus,

@@ -211,16 +211,16 @@ Decode JSON fields directly. There is no framebuffer or pixel payload.
 """,
     )
     bad_root = tmp_path / "bad_framework_root"
-    bad_framework_dir = bad_root / "src" / "players_lib" / "coborg"
+    bad_framework_dir = bad_root / "players" / "player_sdk"
     bad_package_dir = bad_framework_dir
     bad_framework_dir.mkdir(parents=True)
-    (bad_root / "src" / "players_lib" / "__init__.py").write_text("", encoding="utf-8")
+    (bad_root / "players" / "__init__.py").write_text("", encoding="utf-8")
     (bad_package_dir / "__init__.py").write_text("BROKEN = True\n", encoding="utf-8")
     bad_ref = AgentFrameworkRef(
-        name="coborg",
+        name="player_sdk",
         framework_dir=bad_framework_dir,
-        package="players_lib.coborg",
-        package_source_root=bad_root / "src",
+        package="players.player_sdk",
+        package_source_root=bad_root,
     )
     output_dir = tmp_path / "maker_out"
 
@@ -782,8 +782,8 @@ def _load_generated_agent_module(path: Path) -> types.ModuleType:
         name: sys.modules.get(name)
         for name in (
             "cyborg_agent",
-            "players_lib",
-            "players_lib.coborg",
+            "players",
+            "players.player_sdk",
             "framework_bootstrap",
             "frame_store",
             "policy",
@@ -820,13 +820,13 @@ def _has_test_file(output_dir: Path, pattern: str) -> bool:
 
 
 def _install_cyborg_stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "players_lib_stub"
-    framework_dir = root / "src" / "players_lib" / "coborg"
+    root = tmp_path / "player_sdk_stub"
+    framework_dir = root / "players" / "player_sdk"
     package_dir = framework_dir
     framework_dir.mkdir(parents=True, exist_ok=True)
     package_dir.mkdir(parents=True, exist_ok=True)
     (framework_dir / "README.md").write_text("# Cyborg test framework\n", encoding="utf-8")
-    (root / "src" / "players_lib" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "players" / "__init__.py").write_text("", encoding="utf-8")
     (package_dir / "__init__.py").write_text(
         '''
 from __future__ import annotations

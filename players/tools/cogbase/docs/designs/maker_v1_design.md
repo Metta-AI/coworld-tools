@@ -18,7 +18,7 @@ agent scaffolds, Phase 3 visual starter agents/VLM contract tooling, and Phase
 and mixed games now receive a live `run_agent.py` when the guide proves a
 serializable action wire contract, such as binary button-mask packets. The
 generated live runners use `agent/cyborg_agent.py` to wrap starter policies in
-the in-repo `players_lib.coborg` framework.
+the in-repo `players.player_sdk` framework.
 Phase 4
 can label image fixtures through either the deterministic mock adapter or AWS
 Bedrock Claude. Maker also generates source-grounded decoder implementations
@@ -106,7 +106,7 @@ Required for the full design:
 - `guide_dir`: generated `guide_v1` artifact bundle.
 - `guide_contract.json`: preferred machine-readable contract inside
   `guide_dir`, schema version `guide.contract.v1`.
-- `agent_framework`: path/package handoff for `players_lib.coborg`;
+- `agent_framework`: path/package handoff for `players.player_sdk`;
   `--agent-framework-dir` may explicitly override this for compatible framework
   experiments.
 - `game_source`: target game source directory.
@@ -116,7 +116,7 @@ Required for the full design:
 Current generation requires only `guide_dir`. `output_dir` is optional and
 defaults to `./output/<guide-dir-name>`; `game_source` is optional metadata
 recorded in the manifest. If `--agent-framework-dir` is omitted, Maker uses
-this repository's `src/players_lib/coborg` package and records
+this repository's `players/player_sdk` package and records
 that exact path/package in the manifest. If `guide_contract.json` is present,
 Maker uses it for observation classification,
 observation-decoder hints, action candidates, action wire serialization,
@@ -184,7 +184,7 @@ The exact language and package layout should follow the target game's existing
 agent conventions where possible.
 
 `framework_bootstrap.py` points generated artifacts at
-`players_lib.coborg`. `cyborg_agent.py` is the generated adapter
+`players.player_sdk`. `cyborg_agent.py` is the generated adapter
 that defines game-specific percept, belief, mode, strategy, and action
 resolution functions for `AgentRuntime`; `policy.py` and `protocol.py` remain
 small helpers for policy iteration and serialization tests.

@@ -255,9 +255,9 @@ def _framework_ref(tmp_path: Path) -> AgentFrameworkRef:
     framework_dir.mkdir()
     package_source_root.mkdir()
     return AgentFrameworkRef(
-        name="coborg",
+        name="player_sdk",
         framework_dir=framework_dir,
-        package="players_lib.coborg",
+        package="players.player_sdk",
         package_source_root=package_source_root,
     )
 

@@ -38,7 +38,7 @@ Early prototype. The importable `src/cogbase` package is still minimal, but
   plus a machine-readable `guide_contract.json` from a game source directory
   using selected Claude/Codex runner drafts, with synthesis when two runners are
   selected. Guide prompts are also given
-  the in-repo `players_lib.coborg` framework location so
+  the in-repo `players.player_sdk` framework location so
   implementation guidance is written for the same framework Maker will use.
 - `maker_v2/` is the canonical next agent-making stage, currently a fresh
   scaffold. Its CLI exists but generation is not yet implemented. It is the
@@ -115,7 +115,7 @@ Current testbed entries:
   `guide_contract.json`, the machine-readable handoff consumed by downstream
   stages. This is the canonical front door for classifying symbolic vs visual
   observation surfaces and deciding what downstream artifacts a game needs.
-  It points guide prompts at `players_lib.coborg` by default;
+  It points guide prompts at `players.player_sdk` by default;
   `--agent-framework-dir` is available only for explicit experiments with a
   compatible framework checkout.
 - **`maker_v2/`** -- Canonical next-stage agent maker (fresh scaffold). CLI is

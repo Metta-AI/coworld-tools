@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 
-from players_lib.coborg.trace import TraceEvent
+from players.player_sdk.trace import TraceEvent
 
 from players.among_them.coborg.trace import (
     JsonStderrTraceSink,

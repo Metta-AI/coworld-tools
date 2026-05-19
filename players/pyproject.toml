@@ -22,27 +22,13 @@ cogsguard = [
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["src", "."]
+where = ["."]
 include = [
-  "players_lib",
-  "players_lib.*",
   "players",
   "players.*",
 ]
 
 [tool.setuptools.package-data]
-players_lib = [
-  "**/*.html",
-  "**/*.json",
-  "**/*.lock",
-  "**/*.map",
-  "**/*.md",
-  "**/*.nim",
-  "**/*.nims",
-  "**/*.txt",
-  "**/.nim-version",
-  "**/.nimby-version",
-]
 players = [
   "**/*.html",
   "**/*.json",

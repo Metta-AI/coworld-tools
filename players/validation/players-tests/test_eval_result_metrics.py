@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from players_lib.eval.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
+from players.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
 
 
 def _modern_result() -> dict:

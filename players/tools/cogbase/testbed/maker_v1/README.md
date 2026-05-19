@@ -72,8 +72,8 @@ uv run coworld submit <game>-player --league league_...
 `COGAMES_ENGINE_WS_URL` from the runner's env, connects to the player
 websocket, plays the episode, and exits. `agent/framework_bootstrap.py`
 records host-absolute paths to the Cyborg framework at generation time, so
-the generated `Dockerfile` documents how to vendor or pip-install
-`players_lib` into the image before building. Coworld manifest ingestion
+the generated `Dockerfile` documents how to vendor or pip-install the
+`players` distribution into the image before building. Coworld manifest ingestion
 and starter-policy template seeding (`coworld make-policy`) are listed as
 not-yet-implemented in `maker_manifest.json` and are tracked for future
 slices.
@@ -111,9 +111,9 @@ serialization tests.
 in the generated manifest.
 `--agent-framework-dir <path>` may be provided for an explicit compatibility
 experiment with another Cyborg framework checkout. If omitted, Maker uses
-`src/players_lib/coborg` from this repository. For runnable
+`players/player_sdk` from this repository. For runnable
 symbolic or visual scaffolds, Maker validates that the selected framework source
-root imports `players_lib.coborg` and exports the API used by
+root imports `players.player_sdk` and exports the API used by
 `agent/cyborg_agent.py` before writing output artifacts.
 
 The generated `maker_manifest.json` records the consumed guide bundle hash,
