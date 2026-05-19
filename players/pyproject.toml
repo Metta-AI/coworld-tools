@@ -13,7 +13,12 @@ dependencies = [
 
 [project.optional-dependencies]
 cogames = ["cogames", "mettagrid"]
-test = ["pytest", "pytest-xdist", "ruff"]
+test = [
+    "pytest",
+    "pytest-asyncio>=1.3.0",
+    "pytest-xdist",
+    "ruff",
+]
 cogsguard = [
     "cogsguard",
 ]
