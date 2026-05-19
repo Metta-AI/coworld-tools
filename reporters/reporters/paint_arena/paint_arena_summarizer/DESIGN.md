@@ -1,6 +1,6 @@
 # paint_arena_summarizer — Design
 
-> **Status:** in design (no implementation yet). This is the first concrete reporter in the repo and is intentionally being built before `reporter_sdk` and `templates/summarizer_template`. See the [root README](../../../README.md) "Build strategy" section for why.
+> **Status:** implemented. `paint_arena_summarizer.py` plus a `pytest` suite covers the failure-mode table below; `Dockerfile` and `build.sh` are functional. This is the first concrete reporter in the repo and was intentionally built before `reporter_sdk` and `templates/summarizer_template`. The "Inline primitives" section below remains the extraction shopping list for the next step. See the [root README](../../../README.md) "Build strategy" section for the broader rationale.
 
 ## Purpose
 

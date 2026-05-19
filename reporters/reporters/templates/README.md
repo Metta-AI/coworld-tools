@@ -2,7 +2,7 @@
 
 Game-agnostic template reporters — scaffolding and base implementations meant to make it easy to start a new reporter for a coworld.
 
-> **Status: intentionally on hold.** No template code exists yet, and we are **not** writing speculative templates. `summarizer_template` will be *extracted* from [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) once that concrete reporter is implemented and its game-agnostic shape is visible. See the "Build strategy" section of the [root README](../../README.md) for the rationale.
+> **Status: still on hold, but unblocked.** [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) is now implemented end-to-end, so the game-agnostic shape `summarizer_template` will encode is visible. The next step is `reporter_sdk` extraction; this template gets extracted from `paint_arena_summarizer` *after* the SDK absorbs the reusable primitives (so the template imports from the SDK rather than inlining). See the "Build strategy" section of the [root README](../../README.md) for the rationale.
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Templates in this directory must stay aligned with those documents. If a templat
 
 | Template | Role | Status |
 | --- | --- | --- |
-| `summarizer_template` | Standard pattern for producing a Markdown summary artifact (`text/markdown`) plus a JSON stats artifact (`application/json`) from an episode's results. The default starting point for any new `<coworld>_summarizer` reporter. | On hold — will be extracted from `paint_arena_summarizer` |
+| `summarizer_template` | Standard pattern for producing a Markdown summary artifact (`text/markdown`) plus a JSON stats artifact (`application/json`) from an episode's results. The default starting point for any new `<coworld>_summarizer` reporter. | On hold — `paint_arena_summarizer` implemented; awaiting `reporter_sdk` extraction before template extraction |
 
 `summarizer_template` will be derived from `paint_arena/paint_arena_summarizer` after that reporter is implemented end-to-end. The "canonical two-artifact envelope (Markdown summary + JSON stats)" shape that a summarizer template should encode is exactly what `paint_arena_summarizer` ends up being, minus the PaintArena-specific bits (results parsing, summary phrasing, stats fields). Extracting in that direction guarantees the template reflects something that actually works, rather than an imagined shape we have to retrofit reporters to.
 

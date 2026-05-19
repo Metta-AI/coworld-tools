@@ -2,7 +2,7 @@
 
 Reporter implementations for **coworlds** — containers that consume a finished episode's artifacts (results, replay, logs, episode metadata) and produce a JSON envelope of analysis artifacts (summaries, stats, visualizations) for downstream surfacing in Observatory.
 
-> **Status:** v1 contract complete (see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md), decisions D1–D10). No reporter implementations exist yet — the directories below are scaffolding for upcoming work.
+> **Status:** v1 contract complete (see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md), decisions D1–D10). One concrete reporter implemented — [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — driving upcoming SDK and template extraction. Remaining reporter directories below are scaffolding.
 
 ## What is a coworld reporter?
 
@@ -110,9 +110,9 @@ For everything else — certification, Observatory API surface, CLI, naming, the
 
 | Component | Coworld | Kind | Status |
 | --- | --- | --- | --- |
-| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **In design** — first concrete reporter; will drive SDK and template extraction |
-| `reporter_sdk` | (shared) | Library | Package skeleton in place; on hold until `paint_arena_summarizer` reveals the right primitives |
-| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; will be derived from `paint_arena_summarizer` once its shape is known |
+| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented** — first concrete reporter; tests passing; primitives inline, awaiting SDK extraction |
+| `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in `paint_arena_summarizer` |
+| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived from `paint_arena_summarizer` once the SDK is extracted |
 | `among_them/among_them_summarizer` | Among Them | Reporter | Scaffold only — no implementation |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation |
 | `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation |
@@ -123,8 +123,8 @@ We are intentionally **not** building the SDK and `summarizer_template` first. T
 
 The new order is:
 
-1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with envelope construction, env-supplied URI I/O, and types all inline in the reporter. PaintArena is the right starting target: spec 0043 already uses `paintarena-reporter` as its worked example, the game has the smallest results schema in the reference coworlds (`scores`, `painted_tiles`, `ticks` — see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) for the broader contract), and the metta repo has a complete PaintArena example to point at.
-2. **Extract `reporter_sdk`** from the inline primitives in `paint_arena_summarizer` once they exist. The API is whatever turns out to actually be useful, not what we guessed in advance.
+1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with envelope construction, env-supplied URI I/O, and types all inline in the reporter. PaintArena is the right starting target: spec 0043 already uses `paintarena-reporter` as its worked example, the game has the smallest results schema in the reference coworlds (`scores`, `painted_tiles`, `ticks` — see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) for the broader contract), and the metta repo has a complete PaintArena example to point at. **Done.** See [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — implementation, Dockerfile, build script, and pytest suite covering the failure-mode table in `DESIGN.md`.
+2. **Extract `reporter_sdk`** from the inline primitives in `paint_arena_summarizer` once they exist. The API is whatever turns out to actually be useful, not what we guessed in advance. The extraction candidates are explicitly listed in the reporter's `DESIGN.md` ("Inline primitives" section) and labelled in `paint_arena_summarizer.py`.
 3. **Extract `templates/summarizer_template`** from `paint_arena_summarizer` by stripping the PaintArena-specific bits. The "canonical summarizer shape" is whatever the concrete reporter ends up being once the SDK absorbs the reusable parts.
 4. **Build the second concrete summarizer** (likely `among_them/among_them_summarizer`) against the extracted SDK, using the template as the starting skeleton. Pain points uncovered in step 4 feed back into the SDK and template.
 
