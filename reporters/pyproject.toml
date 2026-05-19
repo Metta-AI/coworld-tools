@@ -1,7 +1,7 @@
 [project]
-name = "reporters"
+name = "reporters-workspace"
 version = "0.1.0"
-description = "Add your description here"
+description = "Workspace anchor for the reporters repo. The shared, pip-installable Python package for reporter authors lives at reporters/reporter_sdk/; concrete reporter implementations live under reporters/<coworld>/."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
