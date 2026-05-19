@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
   "numpy>=2.0.0",
   "pydantic>=2.12.2",
+  "websockets>=16.0",
 ]
 
 [project.optional-dependencies]

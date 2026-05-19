@@ -1192,6 +1192,7 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1220,6 +1221,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3.0" },
     { name = "pytest-xdist", marker = "extra == 'test'" },
     { name = "ruff", marker = "extra == 'test'" },
+    { name = "websockets", specifier = ">=16.0" },
 ]
 provides-extras = ["cogames", "test", "cogsguard"]
 
