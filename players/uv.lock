@@ -331,6 +331,17 @@ wheels = [
 ]
 
 [[package]]
+name = "cogsguard"
+version = "0.0.0.post1.dev10"
+source = { git = "https://github.com/Metta-AI/cogame-cogsguard.git#3be7e391505a513d801318904b50ef15eed9644f" }
+dependencies = [
+    { name = "cogames" },
+    { name = "mettagrid" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1188,6 +1199,9 @@ cogames = [
     { name = "cogames" },
     { name = "mettagrid" },
 ]
+cogsguard = [
+    { name = "cogsguard" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-xdist" },
@@ -1197,6 +1211,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "cogames", marker = "extra == 'cogames'" },
+    { name = "cogsguard", marker = "extra == 'cogsguard'", git = "https://github.com/Metta-AI/cogame-cogsguard.git" },
     { name = "mettagrid", marker = "extra == 'cogames'" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.12.2" },
@@ -1204,7 +1219,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'test'" },
     { name = "ruff", marker = "extra == 'test'" },
 ]
-provides-extras = ["cogames", "test"]
+provides-extras = ["cogames", "test", "cogsguard"]
 
 [[package]]
 name = "pluggy"
