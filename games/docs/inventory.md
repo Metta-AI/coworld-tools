@@ -16,8 +16,12 @@ snapshots into this repo; it did not delete, archive, close, or mark any origina
 | `games/werecog` | `Metta-AI/cogame-werecog` | Python / MettaGrid / CoGames | Werewolf/social-deduction MettaGrid game. |
 | `games/euchre` | `Metta-AI/cogame-euchre` | Python / MettaGrid | Euchre card-game package built from the cogame template. |
 | `games/bombercog` | `Metta-AI/bomber-cog` | Python / MettaGrid | Bomberman-style deathmatch game. |
+| `games/coghouse` | `Metta-AI/cogame-coghouse` | Python / MettaGrid / CoGames | Coghouse game package; still mostly template-shaped after import and not a root workspace member until `src/cogame` is renamed. |
 | `games/cogony` | `Metta-AI/cogame-cogony`, `Metta-AI/cogamer-policy-cogony` | Python / MettaGrid / web server | Cogs-vs-Clips-derived game with bundled baseline, Toolsy, and Cogamer policy packages. |
+| `games/cogwars` | `Metta-AI/cogame-cogwars` | Python / MettaGrid / CoGames | Cogwars game package; still mostly template-shaped after import and not a root workspace member until `src/cogame` is renamed. |
 | `games/cogisis` | `Metta-AI/cogame-cogisis` | Python game server | Nemesis-style first-party Python engine, not MettaGrid. |
+| `games/tag` | `Metta-AI/cogame-tag` | Python / MettaGrid / CoGames | Tag game package; still mostly template-shaped after import and not a root workspace member until `src/cogame` is renamed. |
+| `games/memory` | `Metta-AI/cogame-memory` | Python / MettaGrid / CoGames | Memory game package; still mostly template-shaped after import and not a root workspace member until `src/cogame` is renamed. |
 | `games/liarliar` | `Metta-AI/liarliar` | JavaScript / Coworld | Browser-first bomb-manual Coworld game with manifest and Dockerfile. |
 | `games/persephones_escape` | `Metta-AI/persephones-escape` | TypeScript / Coworld | Hidden-role social deduction Coworld game; manifest currently uses an older nested Cogame manifest shape. |
 | `games/cogshambo` | `Metta-AI/cogshambo` | TypeScript browser/server | Browser game with server/client/runtime assets; not yet normalized to Coworld manifest form here. |
@@ -36,4 +40,3 @@ snapshots into this repo; it did not delete, archive, close, or mark any origina
 | --- | --- |
 | `Metta-AI/bitworld` | Explicitly excluded. |
 | `Metta-AI/co-gas` | Policy/workflow repo, not a game repo. |
-| `Metta-AI/cogame-coghouse`, `Metta-AI/cogame-cogwars`, `Metta-AI/cogame-tag`, `Metta-AI/cogame-memory` | Still template-shaped; better handled later as either renamed real games or template experiments. |

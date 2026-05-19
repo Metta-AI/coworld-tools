@@ -28,6 +28,7 @@ Follow-up work for Python games:
 2. Move shared template docs and skills out of individual game packages when they are duplicated.
 3. Update `Metta-AI/metta` and `Metta-AI/cogames` optional game metadata to point at this repo's subdirectories.
 4. Add targeted smoke tests per game from inside this repo.
+5. Rename template-shaped imports that still expose `src/cogame` before adding them to the root `uv` workspace.
 
 ## Coworld Games
 
