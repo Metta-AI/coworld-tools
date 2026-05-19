@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import Entity as BuggyEntity
-from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import EntityMap as BuggyEntityMap
-from policies.scripted.cogsguard.scripted_agent.common.geometry import is_within_observation_shape
-from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import Entity as CrankyEntity
-from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import EntityMap as CrankyEntityMap
+from players.cogsguard.buggy.entity_map import Entity as BuggyEntity
+from players.cogsguard.buggy.entity_map import EntityMap as BuggyEntityMap
+from players.cogsguard._shared.common.geometry import is_within_observation_shape
+from players.cogsguard.cranky.entity_map import Entity as CrankyEntity
+from players.cogsguard.cranky.entity_map import EntityMap as CrankyEntityMap
 
 
 def test_observation_shape_3x3_excludes_diagonals() -> None:

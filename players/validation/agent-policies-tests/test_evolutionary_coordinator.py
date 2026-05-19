@@ -3,8 +3,8 @@
 import random
 
 import pytest
-from policies.scripted.cogsguard.evolution.cogsguard.evolution import EvolutionConfig
-from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
+from players.cogsguard.role.evolution.evolution import EvolutionConfig
+from players.cogsguard.role.evolution.evolutionary_coordinator import (
     EvolutionaryRoleCoordinator,
 )
 

@@ -6,20 +6,24 @@ There are two installable Python packages:
 
 - `agent_policies` (under `src/agent_policies/`): the Coborg agent framework
   plus importable tooling helpers (eval metrics, eval definitions).
-- `policies` (top-level): concrete importable policies, organized by policy
-  style (`scripted/`, `cyborg/`) and target game/system.
+- `players` (top-level): concrete importable policies, organized by target
+  game (`among_them/`, `cogsguard/`, `paintarena/`, `infinite_blocks/`).
 
 Other top-level directories:
 
-- `tools/`: eval, upload, benchmark, and compare scripts for the in-tree
-  policies, plus `tools/cogbase/` as a standalone base-agent toolkit.
+- `tools/cogbase/`: standalone base-agent meta-pipeline toolkit (its own
+  pyproject; not part of the `agent-policies` distribution).
 - `users/`: contributor-owned active projects, in-tree or as submodules.
+- `validation/agent-policies-tests/`: pytest suite that exercises the saved
+  framework and policies.
+- `docs/`: workspace-level documentation. Tool-specific docs live with the
+  tool (e.g. `tools/cogbase/docs/`).
 
 ## Working Rules
 
 - Put reusable agent frameworks under `src/agent_policies/frameworks/`.
 - Put importable eval/tooling helpers under `src/agent_policies/tools/`.
-- Put concrete importable policies under the top-level `policies/` tree.
+- Put concrete importable policies under the top-level `players/` tree.
 - Put shared execution or analysis workflows under `tools/`.
 - Keep Cogbase under `tools/cogbase/`; it is a standalone prototype toolkit
   for generating game guides and base-agent artifacts.

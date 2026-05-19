@@ -10,7 +10,7 @@ is tested for:
 from __future__ import annotations
 
 import pytest
-from policies.scripted.cogsguard.scripted_registry import (
+from players.cogsguard.scripted_registry import (
     list_scripted_agent_names,
     resolve_scripted_agent_uri,
 )
@@ -64,11 +64,11 @@ class TestAgentRegistryPresence:
 
 _POLICY_CLASS_MAP: dict[str, tuple[str, str]] = {
     "baseline": (
-        "policies.scripted.cogsguard.scripted_agent.baseline_agent",
+        "players.cogsguard.baseline.baseline_agent",
         "BaselinePolicy",
     ),
     "tiny_baseline": (
-        "policies.scripted.cogsguard.scripted_agent.demo_policy",
+        "players.cogsguard.tiny_baseline.demo_policy",
         "DemoPolicy",
     ),
 }
@@ -113,7 +113,7 @@ class TestEvolutionModuleImportable:
     """Verify the evolution modules import cleanly."""
 
     def test_import_evolution(self) -> None:
-        from policies.scripted.cogsguard.evolution.cogsguard.evolution import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolution import (  # noqa: PLC0415
             RoleCatalog,
             RoleDef,
             sample_role,
@@ -124,7 +124,7 @@ class TestEvolutionModuleImportable:
         assert sample_role is not None
 
     def test_import_coordinator(self) -> None:
-        from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolutionary_coordinator import (  # noqa: PLC0415
             EvolutionaryRoleCoordinator,
         )
 
@@ -147,7 +147,7 @@ class TestAgentBenchmarkSmoke:
     def test_coordinator_assigns_all_vibes(self) -> None:
         """All four base vibes (miner/scout/aligner/scrambler) should
         be assignable by the evolutionary coordinator."""
-        from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolutionary_coordinator import (  # noqa: PLC0415
             EvolutionaryRoleCoordinator,
         )
 
@@ -166,10 +166,10 @@ class TestAgentBenchmarkSmoke:
     )
     def test_base_role_materializes(self, role_name: str) -> None:
         """Each base role should materialize into a non-empty behavior list."""
-        from policies.scripted.cogsguard.evolution.cogsguard.evolution import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolution import (  # noqa: PLC0415
             materialize_role_behaviors,
         )
-        from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolutionary_coordinator import (  # noqa: PLC0415
             EvolutionaryRoleCoordinator,
         )
 
@@ -185,7 +185,7 @@ class TestAgentBenchmarkSmoke:
         """Run the coordinator through multiple games without errors."""
         import random  # noqa: PLC0415
 
-        from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (  # noqa: PLC0415
+        from players.cogsguard.role.evolution.evolutionary_coordinator import (  # noqa: PLC0415
             EvolutionaryRoleCoordinator,
         )
 

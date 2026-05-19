@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from policies.scripted.cogsguard.scripted_agent.utils import create_object_state
+from players.cogsguard._shared.utils import create_object_state
 
 from mettagrid.config.tag import typeTag
 

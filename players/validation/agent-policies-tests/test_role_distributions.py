@@ -5,17 +5,17 @@ from __future__ import annotations
 import random
 
 import pytest
-from policies.scripted.cogsguard.evolution.cogsguard.evolution import (
+from players.cogsguard.role.evolution.evolution import (
     BehaviorSource,
     RoleCatalog,
     RoleDef,
     RoleTier,
     pick_role_id_weighted,
 )
-from policies.scripted.cogsguard.evolution.cogsguard.evolutionary_coordinator import (
+from players.cogsguard.role.evolution.evolutionary_coordinator import (
     EvolutionaryRoleCoordinator,
 )
-from policies.scripted.cogsguard.scripted_registry import resolve_scripted_agent_uri
+from players.cogsguard.scripted_registry import resolve_scripted_agent_uri
 
 ROLE_VARIANTS = ("role", "role_nim", "wombo", "teacher")
 BASE_ROLE_VIBES = (

@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from policies.scripted.cogsguard.scripted_agent.buggy.context import PlankyContext
-from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import Entity as BuggyEntity
-from policies.scripted.cogsguard.scripted_agent.buggy.entity_map import EntityMap as BuggyEntityMap
-from policies.scripted.cogsguard.scripted_agent.buggy.goal import evaluate_goals as evaluate_buggy_goals
-from policies.scripted.cogsguard.scripted_agent.common.context import StateSnapshot
-from policies.scripted.cogsguard.scripted_agent.common.goal import Goal, evaluate_goals
-from policies.scripted.cogsguard.scripted_agent.common.trace import TraceLog
-from policies.scripted.cogsguard.scripted_agent.cranky.context import CogasContext
-from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import Entity as CrankyEntity
-from policies.scripted.cogsguard.scripted_agent.cranky.entity_map import EntityMap as CrankyEntityMap
-from policies.scripted.cogsguard.scripted_agent.cranky.goal import evaluate_goals as evaluate_cranky_goals
+from players.cogsguard.buggy.context import PlankyContext
+from players.cogsguard.buggy.entity_map import Entity as BuggyEntity
+from players.cogsguard.buggy.entity_map import EntityMap as BuggyEntityMap
+from players.cogsguard.buggy.goal import evaluate_goals as evaluate_buggy_goals
+from players.cogsguard._shared.common.context import StateSnapshot
+from players.cogsguard._shared.common.goal import Goal, evaluate_goals
+from players.cogsguard._shared.common.trace import TraceLog
+from players.cogsguard.cranky.context import CogasContext
+from players.cogsguard.cranky.entity_map import Entity as CrankyEntity
+from players.cogsguard.cranky.entity_map import EntityMap as CrankyEntityMap
+from players.cogsguard.cranky.goal import evaluate_goals as evaluate_cranky_goals
 
 from mettagrid.simulator import Action
 

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.cogsguard.debug_agent import DebugHarness
+from players.cogsguard.role.debug_agent import DebugHarness
 
 
 def _make_harness(*objects: dict) -> DebugHarness:

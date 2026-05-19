@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.cogsguard.role_trace import (
+from players.cogsguard.role.role_trace import (
     count_role_transitions,
     count_steps_with_roles,
     format_role_trace_line,

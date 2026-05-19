@@ -19,13 +19,14 @@ nimcache/
 **/.claude/scheduled_tasks.lock
 
 # Coworld manifest/image cache downloaded by `coworld download` (see e.g.
-# policies/cyborg/bitworld/coborg_among_them/scripts/play_local.sh).
+# players/among_them/coborg/scripts/play_local.sh).
 /coworld/
 
-# Nimby-generated FFI bindings and path-config for nim_agents builds.
-# (Hand-written nim.cfg elsewhere, e.g. guided_bot/nim.cfg, stays tracked.)
-**/nim_agents/bindings/
-**/nim_agents/nim.cfg
+# Nimby-generated FFI bindings and path-config for Nim builds in
+# players/cogsguard/nim/. (Hand-written nim.cfg elsewhere, e.g.
+# guided_bot/nim.cfg, stays tracked.)
+players/cogsguard/nim/bindings/
+players/cogsguard/nim/nim.cfg
 
 # Per-user ephemeral run outputs (coworld replays, smoke-test logs, etc.).
 users/**/tmp/

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.cogsguard.prereq_trace import (
+from players.cogsguard.role.prereq_trace import (
     format_prereq_trace_line,
     prereq_missing,
 )

@@ -34,13 +34,13 @@ class PolicyUnderTest:
 # Keep it below the module-level dataclass definitions to avoid subtle
 # interpreter/pytest import-mode interactions during collection.
 discover_and_register_policies("cogames.policy")
-discover_and_register_policies("policies.scripted.cogsguard")
+discover_and_register_policies("players.cogsguard")
 
 
 @cache
 def _nim_bindings_available() -> bool:
     try:
-        import policies.scripted.cogsguard.nim_agents.agents as _  # noqa: F401, PLC0415
+        import players.cogsguard.nim.agents as _  # noqa: F401, PLC0415
     except ModuleNotFoundError:
         return False
     return True
@@ -58,32 +58,32 @@ POLICIES_UNDER_TEST: tuple[PolicyUnderTest, ...] = (
     PolicyUnderTest("buggy"),
     PolicyUnderTest("cranky"),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.nim_agents.agents.ThinkyAgentsMultiPolicy",
+        "players.cogsguard.nim.agents.ThinkyAgentsMultiPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.nim_agents.agents.RandomAgentsMultiPolicy",
+        "players.cogsguard.nim.agents.RandomAgentsMultiPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.nim_agents.agents.RaceCarAgentsMultiPolicy",
+        "players.cogsguard.nim.agents.RaceCarAgentsMultiPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.nim_agents.agents.CogsguardAgentsMultiPolicy",
+        "players.cogsguard.nim.agents.CogsguardAgentsMultiPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.nim_agents.agents.NlankyAgentsMultiPolicy",
+        "players.cogsguard.nim.agents.NlankyAgentsMultiPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
     PolicyUnderTest(
-        "policies.scripted.cogsguard.scripted_agent.cogsguard.teacher.CogsguardTeacherPolicy",
+        "players.cogsguard.role.teacher.CogsguardTeacherPolicy",
         requires_nim=True,
         supports_supervisor=True,
     ),
@@ -97,9 +97,9 @@ def _policy_param(policy: PolicyUnderTest):  # -> pytest.ParameterSet
     marks = ()
     if policy.requires_nim and not _nim_bindings_available():
         marks = pytest.mark.skip(
-            "Nim bindings missing. Run `nim c nim_agents.nim` in policies/scripted/cogsguard/nim_agents."
+            "Nim bindings missing. Run `nim c nim_agents.nim` in players/cogsguard/nim."
         )
-    policy_id = policy.reference.replace("cogames.policy.", "").replace("policies.scripted.cogsguard.", "").replace(".", "_")
+    policy_id = policy.reference.replace("cogames.policy.", "").replace("players.cogsguard.", "").replace(".", "_")
     return pytest.param(policy, id=policy_id, marks=marks)
 
 
@@ -191,7 +191,7 @@ def test_scripted_policies_can_play_short_episode(policy: PolicyUnderTest, env_c
 
 @pytest.mark.skipif(
     not _nim_bindings_available(),
-    reason=("Nim bindings missing. Run `nim c nim_agents.nim` in policies/scripted/cogsguard/nim_agents."),
+    reason=("Nim bindings missing. Run `nim c nim_agents.nim` in players/cogsguard/nim."),
 )
 @pytest.mark.skip(reason="Flaky on CI: nlanky Machina smoke test is nondeterministic.")
 def test_nlanky_aligns_junctions_in_machina() -> None:

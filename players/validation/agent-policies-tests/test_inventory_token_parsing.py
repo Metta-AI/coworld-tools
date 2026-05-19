@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from policies.scripted.cogsguard.scripted_agent.buggy.obs_parser import ObsParser as BuggyObsParser
-from policies.scripted.cogsguard.scripted_agent.cranky.obs_parser import ObsParser as CrankyObsParser
-from policies.scripted.cogsguard.scripted_agent.utils import add_inventory_token, split_power_suffix
+from players.cogsguard.buggy.obs_parser import ObsParser as BuggyObsParser
+from players.cogsguard.cranky.obs_parser import ObsParser as CrankyObsParser
+from players.cogsguard._shared.utils import add_inventory_token, split_power_suffix
 
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 
