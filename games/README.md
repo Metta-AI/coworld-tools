@@ -9,12 +9,18 @@ game's existing source layout under `games/<name>/` and keeps the old source rep
 
 - `games/`: game packages and Coworld runtimes.
 - `templates/`: reusable game templates.
-- `docs/`: shared inventory and migration notes.
+- `docs/`: shared inventory, migration notes, and game-authoring guidance.
 
 ## Current Inventory
 
 See [docs/inventory.md](docs/inventory.md) for the imported game list, source provenance, runtime type, and candidates
 that were intentionally left out.
+
+## Coworld Guidance
+
+- [docs/COWORLD_REFERENCE.md](docs/COWORLD_REFERENCE.md) maps this repo to the canonical Coworld sources in metta.
+- [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) explains how this repo should differ from the role repos like
+  `reporters`, `graders`, `diagnosers`, and `commissioners`.
 
 ## Python Workspace
 

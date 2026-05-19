@@ -12,6 +12,10 @@
 - `templates/<template>/`: reusable game-authoring templates.
 - `docs/`: shared migration notes, inventory, and game-authoring conventions.
 
+See [`GAME_DESIGN.md`](GAME_DESIGN.md) for the repo-level conventions that distinguish `games`
+from the role repos, and [`COWORLD_REFERENCE.md`](COWORLD_REFERENCE.md) for navigation into the
+canonical Coworld sources in metta.
+
 ## Python Games
 
 Python game packages are listed in the root `uv` workspace when their package layout is already self-contained. The
