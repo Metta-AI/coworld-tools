@@ -167,31 +167,62 @@ Extractors ──► Miners ──► Commons ──► Gear Stations ──► 
 
 ## Usage
 
-```bash
-# Run with the role policy (default: 1 scrambler, 4 miners)
-./tools/run.py recipes.experiment.cogsguard.play policy_uri=metta://policy/role
+This player ships as a self-contained Coworld player container. The default
+runtime path is `players/cogsguard/role/build.sh` → Docker image →
+`coworld_manifest.json` `player[]` entry. The image hosts the policy inside
+[`players.player_sdk.coworld_json_bridge`](../../player_sdk/coworld_json_bridge.py),
+which speaks `coworld.player.v1` JSON over the engine websocket.
 
-# With limited timesteps and log rendering
-./tools/run.py recipes.experiment.cogsguard.play policy_uri=metta://policy/role render=log max_steps=500
+### Build & artifacts
+
+```bash
+players/cogsguard/role/build.sh
+```
+
+Produces a `linux/amd64` Docker image (`players-cogsguard-role:dev`), a
+`coworld_manifest.json` `player[]` snippet on stdout, and
+`dist/coplayer_manifest.json`. See
+[`docs/coworld-player-packaging.md`](../../../docs/coworld-player-packaging.md)
+§5 for the full contract.
+
+### Selecting which short_name to deploy
+
+The `role/` leaf registers multiple short_names: `role` (default), `teacher`,
+`wombo`, `cogsguard_v2`, `cogsguard_control`, `cogsguard_targeted`. Pick one
+by overriding `COGAMES_POLICY_URI` in the manifest's `player[].env`:
+
+```json
+{
+  "id": "cogsguard-role-teacher",
+  "name": "CogsGuard Role (teacher)",
+  "type": "player",
+  "description": "Teacher-variant role policy",
+  "image": "players-cogsguard-role:dev",
+  "env": { "COGAMES_POLICY_URI": "metta://policy/teacher" }
+}
 ```
 
 ### Specifying Initial Vibe Counts
 
-You can control how many agents start with each role using URI query parameters:
+Initial role mix comes from URI query parameters on `COGAMES_POLICY_URI`:
 
-```bash
-# Custom distribution: 4 miners, 2 scramblers, 1 gear (smart role)
-./tools/run.py recipes.experiment.cogsguard.play \
-    policy_uri="metta://policy/role?miner=4&scrambler=2&gear=1"
+```jsonc
+// 4 miners, 2 scramblers, 1 gear (smart role)
+"env": { "COGAMES_POLICY_URI": "metta://policy/role?miner=4&scrambler=2&gear=1" }
 
-# All miners
-./tools/run.py recipes.experiment.cogsguard.play \
-    policy_uri="metta://policy/role?miner=10"
+// All miners
+"env": { "COGAMES_POLICY_URI": "metta://policy/role?miner=10" }
 
-# Balanced team
-./tools/run.py recipes.experiment.cogsguard.play \
-    policy_uri="metta://policy/role?miner=3&scout=2&aligner=2&scrambler=3"
+// Balanced team
+"env": { "COGAMES_POLICY_URI": "metta://policy/role?miner=3&scout=2&aligner=2&scrambler=3" }
 ```
+
+### In-tree development
+
+For interactive debugging during development, the policy can still be invoked
+via the in-tree harness documented in
+[`AGENTS.md`](AGENTS.md) (`DebugHarness.from_recipe(...)`). That path is for
+development only — production deployment goes through `build.sh`.
 
 **Supported vibe parameters:**
 
@@ -238,6 +269,8 @@ role/
 ├── aligner.py       # Aligner role implementation
 ├── scrambler.py     # Scrambler role implementation
 ├── evolution/       # Evolutionary role coordinator (consumed by role only)
+├── Dockerfile       # linux/amd64 player image (Coworld contract)
+├── build.sh         # Coworld build entrypoint
 ├── README.md        # This file
 ├── AGENTS.md        # AI debugging guide
 └── CLAUDE.md        # (identical to AGENTS.md)

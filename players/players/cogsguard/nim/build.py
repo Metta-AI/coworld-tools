@@ -180,3 +180,7 @@ def build_nim() -> None:
         print(result.stderr, file=sys.stderr)
         print(result.stdout, file=sys.stderr)
         raise RuntimeError(f"Failed to build Nim agents: {result.returncode}")
+
+
+if __name__ == "__main__":
+    build_nim()
