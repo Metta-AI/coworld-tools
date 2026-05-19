@@ -5,3 +5,9 @@ description = "Workspace anchor for the reporters repo. The shared, pip-installa
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "requests>=2.34.2",
+]
