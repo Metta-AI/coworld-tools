@@ -2,7 +2,7 @@
 
 Game-agnostic template reporters — scaffolding and base implementations meant to make it easy to start a new reporter for a coworld.
 
-> **Status:** scaffold only. `summarizer_template` is the planned first implementation; no template code exists yet.
+> **Status: intentionally on hold.** No template code exists yet, and we are **not** writing speculative templates. `summarizer_template` will be *extracted* from [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) once that concrete reporter is implemented and its game-agnostic shape is visible. See the "Build strategy" section of the [root README](../../README.md) for the rationale.
 
 ## Purpose
 
@@ -49,8 +49,8 @@ Templates in this directory must stay aligned with those documents. If a templat
 
 | Template | Role | Status |
 | --- | --- | --- |
-| `summarizer_template` | Standard pattern for producing a Markdown summary artifact (`text/markdown`) plus a JSON stats artifact (`application/json`) from an episode's results. The default starting point for any new `<coworld>_summarizer` reporter. | Scaffold only — no implementation |
+| `summarizer_template` | Standard pattern for producing a Markdown summary artifact (`text/markdown`) plus a JSON stats artifact (`application/json`) from an episode's results. The default starting point for any new `<coworld>_summarizer` reporter. | On hold — will be extracted from `paint_arena_summarizer` |
 
-`summarizer_template` is the first planned implementation. It will demonstrate the canonical two-artifact envelope (Markdown summary + JSON stats) that every coworld-specific summarizer in this repo is expected to follow, and will be the thing `paint_arena/paint_arena_summarizer` is built on first.
+`summarizer_template` will be derived from `paint_arena/paint_arena_summarizer` after that reporter is implemented end-to-end. The "canonical two-artifact envelope (Markdown summary + JSON stats)" shape that a summarizer template should encode is exactly what `paint_arena_summarizer` ends up being, minus the PaintArena-specific bits (results parsing, summary phrasing, stats fields). Extracting in that direction guarantees the template reflects something that actually works, rather than an imagined shape we have to retrofit reporters to.
 
-Additional templates (e.g. a highlight-reel template for binary/image artifacts) may land here once concrete reporters surface a shared pattern worth extracting. Templates should follow demand, not anticipate it.
+Additional templates (e.g. a highlight-reel template for binary/image artifacts) follow the same rule: extract from a working concrete reporter rather than write speculatively. Templates follow demand; they do not anticipate it.

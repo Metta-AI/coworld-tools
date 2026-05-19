@@ -2,7 +2,7 @@
 
 Shared, pip-installable Python package providing the primitives every coworld reporter in this repo programs against.
 
-> **Status:** scaffold only. The package exists and is installable, but exposes no real surface yet. Implementation will follow the first concrete reporter so the API is shaped by actual use rather than anticipation.
+> **Status: intentionally on hold.** The package exists and is installable but exposes no real surface yet, and we are deliberately **not** adding one until [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) is built end-to-end with its primitives inline. The SDK's API will then be *extracted* from that reporter — see the "Build strategy" section of the [root README](../../README.md) for the rationale. The skeleton exists now so the import path is reserved and the package is wired up for an editable install whenever it becomes useful.
 
 ## Purpose
 
@@ -38,7 +38,7 @@ uv pip install -e reporters/reporter_sdk
 pip install -e reporters/reporter_sdk
 ```
 
-For per-reporter Docker builds, the SDK is installed from the build context. Each reporter's `build.sh` is expected to set the build context to `reporters/reporters/` (one level above the leaf reporter) so the SDK and the reporter source are both reachable. Sketch of a reporter Dockerfile:
+For per-reporter Docker builds, the SDK is installed from the build context. Each reporter's `build.sh` is expected to set the build context to `reporters/` (from the repo root — i.e. the directory containing `reporter_sdk/`, `templates/`, and the per-coworld reporter directories) so the SDK and the reporter source are both reachable. Sketch of a reporter Dockerfile:
 
 ```dockerfile
 FROM python:3.13-slim

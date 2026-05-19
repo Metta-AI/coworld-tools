@@ -110,14 +110,25 @@ For everything else — certification, Observatory API surface, CLI, naming, the
 
 | Component | Coworld | Kind | Status |
 | --- | --- | --- | --- |
-| `reporter_sdk` | (shared) | Library | Package skeleton in place; no implementation surface yet |
-| `templates/summarizer_template` | (template) | Reporter scaffold | Scaffold only — no implementation |
+| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **In design** — first concrete reporter; will drive SDK and template extraction |
+| `reporter_sdk` | (shared) | Library | Package skeleton in place; on hold until `paint_arena_summarizer` reveals the right primitives |
+| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; will be derived from `paint_arena_summarizer` once its shape is known |
 | `among_them/among_them_summarizer` | Among Them | Reporter | Scaffold only — no implementation |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation |
-| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | Scaffold only — no implementation |
 | `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation |
 
-The expected build order is `reporter_sdk` → `templates/summarizer_template` → `paint_arena/paint_arena_summarizer`. SDK first because the templates and concrete reporters import from it; `summarizer_template` second because it establishes the canonical two-artifact envelope shape (Markdown summary + JSON stats) that other summarizers will follow; PaintArena first among the concrete reporters because spec 0043 uses `paintarena-reporter` as its worked example and PaintArena is the simplest reference coworld in the metta repo.
+### Build strategy: concrete reporter first, then extract
+
+We are intentionally **not** building the SDK and `summarizer_template` first. The previous plan was to ship reusable primitives, then templates, then concrete reporters — a clean bottom-up order. We changed our minds: you cannot design good primitives without a real consumer to ground them, and shipping speculative abstractions before the first reporter exists risks baking the wrong ones in.
+
+The new order is:
+
+1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with envelope construction, env-supplied URI I/O, and types all inline in the reporter. PaintArena is the right starting target: spec 0043 already uses `paintarena-reporter` as its worked example, the game has the smallest results schema in the reference coworlds (`scores`, `painted_tiles`, `ticks` — see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) for the broader contract), and the metta repo has a complete PaintArena example to point at.
+2. **Extract `reporter_sdk`** from the inline primitives in `paint_arena_summarizer` once they exist. The API is whatever turns out to actually be useful, not what we guessed in advance.
+3. **Extract `templates/summarizer_template`** from `paint_arena_summarizer` by stripping the PaintArena-specific bits. The "canonical summarizer shape" is whatever the concrete reporter ends up being once the SDK absorbs the reusable parts.
+4. **Build the second concrete summarizer** (likely `among_them/among_them_summarizer`) against the extracted SDK, using the template as the starting skeleton. Pain points uncovered in step 4 feed back into the SDK and template.
+
+Cost of this order: the first reporter does not get to import polished helpers — it builds them inline. That is the point. The duplication and friction that surface when writing it are exactly the signal we need to know what belongs in the SDK.
 
 ## Related metta repo locations
 
