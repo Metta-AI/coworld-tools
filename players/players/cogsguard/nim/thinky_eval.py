@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
+import logging
 import time
+import warnings
 from typing import Dict, List, Tuple
 
 from cogsguard.evals.diagnostic_evals import DIAGNOSTIC_EVALS
 from cogsguard.missions.mission import CvCMission as Mission
 
 import players.cogsguard.nim.agents as na
-from cogames.cli.utils import suppress_noisy_logs
 from mettagrid.policy.loader import initialize_or_load_policy
 from mettagrid.policy.policy import PolicySpec
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator.rollout import Rollout
+
+
+def suppress_noisy_logs() -> None:
+    """Quiet the third-party warning noise that obscures eval output.
+
+    Ported from the deprecated ``cogames.cli.utils.suppress_noisy_logs``.
+    Kept narrow on purpose: tuning harnesses want clean stdout; runtime
+    paths should not call this.
+    """
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+    warnings.filterwarnings("ignore", category=SyntaxWarning, message=r".*invalid escape sequence.*")
+    logging.getLogger("torch.distributed.elastic.multiprocessing.redirects").setLevel(logging.ERROR)
 
 # Agent to evaluate
 AGENT_PATH = "players.cogsguard.nim.agents.ThinkyAgentsMultiPolicy"

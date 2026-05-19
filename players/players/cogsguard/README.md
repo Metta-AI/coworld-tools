@@ -61,7 +61,30 @@ like `metta://policy/role` for `discover_and_register_policies` to bind.
 
 ## Running policies
 
-CogsGuard policies are intended to be run via the `cogames` and `mettagrid`
-runtimes. See `role/README.md` for the canonical CogsGuard vibe API; the
-baseline and tiny variants expose minimal stateless interfaces useful for
-ablation studies.
+Each leaf ships as a self-contained Coworld player container. The canonical
+production path is the leaf's `build.sh`:
+
+```bash
+players/cogsguard/<leaf>/build.sh        # → docker image + manifest snippet
+```
+
+The image hosts the policy inside
+[`players.player_sdk.coworld_json_bridge`](../player_sdk/coworld_json_bridge.py),
+which speaks the `coworld.player.v1` JSON protocol over the websocket the
+Coworld runner supplies in `COGAMES_ENGINE_WS_URL`. See
+[`docs/coworld-player-packaging.md`](../../docs/coworld-player-packaging.md)
+for the player contract and each leaf's README for policy-specific notes:
+
+- [`baseline/`](baseline/README.md), [`tiny_baseline/`](tiny_baseline/README.md)
+  — single-file scripted policies, useful baselines and reading references.
+- [`buggy/`](buggy/README.md), [`cranky/`](cranky/README.md) — goal-tree
+  Python siblings (Planky/Cogas brains) used for tuning experiments.
+- [`role/`](role/README.md) — the canonical CogsGuard vibe-based multi-role
+  policy. Hosts six registered `short_names` (`role`, `teacher`, `wombo`,
+  `cogsguard_v2`, `cogsguard_control`, `cogsguard_targeted`).
+- [`nim/`](nim/README.md) — six Nim-backed policies sharing one image.
+
+Policies still expose themselves to the mettagrid runtime via
+`MultiAgentPolicy` subclasses and `short_names`; in-tree development
+harnesses (e.g. `role/AGENTS.md`'s `DebugHarness`) continue to work
+unchanged. The Coworld build path is the deployment surface.
