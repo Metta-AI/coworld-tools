@@ -4,48 +4,27 @@ Importable policy and agent-framework workspace for Metta-AI projects.
 
 There are two installable Python packages:
 
-- `agent_policies` (under `src/agent_policies/`): reusable agent frameworks
-  (Coborg, Cogamer, cyborg evolution) plus importable tooling helpers such as
-  eval metrics and eval definitions.
-- `policies` (top-level): concrete importable policies, separated by policy
-  style (symbolic / cyborg / neural / scripted) and target game/system. The
-  same tree also holds runnable non-importable policy snapshots — generated
-  artifacts and non-Python players — that share the family directories with
-  their importable siblings.
+- `agent_policies` (under `src/agent_policies/`): the Coborg agent framework
+  plus importable tooling helpers (eval metrics, eval definitions).
+- `policies` (top-level): concrete importable policies, organized by policy
+  style (`scripted/`, `cyborg/`) and target game/system.
 
 Other top-level directories:
 
-- `tools/`: eval, upload, benchmark, compare, Cogbase, and research tooling.
-- `users/`: contributor-owned active repos mounted as submodules.
-- `docs/`: policy catalog, provenance, migrations, tutorials, and experiment
-  records.
-
-## Current State
-
-The repo has a root `pyproject.toml` for the `agent-policies` distribution.
-Canonical imports use `agent_policies.frameworks.*`, `agent_policies.tools.*`,
-and (for concrete policies) `policies.*` directly. Historical import roots
-such as `cogames_agents`, `cogamer`, `framework`, and `robot` are not
-packaged.
-
-The repo now contains copied source snapshots from the high-signal policy
-sources identified in the consolidation plan, `tools/cogbase` as the base-agent
-meta-pipeline toolkit, plus `users/relh/co-gas` as a submodule. See
-`docs/source-provenance.md` for source commits and copy targets.
+- `tools/`: eval, upload, benchmark, and compare scripts for the in-tree
+  policies, plus `tools/cogbase/` as a standalone base-agent toolkit.
+- `users/`: contributor-owned active projects, in-tree or as submodules.
 
 ## Working Rules
 
 - Put reusable agent frameworks under `src/agent_policies/frameworks/`.
 - Put importable eval/tooling helpers under `src/agent_policies/tools/`.
 - Put concrete importable policies under the top-level `policies/` tree.
-- Put runnable non-importable policy snapshots under `policies/<family>/`
-  alongside their importable siblings.
 - Put shared execution or analysis workflows under `tools/`.
-- Keep Cogbase under `tools/cogbase/`; it is a standalone prototype toolkit for
-  generating game guides and base-agent artifacts.
-- Keep active personal projects under `users/<handle>/<project>` as submodules
-  until code is intentionally promoted into the shared policy tree.
-- Keep language next to the policy it implements. Nim, Python, Go, CUDA, and
-  container files should not get top-level language buckets.
+- Keep Cogbase under `tools/cogbase/`; it is a standalone prototype toolkit
+  for generating game guides and base-agent artifacts.
+- Keep active personal projects under `users/<handle>/<project>` until code
+  is intentionally promoted into the shared policy tree.
+- Keep language next to the policy it implements (Nim, Python, etc.).
 - Keep game/runtime package code in its owning repo unless the file is
   genuinely policy source.

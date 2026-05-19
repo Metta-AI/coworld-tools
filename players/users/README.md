@@ -1,7 +1,7 @@
 # User Policy Repos
 
-This directory contains contributor-owned policy projects mounted as Git
-submodules.
+This directory contains contributor-owned policy projects, either in-tree or
+mounted as Git submodules.
 
 Use `users/<handle>/<project>` when a policy repo remains actively edited by its
 owner but should still be discoverable and runnable from this workspace.
