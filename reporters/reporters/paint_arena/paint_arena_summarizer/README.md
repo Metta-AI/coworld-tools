@@ -60,13 +60,24 @@ IMAGE=ghcr.io/.../par:1 ./build.sh
 
 The Docker build context is `reporters/` (the directory containing `reporter_sdk/` and per-coworld trees), so the Dockerfile can `COPY` both the shared SDK and the reporter source from one context. The SDK is installed even though its public surface is currently empty — this reserves the import path for the imminent extraction.
 
+Each reporter ships its own `Dockerfile.dockerignore` (allowlist style) so the build context contains only the SDK plus that reporter's runtime source. Docker 25+ honors the per-Dockerfile ignore file in preference to a `reporters/.dockerignore` at the context root, which lets each reporter scope its own includes. The paint_arena_summarizer context transfers ~460 B.
+
 ## Tests
 
 ```bash
 uv run pytest reporters/paint_arena/paint_arena_summarizer/tests/ -v
 ```
 
-Covers happy path, zero-paint, tie, missing-variant, malformed and unparseable results, missing env vars, envelope self-validation, and a determinism check (two runs over the same inputs produce byte-identical output).
+Covers happy path, zero-paint, tie, missing-variant, malformed and unparseable results, missing env vars, envelope self-validation, key-order regression, HTTP retry policy (transient retries, capped attempts, exact backoff schedule), and a determinism check (two runs over the same inputs produce byte-identical output).
+
+### Containerized smoke test
+
+```bash
+./smoke.sh                  # builds + runs the image against smoke/fixtures/
+IMAGE=ghcr.io/.../par:1 ./smoke.sh
+```
+
+Builds the image, runs the container against checked-in fixtures under `smoke/fixtures/`, mounts a `mktemp -d` directory for the output envelope, and asserts envelope shape (version, two artifacts in `[summary, stats]` order, expected content types), key ordering (top-level and per-artifact, both parsed and bytewise), and that grid dimensions resolve from the manifest. This is the integration-level check that the *packaged image* still satisfies the contract; the pytest suite is the fast iteration loop.
 
 ## SDK extraction candidates (inline today)
 

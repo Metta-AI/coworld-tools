@@ -1,0 +1,16 @@
+{
+  "episode_id": "ep_abc123",
+  "variant_id": "default",
+  "started_at": "2026-05-18T10:23:45Z",
+  "ended_at": "2026-05-18T10:24:05Z",
+  "duration_seconds": 19.4,
+  "players": [
+    {"slot": 0, "policy_version_id": "polver_1", "policy_name": "champion-v3"},
+    {"slot": 1, "policy_version_id": "polver_2", "policy_name": "starter"}
+  ],
+  "league_id": null,
+  "division_id": null,
+  "round_id": null,
+  "pool_id": null,
+  "tags": {}
+}
