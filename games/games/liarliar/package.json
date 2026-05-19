@@ -1,0 +1,19 @@
+{
+  "name": "liarliar-cut-the-wire",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/local.js",
+    "dev:humans": "node src/local.js --bots 0",
+    "dev:one-human": "node src/local.js --bots n-1 --bot-mode llm",
+    "dev:bots": "node src/local.js --bots n --bot-mode llm",
+    "bots:scripted": "node src/bots.js --mode scripted",
+    "bots:llm": "node src/bots.js --mode llm",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

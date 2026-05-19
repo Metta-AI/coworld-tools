@@ -1,0 +1,1924 @@
+{
+  "imageUrl": "/assets/cogshambo/venue/gray-area-floor-plan.png",
+  "dimensions": {
+    "width": 50,
+    "height": 28
+  },
+  "rooms": [
+    {
+      "id": "lobby_entry",
+      "label": "Lobby Entry",
+      "kind": "walkway",
+      "rect": {
+        "x": 3.8,
+        "y": 11.8,
+        "width": 5.4,
+        "height": 6.4
+      },
+      "spotIds": [
+        "lobby_entry_door",
+        "lobby_entry_center",
+        "lobby_entry_wall"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "exhibit_entry",
+        "lobby_bar_queue",
+        "new_room",
+        "new_room_3"
+      ]
+    },
+    {
+      "id": "lobby_bar_queue",
+      "label": "Lobby Bar Queue",
+      "kind": "walkway",
+      "rect": {
+        "x": 9.8,
+        "y": 15.8,
+        "width": 4.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "lobby_queue_near",
+        "lobby_queue_far"
+      ],
+      "neighborIds": [
+        "concessions_left",
+        "concessions_right",
+        "exhibit_entry",
+        "lobby_entry",
+        "new_room",
+        "new_room_3"
+      ]
+    },
+    {
+      "id": "conference_corner",
+      "label": "Conference Corner",
+      "kind": "table",
+      "rect": {
+        "x": 9.8,
+        "y": 5.8,
+        "width": 6.4,
+        "height": 4.4
+      },
+      "spotIds": [
+        "conference_head",
+        "conference_left",
+        "conference_right"
+      ],
+      "neighborIds": [
+        "exhibit_entry",
+        "exhibit_north",
+        "lobby_entry",
+        "new_room",
+        "new_room_2",
+        "new_room_4"
+      ]
+    },
+    {
+      "id": "concessions_left",
+      "label": "Left Bar",
+      "kind": "bar",
+      "rect": {
+        "x": 9.8,
+        "y": 18.8,
+        "width": 5.4,
+        "height": 4.4
+      },
+      "spotIds": [
+        "bar_left_a",
+        "bar_left_b",
+        "bar_left_c"
+      ],
+      "neighborIds": [
+        "concessions_right",
+        "exhibit_south",
+        "lobby_bar_queue",
+        "new_room_3"
+      ]
+    },
+    {
+      "id": "concessions_right",
+      "label": "Right Bar",
+      "kind": "bar",
+      "rect": {
+        "x": 14.8,
+        "y": 17.8,
+        "width": 4.4,
+        "height": 5.4
+      },
+      "spotIds": [
+        "bar_right_a",
+        "bar_right_b",
+        "bar_right_c"
+      ],
+      "neighborIds": [
+        "concessions_left",
+        "exhibit_south",
+        "lobby_bar_queue",
+        "new_room_3",
+        "south_alley"
+      ]
+    },
+    {
+      "id": "exhibit_entry",
+      "label": "Exhibit Entry",
+      "kind": "walkway",
+      "rect": {
+        "x": 17.8,
+        "y": 10.8,
+        "width": 4.4,
+        "height": 7.4
+      },
+      "spotIds": [
+        "exhibit_entry_left",
+        "exhibit_entry_center",
+        "exhibit_entry_right"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "exhibit_center_a",
+        "exhibit_north",
+        "exhibit_south",
+        "lobby_bar_queue",
+        "lobby_entry",
+        "new_room_2"
+      ]
+    },
+    {
+      "id": "exhibit_north",
+      "label": "North Exhibit Pair",
+      "kind": "lounge",
+      "rect": {
+        "x": 21.8,
+        "y": 5.8,
+        "width": 4.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "exhibit_north_wall",
+        "exhibit_north_table"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "exhibit_center_a",
+        "exhibit_entry",
+        "new_room_2",
+        "new_room_4",
+        "north_alley"
+      ]
+    },
+    {
+      "id": "exhibit_center_a",
+      "label": "Center Cluster A",
+      "kind": "lounge",
+      "rect": {
+        "x": 26,
+        "y": 6.800000000000001,
+        "width": 6.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "center_a_left",
+        "center_a_mid",
+        "center_a_right",
+        "center_a_right_copy_4"
+      ],
+      "neighborIds": [
+        "exhibit_center_b",
+        "exhibit_entry",
+        "exhibit_north",
+        "lounge_sofas",
+        "projection_pair"
+      ]
+    },
+    {
+      "id": "exhibit_center_b",
+      "label": "Center Cluster B",
+      "kind": "lounge",
+      "rect": {
+        "x": 23.8,
+        "y": 14.8,
+        "width": 5.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "center_b_left",
+        "center_b_right",
+        "center_a_right_copy_1",
+        "center_a_right_copy_2",
+        "center_a_right_copy_3"
+      ],
+      "neighborIds": [
+        "exhibit_center_a",
+        "exhibit_south",
+        "lounge_sofas",
+        "seat_front",
+        "workshop_left"
+      ]
+    },
+    {
+      "id": "projection_pair",
+      "label": "Projection Wall Pair",
+      "kind": "lounge",
+      "rect": {
+        "x": 29.8,
+        "y": 6.8,
+        "width": 4.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "projection_left",
+        "projection_right"
+      ],
+      "neighborIds": [
+        "exhibit_center_a",
+        "proscenium_apron",
+        "seat_front",
+        "workshop_wall"
+      ]
+    },
+    {
+      "id": "exhibit_south",
+      "label": "South Exhibit Trio",
+      "kind": "lounge",
+      "rect": {
+        "x": 20.8,
+        "y": 19.8,
+        "width": 8.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "south_exhibit_mid"
+      ],
+      "neighborIds": [
+        "concessions_left",
+        "concessions_right",
+        "exhibit_center_b",
+        "exhibit_entry",
+        "lounge_chairs",
+        "south_alley"
+      ]
+    },
+    {
+      "id": "lounge_sofas",
+      "label": "Sofa Nook",
+      "kind": "lounge",
+      "rect": {
+        "x": 20.8,
+        "y": 14.8,
+        "width": 5.4,
+        "height": 4.4
+      },
+      "spotIds": [
+        "sofa_left",
+        "sofa_table",
+        "sofa_right"
+      ],
+      "neighborIds": [
+        "exhibit_center_a",
+        "exhibit_center_b",
+        "lounge_back",
+        "lounge_chairs"
+      ]
+    },
+    {
+      "id": "lounge_chairs",
+      "label": "Chair Nook",
+      "kind": "lounge",
+      "rect": {
+        "x": 17.8,
+        "y": 19.8,
+        "width": 4.4,
+        "height": 4.4
+      },
+      "spotIds": [
+        "south_exhibit_left",
+        "chair_orange",
+        "chair_black"
+      ],
+      "neighborIds": [
+        "exhibit_south",
+        "lounge_back",
+        "lounge_sofas",
+        "workshop_left"
+      ]
+    },
+    {
+      "id": "lounge_back",
+      "label": "Back Lounge Pair",
+      "kind": "lounge",
+      "rect": {
+        "x": 25.8,
+        "y": 17.8,
+        "width": 4.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "south_exhibit_right",
+        "back_lounge_left",
+        "back_lounge_right"
+      ],
+      "neighborIds": [
+        "lounge_chairs",
+        "lounge_sofas",
+        "workshop_left"
+      ]
+    },
+    {
+      "id": "workshop_left",
+      "label": "Workshop Left",
+      "kind": "table",
+      "rect": {
+        "x": 30.8,
+        "y": 17.8,
+        "width": 4.4,
+        "height": 5.4
+      },
+      "spotIds": [
+        "workshop_left_head",
+        "workshop_left_side",
+        "workshop_left_end"
+      ],
+      "neighborIds": [
+        "exhibit_center_b",
+        "lounge_back",
+        "lounge_chairs",
+        "seat_back_left",
+        "workshop_right",
+        "workshop_wall"
+      ]
+    },
+    {
+      "id": "workshop_right",
+      "label": "Workshop Right",
+      "kind": "table",
+      "rect": {
+        "x": 34.8,
+        "y": 17.8,
+        "width": 4.4,
+        "height": 5.4
+      },
+      "spotIds": [
+        "workshop_right_head",
+        "workshop_right_side",
+        "workshop_right_end"
+      ],
+      "neighborIds": [
+        "seat_back_right",
+        "workshop_left",
+        "workshop_wall"
+      ]
+    },
+    {
+      "id": "workshop_wall",
+      "label": "Wall Screen Pair",
+      "kind": "table",
+      "rect": {
+        "x": 33.8,
+        "y": 12.8,
+        "width": 4.4,
+        "height": 3.4
+      },
+      "spotIds": [
+        "wall_screen_left",
+        "wall_screen_right"
+      ],
+      "neighborIds": [
+        "projection_pair",
+        "seat_front",
+        "workshop_left",
+        "workshop_right"
+      ]
+    },
+    {
+      "id": "seat_front",
+      "label": "Front Row",
+      "kind": "table",
+      "rect": {
+        "x": 34.8,
+        "y": 8.8,
+        "width": 5.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "seat_front_left",
+        "seat_front_right"
+      ],
+      "neighborIds": [
+        "exhibit_center_b",
+        "projection_pair",
+        "proscenium_apron",
+        "seat_mid_left",
+        "seat_mid_right",
+        "workshop_wall"
+      ]
+    },
+    {
+      "id": "seat_mid_left",
+      "label": "Middle Left Row",
+      "kind": "table",
+      "rect": {
+        "x": 33.8,
+        "y": 11.8,
+        "width": 4.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "seat_mid_left_a",
+        "seat_mid_left_b"
+      ],
+      "neighborIds": [
+        "proscenium_apron",
+        "seat_back_left",
+        "seat_front",
+        "seat_mid_right"
+      ]
+    },
+    {
+      "id": "seat_mid_right",
+      "label": "Middle Right Row",
+      "kind": "table",
+      "rect": {
+        "x": 37.8,
+        "y": 11.8,
+        "width": 4.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "seat_mid_right_a",
+        "seat_mid_right_b"
+      ],
+      "neighborIds": [
+        "proscenium_apron",
+        "seat_back_right",
+        "seat_front",
+        "seat_mid_left"
+      ]
+    },
+    {
+      "id": "seat_back_left",
+      "label": "Back Left Row",
+      "kind": "table",
+      "rect": {
+        "x": 32.8,
+        "y": 14.8,
+        "width": 4.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "seat_back_left_a",
+        "seat_back_left_b"
+      ],
+      "neighborIds": [
+        "seat_back_right",
+        "seat_mid_left",
+        "south_alley",
+        "workshop_left"
+      ]
+    },
+    {
+      "id": "seat_back_right",
+      "label": "Back Right Row",
+      "kind": "table",
+      "rect": {
+        "x": 36.8,
+        "y": 14.8,
+        "width": 4.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "seat_back_right_a",
+        "seat_back_right_b"
+      ],
+      "neighborIds": [
+        "proscenium_apron",
+        "seat_back_left",
+        "seat_mid_right",
+        "workshop_right"
+      ]
+    },
+    {
+      "id": "proscenium_apron",
+      "label": "Proscenium Apron",
+      "kind": "stage",
+      "rect": {
+        "x": 40.8,
+        "y": 7.8,
+        "width": 3.4,
+        "height": 12.4
+      },
+      "spotIds": [
+        "apron_left",
+        "apron_center",
+        "apron_right"
+      ],
+      "neighborIds": [
+        "green_room",
+        "north_alley",
+        "projection_pair",
+        "seat_back_right",
+        "seat_front",
+        "seat_mid_left",
+        "seat_mid_right",
+        "south_alley"
+      ]
+    },
+    {
+      "id": "stage",
+      "label": "Main Stage",
+      "kind": "stage",
+      "rect": {
+        "x": 39.6,
+        "y": 16.400000000000002,
+        "width": 6,
+        "height": 8.700000000000001
+      },
+      "spotIds": [
+        "stage_guest",
+        "stage_host_copy_1",
+        "stage_guest_copy_1",
+        "stage_host_copy_2"
+      ],
+      "neighborIds": []
+    },
+    {
+      "id": "green_room",
+      "label": "Green Room",
+      "kind": "lounge",
+      "rect": {
+        "x": 42.8,
+        "y": 2.8,
+        "width": 6.4,
+        "height": 4.4
+      },
+      "spotIds": [
+        "green_room_sofa",
+        "green_room_vanity",
+        "green_room_door"
+      ],
+      "neighborIds": [
+        "north_alley",
+        "proscenium_apron"
+      ]
+    },
+    {
+      "id": "north_alley",
+      "label": "North Alley",
+      "kind": "walkway",
+      "rect": {
+        "x": 14.8,
+        "y": 0.8,
+        "width": 28.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "north_alley_lobby",
+        "north_alley_mid",
+        "north_alley_stage"
+      ],
+      "neighborIds": [
+        "exhibit_north",
+        "green_room",
+        "new_room",
+        "new_room_2",
+        "new_room_4",
+        "proscenium_apron"
+      ]
+    },
+    {
+      "id": "south_alley",
+      "label": "South Alley",
+      "kind": "walkway",
+      "rect": {
+        "x": 14.8,
+        "y": 24.8,
+        "width": 28.4,
+        "height": 2.8
+      },
+      "spotIds": [
+        "south_alley_lobby",
+        "south_alley_mid",
+        "south_alley_stage"
+      ],
+      "neighborIds": [
+        "concessions_right",
+        "exhibit_south",
+        "proscenium_apron",
+        "seat_back_left"
+      ]
+    },
+    {
+      "id": "new_room",
+      "label": "New Room",
+      "kind": "lounge",
+      "rect": {
+        "x": 1,
+        "y": 1,
+        "width": 8,
+        "height": 5
+      },
+      "spotIds": [
+        "new_room_spot_1",
+        "new_room_spot_2",
+        "new_room_spot_3"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "lobby_bar_queue",
+        "lobby_entry",
+        "north_alley"
+      ]
+    },
+    {
+      "id": "new_room_2",
+      "label": "New Room 2",
+      "kind": "lounge",
+      "rect": {
+        "x": 14,
+        "y": 3.5,
+        "width": 8,
+        "height": 5
+      },
+      "spotIds": [
+        "new_room_2_spot_1",
+        "new_room_2_spot_2",
+        "new_room_2_spot_3"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "exhibit_entry",
+        "exhibit_north",
+        "new_room_4",
+        "north_alley"
+      ]
+    },
+    {
+      "id": "new_room_3",
+      "label": "New Room 3",
+      "kind": "lounge",
+      "rect": {
+        "x": 1,
+        "y": 19,
+        "width": 8,
+        "height": 5
+      },
+      "spotIds": [
+        "new_room_3_spot_1",
+        "new_room_3_spot_2",
+        "new_room_3_spot_3"
+      ],
+      "neighborIds": [
+        "concessions_left",
+        "concessions_right",
+        "lobby_bar_queue",
+        "lobby_entry"
+      ]
+    },
+    {
+      "id": "new_room_4",
+      "label": "New Room 4",
+      "kind": "lounge",
+      "rect": {
+        "x": 14,
+        "y": 3.5,
+        "width": 8,
+        "height": 5
+      },
+      "spotIds": [
+        "new_room_4_spot_1",
+        "new_room_4_spot_2",
+        "new_room_4_spot_3"
+      ],
+      "neighborIds": [
+        "conference_corner",
+        "exhibit_north",
+        "new_room_2",
+        "north_alley"
+      ]
+    }
+  ],
+  "spots": [
+    {
+      "id": "lobby_entry_door",
+      "roomId": "lobby_entry",
+      "label": "front doors",
+      "position": {
+        "x": 5,
+        "y": 14
+      }
+    },
+    {
+      "id": "lobby_entry_center",
+      "roomId": "lobby_entry",
+      "label": "entry center",
+      "position": {
+        "x": 8,
+        "y": 13
+      }
+    },
+    {
+      "id": "lobby_entry_wall",
+      "roomId": "lobby_entry",
+      "label": "wall lean",
+      "position": {
+        "x": 8,
+        "y": 17
+      }
+    },
+    {
+      "id": "lobby_queue_near",
+      "roomId": "lobby_bar_queue",
+      "label": "near queue",
+      "position": {
+        "x": 11,
+        "y": 17
+      }
+    },
+    {
+      "id": "lobby_queue_far",
+      "roomId": "lobby_bar_queue",
+      "label": "far queue",
+      "position": {
+        "x": 13,
+        "y": 18
+      }
+    },
+    {
+      "id": "conference_head",
+      "roomId": "conference_corner",
+      "label": "table head",
+      "position": {
+        "x": 13,
+        "y": 7
+      }
+    },
+    {
+      "id": "conference_left",
+      "roomId": "conference_corner",
+      "label": "left chair",
+      "position": {
+        "x": 11,
+        "y": 9
+      }
+    },
+    {
+      "id": "conference_right",
+      "roomId": "conference_corner",
+      "label": "right chair",
+      "position": {
+        "x": 15,
+        "y": 9
+      }
+    },
+    {
+      "id": "bar_left_a",
+      "roomId": "concessions_left",
+      "label": "left stool",
+      "position": {
+        "x": 11,
+        "y": 22
+      }
+    },
+    {
+      "id": "bar_left_b",
+      "roomId": "concessions_left",
+      "label": "middle stool",
+      "position": {
+        "x": 13,
+        "y": 22
+      }
+    },
+    {
+      "id": "bar_left_c",
+      "roomId": "concessions_left",
+      "label": "corner stool",
+      "position": {
+        "x": 14,
+        "y": 20
+      }
+    },
+    {
+      "id": "bar_right_a",
+      "roomId": "concessions_right",
+      "label": "rail stool",
+      "position": {
+        "x": 16,
+        "y": 22
+      }
+    },
+    {
+      "id": "bar_right_b",
+      "roomId": "concessions_right",
+      "label": "service end",
+      "position": {
+        "x": 18,
+        "y": 21
+      }
+    },
+    {
+      "id": "bar_right_c",
+      "roomId": "concessions_right",
+      "label": "standing rail",
+      "position": {
+        "x": 18,
+        "y": 19
+      }
+    },
+    {
+      "id": "exhibit_entry_left",
+      "roomId": "exhibit_entry",
+      "label": "left pass",
+      "position": {
+        "x": 19,
+        "y": 12
+      }
+    },
+    {
+      "id": "exhibit_entry_center",
+      "roomId": "exhibit_entry",
+      "label": "center pass",
+      "position": {
+        "x": 21,
+        "y": 14
+      }
+    },
+    {
+      "id": "exhibit_entry_right",
+      "roomId": "exhibit_entry",
+      "label": "right pass",
+      "position": {
+        "x": 19,
+        "y": 17
+      }
+    },
+    {
+      "id": "exhibit_north_wall",
+      "roomId": "exhibit_north",
+      "label": "north wall",
+      "position": {
+        "x": 23,
+        "y": 7
+      }
+    },
+    {
+      "id": "exhibit_north_table",
+      "roomId": "exhibit_north",
+      "label": "cocktail table",
+      "position": {
+        "x": 25,
+        "y": 8
+      }
+    },
+    {
+      "id": "center_a_left",
+      "roomId": "exhibit_center_a",
+      "label": "left edge",
+      "position": {
+        "x": 26.6,
+        "y": 10.9
+      }
+    },
+    {
+      "id": "center_a_mid",
+      "roomId": "exhibit_center_a",
+      "label": "middle",
+      "position": {
+        "x": 28.5,
+        "y": 10.9
+      }
+    },
+    {
+      "id": "center_a_right",
+      "roomId": "exhibit_center_a",
+      "label": "right edge",
+      "position": {
+        "x": 24.6,
+        "y": 11.100000000000001
+      }
+    },
+    {
+      "id": "center_b_left",
+      "roomId": "exhibit_center_b",
+      "label": "left edge",
+      "position": {
+        "x": 25,
+        "y": 16
+      }
+    },
+    {
+      "id": "center_b_right",
+      "roomId": "exhibit_center_b",
+      "label": "right edge",
+      "position": {
+        "x": 28,
+        "y": 17
+      }
+    },
+    {
+      "id": "projection_left",
+      "roomId": "projection_pair",
+      "label": "screen left",
+      "position": {
+        "x": 31,
+        "y": 8
+      }
+    },
+    {
+      "id": "projection_right",
+      "roomId": "projection_pair",
+      "label": "screen right",
+      "position": {
+        "x": 33,
+        "y": 9
+      }
+    },
+    {
+      "id": "south_exhibit_left",
+      "roomId": "lounge_chairs",
+      "label": "south left",
+      "position": {
+        "x": 22,
+        "y": 21
+      }
+    },
+    {
+      "id": "south_exhibit_mid",
+      "roomId": "exhibit_south",
+      "label": "south middle",
+      "position": {
+        "x": 25,
+        "y": 22
+      }
+    },
+    {
+      "id": "south_exhibit_right",
+      "roomId": "lounge_back",
+      "label": "south right",
+      "position": {
+        "x": 28,
+        "y": 21
+      }
+    },
+    {
+      "id": "sofa_left",
+      "roomId": "lounge_sofas",
+      "label": "left sofa",
+      "position": {
+        "x": 22,
+        "y": 17
+      }
+    },
+    {
+      "id": "sofa_table",
+      "roomId": "lounge_sofas",
+      "label": "low table",
+      "position": {
+        "x": 24,
+        "y": 16
+      }
+    },
+    {
+      "id": "sofa_right",
+      "roomId": "lounge_sofas",
+      "label": "right sofa",
+      "position": {
+        "x": 25,
+        "y": 18
+      }
+    },
+    {
+      "id": "chair_orange",
+      "roomId": "lounge_chairs",
+      "label": "orange chair",
+      "position": {
+        "x": 19,
+        "y": 21
+      }
+    },
+    {
+      "id": "chair_black",
+      "roomId": "lounge_chairs",
+      "label": "black chair",
+      "position": {
+        "x": 21,
+        "y": 23
+      }
+    },
+    {
+      "id": "back_lounge_left",
+      "roomId": "lounge_back",
+      "label": "back left",
+      "position": {
+        "x": 27,
+        "y": 19
+      }
+    },
+    {
+      "id": "back_lounge_right",
+      "roomId": "lounge_back",
+      "label": "back right",
+      "position": {
+        "x": 29,
+        "y": 20
+      }
+    },
+    {
+      "id": "workshop_left_head",
+      "roomId": "workshop_left",
+      "label": "head",
+      "position": {
+        "x": 32,
+        "y": 20
+      }
+    },
+    {
+      "id": "workshop_left_side",
+      "roomId": "workshop_left",
+      "label": "side",
+      "position": {
+        "x": 34,
+        "y": 19
+      }
+    },
+    {
+      "id": "workshop_left_end",
+      "roomId": "workshop_left",
+      "label": "end",
+      "position": {
+        "x": 34,
+        "y": 22
+      }
+    },
+    {
+      "id": "workshop_right_head",
+      "roomId": "workshop_right",
+      "label": "head",
+      "position": {
+        "x": 36,
+        "y": 20
+      }
+    },
+    {
+      "id": "workshop_right_side",
+      "roomId": "workshop_right",
+      "label": "side",
+      "position": {
+        "x": 38,
+        "y": 19
+      }
+    },
+    {
+      "id": "workshop_right_end",
+      "roomId": "workshop_right",
+      "label": "end",
+      "position": {
+        "x": 38,
+        "y": 22
+      }
+    },
+    {
+      "id": "wall_screen_left",
+      "roomId": "workshop_wall",
+      "label": "screen left",
+      "position": {
+        "x": 35,
+        "y": 14
+      }
+    },
+    {
+      "id": "wall_screen_right",
+      "roomId": "workshop_wall",
+      "label": "screen right",
+      "position": {
+        "x": 37,
+        "y": 15
+      }
+    },
+    {
+      "id": "seat_front_left",
+      "roomId": "seat_front",
+      "label": "front left",
+      "position": {
+        "x": 36,
+        "y": 10
+      }
+    },
+    {
+      "id": "seat_front_right",
+      "roomId": "seat_front",
+      "label": "front right",
+      "position": {
+        "x": 39,
+        "y": 10
+      }
+    },
+    {
+      "id": "seat_mid_left_a",
+      "roomId": "seat_mid_left",
+      "label": "middle left a",
+      "position": {
+        "x": 35,
+        "y": 13
+      }
+    },
+    {
+      "id": "seat_mid_left_b",
+      "roomId": "seat_mid_left",
+      "label": "middle left b",
+      "position": {
+        "x": 37,
+        "y": 13
+      }
+    },
+    {
+      "id": "seat_mid_right_a",
+      "roomId": "seat_mid_right",
+      "label": "middle right a",
+      "position": {
+        "x": 39,
+        "y": 13
+      }
+    },
+    {
+      "id": "seat_mid_right_b",
+      "roomId": "seat_mid_right",
+      "label": "middle right b",
+      "position": {
+        "x": 41,
+        "y": 13
+      }
+    },
+    {
+      "id": "seat_back_left_a",
+      "roomId": "seat_back_left",
+      "label": "back left a",
+      "position": {
+        "x": 34,
+        "y": 16
+      }
+    },
+    {
+      "id": "seat_back_left_b",
+      "roomId": "seat_back_left",
+      "label": "back left b",
+      "position": {
+        "x": 36,
+        "y": 16
+      }
+    },
+    {
+      "id": "seat_back_right_a",
+      "roomId": "seat_back_right",
+      "label": "back right a",
+      "position": {
+        "x": 38,
+        "y": 16
+      }
+    },
+    {
+      "id": "seat_back_right_b",
+      "roomId": "seat_back_right",
+      "label": "back right b",
+      "position": {
+        "x": 40,
+        "y": 16
+      }
+    },
+    {
+      "id": "apron_left",
+      "roomId": "proscenium_apron",
+      "label": "left wing",
+      "position": {
+        "x": 42,
+        "y": 9
+      }
+    },
+    {
+      "id": "apron_center",
+      "roomId": "proscenium_apron",
+      "label": "apron",
+      "position": {
+        "x": 43,
+        "y": 14
+      }
+    },
+    {
+      "id": "apron_right",
+      "roomId": "proscenium_apron",
+      "label": "right wing",
+      "position": {
+        "x": 42,
+        "y": 19
+      }
+    },
+    {
+      "id": "stage_guest",
+      "roomId": "stage",
+      "label": "guest mic",
+      "position": {
+        "x": 46,
+        "y": 17
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "green_room_sofa",
+      "roomId": "green_room",
+      "label": "sofa",
+      "position": {
+        "x": 46,
+        "y": 4
+      }
+    },
+    {
+      "id": "green_room_vanity",
+      "roomId": "green_room",
+      "label": "vanity",
+      "position": {
+        "x": 48,
+        "y": 6
+      }
+    },
+    {
+      "id": "green_room_door",
+      "roomId": "green_room",
+      "label": "stage door",
+      "position": {
+        "x": 44,
+        "y": 6
+      }
+    },
+    {
+      "id": "north_alley_lobby",
+      "roomId": "north_alley",
+      "label": "lobby exit",
+      "position": {
+        "x": 16,
+        "y": 2
+      }
+    },
+    {
+      "id": "north_alley_mid",
+      "roomId": "north_alley",
+      "label": "mid exit",
+      "position": {
+        "x": 29,
+        "y": 2
+      }
+    },
+    {
+      "id": "north_alley_stage",
+      "roomId": "north_alley",
+      "label": "stage exit",
+      "position": {
+        "x": 42,
+        "y": 2
+      }
+    },
+    {
+      "id": "south_alley_lobby",
+      "roomId": "south_alley",
+      "label": "lobby exit",
+      "position": {
+        "x": 16,
+        "y": 26
+      }
+    },
+    {
+      "id": "south_alley_mid",
+      "roomId": "south_alley",
+      "label": "mid exit",
+      "position": {
+        "x": 29,
+        "y": 26
+      }
+    },
+    {
+      "id": "south_alley_stage",
+      "roomId": "south_alley",
+      "label": "stage exit",
+      "position": {
+        "x": 42,
+        "y": 26
+      }
+    },
+    {
+      "id": "center_a_right_copy_1",
+      "roomId": "exhibit_center_b",
+      "label": "center_a_right_copy_1",
+      "position": {
+        "x": 28.1,
+        "y": 13.9
+      }
+    },
+    {
+      "id": "center_a_right_copy_2",
+      "roomId": "exhibit_center_b",
+      "label": "center_a_right_copy_2",
+      "position": {
+        "x": 28.1,
+        "y": 13.9
+      }
+    },
+    {
+      "id": "center_a_right_copy_3",
+      "roomId": "exhibit_center_b",
+      "label": "center_a_right_copy_3",
+      "position": {
+        "x": 28.1,
+        "y": 13.9
+      },
+      "role": "audience"
+    },
+    {
+      "id": "center_a_right_copy_4",
+      "roomId": "exhibit_center_a",
+      "label": "center_a_right_copy_4",
+      "position": {
+        "x": 26.900000000000002,
+        "y": 12.3
+      }
+    },
+    {
+      "id": "new_room_spot_1",
+      "roomId": "new_room",
+      "label": "new_room_spot_1",
+      "position": {
+        "x": 3,
+        "y": 3.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_spot_2",
+      "roomId": "new_room",
+      "label": "new_room_spot_2",
+      "position": {
+        "x": 5,
+        "y": 3.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_spot_3",
+      "roomId": "new_room",
+      "label": "new_room_spot_3",
+      "position": {
+        "x": 7,
+        "y": 3.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_2_spot_1",
+      "roomId": "new_room_2",
+      "label": "new_room_2_spot_1",
+      "position": {
+        "x": 16,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_2_spot_2",
+      "roomId": "new_room_2",
+      "label": "new_room_2_spot_2",
+      "position": {
+        "x": 18,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_2_spot_3",
+      "roomId": "new_room_2",
+      "label": "new_room_2_spot_3",
+      "position": {
+        "x": 20,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "stage_host_copy_1",
+      "roomId": "stage",
+      "label": "stage_host_copy_1",
+      "position": {
+        "x": 45.300000000000004,
+        "y": 16.7
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "stage_guest_copy_1",
+      "roomId": "stage",
+      "label": "stage_guest_copy_1",
+      "position": {
+        "x": 45.300000000000004,
+        "y": 20.700000000000003
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_3_spot_1",
+      "roomId": "new_room_3",
+      "label": "new_room_3_spot_1",
+      "position": {
+        "x": 3,
+        "y": 21.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_3_spot_2",
+      "roomId": "new_room_3",
+      "label": "new_room_3_spot_2",
+      "position": {
+        "x": 5,
+        "y": 21.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_3_spot_3",
+      "roomId": "new_room_3",
+      "label": "new_room_3_spot_3",
+      "position": {
+        "x": 7,
+        "y": 21.5
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_4_spot_1",
+      "roomId": "new_room_4",
+      "label": "new_room_4_spot_1",
+      "position": {
+        "x": 16,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_4_spot_2",
+      "roomId": "new_room_4",
+      "label": "new_room_4_spot_2",
+      "position": {
+        "x": 18,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "new_room_4_spot_3",
+      "roomId": "new_room_4",
+      "label": "new_room_4_spot_3",
+      "position": {
+        "x": 20,
+        "y": 6
+      },
+      "role": "speaker"
+    },
+    {
+      "id": "stage_host_copy_2",
+      "roomId": "stage",
+      "label": "stage_host_copy_2",
+      "position": {
+        "x": 48.900000000000006,
+        "y": 14.100000000000001
+      },
+      "role": "speaker"
+    }
+  ],
+  "links": [],
+  "paths": [
+    {
+      "id": "concessions_left__concessions_right",
+      "fromRoomId": "concessions_left",
+      "toRoomId": "concessions_right",
+      "points": []
+    },
+    {
+      "id": "concessions_left__exhibit_south",
+      "fromRoomId": "concessions_left",
+      "toRoomId": "exhibit_south",
+      "points": []
+    },
+    {
+      "id": "concessions_left__lobby_bar_queue",
+      "fromRoomId": "concessions_left",
+      "toRoomId": "lobby_bar_queue",
+      "points": []
+    },
+    {
+      "id": "concessions_right__exhibit_south",
+      "fromRoomId": "concessions_right",
+      "toRoomId": "exhibit_south",
+      "points": []
+    },
+    {
+      "id": "concessions_right__lobby_bar_queue",
+      "fromRoomId": "concessions_right",
+      "toRoomId": "lobby_bar_queue",
+      "points": []
+    },
+    {
+      "id": "concessions_right__south_alley",
+      "fromRoomId": "concessions_right",
+      "toRoomId": "south_alley",
+      "points": []
+    },
+    {
+      "id": "conference_corner__exhibit_entry",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "exhibit_entry",
+      "points": []
+    },
+    {
+      "id": "conference_corner__exhibit_north",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "exhibit_north",
+      "points": []
+    },
+    {
+      "id": "conference_corner__lobby_entry",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "lobby_entry",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_a__exhibit_center_b",
+      "fromRoomId": "exhibit_center_a",
+      "toRoomId": "exhibit_center_b",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_a__exhibit_entry",
+      "fromRoomId": "exhibit_center_a",
+      "toRoomId": "exhibit_entry",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_a__exhibit_north",
+      "fromRoomId": "exhibit_center_a",
+      "toRoomId": "exhibit_north",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_a__lounge_sofas",
+      "fromRoomId": "exhibit_center_a",
+      "toRoomId": "lounge_sofas",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_a__projection_pair",
+      "fromRoomId": "exhibit_center_a",
+      "toRoomId": "projection_pair",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_b__exhibit_south",
+      "fromRoomId": "exhibit_center_b",
+      "toRoomId": "exhibit_south",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_b__lounge_sofas",
+      "fromRoomId": "exhibit_center_b",
+      "toRoomId": "lounge_sofas",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_b__seat_front",
+      "fromRoomId": "exhibit_center_b",
+      "toRoomId": "seat_front",
+      "points": []
+    },
+    {
+      "id": "exhibit_center_b__workshop_left",
+      "fromRoomId": "exhibit_center_b",
+      "toRoomId": "workshop_left",
+      "points": []
+    },
+    {
+      "id": "exhibit_entry__exhibit_north",
+      "fromRoomId": "exhibit_entry",
+      "toRoomId": "exhibit_north",
+      "points": []
+    },
+    {
+      "id": "exhibit_entry__exhibit_south",
+      "fromRoomId": "exhibit_entry",
+      "toRoomId": "exhibit_south",
+      "points": []
+    },
+    {
+      "id": "exhibit_entry__lobby_bar_queue",
+      "fromRoomId": "exhibit_entry",
+      "toRoomId": "lobby_bar_queue",
+      "points": []
+    },
+    {
+      "id": "exhibit_entry__lobby_entry",
+      "fromRoomId": "exhibit_entry",
+      "toRoomId": "lobby_entry",
+      "points": []
+    },
+    {
+      "id": "exhibit_north__north_alley",
+      "fromRoomId": "exhibit_north",
+      "toRoomId": "north_alley",
+      "points": []
+    },
+    {
+      "id": "exhibit_south__lounge_chairs",
+      "fromRoomId": "exhibit_south",
+      "toRoomId": "lounge_chairs",
+      "points": []
+    },
+    {
+      "id": "exhibit_south__south_alley",
+      "fromRoomId": "exhibit_south",
+      "toRoomId": "south_alley",
+      "points": []
+    },
+    {
+      "id": "green_room__north_alley",
+      "fromRoomId": "green_room",
+      "toRoomId": "north_alley",
+      "points": []
+    },
+    {
+      "id": "green_room__proscenium_apron",
+      "fromRoomId": "green_room",
+      "toRoomId": "proscenium_apron",
+      "points": []
+    },
+    {
+      "id": "lobby_bar_queue__lobby_entry",
+      "fromRoomId": "lobby_bar_queue",
+      "toRoomId": "lobby_entry",
+      "points": []
+    },
+    {
+      "id": "lounge_back__lounge_chairs",
+      "fromRoomId": "lounge_back",
+      "toRoomId": "lounge_chairs",
+      "points": []
+    },
+    {
+      "id": "lounge_back__lounge_sofas",
+      "fromRoomId": "lounge_back",
+      "toRoomId": "lounge_sofas",
+      "points": []
+    },
+    {
+      "id": "lounge_back__workshop_left",
+      "fromRoomId": "lounge_back",
+      "toRoomId": "workshop_left",
+      "points": []
+    },
+    {
+      "id": "lounge_chairs__lounge_sofas",
+      "fromRoomId": "lounge_chairs",
+      "toRoomId": "lounge_sofas",
+      "points": []
+    },
+    {
+      "id": "lounge_chairs__workshop_left",
+      "fromRoomId": "lounge_chairs",
+      "toRoomId": "workshop_left",
+      "points": []
+    },
+    {
+      "id": "north_alley__proscenium_apron",
+      "fromRoomId": "north_alley",
+      "toRoomId": "proscenium_apron",
+      "points": []
+    },
+    {
+      "id": "projection_pair__proscenium_apron",
+      "fromRoomId": "projection_pair",
+      "toRoomId": "proscenium_apron",
+      "points": []
+    },
+    {
+      "id": "projection_pair__seat_front",
+      "fromRoomId": "projection_pair",
+      "toRoomId": "seat_front",
+      "points": []
+    },
+    {
+      "id": "projection_pair__workshop_wall",
+      "fromRoomId": "projection_pair",
+      "toRoomId": "workshop_wall",
+      "points": []
+    },
+    {
+      "id": "proscenium_apron__seat_back_right",
+      "fromRoomId": "proscenium_apron",
+      "toRoomId": "seat_back_right",
+      "points": []
+    },
+    {
+      "id": "proscenium_apron__seat_front",
+      "fromRoomId": "proscenium_apron",
+      "toRoomId": "seat_front",
+      "points": []
+    },
+    {
+      "id": "proscenium_apron__seat_mid_left",
+      "fromRoomId": "proscenium_apron",
+      "toRoomId": "seat_mid_left",
+      "points": []
+    },
+    {
+      "id": "proscenium_apron__seat_mid_right",
+      "fromRoomId": "proscenium_apron",
+      "toRoomId": "seat_mid_right",
+      "points": []
+    },
+    {
+      "id": "proscenium_apron__south_alley",
+      "fromRoomId": "proscenium_apron",
+      "toRoomId": "south_alley",
+      "points": []
+    },
+    {
+      "id": "seat_back_left__seat_back_right",
+      "fromRoomId": "seat_back_left",
+      "toRoomId": "seat_back_right",
+      "points": []
+    },
+    {
+      "id": "seat_back_left__seat_mid_left",
+      "fromRoomId": "seat_back_left",
+      "toRoomId": "seat_mid_left",
+      "points": []
+    },
+    {
+      "id": "seat_back_left__south_alley",
+      "fromRoomId": "seat_back_left",
+      "toRoomId": "south_alley",
+      "points": []
+    },
+    {
+      "id": "seat_back_left__workshop_left",
+      "fromRoomId": "seat_back_left",
+      "toRoomId": "workshop_left",
+      "points": []
+    },
+    {
+      "id": "seat_back_right__seat_mid_right",
+      "fromRoomId": "seat_back_right",
+      "toRoomId": "seat_mid_right",
+      "points": []
+    },
+    {
+      "id": "seat_back_right__workshop_right",
+      "fromRoomId": "seat_back_right",
+      "toRoomId": "workshop_right",
+      "points": []
+    },
+    {
+      "id": "seat_front__seat_mid_left",
+      "fromRoomId": "seat_front",
+      "toRoomId": "seat_mid_left",
+      "points": []
+    },
+    {
+      "id": "seat_front__seat_mid_right",
+      "fromRoomId": "seat_front",
+      "toRoomId": "seat_mid_right",
+      "points": []
+    },
+    {
+      "id": "seat_front__workshop_wall",
+      "fromRoomId": "seat_front",
+      "toRoomId": "workshop_wall",
+      "points": []
+    },
+    {
+      "id": "seat_mid_left__seat_mid_right",
+      "fromRoomId": "seat_mid_left",
+      "toRoomId": "seat_mid_right",
+      "points": []
+    },
+    {
+      "id": "workshop_left__workshop_right",
+      "fromRoomId": "workshop_left",
+      "toRoomId": "workshop_right",
+      "points": []
+    },
+    {
+      "id": "workshop_left__workshop_wall",
+      "fromRoomId": "workshop_left",
+      "toRoomId": "workshop_wall",
+      "points": []
+    },
+    {
+      "id": "workshop_right__workshop_wall",
+      "fromRoomId": "workshop_right",
+      "toRoomId": "workshop_wall",
+      "points": []
+    },
+    {
+      "id": "conference_corner__new_room",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "new_room",
+      "points": []
+    },
+    {
+      "id": "lobby_bar_queue__new_room",
+      "fromRoomId": "lobby_bar_queue",
+      "toRoomId": "new_room",
+      "points": []
+    },
+    {
+      "id": "lobby_entry__new_room",
+      "fromRoomId": "lobby_entry",
+      "toRoomId": "new_room",
+      "points": []
+    },
+    {
+      "id": "new_room__north_alley",
+      "fromRoomId": "new_room",
+      "toRoomId": "north_alley",
+      "points": []
+    },
+    {
+      "id": "conference_corner__new_room_2",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "new_room_2",
+      "points": []
+    },
+    {
+      "id": "exhibit_entry__new_room_2",
+      "fromRoomId": "exhibit_entry",
+      "toRoomId": "new_room_2",
+      "points": []
+    },
+    {
+      "id": "exhibit_north__new_room_2",
+      "fromRoomId": "exhibit_north",
+      "toRoomId": "new_room_2",
+      "points": []
+    },
+    {
+      "id": "new_room_2__north_alley",
+      "fromRoomId": "new_room_2",
+      "toRoomId": "north_alley",
+      "points": []
+    },
+    {
+      "id": "concessions_left__new_room_3",
+      "fromRoomId": "concessions_left",
+      "toRoomId": "new_room_3",
+      "points": []
+    },
+    {
+      "id": "concessions_right__new_room_3",
+      "fromRoomId": "concessions_right",
+      "toRoomId": "new_room_3",
+      "points": []
+    },
+    {
+      "id": "lobby_bar_queue__new_room_3",
+      "fromRoomId": "lobby_bar_queue",
+      "toRoomId": "new_room_3",
+      "points": []
+    },
+    {
+      "id": "lobby_entry__new_room_3",
+      "fromRoomId": "lobby_entry",
+      "toRoomId": "new_room_3",
+      "points": []
+    },
+    {
+      "id": "conference_corner__new_room_4",
+      "fromRoomId": "conference_corner",
+      "toRoomId": "new_room_4",
+      "points": []
+    },
+    {
+      "id": "exhibit_north__new_room_4",
+      "fromRoomId": "exhibit_north",
+      "toRoomId": "new_room_4",
+      "points": []
+    },
+    {
+      "id": "new_room_2__new_room_4",
+      "fromRoomId": "new_room_2",
+      "toRoomId": "new_room_4",
+      "points": []
+    },
+    {
+      "id": "new_room_4__north_alley",
+      "fromRoomId": "new_room_4",
+      "toRoomId": "north_alley",
+      "points": []
+    }
+  ],
+  "updatedAt": "2026-05-17T00:43:55.987Z"
+}

@@ -1,0 +1,302 @@
+{
+  "name": "builder-bunny-xexosv",
+  "source_sheet": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/builder-bunny-xexosv-sheet.png",
+  "source_sheet_url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/builder-bunny-xexosv-sheet.png",
+  "frame_width": 48,
+  "frame_height": 48,
+  "columns": 4,
+  "rows": 4,
+  "frame_count": 16,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-01-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-02-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-03-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-04-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-05-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-06-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-07-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-08-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-09-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-10-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-11-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-12-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-13-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-14-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-15-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/frames/builder-bunny-xexosv-16-blue.png"
+        }
+      }
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/builder-bunny-xexosv-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/builder-bunny-xexosv/builder-bunny-xexosv-preview.png"
+}

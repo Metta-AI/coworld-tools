@@ -1,0 +1,89 @@
+# Tribal Village AI Profiling Logs
+# Generated: 2026-01-24
+
+============================================================
+## ROLE PROFILING REPORT (3000 steps, seed=42)
+============================================================
+
+### Summary
+- Steps: 3000
+- Total agents: 1006
+- Active agents: 1006
+
+### GATHERER ROLE (338 agents)
+  Total actions: 967029
+  Success rate:   94.1% (excluding noop/invalid)
+  Invalid rate:    3.5%
+
+  Action breakdown:
+    noop:        23416 (  2.4%)
+    move:       874740 ( 90.5%)
+    attack:      26828 (  2.8%)
+    use:          7845 (  0.8%)
+    swap:            0 (  0.0%)
+    plant:           0 (  0.0%)
+    put:             0 (  0.0%)
+    build:         151 (  0.0%)
+    plantRes:      367 (  0.0%)
+    orient:          0 (  0.0%)
+    INVALID:     33682 (  3.5%)
+
+### BUILDER ROLE (338 agents)
+  Total actions: 965957
+  Success rate:   91.2% (excluding noop/invalid)
+  Invalid rate:    5.9%
+
+  Action breakdown:
+    noop:        27935 (  2.9%)
+    move:       839643 ( 86.9%)
+    attack:      28494 (  2.9%)
+    use:          7703 (  0.8%)
+    swap:            0 (  0.0%)
+    plant:           0 (  0.0%)
+    put:             0 (  0.0%)
+    build:        5257 (  0.5%)
+    plantRes:      239 (  0.0%)
+    orient:          0 (  0.0%)
+    INVALID:     56686 (  5.9%)
+
+### FIGHTER ROLE (330 agents)
+  Total actions: 942087
+  Success rate:   90.9% (excluding noop/invalid)
+  Invalid rate:    7.2%
+
+  Action breakdown:
+    noop:        18751 (  2.0%)
+    move:       808832 ( 85.9%)
+    attack:      42589 (  4.5%)
+    use:          2754 (  0.3%)
+    swap:            0 (  0.0%)
+    plant:         375 (  0.0%)
+    put:             0 (  0.0%)
+    build:        1375 (  0.1%)
+    plantRes:        0 (  0.0%)
+    orient:          0 (  0.0%)
+    INVALID:     67411 (  7.2%)
+
+### TEAM METRICS
+  Team 0: houses=32 (max=32), max_hearts=10
+  Team 1: houses=32 (max=32), max_hearts=10
+  Team 2: houses=32 (max=32), max_hearts=10
+  Team 3: houses=32 (max=32), max_hearts=10
+  Team 4: houses=32 (max=32), max_hearts=10
+  Team 5: houses=32 (max=32), max_hearts=10
+  Team 6: houses=32 (max=32), max_hearts=10
+  Team 7: houses=32 (max=32), max_hearts=10
+
+============================================================
+## AI PROGRESS TIMELINE (1000 steps, seed=42)
+============================================================
+
+step=100 houses t0=10 t1=13 t2=10 t3=12 t4=12 t5=14 t6=13 t7=6 max_hearts t0=5 t1=10 t2=10 t3=10 t4=8 t5=5 t6=10 t7=9
+step=200 houses t0=25 t1=32 t2=31 t3=27 t4=22 t5=24 t6=27 t7=10 max_hearts t0=8 t1=10 t2=10 t3=10 t4=10 t5=7 t6=10 t7=10
+step=300 houses t0=32 t1=32 t2=32 t3=33 t4=32 t5=32 t6=33 t7=16 max_hearts t0=10 t1=10 t2=10 t3=10 t4=10 t5=10 t6=10 t7=10
+step=400 houses t0=32 t1=32 t2=32 t3=33 t4=32 t5=32 t6=33 t7=28 max_hearts t0=10 t1=10 t2=10 t3=10 t4=10 t5=10 t6=10 t7=10
+step=500 houses t0=32 t1=32 t2=32 t3=33 t4=32 t5=32 t6=33 t7=32 max_hearts t0=10 t1=10 t2=10 t3=10 t4=10 t5=10 t6=10 t7=10
+
+Baseline houses: t0=5 t1=5 t2=5 t3=4 t4=4 t5=5 t6=5 t7=4
+Max houses achieved: t0=32 t1=32 t2=32 t3=33 t4=32 t5=32 t6=33 t7=32
+Max hearts achieved: t0=10 t1=10 t2=10 t3=10 t4=10 t5=10 t6=10 t7=10

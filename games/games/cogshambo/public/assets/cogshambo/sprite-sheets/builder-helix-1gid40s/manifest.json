@@ -1,0 +1,22 @@
+{
+  "name": "builder-helix-1gid40s",
+  "source_images": [
+    "public/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/sources/builder-helix-1gid40s-source-01.png"
+  ],
+  "source_image_urls": [
+    "/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/sources/builder-helix-1gid40s-source-01.png"
+  ],
+  "frame_width": 192,
+  "frame_height": 192,
+  "columns": 1,
+  "rows": 1,
+  "frame_count": 1,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/frames/builder-helix-1gid40s-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/frames/builder-helix-1gid40s-01.png"
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/builder-helix-1gid40s-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/builder-helix-1gid40s/builder-helix-1gid40s-preview.png"
+}

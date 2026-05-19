@@ -1,0 +1,2 @@
+[policy]
+class_path = "toolsy_policy.policy.ToolsyPolicy"

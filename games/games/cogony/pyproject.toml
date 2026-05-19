@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cogony"
+version = "0.1.0"
+description = "cogony: a MettaGrid game vendored from cogs_vs_clips"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12,<3.13"
+authors = [
+    { name = "Metta-AI" },
+]
+keywords = ["mettagrid", "cogames", "multi-agent", "reinforcement-learning", "template"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "cogames==0.25.7",
+    "mettagrid",
+    "cogony-policy",
+    "toolsy-policy",
+    "pydantic>=2",
+    "typer>=0.12",
+    "typing-extensions>=4.9",
+    "numpy>=1.26",
+    "websockets>=13",
+    "aiohttp>=3.13.5",
+]
+
+[tool.uv]
+override-dependencies = ["mettagrid"]
+
+[tool.uv.sources]
+cogony-policy = { path = "policies/baseline", editable = true }
+toolsy-policy = { path = "policies/toolsy", editable = true }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+cogony = "cogony.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/cogony"
+Repository = "https://github.com/Metta-AI/cogony"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cogony"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/skills",
+    "/README.md",
+    "/AGENTS.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# typer.Option(...) in argument defaults is the standard typer idiom.
+"src/cogony/cli.py" = ["B008"]

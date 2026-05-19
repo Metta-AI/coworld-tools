@@ -1,0 +1,158 @@
+{
+  "name": "builder-bob-pixf39",
+  "source_sheet": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/builder-bob-pixf39-sheet.png",
+  "source_sheet_url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/builder-bob-pixf39-sheet.png",
+  "frame_width": 96,
+  "frame_height": 96,
+  "columns": 4,
+  "rows": 2,
+  "frame_count": 8,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-01-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-02-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-03-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-04-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-05-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-06-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-07-blue.png"
+        }
+      }
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/frames/builder-bob-pixf39-08-blue.png"
+        }
+      }
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/builder-bob-pixf39/builder-bob-pixf39-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/builder-bob-pixf39/builder-bob-pixf39-preview.png"
+}

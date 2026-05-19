@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+dist-server/
+build/
+.local/
+.runtime/
+nimcache/
+*.so
+*.dylib
+*.dll
