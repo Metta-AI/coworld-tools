@@ -15,14 +15,18 @@ Player container assets for the coborg Among Them agent.
 
 ## Build
 
-From the players repo root:
+The canonical entrypoint is the leaf's ``build.sh``, which uses this
+Dockerfile and emits a ``coworld_manifest.json`` ``player[]`` snippet plus a
+``dist/coplayer_manifest.json`` sidecar per the contract in
+[`docs/coworld-player-packaging.md`](../../../../docs/coworld-player-packaging.md):
 
 ```bash
-docker build --platform linux/amd64 \
-  -t coborg_among_them:dev \
-  -f players/among_them/coborg/coworld/Dockerfile \
-  .
+players/among_them/coborg/build.sh
 ```
+
+The image is tagged ``coborg-among-them:dev`` (override with ``--tag``).
+Pass ``--push <registry-ref>`` to re-tag and push, or ``--no-build`` to render
+manifests only.
 
 ## Run via Coworld
 

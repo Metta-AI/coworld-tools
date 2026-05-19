@@ -155,6 +155,25 @@ A convenience wrapper at `scripts/play_local.sh` will land in P0.
 | BitWorld Among Them game source (Nim) | `~/coding/bitworld/among_them/` |
 | Coworld manifest (game constants) | `~/coding/bitworld/among_them/coworld_manifest.json` |
 
+## Build & Coworld packaging
+
+This leaf ships as a self-contained Coworld player container. The image
+hosts the runtime's [`policy_player.py`](coworld/policy_player.py) bridge,
+which speaks the binary [`bitscreen_v1`](https://github.com/Metta-AI/bitworld/blob/master/docs/bitscreen_v1.md)
+wire protocol — NOT `coworld.player.v1`, so this leaf does **not** use the
+SDK's [`coworld_json_bridge`](../../player_sdk/coworld_json_bridge.py).
+
+```bash
+players/among_them/coborg/build.sh
+```
+
+Produces a `linux/amd64` Docker image (`coborg-among-them:dev`), a
+`coworld_manifest.json` `player[]` snippet on stdout, and
+`dist/coplayer_manifest.json`. See
+[`docs/coworld-player-packaging.md`](../../../docs/coworld-player-packaging.md)
+§5 for the full contract, and [`coworld/README.md`](coworld/README.md) for
+the in-image runtime layout.
+
 ## Open items
 
 1. **PLAN §12** — confirm D8 (numpy-first / numba-fallback perception),
