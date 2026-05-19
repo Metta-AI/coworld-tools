@@ -8,8 +8,8 @@ that traces include ``snapshot_submitted`` events.
 
 from __future__ import annotations
 
-from agent_policies.frameworks.coborg import ModeDirective, StrategyResult
-from agent_policies.frameworks.coborg.types import BeliefSnapshot
+from players_lib.coborg import ModeDirective, StrategyResult
+from players_lib.coborg.types import BeliefSnapshot
 
 from players.among_them.coborg.types import (
     ActionState,

@@ -62,7 +62,7 @@ These are intentionally not decided in this document:
   cheap smoke import / lint pass.
 - What is the smallest first slice that delivers value over `maker_v1`?
   Candidate: a contract-driven build plan plus a runner-generated starter
-  policy that targets `agent_policies.frameworks.coborg`, with manifest and
+  policy that targets `players_lib.coborg`, with manifest and
   Dockerfile reused or simplified from the deterministic pieces of
   `maker_v1`.
 - Does `maker_v2` keep the VLM visual bootstrap loop, hand it off to a
@@ -98,7 +98,7 @@ up.
    loud errors rather than silently falling back to Markdown.
 3. **Second slice: runner-generated starter policy.** Drive a coding-agent
    runner from the contract and the guide bundle to produce a starter policy
-   targeting `agent_policies.frameworks.coborg`, with a small validation
+   targeting `players_lib.coborg`, with a small validation
    pass.
 4. **Later slices.** Decoder generation, VLM bootstrap reconsideration,
    smoke-test harness, and Coworld packaging, in whatever order the work

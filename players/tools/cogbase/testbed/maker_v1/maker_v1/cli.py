@@ -149,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Path to a Cyborg agent policy framework. Defaults to the in-repo "
-            "src/agent_policies/frameworks/coborg package."
+            "src/players_lib/coborg package."
         ),
     )
     parser.add_argument(

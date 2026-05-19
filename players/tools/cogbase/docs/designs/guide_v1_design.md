@@ -25,7 +25,7 @@ still inform targeted visual-artifact work, but it should not compete with
 `guide_v1` as a source of project truth.
 
 Guide generation also points runner prompts at this repository's Cyborg policy
-framework, `agent_policies.frameworks.coborg`. The framework does not override
+framework, `players_lib.coborg`. The framework does not override
 game-source facts, but it is the target architecture for implementation guidance:
 percepts update belief,
 deterministic modes emit symbolic intents, action resolution lowers intents to
@@ -157,7 +157,7 @@ Runners are invoked as CLI subprocesses:
 Both are given:
 - A prompt (via stdin or `-p` flag)
 - Access to the game source directory
-- Access to the in-repo `agent_policies.frameworks.coborg` framework directory
+- Access to the in-repo `players_lib.coborg` framework directory
   and its Python source root
 - An output location to write their draft
 
@@ -265,7 +265,7 @@ python generate_guides.py /path/to/game/source \
 ```
 
 When no framework override is provided, Guide uses
-`src/agent_policies/frameworks/coborg` from this repository. It does not
+`src/players_lib/coborg` from this repository. It does not
 search external framework checkouts.
 
 ## File Layout

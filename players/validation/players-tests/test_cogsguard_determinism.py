@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 import pytest
-from agent_policies.tools.eval.cogsguard.evals.planky_evals import (
+from players_lib.eval.cogsguard.evals.planky_evals import (
     PlankyMinerGear,
     PlankyMultiRole,
     PlankyScoutExplore,

@@ -3,38 +3,6 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "agent-policies"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "numpy" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-cogames = [
-    { name = "cogames" },
-    { name = "mettagrid" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cogames", marker = "extra == 'cogames'" },
-    { name = "mettagrid", marker = "extra == 'cogames'" },
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "pydantic", specifier = ">=2.12.2" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-xdist", marker = "extra == 'test'" },
-    { name = "ruff", marker = "extra == 'test'" },
-]
-provides-extras = ["cogames", "test"]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1205,6 +1173,38 @@ sdist = { url = "https://files.pythonhosted.org/packages/9f/4a/0883b8e3802965322
 wheels = [
     { url = "https://files.pythonhosted.org/packages/75/a6/a0a304dc33b49145b21f4808d763822111e67d1c3a32b524a1baf947b6e1/platformdirs-4.9.6-py3-none-any.whl", hash = "sha256:e61adb1d5e5cb3441b4b7710bea7e4c12250ca49439228cc1021c00dcfac0917", size = 21348, upload-time = "2026-04-09T00:04:09.463Z" },
 ]
+
+[[package]]
+name = "players"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "numpy" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+cogames = [
+    { name = "cogames" },
+    { name = "mettagrid" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cogames", marker = "extra == 'cogames'" },
+    { name = "mettagrid", marker = "extra == 'cogames'" },
+    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.12.2" },
+    { name = "pytest", marker = "extra == 'test'" },
+    { name = "pytest-xdist", marker = "extra == 'test'" },
+    { name = "ruff", marker = "extra == 'test'" },
+]
+provides-extras = ["cogames", "test"]
 
 [[package]]
 name = "pluggy"

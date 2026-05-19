@@ -3,13 +3,9 @@ requires = ["setuptools>=70.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-policies"
+name = "players"
 version = "0.1.0"
-description = "Importable agent frameworks and policies for CoGames and BitWorld projects"
-readme = "README.md"
 requires-python = ">=3.12"
-license = "MIT"
-authors = [{ name = "Metta AI" }]
 dependencies = [
   "numpy>=2.0.0",
   "pydantic>=2.12.2",
@@ -25,14 +21,14 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src", "."]
 include = [
-  "agent_policies",
-  "agent_policies.*",
+  "players_lib",
+  "players_lib.*",
   "players",
   "players.*",
 ]
 
 [tool.setuptools.package-data]
-agent_policies = [
+players_lib = [
   "**/*.html",
   "**/*.json",
   "**/*.lock",

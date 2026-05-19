@@ -2,11 +2,11 @@
 
 Generated: 2026-05-11
 
-The importable implementation is `agent_policies.frameworks.coborg`. The
+The importable implementation is `players_lib.coborg`. The
 framework described here is called the Cyborg framework.
 
 The Python implementation lives in
-[`src/agent_policies/frameworks/coborg`](../..).
+[`src/players_lib/coborg`](../..).
 For a shorter usage guide, see [`PYTHON_FRAMEWORK.md`](PYTHON_FRAMEWORK.md).
 
 ## Executive Summary
@@ -136,7 +136,7 @@ framework.
 ### What The Package Provides
 
 The public package is
-[`src/agent_policies/frameworks/coborg`](../..).
+[`src/players_lib/coborg`](../..).
 It provides:
 
 - Typed mode directives and mode parameters.
@@ -640,7 +640,7 @@ class Mode:
 ```
 
 For production Python code, use the concrete classes in
-`agent_policies.frameworks.coborg` rather than copying this sketch.
+`players_lib.coborg` rather than copying this sketch.
 
 ## Design Invariants
 

@@ -5,7 +5,7 @@ import sys
 from functools import cache
 from pathlib import Path
 
-from agent_policies.tools.eval.cogsguard.evals.planky_evals import PlankyMultiRole
+from players_lib.eval.cogsguard.evals.planky_evals import PlankyMultiRole
 
 from mettagrid.policy.loader import discover_and_register_policies
 from mettagrid.policy.policy import PolicySpec

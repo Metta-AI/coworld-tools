@@ -9,7 +9,7 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-from agent_policies.tools.eval.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
+from players_lib.eval.cogsguard.eval_result_metrics import extract_cogsguard_eval_metrics, parse_eval_result_text
 
 
 def _load_script_module(script_name: str):

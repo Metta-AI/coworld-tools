@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_policies.frameworks.coborg.trace import ListTraceSink
+from players_lib.coborg.trace import ListTraceSink
 
 from players.among_them.coborg import (
     build_runtime,

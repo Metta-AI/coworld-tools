@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from agent_policies.frameworks.coborg import (
+from players_lib.coborg import (
     ActionCommand,
     ActionIntent,
     AgentRuntime,
@@ -22,7 +22,7 @@ from agent_policies.frameworks.coborg import (
     StrategyResult,
     SynchronousStrategyRunner,
 )
-from agent_policies.frameworks.coborg.types import BeliefSnapshot
+from players_lib.coborg.types import BeliefSnapshot
 
 
 class Observation:

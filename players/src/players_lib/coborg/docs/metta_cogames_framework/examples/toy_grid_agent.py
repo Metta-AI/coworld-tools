@@ -1,15 +1,15 @@
-"""Minimal grid-world cyborg agent using ``agent_policies.frameworks.coborg``.
+"""Minimal grid-world cyborg agent using ``players_lib.coborg``.
 
 Run from the repo root with:
 
-    PYTHONPATH=src python src/agent_policies/frameworks/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py
+    PYTHONPATH=src python src/players_lib/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_policies.frameworks.coborg import (
+from players_lib.coborg import (
     ActionCommand,
     ActionIntent,
     AgentRuntime,
@@ -22,7 +22,7 @@ from agent_policies.frameworks.coborg import (
     StrategyResult,
     SynchronousStrategyRunner,
 )
-from agent_policies.frameworks.coborg.types import BeliefSnapshot
+from players_lib.coborg.types import BeliefSnapshot
 
 
 @dataclass

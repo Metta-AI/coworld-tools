@@ -1,12 +1,12 @@
 # Coborg Among Them player image.
 #
-# Build (from the agent-policies repo root):
+# Build (from the players repo root):
 #   docker build --platform linux/amd64 \
 #     -t coborg_among_them:dev \
-#     -f src/agent_policies/policies/cyborg/bitworld/coborg_among_them/coworld/Dockerfile \
+#     -f players/among_them/coborg/coworld/Dockerfile \
 #     .
 #
-# The image installs the agent-policies package (without the mettagrid-heavy
+# The image installs the players package (without the mettagrid-heavy
 # ``cogames`` extra) plus ``websockets``. Stderr is unbuffered so trace events
 # show up immediately in the Coworld runner's captured logs.
 
@@ -16,7 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-WORKDIR /srv/agent-policies
+WORKDIR /srv/players
 
 # Install runtime deps separately so they cache independently of source.
 RUN pip install --upgrade pip \
@@ -31,7 +31,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-deps -e .
 
-COPY src/agent_policies/policies/cyborg/bitworld/coborg_among_them/coworld/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY players/among_them/coborg/coworld/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

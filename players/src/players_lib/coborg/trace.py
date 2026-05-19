@@ -67,7 +67,7 @@ class LoggingTraceSink:
     """Structured trace sink backed by ``logging``."""
 
     def __init__(self, logger: logging.Logger | None = None, *, level: int = logging.INFO) -> None:
-        self.logger = logger if logger is not None else logging.getLogger("agent_policies.frameworks.coborg")
+        self.logger = logger if logger is not None else logging.getLogger("players_lib.coborg")
         self.level = level
 
     def record(self, event: TraceEvent) -> None:
@@ -111,7 +111,7 @@ class LoggingMetricsSink:
     """Structured metrics sink backed by ``logging``."""
 
     def __init__(self, logger: logging.Logger | None = None, *, level: int = logging.INFO) -> None:
-        self.logger = logger if logger is not None else logging.getLogger("agent_policies.frameworks.coborg.metrics")
+        self.logger = logger if logger is not None else logging.getLogger("players_lib.coborg.metrics")
         self.level = level
 
     def counter(self, name: str, value: float = 1.0, tags: dict[str, Any] | None = None) -> None:

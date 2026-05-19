@@ -1,7 +1,7 @@
 # Players
 
 Canonical home for concrete importable policies. Reusable frameworks live
-separately under `src/agent_policies/frameworks/`.
+separately under `src/players_lib/`.
 
 The tree is flat: one subdirectory per game.
 

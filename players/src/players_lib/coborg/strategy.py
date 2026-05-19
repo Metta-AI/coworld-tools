@@ -5,9 +5,9 @@ import threading
 from time import perf_counter
 from typing import Protocol, TypeVar
 
-from agent_policies.frameworks.coborg.buffers import OverwriteBuffer
-from agent_policies.frameworks.coborg.trace import MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
-from agent_policies.frameworks.coborg.types import BeliefSnapshot, ModeDirective, StrategyResult
+from players_lib.coborg.buffers import OverwriteBuffer
+from players_lib.coborg.trace import MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
+from players_lib.coborg.types import BeliefSnapshot, ModeDirective, StrategyResult
 
 BeliefT = TypeVar("BeliefT")
 ActionStateT = TypeVar("ActionStateT")

@@ -67,7 +67,7 @@ harness.run_until_stuck(threshold=10, max_steps=200)
 ### Run from Command Line
 
 ```bash
-cd /path/to/agent-policies
+cd /path/to/players
 uv run python -c "
 from players.cogsguard.role.debug_agent import DebugHarness
 h = DebugHarness.from_recipe(num_agents=10)

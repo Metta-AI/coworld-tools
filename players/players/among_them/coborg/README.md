@@ -1,7 +1,7 @@
 # coborg_among_them
 
 A pure-Python Among Them agent built on the
-[`agent_policies.frameworks.coborg`](../../../../../frameworks/coborg/) two-loop
+[`players_lib.coborg`](../../../../src/players_lib/coborg/) two-loop
 Cyborg runtime. This is the framework's **first concrete in-repo game client**.
 
 > **Status (2026-05-13)**: Planning complete, implementation not started. The
@@ -114,8 +114,8 @@ uv run coworld download among_them --output-dir ./coworld
 
 # 2. Build the player image
 docker build -t coborg_among_them:dev \
-  -f ~/coding/agent-policies/players/among_them/coborg/coworld/Dockerfile \
-  ~/coding/agent-policies
+  -f ~/coding/players/players/among_them/coborg/coworld/Dockerfile \
+  ~/coding/players
 
 # 3. Play locally — one image fills all 8 player slots
 uv run coworld play ./coworld/coworld_manifest.json \
@@ -143,7 +143,7 @@ A convenience wrapper at `scripts/play_local.sh` will land in P0.
 | Need | Path |
 |---|---|
 | **The plan** | [`./PLAN.md`](./PLAN.md) |
-| Coborg framework code | `~/coding/agent-policies/src/agent_policies/frameworks/coborg/` |
+| Coborg framework code | `~/coding/players/src/players_lib/coborg/` |
 | Coborg architecture doc | `…/coborg/docs/metta_cogames_framework/README.md` |
 | Coborg toy example (assembly pattern to mirror) | `…/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
 | Existing scripted Among Them (state-vector reference) | `../__init__.py` |

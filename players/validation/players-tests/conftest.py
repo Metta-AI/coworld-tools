@@ -1,4 +1,4 @@
-"""Shared fixtures and import mocking for agent-policies tests.
+"""Shared fixtures and import mocking for the players test suite.
 
 The installed mettagrid 0.2.0.58 has a circular import in
 mettagrid.simulator that prevents normal imports.  This conftest

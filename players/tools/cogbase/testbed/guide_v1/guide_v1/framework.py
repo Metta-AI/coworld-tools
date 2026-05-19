@@ -6,10 +6,10 @@ from pathlib import Path
 
 def _repo_coborg_framework_dir() -> Path:
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "src" / "agent_policies" / "frameworks" / "coborg"
+        candidate = parent / "src" / "players_lib" / "coborg"
         if (candidate / "__init__.py").is_file():
             return candidate
-    raise RuntimeError("could not find src/agent_policies/frameworks/coborg from Cogbase")
+    raise RuntimeError("could not find src/players_lib/coborg from Cogbase")
 
 
 DEFAULT_FRAMEWORK_DIR = _repo_coborg_framework_dir()

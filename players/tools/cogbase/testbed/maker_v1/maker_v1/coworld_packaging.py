@@ -6,7 +6,7 @@ runner exposes, plays the episode, and exits. This module renders the
 :file:`Dockerfile` and :file:`.dockerignore` that wrap a generated agent
 into that shape.
 
-The image still depends on the in-repo ``agent_policies`` framework, which
+The image still depends on the in-repo ``players_lib`` framework, which
 ``agent/framework_bootstrap.py`` imports via absolute path. The generated
 Dockerfile documents the two supported ways to supply the framework inside
 the image (vendor the source, or pip-install a wheel) without choosing
@@ -76,11 +76,11 @@ COPY agent/ /app/agent/
 # match (or set PYTHONPATH so the import resolves):
 #
 # (A) Vendor the framework source into the image:
-#     COPY ./vendor/agent_policies/ /app/agent_policies/
+#     COPY ./vendor/players_lib/ /app/players_lib/
 #     ENV PYTHONPATH=/app
 #
 # (B) Pip-install a published wheel (when one is available):
-#     RUN pip install --no-cache-dir agent-policies==<pinned-version>
+#     RUN pip install --no-cache-dir players==<pinned-version>
 #
 # Leaving this section unresolved produces an image whose entrypoint will
 # raise at import time. Resolve it before `coworld upload-policy`.

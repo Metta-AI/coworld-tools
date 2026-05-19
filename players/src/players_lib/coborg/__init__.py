@@ -1,15 +1,15 @@
 """Reusable two-loop cyborg-agent framework.
 
 The package implements the Coborg architecture documented under
-``src/agent_policies/frameworks/coborg/docs/metta_cogames_framework``: a fast
-symbolic inner loop connected to a slower strategy loop through typed mode
+``src/players_lib/coborg/docs/metta_cogames_framework``: a fast symbolic
+inner loop connected to a slower strategy loop through typed mode
 directives.
 """
 
-from agent_policies.frameworks.coborg.buffers import OverwriteBuffer
-from agent_policies.frameworks.coborg.modes import DirectiveValidationError, Mode, ModeRegistry
-from agent_policies.frameworks.coborg.runtime import AgentRuntime, Reflex, ReflexRule, RuntimeContext
-from agent_policies.frameworks.coborg.strategy import (
+from players_lib.coborg.buffers import OverwriteBuffer
+from players_lib.coborg.modes import DirectiveValidationError, Mode, ModeRegistry
+from players_lib.coborg.runtime import AgentRuntime, Reflex, ReflexRule, RuntimeContext
+from players_lib.coborg.strategy import (
     AsyncStrategy,
     AsyncStrategyRunner,
     ManualStrategyRunner,
@@ -18,7 +18,7 @@ from agent_policies.frameworks.coborg.strategy import (
     SynchronousStrategyRunner,
     ThreadedStrategyRunner,
 )
-from agent_policies.frameworks.coborg.trace import (
+from players_lib.coborg.trace import (
     ListMetricsSink,
     ListTraceSink,
     LoggingMetricsSink,
@@ -31,7 +31,7 @@ from agent_policies.frameworks.coborg.trace import (
     TraceSink,
     WandbMetricsSink,
 )
-from agent_policies.frameworks.coborg.types import (
+from players_lib.coborg.types import (
     ActionCommand,
     ActionIntent,
     BeliefSnapshot,

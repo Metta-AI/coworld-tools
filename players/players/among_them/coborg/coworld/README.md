@@ -5,7 +5,7 @@ Player container assets for the coborg Among Them agent.
 ## Files
 
 - `Dockerfile` — `python:3.12-slim` based image (linux/amd64). Installs the
-  agent-policies package without the mettagrid-heavy `cogames` extra; the
+  players package without the mettagrid-heavy `cogames` extra; the
   noop player only needs `numpy`, `pydantic`, and `websockets`.
 - `entrypoint.sh` — execs `python -m
   players.among_them.coborg.coworld.policy_player`.
@@ -15,7 +15,7 @@ Player container assets for the coborg Among Them agent.
 
 ## Build
 
-From the agent-policies repo root:
+From the players repo root:
 
 ```bash
 docker build --platform linux/amd64 \

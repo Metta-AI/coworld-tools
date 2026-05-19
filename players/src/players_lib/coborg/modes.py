@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import ClassVar, Generic, TypeVar
 
-from agent_policies.frameworks.coborg.types import EmptyModeParams, ModeDecision, ModeDirective, ModeParams
+from players_lib.coborg.types import EmptyModeParams, ModeDecision, ModeDirective, ModeParams
 
 BeliefT = TypeVar("BeliefT")
 ActionStateT = TypeVar("ActionStateT")

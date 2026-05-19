@@ -1,7 +1,7 @@
 # Python Framework Quickstart
 
 The reusable implementation lives in
-[`src/agent_policies/frameworks/coborg`](../..).
+[`src/players_lib/coborg`](../..).
 
 Use it when building a new game agent with the Cyborg pattern:
 
@@ -37,7 +37,7 @@ perceive -> update belief -> mode decide -> action resolve
 ```python
 from dataclasses import dataclass
 
-from agent_policies.frameworks.coborg import (
+from players_lib.coborg import (
     ActionCommand,
     ActionIntent,
     AgentRuntime,

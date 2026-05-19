@@ -6,7 +6,7 @@
 #
 # The script:
 #   1. Ensures the Coworld package is downloaded under ${COBORG_AMONG_THEM_COWORLD_DIR}
-#      (default: <agent-policies repo>/coworld/among_them/).
+#      (default: <players repo>/coworld/among_them/).
 #   2. Builds the player image if it doesn't already exist locally.
 #   3. Runs `uv run coworld play` with the P0-default flags (120s timeout, no
 #      browser, default variant, one image filling all 8 player slots).

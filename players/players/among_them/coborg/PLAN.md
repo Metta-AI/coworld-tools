@@ -12,7 +12,7 @@ session to pick up cold.
 
 Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
 
-1. Lives in `~/coding/agent-policies/` at
+1. Lives in `~/coding/players/` at
    `players/among_them/coborg/`
    — a **sibling** of the existing scripted `among_them/` package, not
    nested inside it. Nesting was tried briefly during P0 scaffolding and
@@ -20,7 +20,7 @@ Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
    `among_them/__init__.py`, which eagerly imports `mettagrid` (heavy
    Bazel + Nim build). Sibling placement keeps this parallel experiment
    decoupled from the production scripted policy.
-2. Is the **first concrete in-repo user** of the `agent_policies.frameworks.coborg`
+2. Is the **first concrete in-repo user** of the `players_lib.coborg`
    Cyborg two-loop runtime (`AgentRuntime` + modes + strategy runner). The
    existing `players/among_them/scripted/__init__.py` is a
    `mettagrid.policy.policy.AgentPolicy` screen-space scripted policy, NOT a
@@ -37,7 +37,7 @@ Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
    stays reserved for protocol traffic.
 6. Is exercised end-to-end locally with `uv run coworld play` against the
    downloaded Among Them manifest (one Docker image fills every player slot).
-7. Ships from agent-policies — Dockerfile, `policy_player.py`, and submission
+7. Ships from the players repo — Dockerfile, `policy_player.py`, and submission
    scripts all live inside the new package directory.
 8. Scope-capped at **P4 Imposter** (deterministic role-aware agent). LLM
    strategy is explicitly deferred to a follow-on plan.
@@ -57,7 +57,7 @@ From the conversation that produced this plan:
 | D2 | Perception is pixel-first, ported from the Nim modules. | James, 2026-05-13. |
 | D3 | All logs/traces go to stderr. | James, 2026-05-13. |
 | D4 | Local execution uses Coworld-first CLI flow (no Nim server scripts). | James, 2026-05-13. |
-| D5 | Shipping artifacts live inside `agent-policies`, not in `personal_cogs`. | James, 2026-05-13. |
+| D5 | Shipping artifacts live inside the players repo, not in `personal_cogs`. | James, 2026-05-13. |
 | D6 | Scope ends at the imposter-capable deterministic agent (P4); LLM is later. | James, 2026-05-13. |
 | D7 | Parallel experiment. Do not modify `guided_bot` or its submission flow. | James, 2026-05-13. |
 | D8 | Numpy-first perception with numba as a measured fallback. | Drafted, not yet confirmed by James. |
@@ -72,7 +72,7 @@ session should proceed under them unless James says otherwise.
 
 ### 3.0 Repo roles at a glance
 
-- **`~/coding/agent-policies/`** — this repo. Hosts the coborg framework and
+- **`~/coding/players/`** — this repo. Hosts the coborg framework and
   all Python agent policies, including this new agent.
 - **`~/coding/bitworld/`** — the **BitWorld game implementation** itself
   (Nim). `~/coding/bitworld/among_them/` is the Among Them game: server,
@@ -90,8 +90,8 @@ session should proceed under them unless James says otherwise.
 
 ### 3.1 Coborg framework — the runtime we're using
 
-- Package: `agent_policies.frameworks.coborg`
-- Source dir: `~/coding/agent-policies/src/agent_policies/frameworks/coborg/`
+- Package: `players_lib.coborg`
+- Source dir: `~/coding/players/src/players_lib/coborg/`
 - Key files:
   - `__init__.py` — public re-exports (read first; this is the API surface).
   - `runtime.py` — `AgentRuntime`, `Reflex`, `ReflexRule`, `RuntimeContext`.
@@ -114,7 +114,7 @@ session should proceed under them unless James says otherwise.
 
 ### 3.2 Existing Among Them prior art (read for state shapes and parsers)
 
-In `~/coding/agent-policies/`:
+In `~/coding/players/`:
 
 - `players/among_them/scripted/__init__.py` —
   Softmax's `BitWorldAmongThemScoutPolicy` / `BitWorldAmongThemCyborgPolicy`,
@@ -497,10 +497,10 @@ The single positional `player_images` arg is reused for every player slot.
 
 - `coworld/Dockerfile`: base `python:3.12-slim`. Steps:
   1. `pip install --no-cache-dir uv` (or use `pip` directly).
-  2. Copy the agent-policies repo (or just `src/`) into `/srv/agent-policies`.
-  3. `pip install -e /srv/agent-policies[cogames]`.
+  2. Copy the players repo (or just `src/`) into `/srv/players`.
+  3. `pip install -e /srv/players[cogames]`.
   4. `ENV PYTHONUNBUFFERED=1`.
-  5. `ENTRYPOINT ["/srv/agent-policies/.../coborg_among_them/coworld/entrypoint.sh"]`.
+  5. `ENTRYPOINT ["/srv/players/.../coborg_among_them/coworld/entrypoint.sh"]`.
   6. Build target `linux/amd64`.
 - `coworld/entrypoint.sh`: forwards args to
   `python -m players.among_them.coborg.coworld.policy_player "$@"`.
@@ -650,10 +650,10 @@ These were drafted in the plan but not explicitly confirmed:
 
 | Need | Path |
 |---|---|
-| Coborg framework code | `~/coding/agent-policies/src/agent_policies/frameworks/coborg/` |
+| Coborg framework code | `~/coding/players/src/players_lib/coborg/` |
 | Coborg framework docs | `…/coborg/docs/metta_cogames_framework/README.md` |
 | Coborg toy example | `…/coborg/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
-| Existing scripted Among Them (state-vector reference) | `~/coding/agent-policies/players/among_them/scripted/__init__.py` |
+| Existing scripted Among Them (state-vector reference) | `~/coding/players/players/among_them/scripted/__init__.py` |
 | BitWorld Among Them game source (Nim) | `~/coding/bitworld/among_them/` |
 | Game constants (source of truth) | `~/coding/bitworld/among_them/{cogame,coworld}_manifest.json`, `config.json` |
 | Native player bots (reference only) | `~/coding/bitworld/among_them/players/` |
@@ -665,4 +665,4 @@ These were drafted in the plan but not explicitly confirmed:
 | Coworld CLI source | `~/coding/metta/packages/coworld/src/coworld/cli.py` |
 | Coworld play source | `~/coding/metta/packages/coworld/src/coworld/play.py` |
 | Coworld runner (protocol authority) | `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` |
-| This plan | `~/coding/agent-policies/players/among_them/coborg/PLAN.md` |
+| This plan | `~/coding/players/players/among_them/coborg/PLAN.md` |

@@ -211,19 +211,15 @@ Decode JSON fields directly. There is no framebuffer or pixel payload.
 """,
     )
     bad_root = tmp_path / "bad_framework_root"
-    bad_framework_dir = bad_root / "src" / "agent_policies" / "frameworks" / "coborg"
+    bad_framework_dir = bad_root / "src" / "players_lib" / "coborg"
     bad_package_dir = bad_framework_dir
     bad_framework_dir.mkdir(parents=True)
-    (bad_root / "src" / "agent_policies" / "__init__.py").write_text("", encoding="utf-8")
-    (bad_root / "src" / "agent_policies" / "frameworks" / "__init__.py").write_text(
-        "",
-        encoding="utf-8",
-    )
+    (bad_root / "src" / "players_lib" / "__init__.py").write_text("", encoding="utf-8")
     (bad_package_dir / "__init__.py").write_text("BROKEN = True\n", encoding="utf-8")
     bad_ref = AgentFrameworkRef(
         name="coborg",
         framework_dir=bad_framework_dir,
-        package="agent_policies.frameworks.coborg",
+        package="players_lib.coborg",
         package_source_root=bad_root / "src",
     )
     output_dir = tmp_path / "maker_out"
@@ -786,9 +782,8 @@ def _load_generated_agent_module(path: Path) -> types.ModuleType:
         name: sys.modules.get(name)
         for name in (
             "cyborg_agent",
-            "agent_policies",
-            "agent_policies.frameworks",
-            "agent_policies.frameworks.coborg",
+            "players_lib",
+            "players_lib.coborg",
             "framework_bootstrap",
             "frame_store",
             "policy",
@@ -825,17 +820,13 @@ def _has_test_file(output_dir: Path, pattern: str) -> bool:
 
 
 def _install_cyborg_stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "agent_policies_stub"
-    framework_dir = root / "src" / "agent_policies" / "frameworks" / "coborg"
+    root = tmp_path / "players_lib_stub"
+    framework_dir = root / "src" / "players_lib" / "coborg"
     package_dir = framework_dir
     framework_dir.mkdir(parents=True, exist_ok=True)
     package_dir.mkdir(parents=True, exist_ok=True)
     (framework_dir / "README.md").write_text("# Cyborg test framework\n", encoding="utf-8")
-    (root / "src" / "agent_policies" / "__init__.py").write_text("", encoding="utf-8")
-    (root / "src" / "agent_policies" / "frameworks" / "__init__.py").write_text(
-        "",
-        encoding="utf-8",
-    )
+    (root / "src" / "players_lib" / "__init__.py").write_text("", encoding="utf-8")
     (package_dir / "__init__.py").write_text(
         '''
 from __future__ import annotations
