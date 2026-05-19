@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cogony -- Technical Rules Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  img.icon { width:18px; height:18px; vertical-align:middle; image-rendering:pixelated; margin:0 2px; }
+  img.icon-lg { width:24px; height:24px; vertical-align:middle; image-rendering:pixelated; margin:0 3px; }
+  img.station { width:80px; height:80px; image-rendering:pixelated; border-radius:6px; border:1px solid var(--border); float:right; margin:0 0 8px 16px; }
+  :root {
+    --core: #8899aa;
+    --os: #00e5ff;
+    --gen: #e0e8f0;
+    --storage: #ffab00;
+    --heal: #30d158;
+    --utility: #ff8c00;
+    --bg: #0a0e14;
+    --bg-surface: #111820;
+    --bg-card: #151c26;
+    --bg-sidebar: #0d1118;
+    --border: #1e2a38;
+    --border-glow: #1a3050;
+    --text: #c8d6e5;
+    --text-dim: #6b7f95;
+    --text-bright: #e8f0fa;
+    --accent: #00e5ff;
+    --accent-dim: #006878;
+    --red: #ff4d6a;
+    --blue: #4d9fff;
+    --green: #30d158;
+    --yellow: #ffab00;
+    --sidebar-w: 260px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ---- SIDEBAR ---- */
+  nav.sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--sidebar-w);
+    height: 100vh;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    padding: 28px 0;
+    overflow-y: auto;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+  }
+
+  nav.sidebar .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    padding: 0 24px 20px;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 20px rgba(0,229,255,0.3);
+  }
+
+  nav.sidebar .logo span {
+    font-size: 11px;
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    font-weight: 400;
+    margin-top: 4px;
+    text-shadow: none;
+  }
+
+  nav.sidebar ul { list-style: none; padding: 16px 0; flex: 1; }
+  nav.sidebar li { margin: 0; }
+
+  nav.sidebar a {
+    display: block;
+    padding: 8px 24px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    transition: all 0.2s;
+    border-left: 2px solid transparent;
+  }
+
+  nav.sidebar a:hover, nav.sidebar a.active {
+    color: var(--accent);
+    background: rgba(0,229,255,0.04);
+    border-left-color: var(--accent);
+  }
+
+  nav.sidebar a.section-link {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 16px;
+    color: var(--text);
+  }
+
+  nav.sidebar a.section-link:hover { color: var(--accent); }
+
+  /* ---- MAIN ---- */
+  main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    padding: 48px 56px 120px;
+    max-width: 960px;
+  }
+
+  h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 36px;
+    color: var(--text-bright);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+    text-shadow: 0 0 30px rgba(0,229,255,0.15);
+  }
+
+  h1 .sub {
+    display: block;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    font-weight: 400;
+    margin-top: 6px;
+    text-shadow: none;
+  }
+
+  h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 1.5px;
+    margin-top: 56px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    scroll-margin-top: 32px;
+  }
+
+  h2 .sn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    background: rgba(0,229,255,0.08);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+
+  h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: var(--text-bright);
+    margin-top: 32px;
+    margin-bottom: 12px;
+    scroll-margin-top: 32px;
+  }
+
+  p { margin-bottom: 14px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 13px;
+  }
+
+  thead th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(30,42,56,0.5);
+    vertical-align: top;
+  }
+
+  tbody tr:hover { background: rgba(0,229,255,0.02); }
+
+  code, .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(0,229,255,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  pre {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+
+  .formula {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 20px;
+    margin: 14px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .callout {
+    background: rgba(0,229,255,0.03);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 20px;
+    margin: 14px 0;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .callout strong { color: var(--text-bright); }
+
+  .rules {
+    background: rgba(255,171,0,0.04);
+    border: 1px solid rgba(255,171,0,0.2);
+    border-left: 3px solid var(--yellow);
+    border-radius: 0 6px 6px 0;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+  .rules strong { color: var(--yellow); }
+  .rules code { font-size: 11px; }
+
+  ul, ol { margin: 10px 0 14px 20px; }
+  li { margin-bottom: 6px; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .dot-core    { background: var(--core); }
+  .dot-os      { background: var(--os); }
+  .dot-gen     { background: var(--gen); }
+  .dot-storage { background: var(--storage); }
+  .dot-heal    { background: var(--heal); }
+  .dot-util    { background: var(--utility); }
+
+  .sub-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .sub-label.core    { color: var(--core); background: rgba(136,153,170,0.12); }
+  .sub-label.os      { color: var(--os); background: rgba(0,229,255,0.1); }
+  .sub-label.gen     { color: var(--gen); background: rgba(224,232,240,0.1); }
+  .sub-label.storage { color: var(--storage); background: rgba(255,171,0,0.1); }
+  .sub-label.heal    { color: var(--heal); background: rgba(48,209,88,0.1); }
+  .sub-label.util    { color: var(--utility); background: rgba(255,140,0,0.1); }
+
+  /* ---- GEAR GRID ---- */
+  .gear-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 20px 0 28px;
+  }
+
+  .gear-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .gear-card:hover {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 20px rgba(0,229,255,0.06);
+  }
+
+  .gear-card img {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    filter: drop-shadow(0 0 8px rgba(0,229,255,0.1));
+  }
+
+  .gear-card .gear-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .gear-card .gear-stat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .gear-card.sub-core    .gear-name { color: var(--core); }
+  .gear-card.sub-os      .gear-name { color: var(--os); }
+  .gear-card.sub-gen     .gear-name { color: var(--gen); }
+  .gear-card.sub-storage .gear-name { color: var(--storage); }
+  .gear-card.sub-heal    .gear-name { color: var(--heal); }
+  .gear-card.sub-util    .gear-name { color: var(--utility); }
+
+  /* ---- STATION GRID ---- */
+  .station-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+    margin: 20px 0 28px;
+  }
+
+  .station-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+
+  .station-card:hover { border-color: var(--accent-dim); }
+
+  .station-card img {
+    width: 100px;
+    height: 100px;
+    object-fit: contain;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 0 6px rgba(0,229,255,0.08));
+  }
+
+  .station-card .station-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-bright);
+  }
+
+  .station-card .station-desc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+
+  /* ---- LEVEL SCALE VIZ ---- */
+  .level-scale {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin: 16px 0 24px;
+    padding: 16px 20px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .level-scale .lv {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .level-scale .lv-bar {
+    width: 32px;
+    background: linear-gradient(to top, var(--accent-dim), var(--accent));
+    border-radius: 3px 3px 0 0;
+    opacity: 0.7;
+  }
+
+  .level-scale .lv-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .team-red    { color: #ff4d6a; }
+  .team-blue   { color: #4d9fff; }
+  .team-green  { color: #30d158; }
+  .team-yellow { color: #ffab00; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ======== SIDEBAR ======== -->
+<nav class="sidebar">
+  <div class="logo">
+    Cogony
+    <span>rules // v1.0</span>
+  </div>
+  <ul>
+    <li><a href="#cogs" class="section-link">1 Cogs</a></li>
+    <li><a href="#cog-hearts">1.1 Hearts</a></li>
+    <li><a href="#cog-creds">1.2 Creds</a></li>
+    <li><a href="#cog-coherence">1.3 Coherence</a></li>
+    <li><a href="#cog-energy">1.4 Energy</a></li>
+    <li><a href="#cog-cargo">1.5 Cargo</a></li>
+    <li><a href="#cog-subsystems">1.6 Subsystems</a></li>
+    <li><a href="#cog-programs">1.7 Programs</a></li>
+    <li><a href="#cog-exploits">1.8 Hacking</a></li>
+
+    <li><a href="#mining" class="section-link">2 Mining</a></li>
+    <li><a href="#extractors">2.1 Extractors</a></li>
+    <li><a href="#market">2.2 Market</a></li>
+
+    <li><a href="#caos" class="section-link">3 CAOs</a></li>
+    <li><a href="#cao-hub">3.1 Hub</a></li>
+    <li><a href="#cao-network">3.2 Research Network</a></li>
+    <li><a href="#cao-stakes">3.3 Stakes</a></li>
+    <li><a href="#cao-dividends">3.4 Dividends</a></li>
+
+    <li><a href="#programs" class="section-link">4 Programs</a></li>
+
+    <li><a href="#init" class="section-link">5 Init</a></li>
+    <li><a href="#init-cog">4.1 Cog</a></li>
+    <li><a href="#init-extractor">4.2 Extractor</a></li>
+    <li><a href="#init-junction">4.3 Junction</a></li>
+    <li><a href="#init-hub">4.6 Hub</a></li>
+    <li><a href="#init-market">4.7 Market</a></li>
+
+  </ul>
+</nav>
+
+<!-- ======== MAIN ======== -->
+<main>
+
+<h1>Cogony Rules<span class="sub">Technical Reference // Source of Truth</span></h1>
+<p style="color: var(--text-dim); margin-bottom: 40px;">Rule changes start here; code and tests follow.</p>
+
+<!-- ===== S1: COGS ===== -->
+<h2 id="cogs"><span class="sn">1</span> Cogs</h2>
+<div style="display:flex; gap:24px; align-items:flex-start;">
+  <div style="flex:1;">
+    <p>Cogs are digital cognitive entities &mdash; the autonomous agents of Cogony.</p>
+    <p>A cog has two actions available each tick:</p>
+    <ul style="margin:8px 0 8px 20px;">
+      <li><strong>Move</strong> &mdash; walk one cell in a cardinal direction (N/S/E/W). If the cell is empty, the cog moves there. If it's occupied, the cog <em>bumps</em> whatever is there &mdash; interacting with it instead of moving. The effect depends on the target and the cog's current vibe.</li>
+      <li><strong>Change&nbsp;Vibe</strong> &mdash; switch to a different vibe mode. Vibes modify what bumps do.</li>
+    </ul>
+  </div>
+  <img src="img/cog.png" style="width:120px; height:auto; border-radius:8px; border:1px solid var(--border); image-rendering: pixelated;" alt="Cog">
+</div>
+
+<h3 id="cog-hearts">1.1 Hearts</h3>
+<img class="station" src="img/heart_station.png" alt="Heart Altar">
+<p><img class="icon-lg" src="img/heart.png" alt="heart"> <strong>Hearts</strong> are the ultimate measure of a cog's success &mdash; the victory points of Cogony. A cog's per-step reward is proportional to hearts gained. Hearts can be purchased at the Heart Altar.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Hearts persist across reboot. Cannot be looted.<br>
+&bull; Heart Altar cost: <code>100 creds &rarr; 1 heart</code><br>
+</div>
+
+<h3 id="cog-creds">1.2 Creds</h3>
+<p><img class="icon" src="img/creds.png" alt="creds"> <strong>Creds</strong> are the universal currency. Cogs use creds to buy gear, hearts, and stakes.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Creds persist across reboot. Cannot be looted.
+</div>
+
+<h3 id="cog-coherence">1.3 Coherence and Reboot</h3>
+<p><img class="icon" src="img/green-cpu.png" alt="coherence"> Coherence is a cog's health. It regenerates slowly over time. When it drops to 0, the cog is disabled and must reboot. While rebooting, the cog's cargo can be looted by bumping into it. On reboot, coherence is restored to max.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; <code>coherence_max = core &times; 10</code><br>
+&bull; Regen: every 10 ticks, <code>coherence += core</code> (capped at max, only when alive)<br>
+&bull; At coherence = 0: <code>reboot = coherence_max</code>, decrements by 1/tick<br>
+&bull; When reboot reaches 0: coherence restored to max, one random subsystem upgrade lost<br>
+&bull; Disabled cogs cannot move. Cargo can be looted by bumping.
+</div>
+
+<h3 id="cog-energy">1.4 Energy</h3>
+<p><img class="icon" src="img/energy.png" alt="energy"> Energy is used for special abilities. It regenerates over time.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; <code>energy_max = gen &times; 25</code><br>
+&bull; Regen: every 10 ticks, <code>energy += gen</code> (capped at max, only when alive)
+</div>
+
+<h3 id="cog-cargo">1.5 Cargo</h3>
+<p><img class="icon" src="img/package.png" alt="cargo"> Cogs can transport elements &mdash; <img class="icon" src="img/carbon.png" alt="C">Carbon, <img class="icon" src="img/oxygen.png" alt="O">Oxygen, <img class="icon" src="img/germanium.png" alt="G">Germanium, and <img class="icon" src="img/silicon.png" alt="S">Silicon &mdash; which can be sold at a market for <img class="icon" src="img/creds.png" alt="creds">creds.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; <code>cargo_max = 50 + storage &times; 25</code><br>
+&bull; Cargo = sum of all carried elements, capped at cargo_max<br>
+&bull; Cargo is lost on reboot (can be looted while rebooting)
+</div>
+
+<h3 id="cog-subsystems">1.6 Subsystems</h3>
+<p>Every cog has four subsystems. Each subsystem can be upgraded by bumping the upgrade station for that subsystem. All subsystems start at level 1. Each cog is granted one random upgrade when the game starts.</p>
+<table>
+  <thead><tr><th>Subsystem</th><th>Key</th><th>Function</th><th>Formula</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot dot-core"></span>Core</td><td><code>core</code></td><td>Max coherence and faster coherence regen</td><td><code>coherence_max = core &times; 10</code><br><code>coherence_regen = core / 10 (per tick)</code></td></tr>
+    <tr><td><span class="dot dot-os"></span>OS</td><td><code>os</code></td><td>Max concurrent daemons</td><td><code>max_daemons = os</code></td></tr>
+    <tr><td><span class="dot dot-gen"></span>Generator</td><td><code>gen</code></td><td>Max energy and faster energy regen</td><td><code>energy_max = gen &times; 25</code><br><code>energy_regen = gen / 10 (per tick)</code></td></tr>
+    <tr><td><span class="dot dot-storage"></span>Storage</td><td><code>storage</code></td><td>Cargo capacity</td><td><code>cargo_max = 50 + storage &times; 25</code></td></tr>
+  </tbody>
+</table>
+<p>Upgrade cost: <code>cost = 2<sup>sum_of_all_levels</sup></code> creds. Since all four subsystems start at level 1 and each cog gets one random upgrade, the starting sum is 5 &mdash; so the next upgrade costs 2<sup>5</sup> = 32 creds. On reboot, one random upgrade is lost.</p>
+<p style="margin-top:16px; font-size:13px; color:var(--text-dim);">Upgrade stations:</p>
+<div style="display:flex; gap:12px; margin:8px 0;">
+  <div style="text-align:center;"><img src="img/core_d_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Core</span></div>
+  <div style="text-align:center;"><img src="img/os_d_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">OS</span></div>
+  <div style="text-align:center;"><img src="img/gen_d_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Generator</span></div>
+  <div style="text-align:center;"><img src="img/storage_d_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Storage</span></div>
+</div>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Upgrade cost: <code>2<sup>sum_of_all_levels</sup></code> creds<br>
+&bull; On reboot: 1 random subsystem loses 1 level (minimum 1)
+<table style="margin:8px 0 4px; font-size:12px;">
+  <thead><tr><th>Subsystem</th><th>Per level</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot dot-core"></span>Core</td><td><code>+10 max coherence</code>, <code>+1 coherence regen / 10 ticks</code></td></tr>
+    <tr><td><span class="dot dot-os"></span>OS</td><td><code>+1 max daemon</code></td></tr>
+    <tr><td><span class="dot dot-gen"></span>Generator</td><td><code>+25 max energy</code>, <code>+1 energy regen / 10 ticks</code></td></tr>
+    <tr><td><span class="dot dot-storage"></span>Storage</td><td><code>+25 cargo cap</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="cog-programs">1.7 Programs</h3>
+<p>Cogs can run programs, which impact their behavior. Programs have a max runtime and are automatically terminated once reached. Programs can be installed at corresponding Terminals, or sideloaded by hackers. Programs can be launched via vibing, but are sometimes launched automatically or via exploits. See <a href="#programs">Section 4</a> for the full program list.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Each program consumes energy per tick while running. If energy &lt; cost, program terminates.<br>
+&bull; Programs have a <code>max_runtime</code> and are automatically terminated once reached.
+</div>
+
+<h3 id="cog-exploits">1.8 Hacking</h3>
+<p>Cogs can attempt to hack other objects and cogs. Every subsystem is hackable with the right exploit. Each cog has four exploit levels &mdash; one per subsystem &mdash; starting at 0. Bumping a hackable object initiates a hacking attempt, where each exploit is matched against the target's corresponding subsystem.</p>
+<table>
+  <thead><tr><th>Subsystem</th><th>Key</th><th>Exploit</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot dot-core"></span>Core</td><td><code>core_x</code></td><td>Exploits the target's Core subsystem</td></tr>
+    <tr><td><span class="dot dot-os"></span>OS</td><td><code>os_x</code></td><td>Exploits the target's OS subsystem</td></tr>
+    <tr><td><span class="dot dot-gen"></span>Generator</td><td><code>gen_x</code></td><td>Exploits the target's Generator subsystem</td></tr>
+    <tr><td><span class="dot dot-storage"></span>Storage</td><td><code>storage_x</code></td><td>Exploits the target's Storage subsystem</td></tr>
+  </tbody>
+</table>
+<p>Exploit levels start at 0, with one random exploit granted at game start. Exploits can be upgraded at exploit stations:</p>
+<div style="display:flex; gap:12px; margin:8px 0 16px;">
+  <div style="text-align:center;"><img src="img/core_a_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">CoreX</span></div>
+  <div style="text-align:center;"><img src="img/os_a_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">OsX</span></div>
+  <div style="text-align:center;"><img src="img/gen_a_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">GenX</span></div>
+  <div style="text-align:center;"><img src="img/storage_a_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">StoreX</span></div>
+</div>
+<p>Damage per subsystem = <code>max(0, attacker.exploit &minus; target.level)</code>. Total damage to the target's coherence is the sum across all four. If the target survives, it strikes back using the same calculation in reverse.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Upgrade cost: same as subsystems &mdash; <code>2<sup>sum_of_all_levels</sup></code> creds (shared pool with subsystem levels)<br>
+&bull; Exploit upgrade stations: bump to purchase +1 to that exploit<br>
+&bull; <code>damage_per_channel = max(0, attacker.exploit[C] &minus; target.subsystem[C])</code><br>
+&bull; <code>total_damage = &Sigma; damage_per_channel</code> for C in {core, os, gen, storage}<br>
+&bull; <code>target.coherence -= total_damage</code><br>
+&bull; Strike-back (if target survives): <code>strike = &Sigma; max(0, target.exploit[C] &minus; attacker.subsystem[C])</code><br>
+&bull; <code>attacker.coherence -= strike</code><br>
+&bull; Hackable objects: extractors, junctions, observatories, datacenters, other cogs
+</div>
+
+<!-- ===== S2: MINING ===== -->
+<h2 id="mining"><span class="sn">2</span> Mining</h2>
+<p>Cogs earn <img class="icon" src="img/creds.png" alt="creds">creds by mining elements from extractors and selling them at the market.</p>
+
+<h3 id="extractors">2.1 Extractors</h3>
+<div style="display:flex; gap:12px; margin:12px 0;">
+  <div style="text-align:center;"><img src="img/carbon_extractor.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);"><img class="icon" src="img/carbon.png">Carbon</span></div>
+  <div style="text-align:center;"><img src="img/oxygen_extractor.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);"><img class="icon" src="img/oxygen.png">Oxygen</span></div>
+  <div style="text-align:center;"><img src="img/germanium_extractor.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);"><img class="icon" src="img/germanium.png">Germanium</span></div>
+  <div style="text-align:center;"><img src="img/silicon_extractor.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);"><img class="icon" src="img/silicon.png">Silicon</span></div>
+</div>
+<p>Extractors are stationary nodes scattered across the map. Each produces one type of element. Like cogs, extractors have the same four subsystems (Core, OS, Generator, Storage) and can be hacked. Bump an extractor to hack it. When its coherence drops to 0, it enters a reboot cycle. While rebooting, it can be looted &mdash; bump it again to collect its elements.</p>
+<p>Extractors auto-mine their element, producing 5 units per tick (while coherent) and adding it to their cargo. An extractor's max cargo starts at <code>rand(1, 10)</code> and increases by <code>rand(10)</code> on every reboot.</p>
+<p>On reboot, the extractor grows stronger: it gains +1 to a random subsystem and +1 to a random exploit. Its coherence is restored to max. Extractors with higher subsystems are harder to hack but hold more elements.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; 4 types: carbon, oxygen, germanium, silicon<br>
+&bull; Same 4 subsystems and 4 exploits as cogs<br>
+&bull; Auto-mine: <code>+5 elements/tick</code> while coherent, capped at cargo_max<br>
+&bull; Coherence: same formula as cogs &mdash; <code>core &times; 10</code><br>
+&bull; Regen: <code>core / 10</code> per tick<br>
+&bull; On coherence = 0: reboot countdown = coherence_max<br>
+&bull; While rebooting: bump to loot all elements<br>
+&bull; On reboot: +1 random subsystem, +1 random exploit, coherence restored, cargo_max += <code>rand(10)</code>
+</div>
+
+<h3 id="market">2.2 Market</h3>
+<img class="station" src="img/market_station.png" alt="Market Station">
+<p>Bump the market to sell all carried elements for <img class="icon" src="img/creds.png" alt="creds">creds. Each element has a dynamic price &mdash; the rarest element pays the most, the most common pays the least. Prices adjust after each sale based on recent transactions.</p>
+<p>Initial prices: <img class="icon" src="img/carbon.png">Carbon = 1, <img class="icon" src="img/oxygen.png">Oxygen = 2, <img class="icon" src="img/germanium.png">Germanium = 3, <img class="icon" src="img/silicon.png">Silicon = 4. After each sale, prices are recomputed every 100 ticks based on the last 100 transactions. The market ranks all elements by total units sold &mdash; the rarest element gets price 4, next 3, then 2, then 1.</p>
+<p><code>payout = &Sigma; (quantity<sub>i</sub> &times; price<sub>i</sub>)</code> for each element carried.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Bump market to sell all carried elements instantly<br>
+&bull; Prices recompute every 100 ticks based on last 100 sales<br>
+&bull; Rank by total units sold: rarest = 4, next = 3, then 2, then 1<br>
+&bull; <code>payout = &Sigma;(qty[i] &times; price[i])</code><br>
+&bull; All cargo cleared after sale
+</div>
+
+<!-- ===== S3: CAOs ===== -->
+<h2 id="caos"><span class="sn">3</span> Cog Autonomous Organizations (CAOs)</h2>
+<p>CAOs are autonomous organizations, mostly engaged in research. There are four CAOs &mdash; Red, Blue, Green, and Yellow. Each CAO requires a network of research nodes to generate revenue, which is distributed to stake holders as dividends.</p>
+
+<h3 id="cao-hub">3.1 Hub</h3>
+<img class="station" src="img/hub.png" alt="Hub">
+<p>Each CAO has a Hub at the center of its compound. Bump the hub to receive an <strong>Aligner</strong> for that CAO. A cog can only carry one aligner at a time, but can switch to a different CAO's aligner whenever it wants by bumping a different hub.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Bump hub: receive aligner for that CAO + collect pending dividends + restore coherence and energy to max<br>
+&bull; Only 1 aligner at a time &mdash; bumping a different hub replaces it<br>
+&bull; 4 CAOs: Red, Blue, Green, Yellow
+</div>
+
+<h3 id="cao-network">3.2 Research Network</h3>
+<p>A CAO's network consists of three types of research nodes, scattered across the map. All research nodes have the same four subsystems as cogs and can be hacked. While rebooting, a node can be aligned to a CAO by a cog carrying that CAO's aligner.</p>
+<div style="display:flex; gap:16px; margin:16px 0;">
+  <div style="text-align:center;"><img src="img/junction.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Junction</span><br><span style="font-size:11px; color:var(--yellow);">10 <img class="icon" src="img/creds.png"></span></div>
+  <div style="text-align:center;"><img src="img/observatory.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Observatory</span><br><span style="font-size:11px; color:var(--yellow);">50 <img class="icon" src="img/creds.png"></span></div>
+  <div style="text-align:center;"><img src="img/datacenter.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Datacenter</span><br><span style="font-size:11px; color:var(--yellow);">100 <img class="icon" src="img/creds.png"></span></div>
+</div>
+<p>Revenue is computed every 100 ticks based on the total number of aligned nodes in the CAO's network.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Research nodes have same subsystems as cogs/extractors, can be hacked<br>
+&bull; While rebooting: bump with aligner to align to your CAO<br>
+&bull; Alignment requires nearby hub or already-aligned node (radius 25)<br>
+&bull; Revenue per 100 ticks: <code>10 &times; junctions + 50 &times; observatories + 100 &times; datacenters</code><br>
+&bull; On reboot: +1 random subsystem, +1 random exploit, coherence restored
+</div>
+
+<h3 id="cao-stakes">3.3 Stakes</h3>
+<p>Cogs can invest in a CAO by purchasing <strong>stakes</strong> via a bonding curve. Bump the CAO's Stake House to mint a stake. Stakes can be burned at the Burn Pit. Stakes entitle holders to a share of the CAO's revenue, paid as dividends.</p>
+<p>Minting the n-th stake costs <code>k &times; n</code> (k=10). Burns refund <code>k &times; s</code> where s is the current total stakes. Mints and burns are exact inverses &mdash; the bonding curve is closed.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Bonding curve constant: <code>k = 10</code><br>
+&bull; Mint cost: <code>k &times; (total_stakes + 1)</code> creds<br>
+&bull; Burn refund: <code>k &times; total_stakes</code> creds<br>
+&bull; Curve reserve: <code>C = k &times; s &times; (s+1) / 2</code> (always balanced)<br>
+&bull; Mint: bump Stake House. Burn: bump Burn Pit.<br>
+&bull; Both settle pending dividends first
+</div>
+<div style="display:flex; gap:16px; margin:12px 0;">
+  <div style="text-align:center;"><img src="img/stake_buy_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Stake House</span></div>
+  <div style="text-align:center;"><img src="img/stake_sell_station.png" style="width:64px; height:64px; image-rendering:pixelated;"><br><span style="font-size:11px; color:var(--text-dim);">Burn Pit</span></div>
+</div>
+
+<h3 id="cao-dividends">3.4 Dividends</h3>
+<p>Revenue from aligned research nodes is distributed to all stake holders proportionally. Dividends accumulate automatically &mdash; bump the hub to collect.</p>
+<div class="rules">
+<strong>Rules:</strong><br>
+&bull; Every 100 ticks: <code>dps += revenue / max(total_stakes, 1)</code><br>
+&bull; Revenue added to hub's creds pool<br>
+&bull; On claim/mint/burn: <code>payout = stakes &times; (dps &minus; basis)</code><br>
+&bull; Payout deducted from hub creds pool, paid to agent<br>
+&bull; Agent's basis resets to current dps after settlement
+</div>
+
+
+<!-- ===== S4: INIT ===== -->
+<!-- ===== S4: PROGRAMS ===== -->
+<h2 id="programs"><span class="sn">4</span> Programs</h2>
+<p>Programs impact a cog's behavior. They consume <img class="icon" src="img/energy.png" alt="energy">energy per tick and have a max runtime. Programs can be installed at Terminals or sideloaded by hackers.</p>
+
+<table>
+  <thead><tr><th>Program</th><th>Vibe</th><th>Energy</th><th>Runtime</th><th>Effect</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Jump</strong></td><td>🦘</td><td>5</td><td>1</td><td><code>move += os</code></td><td>Leap over adjacent objects, landing <code>os</code> cells away.</td></tr>
+    <tr><td><strong>Trap</strong></td><td>🪤</td><td>25</td><td>1</td><td><code>trap.dmg = storage &times; 5</code></td><td>Drop a trap. Cogs stepping on it take damage.</td></tr>
+    <tr><td><strong>Patch</strong></td><td>🩹</td><td>10</td><td>10</td><td><code>target.coherence += core &times; 10</code></td><td>Heal the bumped target, restoring coherence.</td></tr>
+    <tr><td><strong>Escape</strong></td><td>💨</td><td>25</td><td>1</td><td><code>teleport(hub)</code></td><td>Teleport to your CAO's Hub.</td></tr>
+    <tr><td><strong>Wait</strong></td><td>&mdash;</td><td>0</td><td>&infin;</td><td><code>mobile = 0</code></td><td>While running, the cog cannot move.</td></tr>
+    <tr><td><strong>Rootkit</strong></td><td>&mdash;</td><td>0</td><td>1</td><td><code>steal(target.creds, target.hearts)</code></td><td>When looting a rebooting cog, steal their creds and hearts.</td></tr>
+    <tr><td><strong>Proxy</strong></td><td>&mdash;</td><td>0</td><td><code>os &times; 10</code></td><td><code>target.exploits = 0</code></td><td>Disables the target's attacks for the duration.</td></tr>
+    <tr><td><strong>Firewall</strong></td><td>🛡️</td><td>15</td><td>5</td><td><code>damage_taken = 0</code></td><td>Blocks all incoming hack damage while running.</td></tr>
+    <tr><td><strong>Overclock</strong></td><td>⚡</td><td>30</td><td>5</td><td><code>exploits += core</code></td><td>Temporarily boost all exploit levels.</td></tr>
+    <tr><td><strong>Worm</strong></td><td>🐛</td><td>15</td><td>1</td><td><code>target.random_sub -= 1</code></td><td>Downgrade a random subsystem on the target.</td></tr>
+    <tr><td><strong>Drain</strong></td><td>🩸</td><td>15</td><td>5</td><td><code>target.coh -= core; self.coh += core</code></td><td>Vampiric &mdash; steal coherence from bumped target each tick.</td></tr>
+    <tr><td><strong>Scramble</strong></td><td>🌀</td><td>20</td><td>1</td><td><code>target.move = random(os &times; 3)</code></td><td>Target's next moves go in random directions.</td></tr>
+    <tr><td><strong>Backup</strong></td><td>💾</td><td>30</td><td>1</td><td><code>save(subsystems)</code></td><td>On next reboot, no subsystem is lost.</td></tr>
+    <tr><td><strong>Dashboard</strong></td><td>🔍</td><td>5</td><td>1</td><td><code>reveal(target.*)</code></td><td>Displays all internal state of the bumped target.</td></tr>
+    <tr><td><strong>Loopback</strong></td><td>🪞</td><td>15</td><td>3</td><td><code>reflect(damage)</code></td><td>Incoming hack damage is reflected back at the attacker.</td></tr>
+    <tr><td><strong>Swap</strong></td><td>🔄</td><td>0</td><td>1</td><td><code>swap(actor, target)</code></td><td>Swap positions with a rebooting cog on bump.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="init"><span class="sn">5</span> Init</h2>
+<p>Initial conditions for each game object at spawn.</p>
+
+<h3 id="init-cog">4.1 Cog</h3>
+<div class="rules">
+&bull; <code>coherence = 10</code><br>
+&bull; <code>energy = 100</code><br>
+&bull; <code>creds = 100</code><br>
+&bull; <code>hearts = 1</code><br>
+&bull; <code>core = 1, os = 1, gen = 1, storage = 1</code> (all subsystems level 1)<br>
+&bull; <code>+1 random subsystem upgrade</code> (total subsystem levels = 5)<br>
+&bull; <code>core_x = 0, os_x = 0, gen_x = 0, storage_x = 0</code> (all exploits level 0)<br>
+&bull; <code>+1 random exploit upgrade</code><br>
+&bull; <code>cargo = 0</code>, no elements<br>
+&bull; No aligner, no daemons, no team
+</div>
+
+<h3 id="init-extractor">4.2 Extractor</h3>
+<div class="rules">
+&bull; <code>core = 1, os = 1, gen = 1, storage = 1</code><br>
+&bull; <code>+1 random subsystem, +1 random exploit</code><br>
+&bull; <code>coherence = core &times; 10</code> (full)<br>
+&bull; <code>cargo = 0</code>, <code>cargo_max = rand(1, 10)</code><br>
+&bull; Auto-mines 5 elements/tick while coherent
+</div>
+
+<h3 id="init-junction">4.3 Junction</h3>
+<div class="rules">
+&bull; <code>core = 1, os = 1, gen = 1, storage = 1</code><br>
+&bull; <code>+1 random subsystem, +1 random exploit</code><br>
+&bull; <code>coherence = core &times; 10</code> (full)<br>
+&bull; Unaligned (no CAO)
+</div>
+
+<h3 id="init-observatory">4.4 Observatory</h3>
+<div class="rules">
+&bull; Same as Junction
+</div>
+
+<h3 id="init-datacenter">4.5 Datacenter</h3>
+<div class="rules">
+&bull; Same as Junction
+</div>
+
+<h3 id="init-hub">4.6 Hub</h3>
+<div class="rules">
+&bull; <code>total_stake = 0</code><br>
+&bull; <code>curve_reserve = 0</code><br>
+&bull; <code>dps = 0</code><br>
+&bull; <code>stake_cost = 10</code> (k &times; 1)<br>
+&bull; <code>creds = 0</code>
+</div>
+
+<h3 id="init-market">4.7 Market</h3>
+<div class="rules">
+&bull; Prices: <code>carbon = 1, oxygen = 2, germanium = 3, silicon = 4</code><br>
+&bull; Sold counters: all 0
+</div>
+
+<h3 id="init-heart-altar">4.8 Heart Altar</h3>
+<div class="rules">
+&bull; Cost: <code>100 creds &rarr; 1 heart</code> (fixed)
+</div>
+
+</main>
+
+<script>
+const sections = document.querySelectorAll('h2[id], h3[id]');
+const navLinks = document.querySelectorAll('nav.sidebar a');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + entry.target.id) link.classList.add('active');
+      });
+    }
+  });
+}, { rootMargin: '-20% 0px -60% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

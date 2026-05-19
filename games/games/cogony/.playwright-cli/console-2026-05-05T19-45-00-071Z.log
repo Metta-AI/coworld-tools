@@ -1,0 +1,49 @@
+[      98ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[     256ms] [LOG] WS connected @ http://127.0.0.1:8906/:381
+[    1648ms] [LOG] Connecting to ws://127.0.0.1:8906/ws @ http://127.0.0.1:8906/wasm/mettascope.js:1230
+[    1649ms] [LOG] Using : Emscripten OpenAL for sound! @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    1838ms] [INFO] WASM Runtime Initialized @ http://127.0.0.1:8906/wasm/mettascope.html?ws=ws%3A%2F%2F127.0.0.1%3A8906%2Fws:93
+[    1872ms] [LOG] WebSocket connected @ http://127.0.0.1:8906/wasm/mettascope.js:1230
+[    2039ms] [LOG] Converting replay from version 2 to version 3... @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    2048ms] [LOG] Converting replay from version 3 to version 4... @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    2200ms] [LOG] Replay loaded:  @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    2200ms] [LOG] Assigned agent 0 @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    2202ms] [LOG] Warning: Position cannot be gotten on emscripten windows @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    2202ms] [LOG] Warning: Position cannot be gotten on emscripten windows @ http://127.0.0.1:8906/wasm/mettascope.js:1768
+[    5060ms] [LOG] WebSocket closed @ http://127.0.0.1:8906/wasm/mettascope.js:1230
+[   42654ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386
+[   44108ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/admin?format=json:0
+[   44108ms] TypeError: Failed to fetch
+    at refreshAdminState (http://127.0.0.1:8906/:315:26)
+[   44660ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[   44660ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8906/global' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/:378
+[   44660ms] [ERROR] WS error: Event @ http://127.0.0.1:8906/:391
+[   44661ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386
+[   46114ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/admin?format=json:0
+[   46114ms] TypeError: Failed to fetch
+    at refreshAdminState (http://127.0.0.1:8906/:315:26)
+[   46669ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[   46670ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8906/global' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/:378
+[   46670ms] [ERROR] WS error: Event @ http://127.0.0.1:8906/:391
+[   46670ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386
+[   48115ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/admin?format=json:0
+[   48115ms] TypeError: Failed to fetch
+    at refreshAdminState (http://127.0.0.1:8906/:315:26)
+[   48679ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[   48680ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8906/global' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/:378
+[   48680ms] [ERROR] WS error: Event @ http://127.0.0.1:8906/:391
+[   48680ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386
+[   50105ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/admin?format=json:0
+[   50105ms] TypeError: Failed to fetch
+    at refreshAdminState (http://127.0.0.1:8906/:315:26)
+[   50696ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[   50696ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8906/global' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/:378
+[   50696ms] [ERROR] WS error: Event @ http://127.0.0.1:8906/:391
+[   50696ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386
+[   52108ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/admin?format=json:0
+[   52107ms] TypeError: Failed to fetch
+    at refreshAdminState (http://127.0.0.1:8906/:315:26)
+[   52704ms] [LOG] WS connecting to ws://127.0.0.1:8906/global @ http://127.0.0.1:8906/:376
+[   52705ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8906/global' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8906/:378
+[   52705ms] [ERROR] WS error: Event @ http://127.0.0.1:8906/:391
+[   52705ms] [LOG] WS closed: 1006  @ http://127.0.0.1:8906/:386

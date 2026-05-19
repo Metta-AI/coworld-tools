@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amongcogs"
+version = "0.1.0"
+description = "Standalone AmongCogs game package built on cogames and mettagrid"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Metta-AI" }]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "anthropic>=0.64.0",
+  "cogames",
+  "mettagrid",
+  "pydantic>=2.11.5",
+  "typing-extensions>=4.12.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "gymnasium>=1.1.1",
+  "pillow>=11.0.0",
+  "pytest>=8.3.0",
+]
+
+[project.scripts]
+amongcogs-headless = "amongcogs.headless:main"
+amongcogs-parity = "amongcogs.parity:main"
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/cogame-amongcogs"
+Repository = "https://github.com/Metta-AI/cogame-amongcogs.git"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["amongcogs", "amongcogs.*"]
+
+[tool.setuptools.package-data]
+amongcogs = ["py.typed", "*.md", "assets/**/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,46 @@
+{
+  "name": "builder-brownie-1qqtrvq",
+  "source_images": [
+    "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-01.png",
+    "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-02.png",
+    "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-03.png",
+    "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-04.png",
+    "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-05.png"
+  ],
+  "source_image_urls": [
+    "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-01.png",
+    "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-02.png",
+    "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-03.png",
+    "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-04.png",
+    "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/sources/builder-brownie-1qqtrvq-source-05.png"
+  ],
+  "frame_width": 192,
+  "frame_height": 192,
+  "columns": 5,
+  "rows": 1,
+  "frame_count": 5,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-01.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-02.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-02.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-03.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-03.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-04.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-04.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-05.png",
+      "url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/frames/builder-brownie-1qqtrvq-05.png"
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/builder-brownie-1qqtrvq-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/builder-brownie-1qqtrvq/builder-brownie-1qqtrvq-preview.png"
+}

@@ -1,0 +1,127 @@
+data/tmp/
+data/silky.atlas.json
+data/silky.atlas.png
+tribal_village.log
+profile_results.txt
+metta
+tribal_village
+uv.lock
+
+# Dynamic libraries (platform-specific compiled binaries)
+*.dylib
+*.dll
+*.so
+
+# Nim compilation artifacts
+*.out
+*.exe
+src/ffi
+
+# Test executables (all compiled test binaries)
+tests/test_*
+tests/debug_*
+tests/quick_*
+tests/fixed_*
+tests/domain_*
+tests/behavior_*
+tests/integration_*
+!tests/test_*.nim
+!tests/test_*.py
+!tests/test_*.sh
+!tests/debug_*.nim
+!tests/quick_*.nim
+!tests/fixed_*.nim
+!tests/domain_*.nim
+!tests/behavior_*.nim
+!tests/integration_*.nim
+
+# Nim cache (when configured to emit locally)
+nimcache/
+src/**/nimcache/
+
+# Temporary files and outputs
+*.tmp
+*.tribal
+actions.tmp
+tribal_replay_*.tribal
+
+train_dir/
+experiments/
+
+# Python package build artifacts
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+.eggs/
+
+# Python virtual environments
+venv/
+env/
+.env
+.venv
+
+# Python testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Python IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python development tools
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+nimble.develop
+nimble.paths
+nim.cfg
+.envrc
+
+.DS_Store
+
+# Compiled script binaries
+scripts/build_atlas
+scripts/benchmark_steps
+scripts/audit_*
+scripts/profile_*
+scripts/perf_baseline
+scripts/run_all_tests
+scripts/coverage_report
+
+# Nimby-installed dependency packages (local to worktree)
+bitty/
+boxy/
+bumpy/
+chroma/
+crunchy/
+flatty/
+nimsimd/
+opengl/
+pixie/
+shady/
+urlly/
+vmath/
+windy/
+ws/
+zippy/
+
+# Local tool state
+.runtime/
+.claude/
+.logs/
+scorecards/
+
+# Session artifacts
+CLAUDE.md
+STATUS_LOG.md

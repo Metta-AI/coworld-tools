@@ -1,0 +1,1 @@
+"""Cogisis local web interface."""

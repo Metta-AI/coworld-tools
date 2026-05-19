@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=70.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toolsy-policy"
+version = "0.1.0"
+description = "LLM-driven Cogony policy using tool calls"
+requires-python = ">=3.12"
+dependencies = [
+  "mettagrid",
+  "anthropic>=0.64.0",
+  "websockets>=13",
+]
+
+[tool.setuptools.packages.find]
+include = ["toolsy_policy*"]
