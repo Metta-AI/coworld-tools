@@ -1,3 +1,3 @@
 """Cogamer framework components."""
 
-__all__ = ["cvc", "pco"]
+__all__ = ["coglet", "pco"]

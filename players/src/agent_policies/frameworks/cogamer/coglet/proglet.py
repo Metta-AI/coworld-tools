@@ -11,7 +11,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 
-from agent_policies.frameworks.cogamer.cvc.coglet import enact
+from agent_policies.frameworks.cogamer.coglet.coglet import enact
 
 
 @dataclass

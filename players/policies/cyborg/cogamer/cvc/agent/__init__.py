@@ -1,10 +1,10 @@
 """CvC agent — heuristic engine, mixins, and utility functions."""
 
-from agent_policies.frameworks.cogamer.cvc.agent.decisions import (
+from policies.cyborg.cogamer.cvc.agent.decisions import (
     DECISION_PIPELINE,
     run_pipeline,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.geometry import (
+from policies.cyborg.cogamer.cvc.agent.geometry import (
     direction_from_step,
     explore_offsets,
     format_position,
@@ -12,7 +12,7 @@ from agent_policies.frameworks.cogamer.cvc.agent.geometry import (
     manhattan,
     unstick_directions,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.resources import (
+from policies.cyborg.cogamer.cvc.agent.resources import (
     absolute_position,
     attr_int,
     attr_str,
@@ -33,7 +33,7 @@ from agent_policies.frameworks.cogamer.cvc.agent.resources import (
     team_id,
     team_min_resource,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.scoring import (
+from policies.cyborg.cogamer.cvc.agent.scoring import (
     aligner_target_score,
     is_claimed_by_other,
     is_usable_recent_extractor,
@@ -42,12 +42,12 @@ from agent_policies.frameworks.cogamer.cvc.agent.scoring import (
     teammate_closer_to_target,
     within_alignment_network,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.tick_context import (
+from policies.cyborg.cogamer.cvc.agent.tick_context import (
     TickContext,
     build_tick_context,
     teammate_aligner_positions,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.types import (
+from policies.cyborg.cogamer.cvc.agent.types import (
     _ALIGNER_EXPLORE_OFFSETS,
     _CLAIMED_TARGET_PENALTY,
     _ELEMENTS,

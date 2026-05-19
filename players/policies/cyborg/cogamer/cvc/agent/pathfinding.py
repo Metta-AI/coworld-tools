@@ -5,8 +5,8 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass
 
-from agent_policies.frameworks.cogamer.cvc.agent.geometry import greedy_step, manhattan
-from agent_policies.frameworks.cogamer.cvc.agent.types import _MOVE_DELTAS
+from policies.cyborg.cogamer.cvc.agent.geometry import greedy_step, manhattan
+from policies.cyborg.cogamer.cvc.agent.types import _MOVE_DELTAS
 
 _DEFAULT_BOUND_MARGIN = 12
 

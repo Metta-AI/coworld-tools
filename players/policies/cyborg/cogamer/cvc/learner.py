@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.proglet import Program
+from agent_policies.frameworks.cogamer.coglet.proglet import Program
 from agent_policies.frameworks.cogamer.pco.learner import LearnerCoglet
 
 logger = logging.getLogger(__name__)

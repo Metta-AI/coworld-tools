@@ -1,6 +1,6 @@
 """Flat program table: all CvC programs in one dict, operating on GameState.
 
-Programs read from / write to GameState (from agent_policies.frameworks.cogamer.cvc.game_state), which
+Programs read from / write to GameState (from policies.cyborg.cogamer.cvc.game_state), which
 delegates to the engine's A* pathfinding and role logic. The ``all_programs()``
 function returns a dict[str, Program] with query, action, and decision programs.
 """
@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 try:
-    from agent_policies.frameworks.cogamer.cvc.proglet import Program
+    from agent_policies.frameworks.cogamer.coglet.proglet import Program
 except ImportError:
     from dataclasses import dataclass
     from dataclasses import field as _field
@@ -27,7 +27,7 @@ except ImportError:
         config: dict[str, Any] = _field(default_factory=dict)
 
 
-from agent_policies.frameworks.cogamer.cvc.agent import KnownEntity, manhattan, team_id
+from policies.cyborg.cogamer.cvc.agent import KnownEntity, manhattan, team_id
 from mettagrid.simulator import Action
 
 _ELEMENTS = ("carbon", "oxygen", "germanium", "silicon")

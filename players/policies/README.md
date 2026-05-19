@@ -30,7 +30,11 @@ as submodules until code is intentionally promoted into this curated tree.
 - `cyborg/bitworld/among-them/`: BitWorld Among Them policy snapshots that
   include LLM or slow-loop behavior and are not yet normalized into
   importable modules.
-- `cyborg/cogamer/`: generated-policy source snapshots.
+- `cyborg/cogamer/cvc/`: importable Cogs-vs-Clips policy (program-table +
+  LLM brain). Pairs with the coglet/PCO frameworks under
+  `src/agent_policies/frameworks/cogamer/`.
+- `cyborg/cogamer/generated/`: generated-policy source snapshots derived
+  from `cvc/`.
 - `symbolic/bitworld/`: copied BitWorld player-policy projects by game.
 - `neural/cogames-attempts/`: trainable policy and teacher-research snapshots
   from the `cogames-attempts` research repo.
@@ -42,6 +46,7 @@ Importable subpackages use the top-level `policies` namespace, e.g.:
 ```python
 from policies.scripted.cogsguard.scripted_registry import list_scripted_agent_names
 from policies.cyborg.bitworld.among_them import BitWorldAmongThemCyborgPolicy
+from policies.cyborg.cogamer.cvc.cogamer_policy import CvCPolicy
 ```
 
 Snapshot directories with hyphenated names (e.g. `symbolic/bitworld/among-them/

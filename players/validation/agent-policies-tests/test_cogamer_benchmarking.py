@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from agent_policies.frameworks.cogamer.cvc.benchmarking import (
+from policies.cyborg.cogamer.cvc.benchmarking import (
     compare_learning_runs,
     discover_learning_files,
     summarize_learning_file,

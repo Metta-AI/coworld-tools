@@ -6,7 +6,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     _ELEMENTS,
     _MOVE_DELTAS,
     KnownEntity,
@@ -18,7 +18,7 @@ from agent_policies.frameworks.cogamer.cvc.agent import (
     role_vibe,
     unstick_directions,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.pathfinding import (
+from policies.cyborg.cogamer.cvc.agent.pathfinding import (
     NavigationObservation,
     astar_next_step,
     detect_extractor_oscillation,
@@ -27,7 +27,7 @@ from mettagrid.sdk.agent import MettagridState
 from mettagrid.simulator import Action
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+    from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 
 _TEMP_BLOCK_STEPS = 10
 

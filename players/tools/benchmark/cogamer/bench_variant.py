@@ -11,8 +11,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from agent_policies.frameworks.cogamer.cvc.benchmarking import (  # noqa: E402
+from policies.cyborg.cogamer.cvc.benchmarking import (  # noqa: E402
     compare_learning_runs,
     discover_learning_files,
     format_metric,
@@ -149,7 +150,7 @@ def main() -> None:
     parser.add_argument(
         "--policy",
         "-p",
-        default="class=agent_policies.frameworks.cogamer.cvc.cogamer_policy.CvCPolicy",
+        default="class=policies.cyborg.cogamer.cvc.cogamer_policy.CvCPolicy",
     )
     parser.add_argument("--compare-to")
     parser.add_argument("--baseline-dir", type=Path)

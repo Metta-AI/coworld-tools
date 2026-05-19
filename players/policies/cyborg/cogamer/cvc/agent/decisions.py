@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent.resources import has_role_gear, needs_emergency_mining, team_can_afford_gear
-from agent_policies.frameworks.cogamer.cvc.agent.tick_context import TickContext
+from policies.cyborg.cogamer.cvc.agent.resources import has_role_gear, needs_emergency_mining, team_can_afford_gear
+from policies.cyborg.cogamer.cvc.agent.tick_context import TickContext
 from mettagrid.simulator import Action
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.main import CvcEngine
+    from policies.cyborg.cogamer.cvc.agent.main import CvcEngine
 
 _ALIGNER_GEAR_DELAY_STEPS = 0
 _OSCILLATION_UNSTICK_STEPS = 4

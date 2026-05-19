@@ -12,7 +12,7 @@ A trailing section — **Authorship & Provenance** — was added on 2026-05-18 a
 
 ### Origin and authorship
 
-- Original repository: `Metta-AI/cogamer` @ `b57f070541cc19872a5ed6b03e962277edbc18ad`. Source layout there was `src/cogamer/cvc/...`; copied into this repo as `src/agent_policies/frameworks/cogamer/`.
+- Original repository: `Metta-AI/cogamer` @ `b57f070541cc19872a5ed6b03e962277edbc18ad`. Source layout there was `src/cogamer/cvc/...`. In this repo the upstream is split by framework/concrete responsibility: game-agnostic primitives live under `src/agent_policies/frameworks/cogamer/{coglet,pco}/` and the concrete CvC policy lives under `policies/cyborg/cogamer/cvc/`.
 - Provenance note (`docs/source-provenance.md:14`): "Copied policy core, PCO code, skills, memory, lifecycle, and relevant docs; API/control-plane code left out." So the upstream cogamer was a larger product (with an API and control plane) and only the agent-shaped subset lives here.
 - Author: not recorded in this checkout. The only post-collation contributors visible in `git log` for this subtree are Richard Higgins (added Cogamer decision-log benchmark metrics, the most recent substantive change) and James Boggs (mechanical "make agent-policies importable" rename). The original upstream author lives in `Metta-AI/cogamer`'s history, not here — I can't name them with certainty without going to that repo. Based on the surrounding context (Softmax email domain, "softmax-cli" tooling, the "cogamer" platform concept), it's a Softmax/Metta-AI internal artifact; Richard Higgins is the most likely primary author given he's the only non-trivial contributor I can see, but treat that as inference, not fact.
 
@@ -20,13 +20,17 @@ A trailing section — **Authorship & Provenance** — was added on 2026-05-18 a
 
 ```
 src/agent_policies/frameworks/cogamer/
-├── cvc/          # the playable CvC policy + Coglet runtime primitives
-│   └── agent/    # heuristic engine internals (A*, pressure, roles, ...)
+├── coglet/       # Coglet runtime primitives (game-agnostic)
 ├── pco/          # Proximal Coglet Optimizer — PPO restated as a coglet graph
 ├── skills/       # 5 Markdown SKILLs: setup, play, evaluate, analyze, improve
 ├── lifecycle/    # start / wake / tick / sleep / die / message-owner prompts
 ├── memory/       # memory-load / -save / -wipe + memory.md (session log spec)
 └── docs/         # architecture, cvc, strategy, cogames
+
+policies/cyborg/cogamer/
+├── cvc/          # the playable CvC policy (CvCPolicy + program table + CvC PCO bits)
+│   └── agent/    # heuristic engine internals (A*, pressure, roles, ...)
+└── generated/    # submission snapshots derived from cvc/
 ```
 
 Two things to notice upfront:
@@ -36,7 +40,7 @@ Two things to notice upfront:
 
 ### Components
 
-#### Runtime primitives (`cvc/`)
+#### Runtime primitives (`coglet/`)
 
 - `coglet.py` — `Coglet`: universal "actor". Two decorators define handlers:
   - `@listen("channel")` — data-plane handler
@@ -55,7 +59,7 @@ Two things to notice upfront:
   - `LLMExecutor` (`llm_executor.py`) — drives an Anthropic-compatible client through a multi-turn tool-use loop, dispatching tool calls back through the `invoke` callback into other programs
 - `trace.py` — jsonl event recorder injected by the runtime when enabled.
 
-#### CvC policy (`cvc/cogamer_policy.py`, `cvc/programs.py`, `cvc/agent/`)
+#### CvC policy (`policies/cyborg/cogamer/cvc/cogamer_policy.py`, `programs.py`, `agent/`)
 
 This is the playable agent. The architecture from `docs/architecture.md` and `docs/cvc.md`:
 
@@ -68,7 +72,7 @@ CvCPolicy (MultiAgentPolicy)
             └─ LLM brain (periodic Claude calls → resource_bias/role/objective)
 ```
 
-Programs split into four categories (`programs.py`): **query** (read state), **action** (movement), **decision** (compose queries+actions; includes `step` and `summarize`), and **LLM** (`analyze`). The engine under `cvc/agent/` is conventional decomposed game logic: A* (`pathfinding.py`), pressure budgets (`budgets.py`), targeting/claims (`targeting.py`), per-tick state (`tick_context.py`), decision pipeline (`decisions.py` — 10 composable check functions, first non-None wins), and a `WorldModel` for entity memory.
+Programs split into four categories (`programs.py`): **query** (read state), **action** (movement), **decision** (compose queries+actions; includes `step` and `summarize`), and **LLM** (`analyze`). The engine under `policies/cyborg/cogamer/cvc/agent/` is conventional decomposed game logic: A* (`pathfinding.py`), pressure budgets (`budgets.py`), targeting/claims (`targeting.py`), per-tick state (`tick_context.py`), decision pipeline (`decisions.py` — 10 composable check functions, first non-None wins), and a `WorldModel` for entity memory.
 
 The hard constraint emphasised everywhere: **agents share zero state**. Each gets its own `GameState`, `WorldModel`, program-table instance. The only inter-agent signal is the game-provided `team_summary`.
 
@@ -157,7 +161,7 @@ Assume you want a new cogamer named, say, "scissors":
 ### Things worth flagging
 
 - **The provenance note's "API/control-plane code left out" is load-bearing.** The cogamer "platform" referenced in `start.md`/`wake.md` (heartbeats, control plane, dashboard, message channels) is not in this repo. The lifecycle prompts assume a runtime harness (`softmax-cli`? a separate cogamer platform service?) that isn't shipped here. Anyone trying to actually run the lifecycle here needs to know that.
-- **There's vestigial path drift.** Skills reference `cvc_policy.cogamer_policy.CvCPolicy` while docs and code use `cvc.cogamer_policy.CvCPolicy` or `agent_policies.frameworks.cogamer.cvc.cogamer_policy.CvCPolicy`. Post-collation rename hasn't fully reached the `SKILL.md` files — they would break as-is. Worth flagging if anyone tries to actually run `/cogamer.play`.
+- **There's vestigial path drift.** Skills reference `cvc_policy.cogamer_policy.CvCPolicy` while docs and code use `cvc.cogamer_policy.CvCPolicy`. After the framework/concrete split the canonical path is now `policies.cyborg.cogamer.cvc.cogamer_policy.CvCPolicy`. Post-collation rename hasn't fully reached the `SKILL.md` files — they would break as-is. Worth flagging if anyone tries to actually run `/cogamer.play`.
 - **`ticklet.py` is explicitly a stub** ("the original `coglet.ticklet` was not present in the source repo"). Anything depending on tick-based coglets won't work without filling that in.
 - **The framework is more interesting as a pattern than as a runnable artifact in this repo.** What's portable is: (a) the `ProgLet` "two-speed program table" idea, (b) the Coglet/channel/supervision model for orchestrating training graphs (PCO), and (c) the Markdown-skill + lifecycle + memory shape for autonomous self-improving agents. Those three ideas are largely independent and reusable separately.
 
@@ -171,7 +175,7 @@ This is a concrete cyborg policy (deterministic Python with an optional LLM advi
 
 - Source repo: `Metta-AI/cvc-debugger` @ `8666c607f54ae204893dc43558e3efb51a1c3d40`.
 - In this repo:
-  - Policy + tests + docs → `src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/`
+  - Policy + tests + docs → `policies/cyborg/cogsguard/cvc_debugger_robot/`
   - Container-based iterative-improvement harness → `tools/research/cogsguard/cvc-debugger-policy-optimizer/`
 - Provenance note: "Copied robot policy, tests, policy architecture docs, and optimizer container; web UI left out." (`docs/source-provenance.md:18`). One quirk: `robot/dashboard.html` is still here — it's a single-file dashboard served by the embedded FastAPI server, which is what makes the rest of the observability harness usable without the external web UI.
 - Author: only James Boggs shows up in this repo's git log for the subtree, and that's the mechanical rename. Upstream authorship lives in `Metta-AI/cvc-debugger` — I can't name it from this checkout alone. The naming, structure, and tooling (OpenRouter via Claude Opus 4.6, OpenCode CLI in the optimizer, AWS Bedrock setup script) look like Softmax internal work.
@@ -802,7 +806,7 @@ Step 12 is the philosophical claim of the framework: get the deterministic versi
 
 The `examples/toy_grid_agent.py` is a minimal demonstration: `IdleMode` and `MoveToMode` on a 1-D position grid, with a `SynchronousStrategyRunner` running a deterministic strategy. The agent shape in 80-odd lines.
 
-The two known game-specific consumers in this repo are **Bitworld / Among Them** (`src/agent_policies/policies/cyborg/bitworld/coborg_among_them/`) and **Cogamer's CvC policy line** — Coborg sits underneath both. Among Them is the natural fit because the framework's design language ("meeting mode", "hunt mode", `chat_mentions`, "claim vs trust") in the README is taken straight from social-deduction game vocabulary.
+The two known game-specific consumers in this repo are **Bitworld / Among Them** (`policies/cyborg/bitworld/coborg_among_them/`) and **Cogamer's CvC policy line** — Coborg sits underneath both. Among Them is the natural fit because the framework's design language ("meeting mode", "hunt mode", `chat_mentions`, "claim vs trust") in the README is taken straight from social-deduction game vocabulary.
 
 ### Things worth flagging
 
@@ -1251,11 +1255,11 @@ This is the shortest trail in the document. The entire upstream history fits in 
 | Component in `agent-policies` | Primary human author | Notable co-authors / contributors |
 |---|---|---|
 | `src/agent_policies/frameworks/coborg/` (reusable Cyborg framework: types, modes, runtime, strategy runners, tracing) | **James Boggs** (`JBoggsy`) | GPT-5 Codex (co-author trailer on PR #13018); distilled from his own Persephone/Orpheus, Among Them/guided_bot, and Bulbacog projects |
-| `src/agent_policies/frameworks/cogamer/` (Coglet runtime, PCO, CvC policy, skills, lifecycle, memory) | **David Bloomin** (`daveey`) | Claude Code (heavy in `/coach.improve` tuning); Richard Higgins (post-collation decision-log work); Cogora baseline by **Richard Higgins** seeded the CvC `PolicyCoglet` |
+| `src/agent_policies/frameworks/cogamer/{coglet,pco}/` + `policies/cyborg/cogamer/cvc/` (Coglet runtime, PCO, CvC policy, skills, lifecycle, memory) | **David Bloomin** (`daveey`) | Claude Code (heavy in `/coach.improve` tuning); Richard Higgins (post-collation decision-log work); Cogora baseline by **Richard Higgins** seeded the CvC `PolicyCoglet` |
 | `src/agent_policies/frameworks/cyborg_evolution/` + `tools/research/cursor-skills/` (closed-loop play-analyze-evolve framework, 3-tier memory, weekly lifecycle) | **Aaron Landy** (`aaln`) | — (sole author, single-shot extraction from CVC Debugger Robot lineage) |
 | `policies/cyborg/cogamer/generated/cvc-policy` (generated artifact) | **David Bloomin** | Richard Higgins (late CI/territory) |
 | `policies/cyborg/cogamer/cogora/` (Alpha CvC player cog + mettagrid_sdk) | **Richard Higgins** (`relh`) — code-mode cyborg architecture from metta monorepo | David Bloomin (cogent lifecycle wrapper, packaging, periodic syncs from metta); Claude (1309 commits producing the Alpha policy-variant tree as the cogent "Alpha") |
-| `src/agent_policies/policies/cyborg/cogsguard/cvc_debugger_robot/` (robot policy + observability harness) | **Aaron Landy** (`aaln`) | Richard Higgins (territory perception rewrite — this is the version snapshotted into `agent-policies`) |
+| `policies/cyborg/cogsguard/cvc_debugger_robot/` (robot policy + observability harness) | **Aaron Landy** (`aaln`) | Richard Higgins (territory perception rewrite — this is the version snapshotted into `agent-policies`) |
 | `tools/research/cogsguard/cvc-debugger-policy-optimizer/` (optimizer container) | **Aaron Landy** | — |
 
 ### Source notes

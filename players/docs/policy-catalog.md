@@ -30,7 +30,8 @@ container-image policies should live next to the policy they implement.
 | Coborg framework | framework | `src/agent_policies/frameworks/coborg` | metta `cogames-agents` | CoGames/BitWorld agents | Former `cogames_agents.cyborg` fast-loop/slow-loop runtime plus docs/examples. |
 | Cyborg evolution framework | framework | `src/agent_policies/frameworks/cyborg_evolution` | `Metta-AI/policies` | Game-pluggable agents | Self-improving policy framework copied from the standalone policies repo. |
 | CVC debugger robot | cyborg | `policies/cyborg/cogsguard/cvc_debugger_robot` | `Metta-AI/cvc-debugger` | CogsGuard/CvC | Robot policy and tests extracted without the debugger web UI. |
-| Cogamer framework | framework | `src/agent_policies/frameworks/cogamer` | `Metta-AI/cogamer` | CogsGuard/CvC | Program-table/LLM policy core and skills, excluding API/control-plane code. |
+| Cogamer coglet/PCO framework | framework | `src/agent_policies/frameworks/cogamer/{coglet,pco}` | `Metta-AI/cogamer` | CogsGuard/CvC | Game-agnostic coglet runtime primitives and abstract PCO optimizer. |
+| Cogamer CVC policy | cyborg | `policies/cyborg/cogamer/cvc` | `Metta-AI/cogamer` | CogsGuard/CvC | Canonical importable CvC policy: `CvCPolicy` entry point, program table, CvC PCO instantiations (critic/learner/losses/constraints), and `CvcEngine` decision tree. |
 | Cogamer CVC generated policy | cyborg | `policies/cyborg/cogamer/generated/cvc-policy` | `Metta-AI/cogamer-policy-cvc` | CogsGuard/CvC | Generated product artifact preserved as a runnable source snapshot. |
 | Cogamer Cogony generated policy | cyborg | `policies/cyborg/cogamer/generated/cogony-policy` | `Metta-AI/cogamer-policy-cogony` | Cogony | Generated product artifact preserved as a runnable source snapshot. |
 | Cogora CVC player cog | cyborg | `policies/cyborg/cogamer/cogora` | `Metta-AI/cogora` | CogsGuard/CvC | COG/player-cog prior art and SDK surface. |

@@ -71,9 +71,11 @@ are product/source snapshots.
 
 Resolution:
 
-- Cogamer core moved to `src/agent_policies/frameworks/cogamer/`.
-- Generated Cogamer policy artifacts remain under `policies/cyborg/cogamer/`
-  until they are intentionally promoted or archived.
+- Cogamer framework primitives (coglet runtime + abstract PCO) live at
+  `src/agent_policies/frameworks/cogamer/{coglet,pco}/`.
+- The concrete CvC policy (CvCPolicy, program table, `CvcEngine`, CvC PCO
+  instantiations) lives at `policies/cyborg/cogamer/cvc/`, alongside the
+  generated submission snapshots under `policies/cyborg/cogamer/generated/`.
 
 ## Remaining Cleanup
 

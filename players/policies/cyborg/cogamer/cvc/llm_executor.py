@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from agent_policies.frameworks.cogamer.cvc.proglet import Program
+from agent_policies.frameworks.cogamer.coglet.proglet import Program
 
 
 class LLMExecutor:

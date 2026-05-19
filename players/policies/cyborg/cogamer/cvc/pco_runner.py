@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.coglet import Coglet, enact
-from agent_policies.frameworks.cogamer.cvc.constraints import SafetyConstraint, SyntaxConstraint
-from agent_policies.frameworks.cogamer.cvc.critic import CvCCritic
-from agent_policies.frameworks.cogamer.cvc.handle import CogBase
-from agent_policies.frameworks.cogamer.cvc.learner import CvCLearner
-from agent_policies.frameworks.cogamer.cvc.lifelet import LifeLet
-from agent_policies.frameworks.cogamer.cvc.losses import JunctionLoss, ResourceLoss, SurvivalLoss
-from agent_policies.frameworks.cogamer.cvc.proglet import Program
-from agent_policies.frameworks.cogamer.cvc.runtime import CogletRuntime
+from agent_policies.frameworks.cogamer.coglet.coglet import Coglet, enact
+from policies.cyborg.cogamer.cvc.constraints import SafetyConstraint, SyntaxConstraint
+from policies.cyborg.cogamer.cvc.critic import CvCCritic
+from agent_policies.frameworks.cogamer.coglet.handle import CogBase
+from policies.cyborg.cogamer.cvc.learner import CvCLearner
+from agent_policies.frameworks.cogamer.coglet.lifelet import LifeLet
+from policies.cyborg.cogamer.cvc.losses import JunctionLoss, ResourceLoss, SurvivalLoss
+from agent_policies.frameworks.cogamer.coglet.proglet import Program
+from agent_policies.frameworks.cogamer.coglet.runtime import CogletRuntime
 from agent_policies.frameworks.cogamer.pco.optimizer import ProximalCogletOptimizer
 
 

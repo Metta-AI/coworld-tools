@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Callable
 
-from agent_policies.frameworks.cogamer.cvc.channel import ChannelBus, ChannelStats
-from agent_policies.frameworks.cogamer.cvc.handle import CogBase, CogletHandle, Command
+from agent_policies.frameworks.cogamer.coglet.channel import ChannelBus, ChannelStats
+from agent_policies.frameworks.cogamer.coglet.handle import CogBase, CogletHandle, Command
 
 # --- Decorators ---
 

@@ -8,8 +8,8 @@ Extends CvcEngine with:
 
 from __future__ import annotations
 
-from agent_policies.frameworks.cogamer.cvc.agent import KnownEntity, absolute_position, manhattan
-from agent_policies.frameworks.cogamer.cvc.agent.main import CvcEngine
+from policies.cyborg.cogamer.cvc.agent import KnownEntity, absolute_position, manhattan
+from policies.cyborg.cogamer.cvc.agent.main import CvcEngine
 from mettagrid.sdk.agent import MacroDirective, MettagridState
 
 _ELEMENTS = ("carbon", "oxygen", "germanium", "silicon")

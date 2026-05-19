@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_policies.frameworks.cogamer.cvc.agent.geometry import manhattan
-from agent_policies.frameworks.cogamer.cvc.agent.resources import absolute_position, resource_total, team_id
-from agent_policies.frameworks.cogamer.cvc.agent.types import _JUNCTION_AOE_RANGE, KnownEntity
+from policies.cyborg.cogamer.cvc.agent.geometry import manhattan
+from policies.cyborg.cogamer.cvc.agent.resources import absolute_position, resource_total, team_id
+from policies.cyborg.cogamer.cvc.agent.types import _JUNCTION_AOE_RANGE, KnownEntity
 from mettagrid.sdk.agent import MettagridState
 
 _NEAR_ENEMY_RADIUS = 20

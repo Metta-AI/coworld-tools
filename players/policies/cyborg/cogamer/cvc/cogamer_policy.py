@@ -21,16 +21,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.game_state import GameState
-from agent_policies.frameworks.cogamer.cvc.programs import all_programs
+from policies.cyborg.cogamer.cvc.game_state import GameState
+from policies.cyborg.cogamer.cvc.programs import all_programs
 from mettagrid.policy.policy import MultiAgentPolicy, StatefulAgentPolicy, StatefulPolicyImpl
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import Action
 from mettagrid.simulator.interface import AgentObservation
 
 try:
-    from agent_policies.frameworks.cogamer.cvc.llm_executor import LLMExecutor
-    from agent_policies.frameworks.cogamer.cvc.proglet import Program
+    from policies.cyborg.cogamer.cvc.llm_executor import LLMExecutor
+    from agent_policies.frameworks.cogamer.coglet.proglet import Program
 except ImportError:
     LLMExecutor = None  # type: ignore[assignment,misc]
     Program = None  # type: ignore[assignment,misc]

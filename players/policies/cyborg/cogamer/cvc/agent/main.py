@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     _ELEMENTS,
     absolute_position,
     format_position,
@@ -18,14 +18,14 @@ from agent_policies.frameworks.cogamer.cvc.agent import (
     inventory_signature,
     phase_name,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.decisions import run_pipeline
-from agent_policies.frameworks.cogamer.cvc.agent.junctions import JunctionMixin
-from agent_policies.frameworks.cogamer.cvc.agent.navigation import MoveAttempt, NavigationMixin, NavigationObservation
-from agent_policies.frameworks.cogamer.cvc.agent.pressure import PressureMixin
-from agent_policies.frameworks.cogamer.cvc.agent.roles import RolesMixin
-from agent_policies.frameworks.cogamer.cvc.agent.targeting import TargetingMixin
-from agent_policies.frameworks.cogamer.cvc.agent.tick_context import TickContext, build_tick_context
-from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+from policies.cyborg.cogamer.cvc.agent.decisions import run_pipeline
+from policies.cyborg.cogamer.cvc.agent.junctions import JunctionMixin
+from policies.cyborg.cogamer.cvc.agent.navigation import MoveAttempt, NavigationMixin, NavigationObservation
+from policies.cyborg.cogamer.cvc.agent.pressure import PressureMixin
+from policies.cyborg.cogamer.cvc.agent.roles import RolesMixin
+from policies.cyborg.cogamer.cvc.agent.targeting import TargetingMixin
+from policies.cyborg.cogamer.cvc.agent.tick_context import TickContext, build_tick_context
+from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 from cogames.sdk.cogsguard import CogsguardSemanticSurface
 from mettagrid.policy.policy import AgentPolicy
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface

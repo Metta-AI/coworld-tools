@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent import KnownEntity, absolute_position, manhattan, team_id
+from policies.cyborg.cogamer.cvc.agent import KnownEntity, absolute_position, manhattan, team_id
 from mettagrid.sdk.agent import MettagridState
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+    from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 
 _HUB_OFFSETS = {
     0: (0, 3),

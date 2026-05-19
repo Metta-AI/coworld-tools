@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from agent_policies.frameworks.cogamer.cvc.agent import KnownEntity, attr_int, attr_str, manhattan
+from policies.cyborg.cogamer.cvc.agent import KnownEntity, attr_int, attr_str, manhattan
 from mettagrid.sdk.agent import MettagridState, SemanticEntity
 
 

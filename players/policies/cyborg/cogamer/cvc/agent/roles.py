@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     absolute_position,
     resource_total,
     should_batch_hearts,
@@ -15,7 +15,7 @@ from mettagrid.sdk.agent import MettagridState
 from mettagrid.simulator import Action
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+    from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 
 _STATION_OFFSETS = {
     "aligner": (-3, 4),

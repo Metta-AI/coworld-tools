@@ -12,11 +12,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.coglet import Coglet
-from agent_policies.frameworks.cogamer.cvc.handle import CogBase, CogletHandle
-from agent_policies.frameworks.cogamer.cvc.lifelet import LifeLet
-from agent_policies.frameworks.cogamer.cvc.ticklet import TickLet
-from agent_policies.frameworks.cogamer.cvc.trace import CogletTrace
+from agent_policies.frameworks.cogamer.coglet.coglet import Coglet
+from agent_policies.frameworks.cogamer.coglet.handle import CogBase, CogletHandle
+from agent_policies.frameworks.cogamer.coglet.lifelet import LifeLet
+from agent_policies.frameworks.cogamer.coglet.ticklet import TickLet
+from agent_policies.frameworks.cogamer.coglet.trace import CogletTrace
 
 
 class CogletRuntime:

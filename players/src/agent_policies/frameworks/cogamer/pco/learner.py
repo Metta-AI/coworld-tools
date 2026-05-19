@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.coglet import Coglet, listen
+from agent_policies.frameworks.cogamer.coglet.coglet import Coglet, listen
 
 
 class LearnerCoglet(Coglet):

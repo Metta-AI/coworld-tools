@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     KnownEntity,
     absolute_position,
     has_role_gear,
@@ -20,8 +20,8 @@ from agent_policies.frameworks.cogamer.cvc.agent import (
     team_can_afford_gear,
     team_id,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.coglet_policy import CogletAgentPolicy
-from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+from policies.cyborg.cogamer.cvc.agent.coglet_policy import CogletAgentPolicy
+from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 from cogames.sdk.cogsguard import CogsguardSemanticSurface
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.sdk.agent import MettagridState

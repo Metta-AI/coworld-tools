@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_policies.frameworks.cogamer.cvc.agent.types import (
+from policies.cyborg.cogamer.cvc.agent.types import (
     _ALIGNER_EXPLORE_OFFSETS,
     _MINER_EXPLORE_OFFSETS,
     _MOVE_DELTAS,

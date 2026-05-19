@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     _TARGET_CLAIM_STEPS,
     KnownEntity,
     absolute_position,
@@ -21,7 +21,7 @@ from agent_policies.frameworks.cogamer.cvc.agent import (
 from mettagrid.sdk.agent import MacroDirective, MettagridState
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+    from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 
 _TARGET_SWITCH_THRESHOLD = 3.0
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent_policies.frameworks.cogamer.cvc.agent import (
+from policies.cyborg.cogamer.cvc.agent import (
     _JUNCTION_AOE_RANGE,
     KnownEntity,
     absolute_position,
@@ -19,7 +19,7 @@ from agent_policies.frameworks.cogamer.cvc.agent import (
     team_id,
     team_min_resource,
 )
-from agent_policies.frameworks.cogamer.cvc.agent.budgets import (
+from policies.cyborg.cogamer.cvc.agent.budgets import (
     PressureMetrics,
     assign_role,
     compute_pressure_budgets,
@@ -29,7 +29,7 @@ from agent_policies.frameworks.cogamer.cvc.agent.budgets import (
 from mettagrid.sdk.agent import MettagridState
 
 if TYPE_CHECKING:
-    from agent_policies.frameworks.cogamer.cvc.agent.world_model import WorldModel
+    from policies.cyborg.cogamer.cvc.agent.world_model import WorldModel
 
 
 class PressureMixin:

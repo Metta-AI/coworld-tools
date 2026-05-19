@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agent_policies.frameworks.cogamer.cvc.agent.geometry import manhattan
-from agent_policies.frameworks.cogamer.cvc.agent.types import (
+from policies.cyborg.cogamer.cvc.agent.geometry import manhattan
+from policies.cyborg.cogamer.cvc.agent.types import (
     _CLAIMED_TARGET_PENALTY,
     _EXTRACTOR_MEMORY_STEPS,
     _HUB_ALIGN_DISTANCE,

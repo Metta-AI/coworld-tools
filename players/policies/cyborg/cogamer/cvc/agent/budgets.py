@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_policies.frameworks.cogamer.cvc.agent.geometry import manhattan
-from agent_policies.frameworks.cogamer.cvc.agent.scoring import within_alignment_network
-from agent_policies.frameworks.cogamer.cvc.agent.types import (
+from policies.cyborg.cogamer.cvc.agent.geometry import manhattan
+from policies.cyborg.cogamer.cvc.agent.scoring import within_alignment_network
+from policies.cyborg.cogamer.cvc.agent.types import (
     _JUNCTION_ALIGN_DISTANCE,
     _JUNCTION_AOE_RANGE,
     KnownEntity,
