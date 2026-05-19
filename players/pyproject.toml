@@ -27,8 +27,8 @@ where = ["src", "."]
 include = [
   "agent_policies",
   "agent_policies.*",
-  "policies",
-  "policies.*",
+  "players",
+  "players.*",
 ]
 
 [tool.setuptools.package-data]
@@ -44,7 +44,7 @@ agent_policies = [
   "**/.nim-version",
   "**/.nimby-version",
 ]
-policies = [
+players = [
   "**/*.html",
   "**/*.json",
   "**/*.lock",

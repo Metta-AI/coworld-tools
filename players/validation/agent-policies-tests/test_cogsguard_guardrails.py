@@ -24,7 +24,7 @@ MAX_MOVE_FAIL_RATE = 0.25
 MAX_NOOP_RATE = 0.40
 
 # Ensure scripted policy registration in test process.
-discover_and_register_policies("policies.scripted.cogsguard")
+discover_and_register_policies("players.cogsguard")
 
 
 def _run_role_episode(mission_cls: type, *, max_steps: int, seed: int) -> tuple[int, list[dict[str, float]]]:

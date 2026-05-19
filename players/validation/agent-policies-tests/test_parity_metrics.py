@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from policies.scripted.cogsguard.scripted_agent.cogsguard.parity_metrics import (
+from players.cogsguard.role.parity_metrics import (
     diff_action_counts,
     move_success_rate,
     update_action_counts,

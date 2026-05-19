@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from policies.scripted.cogsguard.scripted_agent.utils import has_type_tag
+from players.cogsguard._shared.utils import has_type_tag
 
 
 def test_has_type_tag_ignores_non_type_tags() -> None:

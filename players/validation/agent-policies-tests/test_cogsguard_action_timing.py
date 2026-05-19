@@ -3,9 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.cogsguard.policy import CogsguardAgentPolicyImpl
-from policies.scripted.cogsguard.scripted_agent.cogsguard.types import CogsguardAgentState, Role
-from policies.scripted.cogsguard.scripted_agent.types import CellType
+from players.cogsguard.role.policy import CogsguardAgentPolicyImpl
+from players.cogsguard.role.types import CogsguardAgentState, Role
+from players.cogsguard._shared.types import CellType
 
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import Action

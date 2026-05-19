@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from policies.scripted.cogsguard.scripted_agent.cogsguard.policy import CogsguardPolicy
+from players.cogsguard.role.policy import CogsguardPolicy
 
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 

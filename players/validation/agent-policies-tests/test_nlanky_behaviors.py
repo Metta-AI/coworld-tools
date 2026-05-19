@@ -38,7 +38,7 @@ from mettagrid.policy.loader import discover_and_register_policies
 from mettagrid.policy.policy import PolicySpec
 from mettagrid.runner.rollout import run_episode_local
 
-discover_and_register_policies("policies.scripted.cogsguard")
+discover_and_register_policies("players.cogsguard")
 
 
 def run_nlanky_episode(

@@ -3,7 +3,7 @@
 import random
 
 import pytest
-from policies.scripted.cogsguard.evolution.cogsguard.evolution import (
+from players.cogsguard.role.evolution.evolution import (
     BehaviorDef,
     BehaviorSource,
     EvolutionConfig,
