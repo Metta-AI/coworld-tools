@@ -23,11 +23,12 @@ Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Fu
 ```
 reporters/
 ├── README.md                                  # this file
-├── pyproject.toml                             # Python project scaffold (uv init)
+├── pyproject.toml                             # workspace anchor (see reporter_sdk for the shared library)
 ├── docs/
 │   ├── COWORLD_REFERENCE.md                   # coworld navigation guide
 │   └── REPORTER_DESIGN.md                     # v1 reporter design + D1–D10 decisions
-└── reporters/                                 # reporter implementations
+└── reporters/                                 # reporter implementations + shared SDK
+    ├── reporter_sdk/                          # pip-installable shared library (envelope, I/O, types)
     ├── templates/
     │   └── summarizer_template/               # starting point for new summarizer-style reporters
     ├── among_them/
@@ -47,7 +48,9 @@ Each leaf reporter directory follows the same shape:
 | `build.sh` | Builds the reporter's Docker image. Each reporter is its own image; reporters do not share a build system. |
 | `README.md` | Reporter-specific docs — what artifacts it produces, expected `id`s, how to test locally, any external dependencies. |
 
-Reporters are **independent containers**, not a unified Python package. Each leaf directory is the source root for one image. The shared `pyproject.toml` at the repo root is currently scaffolding only and may grow into a shared library (e.g., envelope helpers) once concrete implementation patterns emerge.
+Reporters are **independent Docker images**, not a unified Python package — each leaf directory is the source root for one image. They do, however, share one **importable Python library**: [`reporters/reporter_sdk/`](reporters/reporter_sdk/), a pip-installable package providing envelope construction, env-supplied URI I/O, and contract-aligned types. Templates and concrete reporters depend on it so the v1 contract is encoded once rather than re-derived per reporter. Per-reporter `build.sh` scripts use `reporters/` as the Docker build context so both the SDK and the reporter source are reachable from a single `COPY` plane.
+
+The repo-root `pyproject.toml` is a workspace anchor for `uv` / `.venv` setup; it intentionally has no runtime code or dependencies of its own.
 
 ## The v1 contract in one breath
 
@@ -103,17 +106,18 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 
 For everything else — certification, Observatory API surface, CLI, naming, the deferred-ideas inventory — read [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
 
-## Status of each reporter
+## Status of each component
 
-| Reporter | Coworld | Status |
-| --- | --- | --- |
-| `templates/summarizer_template` | (template) | Scaffold only — no implementation |
-| `among_them/among_them_summarizer` | Among Them | Scaffold only — no implementation |
-| `among_them/among_them_highlight_reel` | Among Them | Scaffold only — no implementation |
-| `paint_arena/paint_arena_summarizer` | PaintArena | Scaffold only — no implementation |
-| `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Scaffold only — no implementation |
+| Component | Coworld | Kind | Status |
+| --- | --- | --- | --- |
+| `reporter_sdk` | (shared) | Library | Package skeleton in place; no implementation surface yet |
+| `templates/summarizer_template` | (template) | Reporter scaffold | Scaffold only — no implementation |
+| `among_them/among_them_summarizer` | Among Them | Reporter | Scaffold only — no implementation |
+| `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation |
+| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | Scaffold only — no implementation |
+| `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation |
 
-The most likely first implementation target is `paint_arena/paint_arena_summarizer` — spec 0043 uses `paintarena-reporter` as its worked example, and PaintArena is the simplest reference coworld in the metta repo.
+The expected build order is `reporter_sdk` → `templates/summarizer_template` → `paint_arena/paint_arena_summarizer`. SDK first because the templates and concrete reporters import from it; `summarizer_template` second because it establishes the canonical two-artifact envelope shape (Markdown summary + JSON stats) that other summarizers will follow; PaintArena first among the concrete reporters because spec 0043 uses `paintarena-reporter` as its worked example and PaintArena is the simplest reference coworld in the metta repo.
 
 ## Related metta repo locations
 
