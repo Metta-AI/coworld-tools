@@ -85,6 +85,17 @@ proc guidanceWorker(runtime: ptr GuidanceRuntime) {.thread.} =
   var meetingHistory: seq[tuple[role: string, content: string]]
   var wasInMeeting = false
 
+  # One-shot startup trace: record which LLM provider was selected and
+  # what env presence drove that choice. Self-contained per match so a
+  # later failure trace doesn't depend on its sibling line being
+  # retained in the ring buffer.
+  block:
+    var ev = newJObject()
+    ev["t"] = newJInt(0)
+    ev["kind"] = newJString("llm_init")
+    ev["init"] = dumpLlmInit()
+    runtime[].traceEventChan.send($ev)
+
   while true:
     # Block until a snapshot arrives.
     let snap = runtime[].snapshotChan.recv()

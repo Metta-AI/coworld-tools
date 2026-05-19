@@ -114,11 +114,18 @@ proc haveStaticAwsEnv(): bool =
   getEnv("AWS_ACCESS_KEY_ID", "").len > 0 and
     getEnv("AWS_SECRET_ACCESS_KEY", "").len > 0
 
+proc haveIrsaHint(): bool =
+  ## EKS IRSA pattern: AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE both
+  ## populated by the EKS pod identity webhook.
+  getEnv("AWS_ROLE_ARN", "").len > 0 and
+    getEnv("AWS_WEB_IDENTITY_TOKEN_FILE", "").len > 0
+
 proc haveAwsCredentialHint(): bool =
   haveStaticAwsEnv() or
     getEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "").len > 0 or
     getEnv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "").len > 0 or
     getEnv("AWS_PROFILE", "").len > 0 or
+    haveIrsaHint() or
     bedrockRequested()
 
 proc selectedProvider(): LlmProvider =
@@ -186,6 +193,70 @@ proc awsRegion(): string =
     if value.len > 0:
       return value
   "us-east-1"
+
+proc selectionReason(): string =
+  ## Human-readable explanation of which selectedProvider() branch
+  ## fired. Useful for diagnosing why Bedrock got picked when no creds
+  ## are available, or why ProviderNone got returned despite a key.
+  if llmDisabled():
+    return "disabled"
+  let provider = configuredProvider()
+  case provider
+  of "anthropic", "direct":
+    if getEnv(AnthropicKeyEnv, "").len > 0:
+      return "explicit:" & provider & "+anthropic_key"
+    return "explicit:" & provider & "+no_anthropic_key->none"
+  of "bedrock", "bedrock-claude":
+    if haveAwsCredentialHint():
+      return "explicit:" & provider & "+aws_hint"
+    return "explicit:" & provider & "+no_aws_hint->none"
+  of "", "auto":
+    if bedrockRequested():
+      if haveAwsCredentialHint():
+        return "auto:bedrock_requested+aws_hint"
+      return "auto:bedrock_requested+no_aws_hint->fallthrough"
+    if getEnv(AnthropicKeyEnv, "").len == 0 and haveAwsCredentialHint():
+      return "auto:no_anthropic_key+aws_hint->bedrock"
+    if getEnv(AnthropicKeyEnv, "").len > 0:
+      return "auto:anthropic_key->anthropic"
+    if haveAwsCredentialHint():
+      return "auto:aws_hint_only->bedrock"
+    return "auto:no_keys->none"
+  else:
+    return "unknown_provider:" & provider
+
+proc dumpLlmInit*(): JsonNode =
+  ## Returns a non-sensitive summary of LLM provider selection and the
+  ## env presence (booleans only, never values) that drove it. Emit
+  ## once at worker init so a failing match always shows *why* it
+  ## chose the provider it did.
+  proc present(name: string): bool = getEnv(name, "").strip().len > 0
+
+  result = newJObject()
+  result["provider_selected"] = newJString(currentProviderName())
+  result["selection_reason"] = newJString(selectionReason())
+
+  var env = newJObject()
+  for name in [
+    AnthropicKeyEnv,
+    GuidedBotLlmProviderEnv, CogamesLlmProviderEnv,
+    ClaudeCodeBedrockEnv, CogamesBedrockEnv,
+    GuidedBotLlmDisableEnv,
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION",
+  ]:
+    env[name] = newJBool(present(name))
+  result["env_presence"] = env
+
+  result["bedrock_model"] = newJString(bedrockModel())
+  result["bedrock_region"] = newJString(awsRegion())
+  result["anthropic_model"] = newJString(directAnthropicModel())
+  let tokenFile = getEnv("AWS_WEB_IDENTITY_TOKEN_FILE", "").strip()
+  if tokenFile.len > 0:
+    result["irsa_token_file_exists"] = newJBool(fileExists(tokenFile))
 
 # ---------------------------------------------------------------------------
 # Claude / AWS wire types (for jsony serialization)
@@ -310,6 +381,8 @@ proc fetchContainerCredentials(): (bool, AwsCredentials, string) =
   except CatchableError:
     (false, AwsCredentials(), "container credentials JSON parse failed")
 
+proc fetchIrsaCredentials(): (bool, AwsCredentials, string) {.gcsafe.}
+
 proc exportAwsCliCredentials(): (bool, AwsCredentials, string) =
   ## Local development path for AWS SSO profiles. `aws configure
   ## export-credentials` resolves the standard CLI chain without
@@ -327,24 +400,37 @@ proc exportAwsCliCredentials(): (bool, AwsCredentials, string) =
   (false, AwsCredentials(), "aws credential export missing access key fields")
 
 proc resolveAwsCredentials(): (bool, AwsCredentials, string) =
-  let envCreds = AwsCredentials(
-    accessKeyId: getEnv("AWS_ACCESS_KEY_ID", ""),
-    secretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
-    sessionToken: getEnv("AWS_SESSION_TOKEN", "")
-  )
-  if envCreds.accessKeyId.len > 0 and envCreds.secretAccessKey.len > 0:
-    return (true, envCreds, "")
+  var details: seq[string] = @[]
+
+  let ak = getEnv("AWS_ACCESS_KEY_ID", "")
+  let sk = getEnv("AWS_SECRET_ACCESS_KEY", "")
+  if ak.len > 0 and sk.len > 0:
+    return (true, AwsCredentials(
+      accessKeyId: ak,
+      secretAccessKey: sk,
+      sessionToken: getEnv("AWS_SESSION_TOKEN", "")
+    ), "")
+  elif ak.len > 0 or sk.len > 0:
+    details.add "static env partial"
+  else:
+    details.add "static env not set"
+
+  let (irsaOk, irsaCreds, irsaDetail) = fetchIrsaCredentials()
+  if irsaOk:
+    return (true, irsaCreds, "")
+  details.add "irsa: " & irsaDetail
 
   let (metadataOk, metadataCreds, metadataDetail) = fetchContainerCredentials()
   if metadataOk:
     return (true, metadataCreds, "")
+  details.add "container: " & metadataDetail
 
   let (cliOk, cliCreds, cliDetail) = exportAwsCliCredentials()
   if cliOk:
     return (true, cliCreds, "")
+  details.add "cli: " & cliDetail
 
-  (false, AwsCredentials(),
-   metadataDetail & "; " & cliDetail)
+  (false, AwsCredentials(), details.join("; "))
 
 # ---------------------------------------------------------------------------
 # HTTP calls via curly
@@ -362,6 +448,93 @@ proc awsUriEncode(value: string): string =
       result.add '%'
       result.add hex[(b shr 4) and 0xF]
       result.add hex[b and 0xF]
+
+proc extractXmlTag(body, tag: string): string =
+  ## Tiny XML field extractor for STS responses. STS returns small
+  ## well-formed XML; we don't need a full parser.
+  let open = "<" & tag & ">"
+  let close = "</" & tag & ">"
+  let a = body.find(open)
+  if a < 0:
+    return ""
+  let valueStart = a + open.len
+  let b = body.find(close, valueStart)
+  if b < 0:
+    return ""
+  body[valueStart ..< b]
+
+proc fetchIrsaCredentials(): (bool, AwsCredentials, string) {.gcsafe.} =
+  ## EKS IRSA: exchange a service-account JWT for AWS credentials via
+  ## STS:AssumeRoleWithWebIdentity. Required for Coworld dispatch pods
+  ## that use `--use-bedrock` — those run under a Kubernetes service
+  ## account bound to an IAM role; the EKS pod-identity webhook injects
+  ## `AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE` but no static creds.
+  let roleArn = getEnv("AWS_ROLE_ARN", "").strip()
+  let tokenFile = getEnv("AWS_WEB_IDENTITY_TOKEN_FILE", "").strip()
+  if roleArn.len == 0 or tokenFile.len == 0:
+    return (false, AwsCredentials(), "IRSA env not set")
+  if not fileExists(tokenFile):
+    return (false, AwsCredentials(),
+            "IRSA token file missing: " & tokenFile)
+
+  var token: string
+  try:
+    token = readFile(tokenFile).strip()
+  except CatchableError as e:
+    return (false, AwsCredentials(),
+            "IRSA token read failed: " & e.msg)
+  if token.len == 0:
+    return (false, AwsCredentials(), "IRSA token file empty")
+
+  let region = awsRegion()
+  let host = "sts." & region & ".amazonaws.com"
+  let url = "https://" & host & "/"
+  # STS only requires a session name string; uniqueness within the
+  # role isn't load-bearing for us, and a constant avoids dragging
+  # std/times into the GC-safety chain.
+  const sessionName = "guided-bot"
+
+  # AssumeRoleWithWebIdentity is an unauthenticated STS endpoint - no
+  # SigV4 needed. Send form-encoded body. awsUriEncode matches
+  # application/x-www-form-urlencoded for the chars STS sees here
+  # (ARNs, JWTs, alphanumeric session names).
+  let body =
+    "Action=AssumeRoleWithWebIdentity" &
+    "&Version=2011-06-15" &
+    "&RoleArn=" & awsUriEncode(roleArn) &
+    "&RoleSessionName=" & awsUriEncode(sessionName) &
+    "&WebIdentityToken=" & awsUriEncode(token)
+
+  let pool = newCurlPool(1)
+  defer: pool.close()
+  var response: Response
+  try:
+    response = pool.post(
+      url,
+      @[("Content-Type", "application/x-www-form-urlencoded")],
+      body,
+      5.0'f32
+    )
+  except CatchableError as e:
+    return (false, AwsCredentials(),
+            "IRSA STS HTTP error: " & e.msg)
+
+  if response.code != 200:
+    var snippet = response.body
+    if snippet.len > 200:
+      snippet = snippet[0 ..< 200]
+    return (false, AwsCredentials(),
+            "IRSA STS HTTP " & $response.code & ": " & snippet)
+
+  let ak = extractXmlTag(response.body, "AccessKeyId")
+  let sk = extractXmlTag(response.body, "SecretAccessKey")
+  let st = extractXmlTag(response.body, "SessionToken")
+  if ak.len == 0 or sk.len == 0:
+    return (false, AwsCredentials(),
+            "IRSA STS response missing credentials")
+  (true, AwsCredentials(
+    accessKeyId: ak, secretAccessKey: sk, sessionToken: st
+  ), "")
 
 proc sha256Hex(value: string): string =
   sha256(value).toHex()

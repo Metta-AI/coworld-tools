@@ -88,25 +88,34 @@ proc main() =
 
   for i in 0 ..< BotCount:
     let events = readGuidanceEvents(roots[i])
-    expectEq(events.len, 2, &"bot {i}: exactly two guidance events")
-    if events.len == 2:
-      expectEq(events[0]["t"].getInt(), 1000 + i,
-               &"bot {i}: snapshot event tick isolated")
-      expectEq(events[0]["kind"].getStr(), "snapshot_sent",
-               &"bot {i}: snapshot event kind")
-      expectEq(events[0]["snapshot_id"].getStr(), &"test-{i}",
-               &"bot {i}: snapshot id")
-      expectEq(events[0]["trigger"].getStr(), "test",
-               &"bot {i}: snapshot trigger")
-      expectEq(events[0]["snapshot"]["bot_index"].getInt(), i,
-               &"bot {i}: snapshot payload")
+    expectEq(events.len, 3, &"bot {i}: exactly three guidance events")
+    if events.len == 3:
+      # Event 0: llm_init (emitted once at worker startup)
+      expectEq(events[0]["kind"].getStr(), "llm_init",
+               &"bot {i}: init event kind")
+      expectEq(events[0]["init"]["provider_selected"].getStr(), "none",
+               &"bot {i}: init provider")
+      expect(events[0]["init"].hasKey("env_presence"),
+             &"bot {i}: init env_presence present")
+      # Event 1: snapshot_sent for the submitted snapshot
       expectEq(events[1]["t"].getInt(), 1000 + i,
-               &"bot {i}: failure event tick isolated")
-      expectEq(events[1]["kind"].getStr(), "llm_call_failed",
-               &"bot {i}: no-provider event kind")
+               &"bot {i}: snapshot event tick isolated")
+      expectEq(events[1]["kind"].getStr(), "snapshot_sent",
+               &"bot {i}: snapshot event kind")
       expectEq(events[1]["snapshot_id"].getStr(), &"test-{i}",
+               &"bot {i}: snapshot id")
+      expectEq(events[1]["trigger"].getStr(), "test",
+               &"bot {i}: snapshot trigger")
+      expectEq(events[1]["snapshot"]["bot_index"].getInt(), i,
+               &"bot {i}: snapshot payload")
+      # Event 2: llm_call_failed for the no-provider case
+      expectEq(events[2]["t"].getInt(), 1000 + i,
+               &"bot {i}: failure event tick isolated")
+      expectEq(events[2]["kind"].getStr(), "llm_call_failed",
+               &"bot {i}: no-provider event kind")
+      expectEq(events[2]["snapshot_id"].getStr(), &"test-{i}",
                &"bot {i}: failure snapshot id")
-      expectEq(events[1]["reason"].getStr(), "no_key",
+      expectEq(events[2]["reason"].getStr(), "no_key",
                &"bot {i}: no-provider reason")
 
   # When gameplay directives are disabled, a non-meeting snapshot should
@@ -138,17 +147,21 @@ proc main() =
   closeTrace(suppressedWriter)
 
   let suppressedEvents = readGuidanceEvents(suppressedWriter.rootDir)
-  expectEq(suppressedEvents.len, 1,
-           "suppressed gameplay: exactly one guidance event")
-  if suppressedEvents.len == 1:
-    expectEq(suppressedEvents[0]["t"].getInt(), 3000,
+  expectEq(suppressedEvents.len, 2,
+           "suppressed gameplay: exactly two guidance events")
+  if suppressedEvents.len == 2:
+    # Event 0: llm_init at worker startup
+    expectEq(suppressedEvents[0]["kind"].getStr(), "llm_init",
+             "suppressed gameplay: init event kind")
+    # Event 1: guidance_suppressed for the gameplay snapshot
+    expectEq(suppressedEvents[1]["t"].getInt(), 3000,
              "suppressed gameplay: event tick")
-    expectEq(suppressedEvents[0]["kind"].getStr(), "guidance_suppressed",
+    expectEq(suppressedEvents[1]["kind"].getStr(), "guidance_suppressed",
              "suppressed gameplay: event kind")
-    expectEq(suppressedEvents[0]["reason"].getStr(),
+    expectEq(suppressedEvents[1]["reason"].getStr(),
              "gameplay_directives_disabled",
              "suppressed gameplay: reason")
-    expectEq(suppressedEvents[0]["suppressed_request_kind"].getStr(),
+    expectEq(suppressedEvents[1]["suppressed_request_kind"].getStr(),
              "gameplay",
              "suppressed gameplay: request kind")
 
