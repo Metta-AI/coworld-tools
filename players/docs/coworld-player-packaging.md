@@ -67,9 +67,18 @@ and `bitworld/among_them/players/how_to_submit_coworld_policy.md`.
   - `COGAMES_ENGINE_WS_URL` — full `ws://...:8080/player?slot=<slot>&token=<token>`.
     Use exactly as given; do not merge other query params, rewrite the host,
     or hardcode slots/tokens.
-  - `COGAME_LOG_URI` — optional. If set, POST plain-text log lines (one or
-    more newline-separated lines per request). If unset, skip log posting.
-    Stdout/stderr remain available either way.
+  - `COGAME_LOG_URI` — *contract: optional.* The
+    [`GAME_RUNTIME_README.md`](https://github.com/Metta-AI/metta/blob/main/packages/coworld/src/coworld/GAME_RUNTIME_README.md)
+    contract says a player may receive this; the documented behavior is
+    that the player POSTs plain-text log lines (one or more
+    newline-separated lines per request) to it. **As of 2026-05-19,
+    neither the local Docker runner (`coworld.runner.runner`) nor the
+    hosted Kubernetes runner (`coworld.runner.kubernetes_runner`) injects
+    `COGAME_LOG_URI` into player containers** — only into game
+    containers. Treat it as not set for players, and rely on
+    stdout/stderr (which the runner captures into the per-slot policy
+    log and uploads to Observatory). Re-check the runner source before
+    depending on this variable.
   - Public env from manifest `player[i].env`.
   - Secret env attached to the policy version via
     `coworld upload-policy ... --secret-env KEY=VAL` (only delivered in
@@ -285,9 +294,10 @@ Anchored to the live Coworld source. Verify before relying on edge cases.
 - The game container is the source of truth for the player protocol;
   `players/<game>/<policy>/` must implement what the game's
   `protocols.player` URI says.
-- A player image only gets `COGAMES_ENGINE_WS_URL` plus optional
-  `COGAME_LOG_URI` plus its declared public `env` plus per-version secrets.
-  It does not get the manifest, game config, variant, slot count, or
+- A player image only gets `COGAMES_ENGINE_WS_URL` plus its declared
+  public `env` plus per-version secrets. (`COGAME_LOG_URI` is permitted
+  by the contract but not injected by either runner today — see §1.) It
+  does not get the manifest, game config, variant, slot count, or
   per-slot identity outside of the URL query parameters.
 - Certification, not just packaging, is required to publish a Coworld. If
   `players/` is asked to produce the `certification.players[]` for a Coworld

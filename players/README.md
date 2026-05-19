@@ -12,9 +12,7 @@ The repo contains four things:
    one subdirectory per target game. Each player ideally builds into a
    Coworld-compatible Docker image that can be uploaded via
    `coworld upload-policy` and either `coworld submit`-ted to a league or
-   bundled into a game's `coworld_manifest.json`. See
-   [docs/coworld-player-packaging.md](docs/coworld-player-packaging.md)
-   for the build/packaging contract every player is expected to satisfy.
+   bundled into a game's `coworld_manifest.json`.
 2. **The Coborg agent framework** — under `src/players_lib/coborg/`.
    The intended framework and starter template for future agent
    development in this repo. New policies should prefer Coborg over
@@ -24,8 +22,10 @@ The repo contains four things:
    generation of initial starter policies (game guides, perception,
    action, packaging) for new Coworld games. Ships its own
    `pyproject.toml` and is not part of the `players` distribution.
-4. **Documentation** — workspace-level docs under `docs/`, plus
-   tool-specific docs that live next to their tool (e.g.
+4. **Documentation** — workspace-level docs under [`docs/`](docs/README.md)
+   (start with the [Coworld Integration Guide](docs/coworld-integration-guide.md)
+   and the [Coworld Player Packaging Contract](docs/coworld-player-packaging.md)),
+   plus tool-specific docs that live next to their tool (e.g.
    `tools/cogbase/docs/`).
 
 ## Layout
@@ -49,6 +49,29 @@ The `players/` tree is flat: one directory per game, then one directory
 per concrete policy inside that game. The single explicit exception to
 per-policy self-containment is `players/cogsguard/_shared/`, which holds
 helpers used by multiple Cogsguard policies.
+
+## Documentation
+
+System-level knowledge — what a player must do at runtime, how it is
+packaged, and how the broader Coworld system reaches it — lives under
+[`docs/`](docs/README.md):
+
+- [Coworld Integration Guide](docs/coworld-integration-guide.md) —
+  developer-facing reference for the player runtime: episode lifecycle,
+  environment variables the runner injects, websocket-protocol
+  expectations, log/replay visibility, and the `coworld` CLI commands
+  used to debug a hosted episode. Start here when building a new
+  player.
+- [Coworld Player Packaging Contract](docs/coworld-player-packaging.md) —
+  authoritative reference for what every
+  `players/<game>/<policy>/build.sh` must produce (Docker image,
+  `player[]` manifest snippet, `coplayer_manifest.json`) and the
+  underlying Coworld upload/manifest requirements.
+
+Per-player implementation notes live with each player under
+`players/<game>/<policy>/` (typically `README.md` and, where relevant,
+`PLAN.md`). Tool-specific docs (e.g. Cogbase) live next to their tool,
+indexed from that tool's own README.
 
 ## Python packages
 
