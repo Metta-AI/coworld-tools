@@ -34,6 +34,36 @@ def test_happy_path_envelope_shape() -> None:
     par.validate_envelope(d)
 
 
+def test_envelope_key_order_is_intentional_not_alphabetical() -> None:
+    """Regression: serialized envelope must follow contract key order, not sort_keys.
+
+    Top-level (version, artifacts); per-artifact (id, content_type, content);
+    the artifact list itself in primary-first order. The first artifact is
+    the primary one by D3 convention -- accidental sort_keys reintroduction
+    would clobber this and break the contract's primary-artifact rule.
+    """
+    env = par.build_envelope(
+        results=fixtures.make_results_happy(),
+        metadata=fixtures.make_metadata(),
+        manifest=fixtures.make_manifest(),
+    )
+    payload = env.to_json_bytes()
+    text = payload.decode("utf-8")
+    # Top-level: "version" appears before "artifacts".
+    assert text.index('"version"') < text.index('"artifacts"')
+    # Per artifact: "id" before "content_type" before "content".
+    first_id = text.index('"id"')
+    first_ct = text.index('"content_type"', first_id)
+    first_c = text.index('"content"', first_ct)
+    assert first_id < first_ct < first_c
+    # Artifact list order: 'summary' before 'stats'.
+    assert text.index('"summary"') < text.index('"stats"')
+    # Round-tripped dict keys also follow the contract order.
+    parsed = json.loads(payload)
+    assert list(parsed.keys()) == ["version", "artifacts"]
+    assert list(parsed["artifacts"][0].keys())[:3] == ["id", "content_type", "content"]
+
+
 def test_happy_path_stats_numbers() -> None:
     stats = par.build_stats(
         results=fixtures.make_results_happy(),

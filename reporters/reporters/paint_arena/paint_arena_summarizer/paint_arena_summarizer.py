@@ -137,7 +137,14 @@ class Envelope:
         return {"version": self.version, "artifacts": [a.to_dict() for a in self.artifacts]}
 
     def to_json_bytes(self) -> bytes:
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True).encode("utf-8")
+        # Intentional, contract-aligned ordering: top-level (version, artifacts),
+        # per-artifact (id, content_type, [encoding,] content), and the artifact
+        # list itself reflects the reporter's "first artifact is the primary"
+        # convention. sort_keys is deliberately NOT used -- it would reshuffle
+        # object keys alphabetically and erase that intent. Determinism is
+        # preserved by Python's dict-insertion-order guarantee plus the fact
+        # that every dict in to_dict() is built in a fixed order.
+        return json.dumps(self.to_dict(), indent=2).encode("utf-8")
 
 
 
