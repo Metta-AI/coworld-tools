@@ -30,3 +30,8 @@ players/cogsguard/nim/nim.cfg
 
 # Per-user ephemeral run outputs (coworld replays, smoke-test logs, etc.).
 users/**/tmp/
+
+# Per-player build artifacts produced by each leaf's ``build.sh`` (the snippet
+# JSON + coplayer_manifest.json sidecar). The contract is documented in
+# docs/coworld-player-packaging.md §5.
+players/*/*/dist/
