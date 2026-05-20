@@ -1,14 +1,16 @@
 # diagnosers
 
-Diagnoser implementations for **coworlds** - containers that inspect coworld behavior, artifacts, logs, failures, or policies and produce diagnostic outputs for developers and tournament operators.
+Diagnoser implementations for **coworlds** - policy-facing runnables and prompts that evaluate a target policy and produce actionable advice or assay results.
 
-> **Status:** repository scaffold only. The coworld `diagnoser` runtime contract is not defined yet; see [`docs/DIAGNOSER_DESIGN.md`](docs/DIAGNOSER_DESIGN.md) for the current design placeholder and open questions.
+> **Status:** canonical Coworld role repo, scaffold only. The role is defined at the manifest level, but hosted runner support and concrete diagnoser implementations are still pending.
 
 ## What is a coworld diagnoser?
 
 A **coworld** is a Softmax v2 tournament unit: one game container + one or more player containers + a `coworld_manifest.json`. A **diagnoser** is an optional role declared in the manifest under `diagnoser: [...]`.
 
-The manifest schema already has the role, but today the platform only validates declared diagnoser images during certification. It does not launch diagnosers as part of the runner. This repo is the implementation home for diagnoser containers once the contract is finalized.
+A diagnoser differs from a reporter by taking a target policy as part of its subject. Reporters explain episode experience; diagnosers ask "what does this policy do well or poorly?" They may consume the Coworld manifest, game docs, a target policy, replay/results artifacts, reporter outputs, structured stats dumps, and local assay runs. Their output should be useful advice or skill-test results, for example "this policy handles X with Y reliability" across a battery of X/Y checks.
+
+The platform does not yet launch diagnosers automatically as part of hosted episode execution. This repo is the implementation home for diagnoser containers, markdown prompts, templates, and shared tooling as that surface becomes concrete.
 
 Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Diagnoser contract notes: [`docs/DIAGNOSER_DESIGN.md`](docs/DIAGNOSER_DESIGN.md).
 
@@ -36,7 +38,7 @@ Each leaf diagnoser directory follows the same placeholder shape:
 
 | File | Purpose |
 | --- | --- |
-| `<diagnoser_name>.py` | Diagnoser entrypoint placeholder. Fill this in after the runtime contract is defined. |
+| `<diagnoser_name>.py` | Diagnoser entrypoint placeholder. Evaluate a target policy and write advice or assay results. |
 | `build.sh` | Builds the diagnoser's Docker image. Each diagnoser can be its own image unless a shared image pattern emerges. |
 | `README.md` | Diagnoser-specific docs: what it inspects, expected inputs/outputs, local test command, and dependencies. |
 
@@ -54,7 +56,7 @@ Each leaf diagnoser directory follows the same placeholder shape:
 - `~/coding/metta/packages/coworld/` - coworld package: manifest schema, runner, certifier, and role types.
 - `~/coding/metta/packages/coworld/src/coworld/types.py` - source of truth for the `diagnoser` manifest section.
 - `~/coding/metta/packages/coworld/src/coworld/GAME_RUNTIME_README.md` - canonical game runtime contract.
-- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, grader, reporter, commissioner, diagnoser, and optimizer roles.
+- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, reporter, commissioner, diagnoser, and optimizer roles.
 - `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` - simplest reference coworld.
 
 ## Conventions for new diagnosers
@@ -62,5 +64,6 @@ Each leaf diagnoser directory follows the same placeholder shape:
 - Keep concrete diagnoser implementations under the top-level `diagnosers/` tree.
 - Keep one leaf directory per runnable image or entrypoint.
 - Keep game-specific code under that game's directory.
-- Do not invent a runtime contract inside an implementation. Update `docs/DIAGNOSER_DESIGN.md` and the metta coworld contract first.
+- Keep diagnosers policy-facing. Episode-only summaries, stats dumps, HTML reports, and highlight reels belong in `Metta-AI/reporters`.
+- Do not invent a conflicting runtime contract inside an implementation. Update `docs/DIAGNOSER_DESIGN.md` and the metta coworld contract first.
 - Keep game/runtime package code in its owning repo unless the file is genuinely diagnoser source.
