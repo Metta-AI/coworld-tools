@@ -3,8 +3,9 @@
 #
 # Builds the image, runs it against the checked-in synthetic fixtures
 # (smoke/fixtures/{results,metadata,replay}.json), and asserts that the
-# emitted envelope is well-formed, has the expected D3 shape, and preserves
-# the contract-aligned key ordering across the container boundary.
+# emitted zip is well-formed and matches the D12 contract: three top-level
+# entries (summary.md, stats.json, render.txt), render.txt lists summary.md,
+# pinned mtimes for byte-identical reruns, stats sanity (grid + winner).
 #
 # Use this as the integration-level check that complements the in-process
 # pytest suite. The pytest suite exercises every code path; this script
@@ -33,74 +34,65 @@ docker run --rm \
   -e COGAME_RESULTS_URI=file:///in/results.json \
   -e COGAME_REPLAY_URI=file:///in/replay.json \
   -e COGAME_EPISODE_METADATA_URI=file:///in/metadata.json \
-  -e COGAME_REPORT_OUTPUT_URI=file:///out/report.json \
+  -e COGAME_REPORT_OUTPUT_URI=file:///out/report.zip \
   -e COGAME_REPORTER_ID=paint-arena-summarizer \
   "${IMAGE}"
 
-REPORT="${OUTDIR}/report.json"
+REPORT="${OUTDIR}/report.zip"
 if [[ ! -f "${REPORT}" ]]; then
   echo "FAIL: container exited 0 but did not write ${REPORT}" >&2
   exit 1
 fi
 
-echo "==> validating envelope at ${REPORT}"
+echo "==> validating zip at ${REPORT}"
 
-# Structural + ordering assertions. Done in Python because the asserts are
-# bytewise (key order) and parsed-shape (artifact list, content_types), both
-# of which are awkward in pure bash. The host's python3 is sufficient -- no
-# project deps required.
+# Structural assertions. Done in Python because zip inspection in pure bash
+# is awkward. The host's python3 is sufficient -- only stdlib (zipfile, json).
 python3 - "${REPORT}" <<'PY'
 import json
 import sys
+import zipfile
 
 path = sys.argv[1]
-with open(path, "rb") as f:
-    raw = f.read()
-text = raw.decode("utf-8")
-env = json.loads(raw)
 
 def fail(msg: str) -> None:
     print(f"FAIL: {msg}", file=sys.stderr)
     sys.exit(1)
 
-if env.get("version") != "1":
-    fail(f'expected version "1", got {env.get("version")!r}')
+RENDERABLE_EXTS = {".md", ".txt", ".html", ".htm"}
+PINNED_MTIME = (1980, 1, 1, 0, 0, 0)
 
-artifacts = env.get("artifacts")
-if not isinstance(artifacts, list) or len(artifacts) != 2:
-    fail(f"expected 2 artifacts, got {artifacts!r}")
+with zipfile.ZipFile(path) as zf:
+    if zf.testzip() is not None:
+        fail("zip failed integrity check (testzip)")
+    infos = zf.infolist()
+    names = [i.filename for i in infos]
+    if set(names) != {"summary.md", "stats.json", "render.txt"}:
+        fail(f"expected entries {{summary.md, stats.json, render.txt}}, got {set(names)!r}")
 
-ids_in_order = [a.get("id") for a in artifacts]
-if ids_in_order != ["summary", "stats"]:
-    fail(f'expected artifact order ["summary", "stats"], got {ids_in_order!r}')
+    for info in infos:
+        if info.date_time != PINNED_MTIME:
+            fail(f"{info.filename} date_time {info.date_time} != pinned {PINNED_MTIME} (D12 determinism)")
 
-if artifacts[0].get("content_type") != "text/markdown":
-    fail(f'summary content_type expected text/markdown, got {artifacts[0].get("content_type")!r}')
-if artifacts[1].get("content_type") != "application/json":
-    fail(f'stats content_type expected application/json, got {artifacts[1].get("content_type")!r}')
+    render_txt = zf.read("render.txt").decode("utf-8")
+    lines = [line.strip() for line in render_txt.splitlines() if line.strip()]
+    if lines != ["summary.md"]:
+        fail(f'render.txt expected ["summary.md"], got {lines!r}')
+    if "render.txt" in lines:
+        fail("render.txt MUST NOT list itself (D12)")
+    if len(lines) != len(set(lines)):
+        fail("render.txt has duplicate entries (D12)")
+    for line in lines:
+        if line not in names:
+            fail(f"render.txt lists {line!r} but it is missing from the zip (D12)")
+        ext = "." + line.rsplit(".", 1)[-1].lower() if "." in line else ""
+        if ext not in RENDERABLE_EXTS:
+            fail(f"render.txt lists {line!r} with non-renderable extension {ext!r} (D12)")
 
-# Top-level dict key order: "version" before "artifacts".
-top_keys = list(env.keys())
-if top_keys != ["version", "artifacts"]:
-    fail(f'top-level key order expected ["version","artifacts"], got {top_keys!r}')
-
-# Per-artifact key order: "id" before "content_type" before "content".
-for a in artifacts:
-    keys = list(a.keys())
-    if keys[:3] != ["id", "content_type", "content"]:
-        fail(f"artifact {a.get('id')!r} key order expected [id,content_type,content,...], got {keys!r}")
-
-# Bytewise ordering check on the serialized form -- a regression where the
-# host serialized correctly but the image somehow rewrote keys would still
-# be caught.
-i_version = text.index('"version"')
-i_artifacts = text.index('"artifacts"')
-if not i_version < i_artifacts:
-    fail("serialized 'version' must appear before 'artifacts'")
+    stats = json.loads(zf.read("stats.json"))
 
 # Stats sanity: variant_id propagates from metadata and grid dimensions came
 # from the replay's `config` block (per D11 -- no manifest URI in v1).
-stats = artifacts[1]["content"]
 if stats.get("variant_id") != "default":
     fail(f"stats.variant_id expected 'default', got {stats.get('variant_id')!r}")
 grid = stats.get("grid", {})
@@ -109,7 +101,7 @@ if grid.get("width") != 12 or grid.get("height") != 8:
 if stats.get("winner_slot") != 0:
     fail(f"stats.winner_slot expected 0, got {stats.get('winner_slot')!r}")
 
-print("OK: envelope shape, content types, and key ordering all match contract")
+print("OK: zip shape, render.txt manifest, pinned mtimes, and stats sanity all match D12")
 PY
 
 echo "==> smoke test passed"

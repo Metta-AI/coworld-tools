@@ -1,26 +1,34 @@
 # paint_arena_summarizer
 
-Per-episode summarizer reporter for the PaintArena coworld. Reads results, episode metadata, and the replay's `config` block; writes a JSON envelope with a Markdown summary and a JSON stats artifact. First concrete reporter in the repo — its inline primitives are the source material for the upcoming [`reporter_sdk`](../../reporter_sdk/) extraction. See [`DESIGN.md`](DESIGN.md) for the locked-in design.
+Per-episode summarizer reporter for the PaintArena coworld. Reads results, episode metadata, and the replay's `config` block; writes a zip containing a Markdown summary, a JSON stats file, and a `render.txt` manifest per the D12 reporter contract. First concrete reporter in the repo — its inline primitives are the source material for the upcoming [`reporter_sdk`](../../reporter_sdk/) extraction. See [`DESIGN.md`](DESIGN.md) for the locked-in design.
 
-## Artifacts produced
+## Output zip contents
 
-| `id` | `content_type` | Contents |
+```
+report.zip
+├── summary.md          # rendered inline (listed in render.txt)
+├── stats.json          # download-only (not in render.txt; may be linked from summary.md)
+└── render.txt          # single line: "summary.md\n"
+```
+
+| Entry | Renderable? | Contents |
 | --- | --- | --- |
-| `summary` | `text/markdown` | Human-readable per-slot table + winner / tie / no-paint verdict |
-| `stats`   | `application/json` | `{episode_id, variant_id, grid, ticks, duration_seconds, slots[], unpainted_tiles, unpainted_share_pct, winner_slot, margin_tiles, tie}` |
+| `summary.md` | yes (`.md` in D12 allowlist) | Human-readable per-slot table + winner / tie / no-paint verdict |
+| `stats.json` | no (download-only) | `{episode_id, variant_id, grid, ticks, duration_seconds, slots[], unpainted_tiles, unpainted_share_pct, winner_slot, margin_tiles, tie}` |
+| `render.txt` | n/a (the manifest itself) | `summary.md\n` |
 
-The `stats` JSON is generalized over slot count (PaintArena's `results_schema` allows 1–4 players); `winner_slot` is `null` on ties or no-paint episodes. The exact field set is specified in [`DESIGN.md`](DESIGN.md).
+The `stats.json` is generalized over slot count (PaintArena's `results_schema` allows 1–4 players); `winner_slot` is `null` on ties or no-paint episodes. The exact field set is specified in [`DESIGN.md`](DESIGN.md). Zip entries pin `date_time` to `(1980, 1, 1, 0, 0, 0)` so byte-identical reruns over identical inputs produce byte-identical zips (D12 determinism).
 
 ## Inputs
 
-Per the v1 reporter contract ([`../../../docs/REPORTER_DESIGN.md`](../../../docs/REPORTER_DESIGN.md), D2/D10), all consumed inputs arrive as env-supplied URIs:
+Per the v1 reporter contract ([`../../../docs/REPORTER_DESIGN.md`](../../../docs/REPORTER_DESIGN.md), D2/D10/D11), all consumed inputs arrive as env-supplied URIs:
 
 | Env var | Read |
 | --- | --- |
 | `COGAME_RESULTS_URI` | results JSON: `scores`, `painted_tiles`, `ticks` |
 | `COGAME_EPISODE_METADATA_URI` | `episode_id`, `variant_id`, per-slot `policy_name`, `duration_seconds` |
 | `COGAME_REPLAY_URI` | grid `width` × `height` via the replay's `config` block (PaintArena's game server embeds `CONFIG` in the replay payload) |
-| `COGAME_REPORT_OUTPUT_URI` | write target for the envelope |
+| `COGAME_REPORT_OUTPUT_URI` | write target for the zip (`Content-Type: application/zip`) |
 | `COGAME_REPORTER_ID` | stamped into log lines |
 
 `COGAME_LOG_URI` is not consumed in v1; the replay's `frames` array is also ignored — only `config` is read.
@@ -29,11 +37,11 @@ Per the v1 reporter contract ([`../../../docs/REPORTER_DESIGN.md`](../../../docs
 
 | Situation | Behavior |
 | --- | --- |
-| All inputs valid, normal episode | Exit 0, full envelope |
+| All inputs valid, normal episode | Exit 0, valid zip with all three entries |
 | `painted_tiles` all zero | Exit 0; summary says "no tiles were painted; no winner"; `winner_slot: null` |
 | Tied painted-tile counts | Exit 0; summary says "tied at N tiles"; `winner_slot: null`, `tie: true` |
-| Replay JSON missing `config`, or `config` missing `width`/`height` | Exit 1 (`nonzero_exit` per D8); no envelope written |
-| Results JSON missing required field or unparseable | Exit 1; no envelope written |
+| Replay JSON missing `config`, or `config` missing `width`/`height` | Exit 1 (`nonzero_exit` per D8); no zip written |
+| Results JSON missing required field or unparseable | Exit 1; no zip written |
 | Required env var missing or output URI unreachable | Exit 1; error logged to stderr |
 
 See [`DESIGN.md`](DESIGN.md) for the full failure-mode table.
@@ -44,7 +52,7 @@ See [`DESIGN.md`](DESIGN.md) for the full failure-mode table.
 COGAME_RESULTS_URI=file:///path/to/results.json \
 COGAME_EPISODE_METADATA_URI=file:///path/to/metadata.json \
 COGAME_REPLAY_URI=file:///path/to/replay.json \
-COGAME_REPORT_OUTPUT_URI=file:///path/to/report.json \
+COGAME_REPORT_OUTPUT_URI=file:///path/to/report.zip \
 COGAME_REPORTER_ID=paint-arena-summarizer \
 python paint_arena_summarizer.py
 ```
@@ -71,7 +79,7 @@ Each reporter ships its own `Dockerfile.dockerignore` (allowlist style) so the b
 uv run pytest reporters/paint_arena/paint_arena_summarizer/tests/ -v
 ```
 
-Covers happy path, zero-paint, tie, replay missing-or-malformed `config`, malformed and unparseable results, missing env vars, envelope self-validation, key-order regression, HTTP retry policy (transient retries, capped attempts, exact backoff schedule), and a determinism check (two runs over the same inputs produce byte-identical output).
+Covers happy path, zero-paint, tie, replay missing-or-malformed `config`, malformed and unparseable results, missing env vars, zip-shape and `render.txt` consistency (paths exist, renderable extension, no self-reference, no duplicates), pinned zip-entry mtimes, HTTP retry policy (transient retries, capped attempts, exact backoff schedule), and a determinism check (two runs over the same inputs produce byte-identical zip bytes).
 
 ### Containerized smoke test
 
@@ -80,7 +88,7 @@ Covers happy path, zero-paint, tie, replay missing-or-malformed `config`, malfor
 IMAGE=ghcr.io/.../par:1 ./smoke.sh
 ```
 
-Builds the image, runs the container against checked-in fixtures under `smoke/fixtures/`, mounts a `mktemp -d` directory for the output envelope, and asserts envelope shape (version, two artifacts in `[summary, stats]` order, expected content types), key ordering (top-level and per-artifact, both parsed and bytewise), and that grid dimensions resolve from the replay's `config` block. This is the integration-level check that the *packaged image* still satisfies the contract; the pytest suite is the fast iteration loop.
+Builds the image, runs the container against checked-in fixtures under `smoke/fixtures/`, mounts a `mktemp -d` directory for the output zip, and asserts zip shape (three entries, `render.txt` lists `summary.md`, every listed path exists and has a renderable extension, pinned mtimes) plus that grid dimensions resolve from the replay's `config` block. This is the integration-level check that the *packaged image* still satisfies the D12 contract; the pytest suite is the fast iteration loop.
 
 ## SDK extraction candidates (inline today)
 
@@ -88,7 +96,6 @@ The following primitives are in `paint_arena_summarizer.py` and slated for promo
 
 - `ReporterInputs` dataclass + `load_reporter_inputs()`
 - `read_uri` / `write_uri` / `read_json` (scheme-dispatched `file://` and `http(s)://` with retry)
-- `Envelope` / `Artifact` dataclasses (`to_json_bytes()` with sorted keys for determinism)
-- `validate_envelope()` (D3 dict-shape check)
+- `write_deterministic_zip(entries)` — `zipfile.ZipFile` helper with pinned mtimes for D12 byte-identical reruns
 
-The PaintArena-specific parts (`build_stats`, `render_summary_markdown`, `build_envelope`, the `PaintArenaReplay` / `ReplayConfig` parsing) stay in this file — replay-shape coupling is coworld-specific by D11 and intentionally not promotion material.
+The PaintArena-specific parts (`build_stats`, `render_summary_markdown`, `build_zip_bytes`, the `PaintArenaReplay` / `ReplayConfig` parsing, the `summary.md` / `stats.json` / `render.txt` layout) stay in this file — replay-shape coupling is coworld-specific by D11 and intentionally not promotion material, and the in-zip file layout is the reporter author's decision under D12.
