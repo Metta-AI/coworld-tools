@@ -1,6 +1,6 @@
 # paint_arena_summarizer — Design
 
-> **Status:** implemented. `paint_arena_summarizer.py` plus a `pytest` suite covers the failure-mode table below; `Dockerfile` and `build.sh` are functional. This is the first concrete reporter in the repo and was intentionally built before `reporter_sdk` and `templates/summarizer_template`. The "Inline primitives" section below remains the extraction shopping list for the next step. See the [root README](../../../README.md) "Build strategy" section for the broader rationale.
+> **Status:** implemented on the D12 zip + `render.txt` contract. `paint_arena_summarizer.py` plus a `pytest` suite covers the failure-mode table below; `Dockerfile` and `build.sh` are functional. This is the first concrete reporter in the repo and was intentionally built before `reporter_sdk` and `templates/summarizer_template`. The "Inline primitives" section below remains the extraction shopping list for the next step. See the [root README](../../../README.md) "Build strategy" section for the broader rationale.
 
 ## Purpose
 
@@ -16,22 +16,23 @@ This document is load-bearing in two directions: it specifies what the implement
 | `COGAME_EPISODE_METADATA_URI` | **Yes** | Per-slot `policy_name`, `started_at`/`ended_at`/`duration_seconds`, `episode_id`, `variant_id`. |
 | `COGAME_REPLAY_URI` | **Yes** | Source of `config.{width,height}` for the grid total-tile count. Per REPORTER_DESIGN.md D11 the manifest is no longer passed at runtime; PaintArena's game server embeds its `CONFIG` in `_replay_payload`, so the replay is the canonical per-episode source. `frames` and `results` inside the replay are ignored by this reporter. |
 | `COGAME_REPORTER_ID` | Logs only | Stamped into log lines for observability; not used for output content. |
-| `COGAME_REPORT_OUTPUT_URI` | **Yes** | Write target for the envelope. |
+| `COGAME_REPORT_OUTPUT_URI` | **Yes** | Write target for the zip. |
 | `COGAME_LOG_URI` | No | Not relevant to PaintArena summary content. |
 
-## Output envelope
+## Output zip (D12)
 
-```jsonc
-{
-  "version": "1",
-  "artifacts": [
-    { "id": "summary", "content_type": "text/markdown", "content": "..." },
-    { "id": "stats",   "content_type": "application/json", "content": { ... } }
-  ]
-}
+Per REPORTER_DESIGN.md D12, the reporter writes a single zip to `COGAME_REPORT_OUTPUT_URI` with `Content-Type: application/zip`. Top-level layout:
+
+```
+report.zip
+├── summary.md          # rendered inline (listed in render.txt)
+├── stats.json          # download-only (not listed in render.txt; may be linked from summary.md)
+└── render.txt          # single line: "summary.md\n"
 ```
 
-### `summary` (text/markdown) — first artifact by convention
+`render.txt` lists only files Observatory renders inline. The renderable-extension allowlist in D12 is `.md` / `.txt` / `.html` / `.htm`; `stats.json` is intentionally outside that allowlist and stays download-only. Zip-entry mtimes are pinned to `(1980, 1, 1, 0, 0, 0)` so byte-identical reruns over identical inputs produce byte-identical zip bytes (D12 determinism clause).
+
+### `summary.md` (rendered)
 
 Indicative shape (exact phrasing TBD during implementation):
 
@@ -49,7 +50,7 @@ Indicative shape (exact phrasing TBD during implementation):
 **Winner:** Slot 0 (champion-v3) by 9 tiles.
 ```
 
-### `stats` (application/json) — second artifact
+### `stats.json` (download-only)
 
 ```jsonc
 {
@@ -76,22 +77,23 @@ Generalized over slot count (results schema allows 1–4; iterate, don't hard-co
 
 1. **Grid-coverage percentages, not within-painted ratios.** Knowing the grid dimensions answers the natural "did you cover the board?" question. Originally sourced via a manifest-variant lookup; since REPORTER_DESIGN.md D11 dropped the manifest URI, the same dimensions come from the replay's `config` block.
 2. **`policy_name` from episode metadata for player display**, falling back to `"Slot N"` when null (e.g. certification context with no real policy). `policy_name` is the tournament-meaningful identity; variant-config `player_names` is cosmetic and ignored.
-3. **Two artifacts: `summary` (markdown) and `stats` (json). No heatmap PNG in v1.** Embedding a heatmap requires reading the replay's `frames` and pulls binary-content-type plumbing into the first reporter before we know what the SDK should expose for binary artifacts. Defer to a later iteration or to a separate `paint_arena_highlight_reel` reporter. (The current reporter does read the replay, but only its `config` block — it intentionally does not touch `frames`.)
+3. **Two files in the zip: `summary.md` (rendered) and `stats.json` (download-only). No heatmap PNG in v1.** Embedding a heatmap requires reading the replay's `frames` and pulls binary-content plumbing into the first reporter before we know what the SDK should expose. Defer to a later iteration or to a separate `paint_arena_highlight_reel` reporter. (The current reporter does read the replay, but only its `config` block — it intentionally does not touch `frames`.) Per D12, `stats.json`'s extension is outside the renderable allowlist, so it correctly stays out of `render.txt`.
 4. **Generic-over-slot-count.** Iterate `painted_tiles`; do not hard-code 2 players.
 5. **Couple to PaintArena's replay shape, not to a generic schema.** This reporter is a PaintArena-coworld build artifact; the `config.width` / `config.height` access path is hard-wired to what `paintarena/game/server.py::_replay_payload` writes. The replay format is owned by the same coworld bundle, so this is acceptable per REPORTER_DESIGN.md D11.
+6. **Pinned mtime for determinism.** All zip entries use `date_time=(1980, 1, 1, 0, 0, 0)` so the local-file headers don't drift between runs. Required by D12's byte-identical-rerun guarantee.
 
 ## Failure-mode behavior
 
 | Situation | Behavior | Exit |
 | --- | --- | --- |
-| All inputs valid, normal episode | Write envelope with both artifacts | 0 |
-| `painted_tiles` sums to 0 (no tiles painted) | Write envelope; summary says "no tiles painted; no winner"; stats has `winner_slot: null`, `tie: false`, `margin_tiles: 0` | 0 |
-| Tied painted-tile counts | Write envelope; summary says "tied at N tiles"; stats has `winner_slot: null`, `tie: true`, `margin_tiles: 0` | 0 |
+| All inputs valid, normal episode | Write zip with `summary.md`, `stats.json`, `render.txt` | 0 |
+| `painted_tiles` sums to 0 (no tiles painted) | Write zip; summary says "no tiles painted; no winner"; stats has `winner_slot: null`, `tie: false`, `margin_tiles: 0` | 0 |
+| Tied painted-tile counts | Write zip; summary says "tied at N tiles"; stats has `winner_slot: null`, `tie: true`, `margin_tiles: 0` | 0 |
 | Replay JSON missing `config` block, or `config` missing `width`/`height` | `ValidationError` propagates; exit non-zero (`nonzero_exit` per D8) | 1 |
 | Results JSON missing required field or unparseable | Log error, exit non-zero | 1 |
 | Output URI unreachable | Bubble up exception, exit non-zero | 1 |
 
-Per D8, the platform will surface these as `nonzero_exit` failure records. The reporter does not produce synthetic "I failed" envelopes — it either writes a valid envelope and exits 0, or it exits non-zero.
+Per D8 (as amended by D12), the platform will surface these as `nonzero_exit` failure records. The reporter does not produce synthetic "I failed" zips — it either writes a valid zip and exits 0, or it exits non-zero.
 
 ## Inline primitives (the SDK extraction candidates)
 
@@ -99,18 +101,18 @@ These primitives live inline in `paint_arena_summarizer.py` for v1. The SDK extr
 
 - `ReporterInputs` typed-dict / dataclass and `load_reporter_inputs()` reading all `COGAME_*` env vars.
 - `read_uri(uri) -> bytes` / `write_uri(uri, payload, content_type)` — scheme-dispatched (`file://`, `http(s)://`) with retries on 429/5xx for HTTP. Stdlib + `requests`.
-- `Envelope` / `Artifact` dataclasses with `to_json_bytes()`.
-- `validate_envelope(envelope_dict)` — dict-shape D3 check; not full jsonschema.
+- `write_deterministic_zip(entries)` — `zipfile.ZipFile` writer that pins each entry's `date_time` to `(1980, 1, 1, 0, 0, 0)` and uses `ZIP_DEFLATED`. The minimum scaffolding for the D12 contract; any reporter that wants byte-identical reruns needs this helper.
 
-Anything *not* in that list (PaintArena results parsing, replay-`config` parsing, summary phrasing, the per-slot percentage math) stays in this reporter forever. Replay parsing in particular is coworld-specific by design (D11) and is not a candidate for SDK promotion.
+Anything *not* in that list (PaintArena results parsing, replay-`config` parsing, summary phrasing, the per-slot percentage math, the `summary.md` / `stats.json` / `render.txt` file layout) stays in this reporter forever. Replay parsing in particular is coworld-specific by design (D11) and is not a candidate for SDK promotion.
 
 ## Determinism and testing
 
 Output is a pure function of (results JSON, episode metadata JSON, replay JSON). Test plan:
 
 - Unit tests with hand-crafted fixture JSONs covering the failure-mode table above.
-- Determinism check: run summarizer twice on the same fixtures, byte-compare envelope JSON.
-- Local end-to-end smoke: `coworld run-episode` against the PaintArena example, point the reporter at the produced artifacts, inspect the envelope.
+- Zip-shape assertions: top-level entries are exactly `{summary.md, stats.json, render.txt}`; `render.txt` contents are `summary.md\n`; every listed path exists in the zip and has a renderable extension; no duplicates; `render.txt` does not list itself.
+- Determinism check: run summarizer twice on the same fixtures, byte-compare the zip output.
+- Local end-to-end smoke: `coworld run-episode` against the PaintArena example, point the reporter at the produced artifacts, inspect the zip.
 
 ## Non-goals (v1)
 
@@ -120,3 +122,4 @@ Output is a pure function of (results JSON, episode metadata JSON, replay JSON).
 - No LLM involvement.
 - No platform-side schema declaration of the `stats` JSON shape (D7 shelved this).
 - No multi-reporter coordination (D4 explicitly forbids cross-reporter pipelining anyway).
+- No HTML rendering in `render.txt` yet — D12 permits it, but Observatory's iframe+CSP sandbox is a hard prerequisite, and this reporter has no HTML to surface.
