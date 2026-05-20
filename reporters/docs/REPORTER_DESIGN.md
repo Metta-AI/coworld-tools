@@ -1,18 +1,18 @@
 # Reporter Design
 
 > **Status:** v1 contract complete (D1–D10 resolved 2026-05-19); post-v1 amendments tracked as D11+.
-> **Last meaningful update:** 2026-05-20 — D11: dropped `COGAME_MANIFEST_URI` from the reporter input contract; reporters that need game config now read the game-owned replay.
+> **Last meaningful update:** 2026-05-20 — D12: reporter output is a single zip file (replaces D3's JSON envelope); content types inferred from file extensions; optional top-level `render.txt` lists files Observatory renders inline, in order.
 > **Companion docs:** [`COWORLD_REFERENCE.md`](./COWORLD_REFERENCE.md) for coworld background. The canonical reporter-author-facing runtime contract (`REPORTER_RUNTIME_README.md`) will live in metta at `packages/coworld/src/coworld/REPORTER_RUNTIME_README.md` when implementation lands.
 
 This document records the v1 contract for the coworld **reporter** role and the deferred ideas that didn't make v1. The reporter role was declared in the coworld manifest schema before this work began but had no runtime contract, no example implementation, and no invocation site in the runner; this document is the design that gives it those things.
 
-The structure: **executive summary** (one-screen TL;DR) → **goals and non-goals** → **hard constraints** (forced by existing infrastructure) → **adopted invariants and defaults** (v1 contract, decided across D1–D10) → **v1 contract reference** (the concrete shape an implementation reads off this doc) → **open questions** (placeholder for what surfaces during implementation) → **decisions log** (D1–D10, with rationale) → **deferred ideas** (what's explicitly not in v1, organized by theme) → **changelog**.
+The structure: **executive summary** (one-screen TL;DR) → **goals and non-goals** → **hard constraints** (forced by existing infrastructure) → **adopted invariants and defaults** (v1 contract, decided across D1–D12) → **v1 contract reference** (the concrete shape an implementation reads off this doc) → **open questions** (placeholder for what surfaces during implementation) → **decisions log** (D1–D12, with rationale) → **deferred ideas** (what's explicitly not in v1, organized by theme) → **changelog**.
 
 ---
 
 ## Executive Summary
 
-**A reporter is a process-style container declared in a coworld manifest under `reporter: [...]`.** When an episode completes successfully with valid artifacts, the runner invokes every declared reporter in parallel against those artifacts. Each reporter reads what it needs from env-supplied URIs, writes a single JSON envelope to its output URI, and exits.
+**A reporter is a process-style container declared in a coworld manifest under `reporter: [...]`.** When an episode completes successfully with valid artifacts, the runner invokes every declared reporter in parallel against those artifacts. Each reporter reads what it needs from env-supplied URIs, writes a single zip file to its output URI, and exits.
 
 ### The v1 contract in one screen
 
@@ -21,15 +21,15 @@ The structure: **executive summary** (one-screen TL;DR) → **goals and non-goal
 | **Trigger** | Per-episode, after game/player containers exit successfully and artifacts validate. (D1, D6) |
 | **Lifecycle location** | Co-located with the episode runner (local Docker or hosted K8s). No separate dispatch in v1. (D6) |
 | **Behavior contract** | Pure function of inputs; determinism preferred but not required. (D1) |
-| **Inputs** | Standard env-supplied URIs (`COGAME_*`) for results, replay, optional logs, episode metadata; plus `COGAME_REPORTER_ID`. (D2, D4, **D11**) |
-| **Output** | Single JSON envelope `{version, artifacts: [{id, content_type, encoding?, content}]}` written to `COGAME_REPORT_OUTPUT_URI`. Empty `artifacts: []` allowed. (D3) |
-| **First-class content types** | `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). HTML stored but never inline-rendered. (D3) |
+| **Inputs** | Standard env-supplied URIs (`COGAME_*`) for results, replay, optional logs, episode metadata; plus `COGAME_REPORTER_ID`. (D2, D4, D11) |
+| **Output** | Single zip file written to `COGAME_REPORT_OUTPUT_URI`. Content type per file inferred from extension. Optional top-level `render.txt` lists files (in order) for inline rendering. Empty zip allowed. (D12) |
+| **Renderable file types** | Inline-rendered when listed in `render.txt`: `.md`, `.txt`, `.html` / `.htm`. Other extensions (`.png`, `.json`, `.svg`, …) are referenced *from* rendered files or served as downloads. (D12) |
 | **Multi-reporter** | All declared reporters run in parallel with isolated inputs/outputs/failures. Resource baseline 2 CPU + 2Gi each. (D4) |
-| **Failure semantics** | Five-code taxonomy (`start_failed`, `nonzero_exit`, `timeout`, `missing_output`, `invalid_envelope`). One retry on `timeout` only. Per-reporter status records. Runner exit code orthogonal to reporter status. (D8) |
+| **Failure semantics** | Five-code taxonomy (`start_failed`, `nonzero_exit`, `timeout`, `missing_output`, `invalid_output`). One retry on `timeout` only. Per-reporter status records. Runner exit code orthogonal to reporter status. (D8, D12) |
 | **Certification** | `coworld certify` exercises every declared reporter end-to-end against the smoke episode using synthetic metadata; strict failure handling. (D5) |
-| **Observatory** | Four new API endpoints per episode (list, detail, artifact-direct, logs). Inline rendering for first-class content types with Markdown artifact-id substitution. CLI parity: `coworld reports`, `coworld report-show`, `coworld report-download`. (D9) |
-| **Manifest changes** | None. `CoworldDeclaredRoleSpec` stays as-is. Per-artifact schema declaration shelved. (D7) |
-| **Naming** | All env vars under `COGAME_` prefix. Canonical doc: `REPORTER_RUNTIME_README.md`. (D10) |
+| **Observatory** | Five API endpoints per episode (list, detail, zip-download, file-direct, logs). Inline rendering of files listed in `render.txt`; Markdown relative-link rewriting to file-direct URLs. CLI parity: `coworld reports`, `coworld report-show`, `coworld report-download`. (D9, D12) |
+| **Manifest changes** | None. `CoworldDeclaredRoleSpec` stays as-is. Per-file schema declaration shelved. (D7) |
+| **Naming** | All env vars under `COGAME_` prefix. Render-manifest file is `render.txt`. Canonical doc: `REPORTER_RUNTIME_README.md`. (D10, D12) |
 
 ### What's not in v1
 
@@ -39,9 +39,9 @@ See §9 (Deferred ideas) for the consolidated list. Highlights: per-round trigge
 
 The v1 contract requires changes across four areas of the monorepo (see individual decisions for the source pointers):
 
-- **`packages/coworld/`** — runner (both Docker and K8s variants), certifier, the new envelope schema, the canonical `REPORTER_RUNTIME_README.md` runtime contract.
-- **`app_backend/`** — four new FastAPI routes + database storage for reporter status records + Alembic migration.
-- **`web/observatory`** — new "Reports" panel on the episode view; per-content-type renderers; Markdown artifact-id substitution at render time.
+- **`packages/coworld/`** — runner (both Docker and K8s variants), certifier, zip-output validation (readable zip + optional `render.txt` consistency), the canonical `REPORTER_RUNTIME_README.md` runtime contract.
+- **`app_backend/`** — five new FastAPI routes (list, detail, zip-download, file-direct, logs) + database storage for reporter status records + Alembic migration. Consumer-side zip-safety enforcement (path traversal, zip bombs, symlink entries, file-count and size caps) lives here.
+- **`web/observatory`** — new "Reports" panel on the episode view; per-extension renderers including iframe+CSP infrastructure for HTML files (prerequisite before any reporter writes HTML to `render.txt`); Markdown relative-link rewriting to file-direct URLs at render time.
 - **`packages/coworld/src/coworld/tournament_cli.py`** — three new CLI commands paralleling existing tournament-inspection patterns; corresponding client model classes in `api_client.py`.
 
 ---
@@ -98,19 +98,19 @@ A mix of two kinds of items: **inherited conventions** from neighboring roles (l
 2. **`COGAME_*` env namespace.** Existing game-side variables use the `COGAME_` prefix. Reporter-specific variables should probably do the same (e.g. `COGAME_REPORT_OUTPUT_URI`) for discoverability, even though "report" isn't part of the literal game contract.
 3. **Stateless containers; state on the platform.** Players reconnect, games survive disconnects, commissioner state is threaded by the platform. Reporters should not hold local state across invocations.
 4. **One image, many roles.** Spec 0043 lines 13-14 explicitly endorses one `paintarena-runtime` image providing the game, player, and reporter via different `run` argv. The contract should make this comfortable (no requirements that force a separate image).
-5. **No reporter-side schema declarations in the manifest.** *(Resolved 2026-05-19, D7.)* The game declares `config_schema` and `results_schema`; reporters deliberately do **not** have a parallel `output_schema`. Per D7, the D3 envelope schema is the only platform-level output validation, and per-artifact content shape is the author's responsibility. Future per-artifact schema declaration is left open and flexible (see §9 'Deferred ideas').
+5. **No reporter-side schema declarations in the manifest.** *(Resolved 2026-05-19, D7; amended 2026-05-20, D12.)* The game declares `config_schema` and `results_schema`; reporters deliberately do **not** have a parallel `output_schema`. Per D7, the platform's only output validation is the D12 zip-output shape (readable zip + `render.txt` consistency); per-file content shape is the author's responsibility. Future per-file schema declaration is left open and flexible (see §9 'Deferred ideas').
 6. **Certification exercises the contract end-to-end.** `coworld certify` runs the game and players against the certification fixture. Whatever lifecycle reporters get should be exercised by certification too, not just declared.
-7. **Reporters are pure functions of their inputs; determinism is preferred.** *(Decided 2026-05-18, D1.)* A reporter's only side effect must be writing to its declared output URI — no network calls beyond input/output URIs, no persistent state across runs, no behavior that depends on wall-clock time except via metadata explicitly supplied as input. Deterministic implementations (same input → byte-identical output) are strongly preferred for testability and reproducibility, but reporters with inherently non-deterministic logic (e.g. LLM-based analysis with sampling) are permitted as long as purity holds.
-8. **Single trigger in v1: per-episode after artifacts land.** *(Decided 2026-05-18, D1.)* The runner invokes each declared reporter once per episode, after the game and player containers have exited and the game's results and replay artifacts have been written. Per-round and on-demand triggers are explicitly out of scope (see §3 items 6-7).
-9. **Reporter input/output contract.** *(Decided 2026-05-18, D2; expanded 2026-05-19, D4; manifest URI dropped 2026-05-20, D11.)* Each reporter invocation receives standard inputs via environment-variable URIs, mirroring the game contract. Standard inputs: results JSON (`COGAME_RESULTS_URI`), replay artifact (`COGAME_REPLAY_URI` — renamed from the game's `COGAME_SAVE_REPLAY_URI` for reporter-side clarity), optional logs (`COGAME_LOG_URI`, present iff the game's logging was enabled), platform-generated episode metadata JSON (`COGAME_EPISODE_METADATA_URI`; strawman shape in §7), and the reporter's own manifest id as a plain string (`COGAME_REPORTER_ID`, added by D4 to support the one-image-many-runnables pattern from spec 0043). Output: a single artifact written to `COGAME_REPORT_OUTPUT_URI` (URI is unique per `(episode_id, reporter_id)`; see D4). Reporters do not declare which inputs they want in v1 — the platform always sets all standard URIs and data transfer happens only when the reporter calls `read_data()`. Per-episode `tokens` are never exposed to reporters via metadata; reporters that parse the replay may incidentally observe game-injected tokens, which are episode-scoped secrets useless after the episode ends. Output envelope shape governed by D3 (item 10); per-artifact JSON Schema validation is shelved for v1 (D7). The coworld manifest is **not** passed at runtime — see D11; reporters that need game config read it from the replay.
-10. **Output envelope contract.** *(Decided 2026-05-19, D3.)* Each reporter writes a single JSON envelope to `COGAME_REPORT_OUTPUT_URI`. Shape: `{ "version": "1", "artifacts": [ { "id", "content_type", ["encoding"], "content" }, ... ] }`. Per artifact: `id` unique within the envelope, `content_type` is an IANA media-type string, optional `encoding` defaults to native JSON embedding (must be `"base64"` for binary content types), `content` is JSON-native for text and JSON types (string for `text/*`, any JSON value for `application/json`) and a base64 string for binary. The `artifacts` array may be empty (signals "ran successfully, nothing to surface"); reporters must still write a valid envelope. First-class content types in v1: `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). Other content types are permitted and stored opaquely. `text/html` is explicitly excluded from first-class rendering (XSS surface in Observatory). First artifact is the primary one by convention. No streaming; reporter buffers and writes once.
-11. **Multi-reporter execution model.** *(Decided 2026-05-19, D4.)* When a coworld declares multiple reporters (`reporter: [r1, r2, ...]`), all of them run on every episode, in parallel, independently. Each reporter container receives its own `COGAME_REPORT_OUTPUT_URI` minted per `(episode_id, reporter_id)` and its own `COGAME_REPORTER_ID` env var carrying the manifest `id` of the runnable being invoked (needed when one image implements multiple reporter runnables per spec 0043). Reporters cannot read each other's outputs in v1 — no pipelining; pipeline-like work goes inside one reporter container. Failure of one reporter does not block or affect another (aggregate failure handling: D8). Each reporter is its own container with the same resource baseline as the game and player containers: 2 CPU + 2Gi memory (`GAME_RUNTIME_README.md:13-24`). Reporter `id`s must be unique within `reporter[]` (already enforced by the existing `_manifest_items_by_id` validation at `certifier.py:208-215`). Display order in logs and Observatory surfaces is the manifest declaration order; execution order is undefined. Zero reporters declared = the reporter step is a no-op.
-12. **Certification exercises reporters end-to-end.** *(Decided 2026-05-19, D5.)* `coworld certify` invokes every declared reporter against the smoke episode's real artifacts after the existing certification flow runs (manifest validation, image reachability, smoke episode, results-schema validation, replay verification). The certifier synthesizes an episode metadata JSON (`episode_id: "ep_certify_<timestamp>"`, `variant_id: "certification"`, real timestamps from the smoke run, `players` derived from `manifest.certification.players[]` with `policy_version_id: null`, tournament fields all `null`, `tags: {"context": "certification"}`), mints a per-reporter `COGAME_REPORT_OUTPUT_URI` and `COGAME_REPORTER_ID`, then invokes reporters in parallel (D4) using the same launch infrastructure as the production runner. Each reporter must exit 0 within a per-reporter timeout (default 60s, matching the existing `certify_coworld` timeout) and write a valid envelope (D3). **Any reporter failing any check causes certification to fail** — intentional asymmetry with runtime, which tolerates flaky reporters (D4 isolates per-reporter failure). Per-artifact JSON Schema validation is shelved for v1 (D7); certification's structural hook is a no-op for v1. No automated purity/determinism check. No `--skip-reporters` flag in v1.
-13. **Reporter execution location and CLI invocation.** *(Decided 2026-05-19, D6.)* Reporters run **co-located with the episode** inside the runner — in `runner/runner.py` they join the `coworld-local` Docker network alongside game and players; in `runner/kubernetes_runner.py` they are additional containers/pods within the same episode Job (exact K8s mechanism — sibling pods, separate Jobs, sidecars — is implementation detail, not part of the reporter contract). No separate dispatch system in v1. The reporter lifecycle fires whenever an episode completes with valid artifacts (game and players exited 0, results JSON validates against `game.results_schema`, replay artifact exists). Concrete CLI behavior: hosted production episodes → run reporters; `coworld run-episode` → run reporters; `coworld certify` → run reporters (per D5, strict failure handling); `coworld play` → run reporters *only* on natural episode completion (interrupts silently skip the reporter step); `coworld replay` and `COGAME_REPLAY_SERVER=1` replay mode → never run reporters (no new artifacts to consume). On episode failure or missing/invalid artifacts the reporter step is **skipped silently** — logged but not surfaced as error, since reporters can't operate on garbage and the episode result is the appropriate failure surface. No `--skip-reporters` flag in v1.
-14. **Output schema declaration shelved for v1.** *(Decided 2026-05-19, D7.)* Reporter manifest entries do **not** declare output schemas in v1. `CoworldDeclaredRoleSpec` is unchanged. The D3 envelope schema is the only platform-level output validation; per-artifact content shape is the reporter author's responsibility. Reporter authors are **encouraged but not required** to validate their output internally (Pydantic, jsonschema, ad-hoc — whatever fits); platform does not enforce this. Certification (D5) validates envelope shape only; the structural hook for per-artifact validation exists but is a no-op in v1. Observatory renders artifacts by `content_type` alone. Future extension (e.g. an optional `artifacts: [...]` manifest field declaring per-artifact content types and schemas) is intentionally **left open and flexible** — design when concrete demand surfaces; do not anchor the future on today's strawman shape.
-15. **Reporter failure semantics.** *(Decided 2026-05-19, D8.)* A reporter invocation is "failed" if any of: container fails to start (`start_failed`), exits non-zero (`nonzero_exit`), exceeds its per-reporter timeout (`timeout`, default 60s per D5), exits 0 but writes nothing (`missing_output`), or writes content that fails D3 envelope-schema validation (`invalid_envelope`). Otherwise it's "success" (including envelopes with empty `artifacts: []`). **Conditional retry: one retry on `timeout` only**, never on other failure modes; same inputs (D1 purity), freshly-minted `COGAME_REPORT_OUTPUT_URI`, no retry delay; applies uniformly to runtime and certification; no author-side opt-out in v1. The runner records a per-reporter status record for every invocation: on success the record carries the envelope; on failure it carries `failure_reason`, `failure_detail`, `exit_code` (when applicable), `duration_ms`, and captured stdout/stderr; when retries occurred a `previous_attempts: [...]` array preserves prior attempts. **Reporter status does not affect the runner's exit code** — episode success and reporter status are orthogonal dimensions. Status records land in the runner's workspace locally (under `reporter_outputs/<reporter_id>.*`) and in durable storage hosted (accessible via Observatory API per D9). Structured logs per outcome (info on success, warn on failure). No platform-injected failure envelopes — failed reporters yield status records, not synthetic envelopes. No partial-success salvage.
-16. **Observatory API surface, frontend rendering, and CLI parity.** *(Decided 2026-05-19, D9.)* Reporter outputs are exposed via four new Observatory endpoints rooted at the episode: `GET /episodes/{id}/reports` (lightweight metadata-only list), `GET /episodes/{id}/reports/{reporter_id}` (full status record + envelope), `GET /episodes/{id}/reports/{reporter_id}/artifacts/{artifact_id}` (direct artifact access with proper `Content-Type` — server decodes base64 for binary content), and `GET /episodes/{id}/reports/{reporter_id}/logs` (captured stdout/stderr). Permissions and retention follow existing episode rules. Observatory's frontend renders first-class content types inline — Markdown (with artifact-id references rewritten to artifact-direct URLs at render time), plain text, JSON tree, PNG via `<img>` — and offers download-only for other content types. `text/html` is stored but never inline-rendered (per D3). Markdown artifact-id substitution lives in Observatory's renderer (not in the reporter) so reporters stay portable across deployment URLs. CLI parity in `packages/coworld/src/coworld/tournament_cli.py`: `coworld reports <episode-id> [--mine]`, `coworld report-show <episode-id> --reporter <reporter-id>`, `coworld report-download <episode-id> [--reporter ...] [--artifact ...] [--output ...]`. **No cross-episode aggregation, search, trends, webhooks, or pagination in v1.**
-17. **Naming conventions ratified; canonical doc name fixed.** *(Decided 2026-05-19, D10; `COGAME_MANIFEST_URI` removed 2026-05-20, D11.)* All reporter-side env vars use the `COGAME_` prefix (matching the game contract namespace) — `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_REPORTER_ID`, `COGAME_REPORT_OUTPUT_URI`. The reporter-output env var carries the `OUTPUT` modifier to disambiguate write-destination from any future read-side report URI. Reporter `id` format in the manifest is a **recommendation** (lowercase with hyphens or underscores, matching existing player/variant id conventions) — only uniqueness within `reporter[]` is platform-enforced (per D4); no regex check. Canonical reporter-runtime contract document is **`REPORTER_RUNTIME_README.md`**, placed alongside `GAME_RUNTIME_README.md` in `packages/coworld/src/coworld/`. All other naming choices (envelope fields, failure codes, status record fields, API routes, CLI commands, workspace artifact paths) were settled in D2-D9 and are catalogued in D10 for reference.
+7. **Reporters are pure functions of their inputs; determinism is preferred.** *(D1.)* A reporter's only side effect must be writing to its declared output URI — no network calls beyond input/output URIs, no persistent state across runs, no behavior that depends on wall-clock time except via metadata explicitly supplied as input. Deterministic implementations (same input → byte-identical output) are strongly preferred for testability and reproducibility, but reporters with inherently non-deterministic logic (e.g. LLM-based analysis with sampling) are permitted as long as purity holds. Deterministic reporters MUST pin zip-entry mtimes to a fixed value (see item 10) — Python's `zipfile` default of `os.stat` mtimes breaks byte-identical reruns.
+8. **Single trigger in v1: per-episode after artifacts land.** *(D1.)* The runner invokes each declared reporter once per episode, after the game and player containers have exited and the game's results and replay artifacts have been written. Per-round and on-demand triggers are explicitly out of scope (see §3 items 6-7).
+9. **Reporter input/output contract.** *(D2, D4, D11.)* Each reporter invocation receives standard inputs via environment-variable URIs, mirroring the game contract. Standard inputs: results JSON (`COGAME_RESULTS_URI`), the game's replay artifact (`COGAME_REPLAY_URI`; game-owned format — also the source of game config for reporters that need it), optional logs (`COGAME_LOG_URI`, present iff the game's logging was enabled), platform-generated episode metadata JSON (`COGAME_EPISODE_METADATA_URI`; strawman shape in §7), and the reporter's own manifest id as a plain string (`COGAME_REPORTER_ID`, to support the one-image-many-runnables pattern from spec 0043). Output: a single zip artifact written to `COGAME_REPORT_OUTPUT_URI` (URI is unique per `(episode_id, reporter_id)`; see D4). Reporters do not declare which inputs they want in v1 — the platform always sets all standard URIs and data transfer happens only when the reporter calls `read_data()`. Per-episode `tokens` are never exposed to reporters via metadata; reporters that parse the replay may incidentally observe game-injected tokens, which are episode-scoped secrets useless after the episode ends. Output zip shape governed by D12 (item 10); per-file JSON Schema validation is shelved for v1 (D7). The coworld manifest is **not** passed at runtime; reporters that need game config read it from the replay.
+10. **Output zip contract.** *(D12.)* Each reporter writes a single zip file to `COGAME_REPORT_OUTPUT_URI`. Files inside the zip use **extension-based content-type inference**; no in-band metadata. The zip MAY contain a top-level **`render.txt`** — a UTF-8 text file with one zip-relative path per line (LF or CRLF tolerated; leading/trailing whitespace stripped; blank lines ignored) — listing files that Observatory renders inline, in the order given. `render.txt` MAY NOT list itself. Renderable extensions in v1: `.md` (Markdown), `.txt` (plain text), `.html` / `.htm` (HTML; rendered inside Observatory's iframe+CSP sandbox per D9 / item 16). Other extensions (`.png`, `.json`, `.svg`, …) MUST NOT appear in `render.txt`; they are referenced *from* rendered files or served as downloads. If `render.txt` is missing or empty, Observatory renders nothing inline — every file in the zip is a download link. The zip MAY be empty (signals "ran successfully, nothing to surface"); reporters must still write a valid zip. The zip MAY contain subdirectories; `render.txt` MAY reference subdirectory paths. No streaming; reporter buffers and writes the whole zip once. **Determinism:** byte-identical reruns over identical inputs require fixed zip-entry mtimes (e.g., `ZipInfo.date_time = (1980, 1, 1, 0, 0, 0)`). **Consumer responsibility:** zip safety — path traversal on extract, zip bombs, symlink entries, excessive file count, large single-entry streaming — is enforced by Observatory and the local runner, not by the reporter contract.
+11. **Multi-reporter execution model.** *(D4.)* When a coworld declares multiple reporters (`reporter: [r1, r2, ...]`), all of them run on every episode, in parallel, independently. Each reporter container receives its own `COGAME_REPORT_OUTPUT_URI` minted per `(episode_id, reporter_id)` and its own `COGAME_REPORTER_ID` env var carrying the manifest `id` of the runnable being invoked (needed when one image implements multiple reporter runnables per spec 0043). Reporters cannot read each other's outputs in v1 — no pipelining; pipeline-like work goes inside one reporter container. Failure of one reporter does not block or affect another (aggregate failure handling: D8). Each reporter is its own container with the same resource baseline as the game and player containers: 2 CPU + 2Gi memory (`GAME_RUNTIME_README.md:13-24`). Reporter `id`s must be unique within `reporter[]` (already enforced by the existing `_manifest_items_by_id` validation at `certifier.py:208-215`). Display order in logs and Observatory surfaces is the manifest declaration order; execution order is undefined. Zero reporters declared = the reporter step is a no-op.
+12. **Certification exercises reporters end-to-end.** *(D5.)* `coworld certify` invokes every declared reporter against the smoke episode's real artifacts after the existing certification flow runs (manifest validation, image reachability, smoke episode, results-schema validation, replay verification). The certifier synthesizes an episode metadata JSON (`episode_id: "ep_certify_<timestamp>"`, `variant_id: "certification"`, real timestamps from the smoke run, `players` derived from `manifest.certification.players[]` with `policy_version_id: null`, tournament fields all `null`, `tags: {"context": "certification"}`), mints a per-reporter `COGAME_REPORT_OUTPUT_URI` and `COGAME_REPORTER_ID`, then invokes reporters in parallel (D4) using the same launch infrastructure as the production runner. Each reporter must exit 0 within a per-reporter timeout (default 60s, matching the existing `certify_coworld` timeout) and write a valid zip output (D12). **Any reporter failing any check causes certification to fail** — intentional asymmetry with runtime, which tolerates flaky reporters (D4 isolates per-reporter failure). Per-file JSON Schema validation is shelved for v1 (D7); certification's structural hook is a no-op for v1. No automated purity/determinism check. No `--skip-reporters` flag in v1.
+13. **Reporter execution location and CLI invocation.** *(D6.)* Reporters run **co-located with the episode** inside the runner — in `runner/runner.py` they join the `coworld-local` Docker network alongside game and players; in `runner/kubernetes_runner.py` they are additional containers/pods within the same episode Job (exact K8s mechanism — sibling pods, separate Jobs, sidecars — is implementation detail, not part of the reporter contract). No separate dispatch system in v1. The reporter lifecycle fires whenever an episode completes with valid artifacts (game and players exited 0, results JSON validates against `game.results_schema`, replay artifact exists). Concrete CLI behavior: hosted production episodes → run reporters; `coworld run-episode` → run reporters; `coworld certify` → run reporters (per D5, strict failure handling); `coworld play` → run reporters *only* on natural episode completion (interrupts silently skip the reporter step); `coworld replay` and `COGAME_REPLAY_SERVER=1` replay mode → never run reporters (no new artifacts to consume). On episode failure or missing/invalid artifacts the reporter step is **skipped silently** — logged but not surfaced as error, since reporters can't operate on garbage and the episode result is the appropriate failure surface. No `--skip-reporters` flag in v1.
+14. **Output schema declaration shelved for v1.** *(D7.)* Reporter manifest entries do **not** declare output schemas in v1. `CoworldDeclaredRoleSpec` is unchanged. The D12 zip output contract is the only platform-level output validation; per-file content shape is the reporter author's responsibility. Reporter authors are **encouraged but not required** to validate their output internally (Pydantic, jsonschema, ad-hoc — whatever fits); platform does not enforce this. Certification (D5) validates zip shape only; the structural hook for per-file validation exists but is a no-op in v1. Observatory renders files by extension alone. Future extension (e.g. an optional `artifacts: [...]` manifest field declaring per-file content types and schemas) is intentionally **left open and flexible** — design when concrete demand surfaces; do not anchor the future on today's strawman shape.
+15. **Reporter failure semantics.** *(D8, D12.)* A reporter invocation is "failed" if any of: container fails to start (`start_failed`), exits non-zero (`nonzero_exit`), exceeds its per-reporter timeout (`timeout`, default 60s per D5), exits 0 but writes nothing (`missing_output`), or writes content that fails D12 zip-output validation — unreadable zip, `render.txt` listing a missing file, or `render.txt` listing a file whose extension is not in the renderable allowlist (`invalid_output`). Otherwise it's "success" (including empty zips). **Conditional retry: one retry on `timeout` only**, never on other failure modes; same inputs (D1 purity), freshly-minted `COGAME_REPORT_OUTPUT_URI`, no retry delay; applies uniformly to runtime and certification; no author-side opt-out in v1. The runner records a per-reporter status record for every invocation: on success the record carries a **zip-metadata summary** (file list, sizes, `render.txt` contents) — not the zip bytes; the zip itself is fetched on demand via the file-direct or zip-download route per D9 / item 16. On failure the record carries `failure_reason`, `failure_detail`, `exit_code` (when applicable), `duration_ms`, and captured stdout/stderr; when retries occurred a `previous_attempts: [...]` array preserves prior attempts. **Reporter status does not affect the runner's exit code** — episode success and reporter status are orthogonal dimensions. Status records land in the runner's workspace locally (under `reporter_outputs/<reporter_id>.*`) and in durable storage hosted (accessible via Observatory API per D9). Structured logs per outcome (info on success, warn on failure). No platform-injected failure outputs — failed reporters yield status records, not synthetic zips. No partial-success salvage.
+16. **Observatory API surface, frontend rendering, and CLI parity.** *(D9, D12.)* Reporter outputs are exposed via five Observatory endpoints rooted at the episode: `GET /episodes/{id}/reports` (lightweight metadata-only list), `GET /episodes/{id}/reports/{reporter_id}` (full status record + zip-metadata summary on success), `GET /episodes/{id}/reports/{reporter_id}/zip` (the full zip as `application/zip`), `GET /episodes/{id}/reports/{reporter_id}/files/{path}` (a single file extracted from the zip, with `Content-Type` inferred from extension; subdirectory paths supported), and `GET /episodes/{id}/reports/{reporter_id}/logs` (captured stdout/stderr). Permissions and retention follow existing episode rules. Observatory's frontend renders the files listed in the zip's `render.txt` inline, in `render.txt` order — Markdown (with relative links rewritten to file-direct URLs at render time), plain text, and HTML (rendered inside iframe+CSP sandbox). Files not in `render.txt` and files with non-renderable extensions are download-only. Markdown relative-link rewriting lives in Observatory's renderer (not in the reporter) so reporters stay portable across deployment URLs. **Observatory MUST ship iframe+CSP infrastructure before any reporter writes HTML to its `render.txt`** — the contract enables HTML rendering, but the renderer's safety harness is a hard prerequisite. **Consumer responsibility:** zip safety (path traversal on extract, zip bombs, symlink entries, file-count and per-entry size caps, streaming for large entries) is enforced here, not by the reporter contract. CLI parity in `packages/coworld/src/coworld/tournament_cli.py`: `coworld reports <episode-id> [--mine]`, `coworld report-show <episode-id> --reporter <reporter-id>`, `coworld report-download <episode-id> [--reporter ...] [--file ...] [--output ...]` (the `--file` flag downloads a single file from inside the zip; with no `--file`, the whole zip is downloaded). **No cross-episode aggregation, search, trends, webhooks, or pagination in v1.**
+17. **Naming conventions ratified; canonical doc name fixed.** *(D10, D11, D12.)* All reporter-side env vars use the `COGAME_` prefix (matching the game contract namespace) — `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_REPORTER_ID`, `COGAME_REPORT_OUTPUT_URI`. The reporter-output env var carries the `OUTPUT` modifier to disambiguate write-destination from any future read-side report URI. Reporter `id` format in the manifest is a **recommendation** (lowercase with hyphens or underscores, matching existing player/variant id conventions) — only uniqueness within `reporter[]` is platform-enforced (per D4); no regex check. The render-manifest file inside the output zip is named **`render.txt`** (D12). Canonical reporter-runtime contract document is **`REPORTER_RUNTIME_README.md`**, placed alongside `GAME_RUNTIME_README.md` in `packages/coworld/src/coworld/`. All other naming choices (failure codes, status record fields, API routes, CLI commands, workspace artifact paths) are catalogued in the decisions log (D2–D12).
 
 ---
 
@@ -122,17 +122,17 @@ A mix of two kinds of items: **inherited conventions** from neighboring roles (l
 
 ## 7. v1 Contract reference
 
-The concrete v1 contract shape. Every clause here is backed by a decision (D1–D10); see §8 for rationale. An implementer reading this section alongside the canonical (forthcoming) `REPORTER_RUNTIME_README.md` should have everything needed to ship.
+The concrete v1 contract shape. Every clause here is backed by a decision (D1–D12); see §8 for rationale. An implementer reading this section alongside the canonical (forthcoming) `REPORTER_RUNTIME_README.md` should have everything needed to ship.
 
 A reporter is a process-style container declared in `coworld_manifest.json` under `reporter: [...]`. **Trigger:** per-episode, after the game and player containers have exited and the game's results and replay artifacts have been written (D1). **Purity:** each reporter is a pure function of its inputs — its only side effect is writing to its declared output URI; determinism is preferred but not required (D1). The runner starts each declared reporter with:
 
 ```bash
 COGAME_RESULTS_URI=...           # R, always   — game results JSON (validates against game.results_schema)
-COGAME_REPLAY_URI=...            # R, always   — game replay artifact (game-owned format); also the source of game config (D11)
+COGAME_REPLAY_URI=...            # R, always   — game replay artifact (game-owned format); also the source of game config
 COGAME_LOG_URI=...               # R, optional — episode logs (game + players); set iff game's COGAME_LOG_URI was set
 COGAME_EPISODE_METADATA_URI=...  # R, always   — platform-generated JSON; strawman shape below
 COGAME_REPORTER_ID=...           # R, always   — this reporter's manifest id (D4)
-COGAME_REPORT_OUTPUT_URI=...     # W, always   — where the reporter writes its JSON envelope; unique per (episode_id, reporter_id) (D3, D4)
+COGAME_REPORT_OUTPUT_URI=...     # W, always   — where the reporter writes its zip output; unique per (episode_id, reporter_id) (D4, D12)
 ```
 
 Strawman shape of the episode metadata JSON at `COGAME_EPISODE_METADATA_URI`:
@@ -158,50 +158,41 @@ Strawman shape of the episode metadata JSON at `COGAME_EPISODE_METADATA_URI`:
 
 Per-episode `tokens` are explicitly excluded from anything a reporter sees.
 
-Strawman shape of the reporter output envelope at `COGAME_REPORT_OUTPUT_URI` (D3):
+Strawman shape of the reporter output zip at `COGAME_REPORT_OUTPUT_URI` (D12):
 
-```jsonc
-{
-  "version": "1",
-  "artifacts": [
-    {
-      "id": "summary",
-      "content_type": "text/markdown",
-      "content": "# Episode Summary\n\nSlot 0 won by ..."
-    },
-    {
-      "id": "stats",
-      "content_type": "application/json",
-      "content": { "scores": [42, 38], "ticks": 100, "winner_slot": 0 }
-    },
-    {
-      "id": "heatmap",
-      "content_type": "image/png",
-      "encoding": "base64",
-      "content": "iVBORw0KGgoAAAANS..."
-    }
-  ]
-}
+```text
+report.zip
+├── render.txt          # newline-separated relative paths to render inline, in order
+├── summary.md          # rendered as Markdown (listed in render.txt)
+├── stats.json          # download-only (not in render.txt; may be linked from summary.md)
+└── figures/
+    └── heatmap.png     # download-only; referenced from summary.md as ![](figures/heatmap.png)
 ```
 
-`artifacts` may be empty (`[]`) — that signals "ran, nothing to report" and is a valid envelope. First artifact is the primary one by convention. First-class content types in v1: `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). `text/html` is excluded from first-class rendering.
+`render.txt` contents for the example above:
+
+```text
+summary.md
+```
+
+The zip MAY be empty — that signals "ran, nothing to report" and is a valid output. `render.txt` is optional; when missing or empty, every file in the zip is a download link (Observatory renders nothing inline). File extensions determine content type. Renderable extensions in v1 (allowed in `render.txt`): `.md`, `.txt`, `.html` / `.htm`. Subdirectories are allowed in the zip and `render.txt` may reference subdirectory paths (e.g. `figures/page.html`). Markdown files reference sibling files via relative paths (`![heatmap](figures/heatmap.png)`); Observatory rewrites those to file-direct URLs at render time. Deterministic reporters MUST pin zip-entry mtimes to a fixed value (e.g., `(1980, 1, 1, 0, 0, 0)`) so reruns produce byte-identical bytes.
 
 The reporter:
 
 1. Reads what it needs from the input URIs (using the same `runner/io.py` `read_data()` abstraction the game and runner already use).
-2. Constructs a JSON envelope and writes it to `COGAME_REPORT_OUTPUT_URI` (D3).
+2. Builds a zip in memory (or a temp file), optionally including a top-level `render.txt`, and writes the zip bytes to `COGAME_REPORT_OUTPUT_URI` (D12).
 3. Exits 0 on success.
 
 The runner:
 
 1. Runs all declared reporters in parallel **after the game and player containers exit successfully and the results/replay artifacts pass validation** (D4 + D6) — co-located in the same runner environment as the game and players. Each reporter container gets the standard env set, plus its own `COGAME_REPORTER_ID` and a unique `COGAME_REPORT_OUTPUT_URI` keyed on `(episode_id, reporter_id)`. Per-reporter resource baseline: 2 CPU + 2Gi memory. If episode validation fails or artifacts are missing, the reporter step is **skipped silently** — logged, not errored (D6).
-2. Validates each reporter's output against the envelope schema (D3). Per-artifact JSON Schema validation is shelved for v1 (D7) — content shape inside artifacts is the author's responsibility.
-3. Persists envelopes and surfaces their artifacts via `app_backend` per Observatory rendering rules (D9). Display order across multiple reporter outputs is the manifest declaration order.
-4. Records per-reporter status for every invocation (D8): on success, the envelope; on failure, a status record with `failure_reason` (`start_failed` | `nonzero_exit` | `timeout` | `missing_output` | `invalid_envelope`), `failure_detail`, captured stdout/stderr, and a `previous_attempts` array if retries occurred. **One retry on `timeout` only** (D8). Reporter status does not affect the runner's exit code; episode success and reporter status are independent.
+2. Validates each reporter's output: bytes form a readable zip, and (if a top-level `render.txt` is present) every listed path exists in the zip and has a renderable extension (D12). Per-file JSON Schema validation is shelved for v1 (D7) — content shape inside individual files is the author's responsibility.
+3. Persists zips and surfaces their files via `app_backend` per Observatory rendering rules (D9). Display order across multiple reporter outputs is the manifest declaration order; within a single reporter, file render order is `render.txt`'s line order.
+4. Records per-reporter status for every invocation (D8): on success, a zip-metadata summary (file list, sizes, `render.txt` contents) — not the zip bytes; on failure, a status record with `failure_reason` (`start_failed` | `nonzero_exit` | `timeout` | `missing_output` | `invalid_output`), `failure_detail`, captured stdout/stderr, and a `previous_attempts` array if retries occurred. **One retry on `timeout` only** (D8). Reporter status does not affect the runner's exit code; episode success and reporter status are independent.
 
 **CLI surface (D6):** The reporter lifecycle fires from hosted production episodes, `coworld run-episode`, `coworld play` (only on natural episode completion — interrupts silently skip), and `coworld certify`. It does **not** fire from `coworld replay` or `COGAME_REPLAY_SERVER=1` replay mode (no new artifacts to consume).
 
-**Certification (D5):** `coworld certify` runs the same flow against the manifest's certification fixture, with two differences: (a) the episode metadata JSON is *synthesized* by the certifier with `variant_id: "certification"` and `tags: {"context": "certification"}`, since no real episode metadata exists; (b) failure handling is **strict** — any reporter exit non-zero or invalid envelope causes certification to fail, even though the runtime tolerates per-reporter failures (D4 vs. D5 asymmetry). Per-reporter timeout default: 60s.
+**Certification (D5):** `coworld certify` runs the same flow against the manifest's certification fixture, with two differences: (a) the episode metadata JSON is *synthesized* by the certifier with `variant_id: "certification"` and `tags: {"context": "certification"}`, since no real episode metadata exists; (b) failure handling is **strict** — any reporter exit non-zero or invalid zip output causes certification to fail, even though the runtime tolerates per-reporter failures (D4 vs. D5 asymmetry). Per-reporter timeout default: 60s.
 
 ---
 
@@ -289,6 +280,7 @@ Append-only record of decisions made and the reasoning. Date entries. Each decis
 
 - **Date:** 2026-05-19
 - **Resolves:** what was originally §6.3 (renumbered through D1/D2 to §6.1) "What does a reporter output?"
+- **Status:** **Superseded in full by D12 (2026-05-20).** Reporter output is now a single zip file with extension-based content types and an optional top-level `render.txt`. The clauses below are preserved for history; consult D12 for the current contract.
 
 **Decision:**
 
@@ -585,6 +577,7 @@ If any of these fail, the reporter step is **skipped silently** — logged at in
 
 - **Date:** 2026-05-19
 - **Resolves:** what was originally §6.8 (renumbered through D1-D7 to §6.1) "Failure semantics"
+- **Status:** Amended by D12 (2026-05-20). The failure code `invalid_envelope` is renamed to `invalid_output` and its trigger conditions broaden to cover zip-shape and `render.txt` violations; the on-success status record stores a zip-metadata summary rather than the D3 envelope. All other D8 clauses (retry policy, status-record shape, runner exit-code orthogonality) stand.
 
 **Decision:**
 
@@ -680,6 +673,7 @@ Container stdout/stderr are captured for every attempt (success or failure of th
 
 - **Date:** 2026-05-19
 - **Resolves:** what was originally §6.9 (renumbered through D1-D8 to §6.1) "Discovery and access from Observatory"
+- **Status:** Amended by D12 (2026-05-20). The artifact-direct route is replaced by a zip-download route plus a file-direct route (`/zip` and `/files/{path}`); Markdown rewriting switches from artifact-id substitution to relative-path substitution; HTML rendering is now in-scope (rendered in an iframe+CSP sandbox) and required for files that appear in `render.txt`; the CLI's `--artifact` flag becomes `--file`. The four-route shape, list-vs-detail split, episode-level scoping, permissions model, and deferred items (cross-episode aggregation, webhooks, etc.) carry over.
 
 **Decision:**
 
@@ -850,18 +844,114 @@ D10 ratifies naming choices that were settled implicitly across D2-D9 and resolv
 - A platform-side "variant config" URI (`COGAME_VARIANT_CONFIG_URI` or similar). Considered and rejected during the D11 discussion — the replay already carries the data and adding a parallel URI duplicates the surface.
 - Whether `COGAME_REPLAY_URI` should grow a contract clause beyond "game-owned format" (e.g., "must be JSON-decodable to a dict with a `config` key"). Not now; defer until a second reporter needs replay-derived config and it becomes worth standardizing.
 
+### D12 — Reporter output is a single zip file; extension-based content types; optional `render.txt` rendering manifest
+
+- **Date:** 2026-05-20
+- **Supersedes:** D3 in full (output shape, first-class content types, HTML exclusion, "first artifact is primary" convention). Amends D8 (renames `invalid_envelope` → `invalid_output`; on-success status record carries zip-metadata summary instead of an envelope) and D9 (replaces the artifact-direct route with a zip-download route and a file-direct route; switches Markdown rewriting from artifact-id substitution to relative-path substitution; brings HTML in-scope behind an iframe+CSP requirement; `--artifact` CLI flag becomes `--file`).
+
+**Decision:**
+
+1. Each reporter invocation writes **exactly one zip file** to `COGAME_REPORT_OUTPUT_URI`. The zip MAY be empty (signals "ran successfully, nothing to surface"); reporters must still write a valid zip.
+
+2. **Content types are inferred from file extensions.** No in-band metadata, no JSON envelope wrapper, no `content_type` declarations. Binary files (PNG, etc.) are stored natively — no base64 encoding, no ~33% inflation.
+
+3. **`render.txt` is the rendering manifest.** A reporter MAY include a top-level file named `render.txt` (UTF-8 text). Its contents:
+   - One zip-relative path per line.
+   - LF or CRLF line endings tolerated.
+   - Leading and trailing whitespace per line is stripped.
+   - Blank lines (after stripping) are ignored.
+   - Subdirectory paths are permitted (e.g., `figures/page.html`).
+   - `render.txt` MUST NOT list itself.
+   - Each listed path MUST exist in the zip.
+   - Each listed path MUST have a renderable extension (see clause 4).
+   - Duplicate entries are not permitted.
+
+4. **Renderable extensions in v1** (the only extensions allowed in `render.txt`):
+   - `.md` — Markdown.
+   - `.txt` — plain text.
+   - `.html` / `.htm` — HTML, rendered inside Observatory's iframe+CSP sandbox.
+
+   All other extensions (`.png`, `.json`, `.svg`, `.csv`, …) MUST NOT appear in `render.txt`. They are first-class storage (downloadable; referenced from rendered files) but never inline-rendered as standalone artifacts.
+
+5. **Missing or empty `render.txt` means no inline rendering.** Observatory renders nothing inline; every file in the zip becomes a download link. Explicit opt-in, no implicit defaults that would silently surface files Observatory's renderer can interpret.
+
+6. **HTML is now permitted and renderable**, conditional on Observatory shipping iframe+CSP sandbox infrastructure as a hard prerequisite before any reporter writes HTML to `render.txt`. Until that infrastructure exists, reporters MUST NOT list HTML in `render.txt` (it remains storable as a download). This reverses D3's blanket HTML exclusion.
+
+7. **First-artifact-primacy is replaced by `render.txt` order.** Observatory renders files in the order they appear in `render.txt`. No implicit positional convention.
+
+8. **Markdown link rewriting uses relative paths.** Reporter authors write `![heatmap](figures/heatmap.png)` and `[stats](stats.json)` — standard Markdown with relative file paths. Observatory rewrites those paths to file-direct URLs at render time (using the API endpoint from clause 13). Reporters stay portable across deployment URLs (preserves D9's portability invariant).
+
+9. **No streaming.** The reporter buffers in memory or a temp file and writes the whole zip once via `runner/io.py`. Same as D3; restated for clarity.
+
+10. **Determinism requires fixed mtimes.** Python's `zipfile` defaults to `os.stat`-derived mtimes per entry, which breaks byte-identical reruns. Deterministic reporters MUST pin every `ZipInfo.date_time` to a fixed value (recommended: `(1980, 1, 1, 0, 0, 0)` — the zip-epoch minimum). Non-deterministic reporters are permitted (D1) and have no such obligation.
+
+11. **Failure code `invalid_envelope` is renamed to `invalid_output`.** Triggered by: bytes do not form a readable zip; `render.txt` lists a path missing from the zip; `render.txt` lists a path with a non-renderable extension; `render.txt` lists itself; `render.txt` has duplicate entries.
+
+12. **Zip safety is the consumer's responsibility.** Path traversal on extract, zip bombs (compression-ratio caps), symlink entries, file-count caps, per-entry size caps, and streaming for large entries are enforced by Observatory (`app_backend`) and the local runner when reading and serving zips — not by the reporter contract. Reporters are coworld-author build artifacts trusted at the same boundary as the game container; the contract does not need to defend against a malicious reporter, and putting safety checks on the producer side would force every reporter SDK to embed the same logic.
+
+13. **Observatory API: artifact-direct route replaced by zip + file-direct.** D9's `GET /episodes/{id}/reports/{reporter_id}/artifacts/{artifact_id}` is removed. In its place:
+    - `GET /episodes/{id}/reports/{reporter_id}/zip` — full zip as `application/zip`.
+    - `GET /episodes/{id}/reports/{reporter_id}/files/{path}` — single file extracted from the zip, with `Content-Type` inferred from extension; subdirectory paths supported.
+
+    The list and detail routes keep their shapes; their payloads now describe zip metadata (file list, sizes, `render.txt` contents) instead of envelope artifacts. The logs route is unchanged.
+
+14. **CLI: `coworld report-download` uses `--file <path>`.** Replaces D9's `--artifact <artifact-id>`. With no `--file`, the whole zip is downloaded.
+
+**Rationale:**
+
+- **Native binary support.** Base64 encoding inside the D3 envelope inflated binary content by ~33% on the wire and in storage, and forced reporters to re-encode bytes that the language ecosystem already represents natively. A zip is the standard container for "bag of files of different types" and stores binary natively. The simplification is more than cosmetic: it removes a class of base64 mismatch bugs and lets reporters use `pyplot.savefig(buf)` directly.
+- **Extension-based content types are simpler than declared content types.** D3 required reporters to spell out `content_type: "image/png"` alongside `encoding: "base64"` for every binary artifact. Browsers, OSes, and HTTP servers all infer Content-Type from extension already; rebuilding that inside the envelope added no value and increased the surface for mismatched declarations (`content_type: "image/jpeg"` on PNG bytes).
+- **`render.txt` is the minimum signal needed to recover D3's "first artifact is primary" convention while making rendering explicit.** A bare zip has no way to say "render these inline, in this order, and treat everything else as download." `render.txt` is one file, one line per artifact, ordered — small enough that the spec fits in a paragraph, expressive enough to cover Markdown-with-figures, HTML-with-assets, and download-only outputs.
+- **Renderable allowlist stays small.** Markdown, plain text, and HTML cover every reporter shape on the horizon: structured prose, raw dumps, and rich layouts. Binary types (PNG, JSON-as-tree, SVG, CSV) are first-class but rendered *as references from* a Markdown/HTML file, not as standalone artifacts. This keeps the renderer's per-extension switch small and avoids inventing a "JSON tree viewer with collapse/expand" surface that nobody specifically asked for.
+- **HTML rendering is now in-scope because the contract change is the right time to add it.** D3 excluded HTML because the sandboxing infrastructure didn't exist. D12 is a contract break already; it's the right moment to commit Observatory to shipping iframe+CSP infrastructure as part of the same migration. Permitting HTML in the contract while requiring renderer-side iframe+CSP before any reporter ships HTML keeps the contract clear and avoids ambiguity about "when does HTML become renderable."
+- **Missing-`render.txt`-renders-nothing is the safer default.** The alternative — "render every recognizable file in zip order" — would mean dropping a `.html` into a zip silently exposes it inline. Explicit opt-in via `render.txt` makes rendering decisions visible to the reporter author.
+- **Markdown relative-link rewriting matches how Markdown normally works.** D3 used artifact-id substitution because there was no relative-path surface to rewrite — artifacts were envelope entries, not files. Under D12, `![heatmap](figures/heatmap.png)` is plain Markdown that any editor will preview correctly; Observatory rewrites the relative path to a file-direct URL. Cleaner than the envelope's artifact-id indirection.
+- **Renaming `invalid_envelope` → `invalid_output` future-proofs the failure taxonomy.** The code is referenced from runner code, CLI output, and Observatory UI; the name now describes the category (invalid reporter output) rather than the specific shape (an envelope). Future output-shape changes can extend the conditions under `invalid_output` without another rename.
+- **Zip safety on the consumer side matches the trust boundary.** Reporters run from the same trust boundary as game containers — coworld-author build artifacts, not third-party uploads. Putting path-traversal and zip-bomb checks in every reporter SDK would force the same defensive code into every language binding; putting it in Observatory and the runner means one implementation handles every zip the platform ever ingests, including future user-uploaded zips that aren't from reporters.
+- **No `version` marker in the zip.** D3 had `"version": "1"` against future envelope evolution. The marker never paid off — zip-vs-JSON is itself a discriminator (a v1 JSON envelope and a v2 zip can't be confused). If v3 ever brings a third shape, the contract document and the changelog are the version markers; the wire format doesn't need a second copy.
+
+**Consequences:**
+
+- §1 executive summary table updated (Output, Renderable file types, Failure semantics, Observatory, Naming rows).
+- §1 implementation footprint updated to reflect the API route swap (artifact-direct → zip + file-direct), iframe+CSP infrastructure prerequisite, and consumer-side zip-safety enforcement.
+- §5 invariant 9 ("Reporter input/output contract") amended to reference zip output and D12.
+- §5 invariant 10 added: "Output zip contract."
+- §5 invariant 15 ("Reporter failure semantics") amended for `invalid_output` and zip-metadata summary.
+- §5 invariant 16 ("Observatory API surface") amended for the five routes, `render.txt` ordering, HTML iframe+CSP requirement, relative-link rewriting, consumer-side zip safety, and `--file` flag.
+- §5 invariant 17 ("Naming conventions") amended for the `render.txt` file name.
+- §7 reporter-output strawman replaced with the zip + `render.txt` shape; reporter and runner behavior bullets updated; failure-code list updated.
+- §9.3 retitled and rewritten from "Envelope and content types" to "Zip output and content types."
+- D3 marked superseded in full; D8 and D9 receive amendment banners scoped to the affected clauses.
+- Implementation work in metta:
+  - **Runner (`packages/coworld/`):** drop envelope-validation code; add zip-readability + `render.txt`-consistency check; rename `invalid_envelope` → `invalid_output` everywhere it appears.
+  - **Certifier:** same — zip validation instead of envelope validation.
+  - **`app_backend/`:** add zip-download and file-direct routes; remove the artifact-direct route; add consumer-side zip-safety validation (path traversal, zip bombs, symlinks, count and per-entry size caps, streaming); update the detail route's payload schema to the zip-metadata summary; Alembic migration for any storage-shape change.
+  - **`web/observatory`:** add iframe+CSP infrastructure for HTML files; rewrite Markdown link rewriting from artifact-id substitution to relative-path substitution; render files in `render.txt` order; treat everything else as download-only.
+  - **`tournament_cli.py`:** `coworld report-download --file <path>` replaces `--artifact <artifact-id>`.
+- Reference reporter (`reporters/paint_arena/paint_arena_summarizer/`): migrate from Pydantic envelope models to direct `zipfile.ZipFile` writes; emit `summary.md` plus a one-line `render.txt: summary.md` as the v1 output; tests refocus on zip contents, `render.txt` consistency, and byte-identical determinism.
+
+**Explicitly NOT decided (deferred):**
+
+- Glob patterns or wildcards in `render.txt`. v1 uses exact zip-relative paths only.
+- Per-file metadata side-channel (e.g., a `.meta.json` alongside each rendered file with `title`, `description`, `tags`). The renderable allowlist plus `render.txt` ordering covers known cases; revisit if a reporter needs structured per-file metadata.
+- Promoting additional extensions (`.svg`, `.csv`, JSON-as-collapsible-tree) to the renderable allowlist. Add when a reporter needs them.
+- Zip-size soft / hard limits beyond D3's inherited ~10MB recommendation. Worth a hard cap eventually; not v1.
+- Streaming / chunked zip output for gigabyte-scale reporters. Out of scope until a reporter genuinely needs it.
+- Cryptographic signing of reporter outputs. Same trust boundary as game containers; not a v1 concern.
+- A shared platform-side zip-safety library between the runner and `app_backend`. Worth doing once both consumers exist; an implementation detail, not a contract decision.
+
 ---
 
 ## 9. Deferred ideas
 
-This section consolidates the "Explicitly NOT decided" items from D1–D10 into thematic groups, so that v2+ design work has a single shopping list to draw from. Each item names the decision that surfaced it and, where applicable, the v1 workaround.
+This section consolidates the "Explicitly NOT decided" items from D1–D12 into thematic groups, so that v2+ design work has a single shopping list to draw from. Each item names the decision that surfaced it and, where applicable, the v1 workaround.
 
 ### 9.1 Triggering and execution model
 
 - **Per-round triggers** (D1, §3 item 6). Reporters that summarize across the episodes in a round. Requires new artifact plumbing — round episode set, commissioner round-display output, cross-episode aggregation conventions. Needs its own design pass before implementing.
 - **On-demand triggers** (D1, §3 item 7). User-triggered "rerun" against existing artifacts. **Shelved** (not actively deferred) because purity + idempotency makes reruns nominally no-ops. Revisit if user-controllable knobs become meaningful.
 - **Pipelining between reporters** (D4). Reporter B consumes reporter A's output. Adds dependency declarations, topological scheduling, cross-reporter failure semantics. v1 workaround: wrap both stages inside one reporter container.
-- **Conditional invocation in manifest** (D4). Reporters declaring "only run for variant X." v1 workaround: reporter emits empty `artifacts: []` envelope.
+- **Conditional invocation in manifest** (D4). Reporters declaring "only run for variant X." v1 workaround: reporter emits an empty zip (signals "ran, nothing to surface").
 - **Separate dispatch system** (D6). Asynchronous reporter execution outside the runner — new queue, worker pool, artifact-ready signaling. Revisit if D1's on-demand decision is reopened, or if D4's per-round design needs cross-episode reporters.
 - **Manual triggering against archived artifacts** (D6). Shelved per D1.
 
@@ -872,16 +962,19 @@ This section consolidates the "Explicitly NOT decided" items from D1–D10 into 
 - **Per-reporter retry-policy overrides** (D8). e.g., `retries: { on_timeout: 3 }`. Add when the default uniform policy causes real friction.
 - **Author-side opt-out from timeout retry** (D8). Same family.
 - **Per-input opt-in declarations** (D2). Reporters declaring which inputs they actually want (bandwidth optimization). Revisit when a reporter actually pays a real cost for unused inputs.
-- **Per-artifact JSON Schema declaration** (D7). The biggest deferred manifest extension. Future shape intentionally left **open and flexible** — design from real use cases when concrete demand surfaces; do not anchor on D7's strawman.
+- **Per-file JSON Schema declaration** (D7). The biggest deferred manifest extension. Future shape intentionally left **open and flexible** — design from real use cases when concrete demand surfaces; do not anchor on D7's strawman.
 - **Regex enforcement on reporter ids** (D10). v1 keeps the convention soft (uniqueness only).
 - **Concurrency cap on reporter parallelism** (D4). Add if a coworld declares enough reporters to overwhelm a host or pod.
 
-### 9.3 Envelope and content types
+### 9.3 Zip output and content types
 
-- **Additional first-class content types** (e.g., SVG, CSV) (D3). Promote when concrete demand surfaces.
-- **Inline vs. by-reference JSON schemas in the envelope** (D3). Depends on D7's future extension.
-- **Output size limits** beyond the ~10MB soft recommendation (D3).
-- **Envelope `version: "2"`** (D3). v1 freezes at `"1"`.
+- **Additional renderable extensions** in `render.txt` — e.g., `.svg`, `.csv`, JSON-as-collapsible-tree (D12). Promote when a reporter needs them; the current allowlist is `.md`, `.txt`, `.html` / `.htm`.
+- **Per-file structured metadata side-channel** — e.g., a `.meta.json` alongside each rendered file carrying `title`, `description`, `tags` (D12). v1's `render.txt` plus the renderable-extension allowlist covers known cases; revisit when a reporter genuinely needs structured per-file metadata.
+- **Glob patterns or wildcards in `render.txt`** (D12). v1 uses exact zip-relative paths only.
+- **Output size soft / hard limits** beyond the inherited ~10MB recommendation (D3, D12). Worth a hard cap eventually; not v1.
+- **Streaming / chunked zip output** for gigabyte-scale reporters (D12). Out of scope until a reporter genuinely needs it.
+- **Cryptographic signing of reporter outputs** (D12). Same trust boundary as game containers; not a v1 concern.
+- **Shared platform-side zip-safety library** between the runner and `app_backend` (D12). Worth doing once both consumers exist; an implementation detail, not a contract decision.
 
 ### 9.4 Inputs and metadata
 
@@ -929,3 +1022,4 @@ This section consolidates the "Explicitly NOT decided" items from D1–D10 into 
 - **2026-05-19** — **D10** logged. Naming conventions ratified across D2-D9 and catalogued in one place. Canonical reporter-runtime contract document is `REPORTER_RUNTIME_README.md` (peer to `GAME_RUNTIME_README.md` in `packages/coworld/src/coworld/`). Reporter `id` format in the manifest is a recommendation (lowercase with hyphens or underscores) — only uniqueness is platform-enforced; no regex. §5 item 17 added; §6.1 closed; §6 now empty — preamble updated to note the v1 open-question slate is complete. **All initial open questions resolved.**
 - **2026-05-19** — **Finalization pass.** Reframed status header and intro from design-conversation to v1 specification. Added unnumbered "Executive Summary" with one-screen contract table + implementation footprint. §1 problem statement past-tensed to match completed-design framing. §2/§3 retitled (removed "(initial)" qualifiers). §5 item 5 rewritten to reflect D7's "no schemas in manifest" decision instead of the original "open" framing. §7 retitled from "Working sketch" to "v1 Contract reference" and stripped of strawman framing. Stale `§6.X` forward-references in D1, D3, D5 swept to point at the resolving D-entries (D5, D7, D8) since the questions they reference were all subsequently closed. Added §9 "Deferred ideas" — consolidates the "Explicitly NOT decided" items from D1-D10 into seven thematic groups (triggering, manifest extensions, envelope, inputs, ops, Observatory, docs). Changelog moved to §10.
 - **2026-05-20** — **D11** logged. `COGAME_MANIFEST_URI` dropped from the reporter input contract. The platform no longer passes the coworld manifest at runtime; reporters that need game config read it from the game-owned replay at `COGAME_REPLAY_URI`. Standard input set narrows by one URI. Status header updated; §1 executive summary inputs row updated; §5 item 9 and item 17 updated; §7 env block updated; D2's input table row and rationale item 5 annotated as superseded; D10 naming catalogue updated. paint_arena_summarizer migrated to read grid dimensions from `replay["config"]["width"]` / `["height"]` instead of looking up the variant in the manifest.
+- **2026-05-20** — **D12** logged. Reporter output is now a single zip file written to `COGAME_REPORT_OUTPUT_URI` — replaces the D3 JSON envelope. Content types are inferred from file extensions; binary files (PNG, etc.) are stored natively, eliminating the ~33% base64 inflation D3 imposed. An optional top-level `render.txt` (UTF-8, one zip-relative path per line, LF/CRLF tolerated, blank lines ignored) lists files Observatory renders inline, in order. Renderable extensions in v1: `.md`, `.txt`, `.html` / `.htm`; HTML rendering is now in-scope, conditional on Observatory shipping iframe+CSP sandbox infrastructure as a hard prerequisite (reverses D3's blanket HTML exclusion). Other extensions (`.png`, `.json`, `.svg`, `.csv`, …) are storable and referenced from rendered files but MUST NOT appear in `render.txt`. Missing or empty `render.txt` = render nothing inline (explicit opt-in). Deterministic reporters MUST pin zip-entry mtimes to a fixed value (e.g., `(1980, 1, 1, 0, 0, 0)`). Zip safety (path traversal, zip bombs, symlinks, file-count and per-entry size caps) is the consumer's responsibility — enforced by Observatory and the runner, not the reporter contract. Failure code `invalid_envelope` renamed to `invalid_output` and broadened (unreadable zip, missing/duplicate/non-renderable `render.txt` entries, `render.txt` self-reference). D9's artifact-direct route replaced by `/zip` + `/files/{path}` routes; Markdown rewriting switches from artifact-id substitution to relative-path substitution; CLI flag `--artifact` becomes `--file`. Status header updated; §1 executive summary table + implementation footprint updated; §5 items 9, 15, 16, 17 amended and item 10 added; §7 env block + output strawman + reporter/runner bullets rewritten; §9.3 retitled and rewritten ("Zip output and content types"); §9.1 "empty `artifacts: []` envelope" workaround restated as "empty zip"; §9.2 "Per-artifact JSON Schema declaration" renamed to "Per-file"; D3 marked superseded in full; D8 and D9 received amendment banners scoped to the affected clauses.
