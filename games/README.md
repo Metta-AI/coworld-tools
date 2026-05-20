@@ -20,7 +20,7 @@ that were intentionally left out.
 
 - [docs/COWORLD_REFERENCE.md](docs/COWORLD_REFERENCE.md) maps this repo to the canonical Coworld sources in metta.
 - [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) explains how this repo should differ from the role repos like
-  `reporters`, `graders`, `diagnosers`, and `commissioners`.
+  `players`, `reporters`, `diagnosers`, `commissioners`, and `optimizers`.
 
 ## Python Workspace
 
