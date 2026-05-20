@@ -40,10 +40,39 @@ among_them/
   guided_bot/
     README.md
     coworld/
+    perception/
+      baked/        # checked-in assets consumed at runtime
+    tools/          # offline asset bakers and inspectors (see below)
 ```
 
-Execution belongs under Coworld. New tooling should be added through the
-repo-local UV project, not as ad hoc scripts.
+Execution belongs under Coworld. New runtime tooling should be added through
+the repo-local UV project, not as ad hoc scripts.
+
+## Offline Tools (`guided_bot/tools/`)
+
+The `tools/` directory holds offline, developer-only utilities that produce or
+inspect the checked-in artifacts under `guided_bot/perception/baked/`. They are
+Coworld-compatible: they do not run the game, do not talk to a local server,
+and do not implement an alternative run path. They are explicitly **exempt**
+from the "Coworld-only" restriction below.
+
+Current contents:
+
+- `bake_assets.nim` / `bake_assets.sh` — bake `palette.bin`, `sprites.bin`,
+  `map_pixels.bin`, `walk_mask.bin`, `wall_mask.bin`, `font.bin`, and `map.json`
+  from an upstream bitworld checkout (`BITWORLD_DIR`).
+- `bake_nav.py` — A* over `walk_mask.bin` to produce `nav_paths.bin` from
+  `nav_graph.json`.
+- `waypoint_editor.py` — pygame editor for `nav_graph.json` (waypoints and
+  edges over the walk mask).
+- `frame_viewer.py` — pygame viewer for `frames.bin` files recorded inside
+  trace session directories.
+- `frame_to_text.py` — converts recorded `frames.bin` frames to text grids for
+  LLM-readable inspection.
+
+These tools operate on already-recorded traces or on static upstream art
+assets. They are not a frame-capture pipeline against a live game and must not
+be conflated with the forbidden raw-capture run path.
 
 ## Validation Expectations
 
@@ -59,8 +88,14 @@ or credentials are missing, say that explicitly in the handoff.
 
 ## Documentation Expectations
 
-Keep docs Coworld-only. Do not add instructions for local game servers, raw
-frame-capture scripts, hosted-play shims, or legacy bundle upload commands.
+Keep runtime docs Coworld-only. Do not add instructions for local game servers,
+live raw-frame-capture run paths, hosted-play shims, or legacy bundle upload
+commands.
+
+The offline utilities under `guided_bot/tools/` are not part of the runtime
+surface and may be documented freely — including the frame viewer/text dumper,
+which only reads already-recorded `frames.bin` files. Do not describe them as
+runtime paths or as substitutes for `uv run coworld ...`.
 
 Before committing, audit the docs touched by the session and update stale run
 instructions in the same change.
