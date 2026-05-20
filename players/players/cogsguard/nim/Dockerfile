@@ -14,12 +14,14 @@ FROM --platform=linux/amd64 python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    COGAMES_POLICY_URI=metta://policy/thinky
+    COGAMES_POLICY_URI=metta://policy/thinky \
+    COGAMES_POLICY_DISCOVERY_PACKAGES=players.cogsguard.nim
 
 # build-essential: nim c emits C and shells out to gcc.
 # ca-certificates: nimby + manual nimby.lock sync use HTTPS to fetch packages.
+# curl: nimby shells out to curl to download the Nim toolchain tarball.
 RUN apt-get update \
- && apt-get install --no-install-recommends -y build-essential ca-certificates \
+ && apt-get install --no-install-recommends -y build-essential ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv/players

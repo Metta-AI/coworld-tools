@@ -16,6 +16,15 @@ Environment variables (matching the Coworld example container contract):
 - ``COGAMES_ENGINE_WS_URL`` — websocket URL including ``?slot=…&token=…``.
 - ``COGAMES_POLICY_URI`` — policy URI passed to ``policy_spec_from_uri``.
 - ``COGAMES_POLICY_DEVICE`` — torch device override; defaults to ``"cpu"``.
+- ``COGAMES_POLICY_DISCOVERY_PACKAGES`` — optional comma-separated list of
+  Python packages to walk for ``MultiAgentPolicy`` registration before URI
+  resolution. mettagrid's resolver only auto-discovers a fixed set of
+  packages (``mettagrid.policy``, ``cogames.policy``, ``cogames_agents.policy``,
+  …); short-name URIs like ``metta://policy/baseline`` for classes that live
+  outside that set will fail to resolve unless the owning package is listed
+  here. Single-policy leaves typically set this to their own package
+  (e.g. ``players.cogsguard.baseline``); multi-policy leaves to the leaf
+  package that registers all relevant short_names.
 """
 
 from __future__ import annotations
@@ -29,7 +38,7 @@ from typing import Literal
 import websockets
 from pydantic import BaseModel
 
-from mettagrid.policy.loader import initialize_or_load_policy
+from mettagrid.policy.loader import discover_and_register_policies, initialize_or_load_policy
 from mettagrid.policy.policy import MultiAgentPolicy
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import AgentObservation
@@ -151,7 +160,22 @@ async def run_bridge(
                 return
 
 
+def _discover_extra_packages() -> None:
+    """Walk packages listed in ``COGAMES_POLICY_DISCOVERY_PACKAGES``.
+
+    Triggers ``PolicyRegistryMeta`` side effects so out-of-tree short_names
+    (e.g. ``baseline``, ``role``, ``thinky``) become resolvable by mettagrid's
+    URI resolver before ``policy_spec_from_uri`` is called.
+    """
+    raw = os.environ.get("COGAMES_POLICY_DISCOVERY_PACKAGES", "").strip()
+    if not raw:
+        return
+    packages = [name.strip() for name in raw.split(",") if name.strip()]
+    discover_and_register_policies(*packages)
+
+
 def main() -> None:
+    _discover_extra_packages()
     asyncio.run(
         run_bridge(
             engine_ws_url=os.environ["COGAMES_ENGINE_WS_URL"],

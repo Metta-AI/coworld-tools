@@ -9,7 +9,8 @@ FROM --platform=linux/amd64 python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    COGAMES_POLICY_URI=metta://policy/tiny_baseline
+    COGAMES_POLICY_URI=metta://policy/tiny_baseline \
+    COGAMES_POLICY_DISCOVERY_PACKAGES=players.cogsguard.tiny_baseline
 
 WORKDIR /srv/players
 
