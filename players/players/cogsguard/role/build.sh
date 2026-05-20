@@ -4,8 +4,12 @@
 #
 # This leaf hosts multiple registered short_names (role, teacher, wombo,
 # cogsguard_v2, cogsguard_control, cogsguard_targeted). The default policy
-# URI is ``metta://policy/role``; override per-deployment via the manifest's
-# ``env.COGAMES_POLICY_URI`` or by passing ``--tag`` plus a custom run env.
+# URI ``metta://policy/role`` is baked into the image via the Dockerfile
+# ENV; the manifest emitted here intentionally leaves env empty so a
+# deploy-time misconfiguration cannot silently swap the policy. To deploy
+# a non-default short_name, hand-author a manifest entry with
+# ``env.COGAMES_POLICY_URI`` set (see README.md "Selecting which
+# short_name to deploy").
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd )"
@@ -24,7 +28,7 @@ IMAGE_LOCAL_TAG="players-cogsguard-role:dev"
 IMAGE_PUBLIC_URI="ghcr.io/metta-ai/players-cogsguard-role:latest"
 DOCKERFILE="$POLICY_DIR/Dockerfile"
 BUILD_CONTEXT="$REPO_ROOT"
-PLAYER_ENV_JSON='{"COGAMES_POLICY_URI": "metta://policy/role"}'
+PLAYER_ENV_JSON='{}'
 PLAYER_RUN_JSON='null'
 
 run_player_build "$@"

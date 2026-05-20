@@ -80,6 +80,35 @@ Produces:
 Optional flags: `--push <registry-ref>` to re-tag and push, `--no-build` to
 render manifests only (skips the docker build entirely).
 
+### Selecting which short_name to deploy
+
+The `nim/` leaf registers six short_names: `thinky` (default), `nim_random`,
+`race_car`, `role_nim`, `alignall`, `nlanky`. The default `metta://policy/thinky`
+is baked into the image via the Dockerfile `ENV COGAMES_POLICY_URI=...`.
+
+The manifest snippet `build.sh` emits intentionally leaves `env` empty. This is
+deliberate: declaring `COGAMES_POLICY_URI` in the manifest would let a
+deploy-time misconfiguration swap the image's policy for an arbitrary other
+URI that mettagrid resolves (potentially even downloading one from S3). The
+in-image default is the source of truth.
+
+To deploy a non-default short_name, hand-author a manifest entry that overrides
+the env:
+
+```json
+{
+  "id": "cogsguard-nim-nlanky",
+  "name": "CogsGuard Nim (nlanky)",
+  "type": "player",
+  "description": "Nlanky variant of the Nim-bindings policy",
+  "image": "players-cogsguard-nim:dev",
+  "env": { "COGAMES_POLICY_URI": "metta://policy/nlanky?miner=4&scrambler=2" }
+}
+```
+
+Append query parameters (e.g. `?miner=4&scrambler=2&trace=1`) to control
+per-policy knobs.
+
 ### Local development (no Docker)
 
 `build_nim()` runs lazily the first time any wrapper imports `nim_agents`,

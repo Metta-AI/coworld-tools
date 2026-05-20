@@ -188,8 +188,18 @@ Produces a `linux/amd64` Docker image (`players-cogsguard-role:dev`), a
 ### Selecting which short_name to deploy
 
 The `role/` leaf registers multiple short_names: `role` (default), `teacher`,
-`wombo`, `cogsguard_v2`, `cogsguard_control`, `cogsguard_targeted`. Pick one
-by overriding `COGAMES_POLICY_URI` in the manifest's `player[].env`:
+`wombo`, `cogsguard_v2`, `cogsguard_control`, `cogsguard_targeted`. The default
+`metta://policy/role` is baked into the image via the Dockerfile `ENV
+COGAMES_POLICY_URI=...`.
+
+The manifest snippet `build.sh` emits intentionally leaves `env` empty. This is
+deliberate: declaring `COGAMES_POLICY_URI` in the manifest would let a
+deploy-time misconfiguration swap the image's policy for an arbitrary other
+URI that mettagrid resolves (potentially even downloading one from S3). The
+in-image default is the source of truth.
+
+To deploy a non-default short_name, hand-author a manifest entry that overrides
+the env:
 
 ```json
 {

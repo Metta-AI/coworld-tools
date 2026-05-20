@@ -192,6 +192,19 @@ Each entry:
 
 This is the snippet shape `build.sh` emits.
 
+> **Note on `env` and image-baked defaults.** The runner sets the player's
+> public environment from this `env` block alone — anything not declared here
+> falls back to the Dockerfile `ENV`. That means declaring an env var in the
+> manifest *overrides* the image's baked-in default at deploy time. For
+> values that establish the image's identity (e.g. `COGAMES_POLICY_URI` for
+> a self-contained policy image), prefer baking the default into the
+> Dockerfile and leaving `env` empty so a misconfigured deployment cannot
+> silently load a different policy. Use `env` only for values that *must*
+> be selected per deployment (e.g. choosing between multiple registered
+> short_names hosted by the same image — see
+> [`players/cogsguard/role/README.md`](../players/cogsguard/role/README.md)
+> for the override pattern).
+
 Adjacent required manifest sections that bundled players interact with (the
 game author owns these; `build.sh` does not produce them):
 

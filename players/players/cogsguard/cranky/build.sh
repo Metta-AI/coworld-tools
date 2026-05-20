@@ -19,7 +19,11 @@ IMAGE_LOCAL_TAG="players-cogsguard-cranky:dev"
 IMAGE_PUBLIC_URI="ghcr.io/metta-ai/players-cogsguard-cranky:latest"
 DOCKERFILE="$POLICY_DIR/Dockerfile"
 BUILD_CONTEXT="$REPO_ROOT"
-PLAYER_ENV_JSON='{"COGAMES_POLICY_URI": "metta://policy/cranky"}'
+# The image bakes ``COGAMES_POLICY_URI=metta://policy/cranky`` via the
+# Dockerfile ENV. Declaring it here would let a manifest override swap the
+# image's identity at deploy time, so we leave the manifest env empty and
+# let the in-image default win.
+PLAYER_ENV_JSON='{}'
 PLAYER_RUN_JSON='null'
 
 run_player_build "$@"

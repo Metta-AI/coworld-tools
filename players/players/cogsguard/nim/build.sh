@@ -3,9 +3,13 @@
 # artifacts. See ``docs/coworld-player-packaging.md`` for the full contract.
 #
 # This leaf hosts multiple registered short_names (thinky, nim_random,
-# race_car, role_nim, alignall, nlanky). The default policy URI is
-# ``metta://policy/thinky``; override per-deployment via the manifest's
-# ``env.COGAMES_POLICY_URI``.
+# race_car, role_nim, alignall, nlanky). The default policy URI
+# ``metta://policy/thinky`` is baked into the image via the Dockerfile
+# ENV; the manifest emitted here intentionally leaves env empty so a
+# deploy-time misconfiguration cannot silently swap the policy. To deploy
+# a non-default short_name, hand-author a manifest entry with
+# ``env.COGAMES_POLICY_URI`` set (see README.md "Selecting which
+# short_name to deploy").
 #
 # Image build downloads the Nim toolchain (~120MB) and compiles the FFI
 # bindings; expect a multi-minute first build. Subsequent builds re-use
@@ -28,7 +32,7 @@ IMAGE_LOCAL_TAG="players-cogsguard-nim:dev"
 IMAGE_PUBLIC_URI="ghcr.io/metta-ai/players-cogsguard-nim:latest"
 DOCKERFILE="$POLICY_DIR/Dockerfile"
 BUILD_CONTEXT="$REPO_ROOT"
-PLAYER_ENV_JSON='{"COGAMES_POLICY_URI": "metta://policy/thinky"}'
+PLAYER_ENV_JSON='{}'
 PLAYER_RUN_JSON='null'
 
 run_player_build "$@"
