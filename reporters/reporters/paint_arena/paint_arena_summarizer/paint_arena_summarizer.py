@@ -5,9 +5,9 @@ produces a JSON envelope with two artifacts: a Markdown summary and a JSON
 stats blob. See DESIGN.md for the full specification.
 
 The inline primitives in this file (ReporterInputs, read_uri/write_uri,
-Envelope/Artifact, validate_envelope, lookup_variant) are SDK extraction
-candidates -- once a second reporter exists, they'll be lifted into
-reporter_sdk and this file will import them instead.
+Envelope/Artifact) are SDK extraction candidates -- once a second reporter
+exists, they'll be lifted into reporter_sdk and this file will import them
+instead.
 """
 
 from __future__ import annotations
@@ -17,25 +17,16 @@ import os
 import sys
 import time
 import urllib.parse
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import requests
+from pydantic import BaseModel, NonNegativeInt, model_validator
 
 # ---------- inline primitives (SDK extraction candidates) ----------
 
-REQUIRED_ENV_VARS = (
-    "COGAME_RESULTS_URI",
-    "COGAME_EPISODE_METADATA_URI",
-    "COGAME_MANIFEST_URI",
-    "COGAME_REPORT_OUTPUT_URI",
-    "COGAME_REPORTER_ID",
-)
 
-
-@dataclass(frozen=True)
-class ReporterInputs:
+class ReporterInputs(BaseModel):
     results_uri: str
     episode_metadata_uri: str
     manifest_uri: str
@@ -43,17 +34,13 @@ class ReporterInputs:
     reporter_id: str
 
 
-def load_reporter_inputs(env: "os._Environ[str] | dict[str, str] | None" = None) -> ReporterInputs:
-    e = os.environ if env is None else env
-    missing = [k for k in REQUIRED_ENV_VARS if not e.get(k)]
-    if missing:
-        raise KeyError(f"missing required env vars: {', '.join(missing)}")
+def load_reporter_inputs() -> ReporterInputs:
     return ReporterInputs(
-        results_uri=e["COGAME_RESULTS_URI"],
-        episode_metadata_uri=e["COGAME_EPISODE_METADATA_URI"],
-        manifest_uri=e["COGAME_MANIFEST_URI"],
-        report_output_uri=e["COGAME_REPORT_OUTPUT_URI"],
-        reporter_id=e["COGAME_REPORTER_ID"],
+        results_uri=os.environ["COGAME_RESULTS_URI"],
+        episode_metadata_uri=os.environ["COGAME_EPISODE_METADATA_URI"],
+        manifest_uri=os.environ["COGAME_MANIFEST_URI"],
+        report_output_uri=os.environ["COGAME_REPORT_OUTPUT_URI"],
+        reporter_id=os.environ["COGAME_REPORTER_ID"],
     )
 
 
@@ -83,9 +70,7 @@ def write_uri(uri: str, payload: bytes, content_type: str) -> None:
         path.write_bytes(payload)
         return
     if scheme in ("http", "https"):
-        _http_request_with_retry(
-            "PUT", uri, data=payload, headers={"Content-Type": content_type}
-        )
+        _http_request_with_retry("PUT", uri, data=payload, headers={"Content-Type": content_type})
         return
     raise ValueError(f"unsupported URI scheme {scheme!r} for write: {uri}")
 
@@ -113,235 +98,205 @@ def read_json(uri: str) -> Any:
     return json.loads(read_uri(uri).decode("utf-8"))
 
 
-@dataclass(frozen=True)
-class Artifact:
+class Artifact(BaseModel):
+    # Field order matches the on-the-wire envelope contract: id, content_type,
+    # [encoding,] content. model_dump preserves declaration order; exclude_none
+    # in Envelope.to_json_bytes drops `encoding` when unset.
     id: str
     content_type: str
-    content: Any
     encoding: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"id": self.id, "content_type": self.content_type}
-        if self.encoding is not None:
-            d["encoding"] = self.encoding
-        d["content"] = self.content
-        return d
+    content: Any
 
 
-@dataclass(frozen=True)
-class Envelope:
+class Envelope(BaseModel):
     version: str
-    artifacts: list[Artifact] = field(default_factory=list)
+    artifacts: list[Artifact] = []
 
-    def to_dict(self) -> dict[str, Any]:
-        return {"version": self.version, "artifacts": [a.to_dict() for a in self.artifacts]}
+    @model_validator(mode="after")
+    def _unique_artifact_ids(self) -> "Envelope":
+        ids = [a.id for a in self.artifacts]
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate artifact id(s): {duplicates}")
+        return self
 
     def to_json_bytes(self) -> bytes:
-        # Intentional, contract-aligned ordering: top-level (version, artifacts),
-        # per-artifact (id, content_type, [encoding,] content), and the artifact
-        # list itself reflects the reporter's "first artifact is the primary"
-        # convention. sort_keys is deliberately NOT used -- it would reshuffle
-        # object keys alphabetically and erase that intent. Determinism is
-        # preserved by Python's dict-insertion-order guarantee plus the fact
-        # that every dict in to_dict() is built in a fixed order.
-        return json.dumps(self.to_dict(), indent=2).encode("utf-8")
+        return self.model_dump_json(indent=2, exclude_none=True).encode("utf-8")
 
 
-
-_FIRST_CLASS_TEXT_TYPES = {"text/markdown", "text/plain", "application/json"}
-
-
-def validate_envelope(envelope: dict[str, Any]) -> None:
-    """Structural D3 check. Not a full JSON-Schema validator."""
-    if not isinstance(envelope, dict):
-        raise ValueError("envelope must be an object")
-    if envelope.get("version") != "1":
-        raise ValueError("envelope.version must be the string '1'")
-    artifacts = envelope.get("artifacts")
-    if not isinstance(artifacts, list):
-        raise ValueError("envelope.artifacts must be a list")
-    seen_ids: set[str] = set()
-    for i, art in enumerate(artifacts):
-        if not isinstance(art, dict):
-            raise ValueError(f"artifact[{i}] must be an object")
-        for key in ("id", "content_type"):
-            if key not in art:
-                raise ValueError(f"artifact[{i}] missing required field {key!r}")
-        if "content" not in art:
-            raise ValueError(f"artifact[{i}] missing required field 'content'")
-        if not isinstance(art["id"], str) or not art["id"]:
-            raise ValueError(f"artifact[{i}].id must be a non-empty string")
-        if art["id"] in seen_ids:
-            raise ValueError(f"duplicate artifact id {art['id']!r}")
-        seen_ids.add(art["id"])
-        if not isinstance(art["content_type"], str) or "/" not in art["content_type"]:
-            raise ValueError(f"artifact[{i}].content_type must be a media-type string")
+# ---------- PaintArena-specific input/output types ----------
 
 
-def lookup_variant(manifest: dict[str, Any], variant_id: str) -> dict[str, Any]:
-    variants = manifest.get("variants") or []
-    for v in variants:
-        if v.get("id") == variant_id:
-            return v
-    raise KeyError(f"variant_id {variant_id!r} not found in manifest.variants")
+class PaintArenaResults(BaseModel):
+    scores: list[float]
+    painted_tiles: list[NonNegativeInt]
+    ticks: NonNegativeInt
+
+
+class PlayerMetadata(BaseModel):
+    slot: int
+    policy_name: str | None = None
+
+
+class EpisodeMetadata(BaseModel):
+    episode_id: str | None = None
+    variant_id: str
+    duration_seconds: float | None = None
+    players: list[PlayerMetadata] = []
+
+
+class GameConfig(BaseModel):
+    width: int
+    height: int
+
+
+class Variant(BaseModel):
+    id: str
+    game_config: GameConfig
+
+
+class PartialManifest(BaseModel):
+    variants: list[Variant] = []
+
+
+class SlotStats(BaseModel):
+    slot: int
+    policy_name: str
+    painted_tiles: int
+    share_pct: float
+
+
+class GridStats(BaseModel):
+    width: int
+    height: int
+    total_tiles: int
+
+
+class PaintArenaStats(BaseModel):
+    episode_id: str | None
+    variant_id: str
+    grid: GridStats
+    ticks: int
+    duration_seconds: float | None
+    slots: list[SlotStats]
+    unpainted_tiles: int
+    unpainted_share_pct: float
+    winner_slot: int | None
+    margin_tiles: int
+    tie: bool
 
 
 # ---------- PaintArena-specific logic ----------
 
-_REQUIRED_RESULTS_FIELDS = ("scores", "painted_tiles", "ticks")
-
-
-def _validate_results(results: dict[str, Any]) -> None:
-    if not isinstance(results, dict):
-        raise ValueError("results JSON must be an object")
-    missing = [f for f in _REQUIRED_RESULTS_FIELDS if f not in results]
-    if missing:
-        raise ValueError(f"results missing required field(s): {', '.join(missing)}")
-    if not isinstance(results["painted_tiles"], list) or not all(
-        isinstance(x, int) and x >= 0 for x in results["painted_tiles"]
-    ):
-        raise ValueError("results.painted_tiles must be a list of non-negative integers")
-    if not isinstance(results["ticks"], int) or results["ticks"] < 0:
-        raise ValueError("results.ticks must be a non-negative integer")
-
-
-def _policy_name_for_slot(metadata: dict[str, Any], slot: int) -> str:
-    for entry in metadata.get("players") or []:
-        if entry.get("slot") == slot:
-            name = entry.get("policy_name")
-            if isinstance(name, str) and name:
-                return name
-            break
-    return f"Slot {slot}"
-
 
 def build_stats(
-    results: dict[str, Any],
-    metadata: dict[str, Any],
-    variant: dict[str, Any],
-) -> dict[str, Any]:
-    _validate_results(results)
-    game_config = variant.get("game_config") or {}
-    width = int(game_config["width"])
-    height = int(game_config["height"])
+    results: PaintArenaResults,
+    metadata: EpisodeMetadata,
+    variant: Variant,
+) -> PaintArenaStats:
+    width = variant.game_config.width
+    height = variant.game_config.height
     total_tiles = width * height
 
-    painted: list[int] = list(results["painted_tiles"])
-    slots: list[dict[str, Any]] = []
-    for i, count in enumerate(painted):
-        share = (count / total_tiles * 100.0) if total_tiles > 0 else 0.0
-        slots.append(
-            {
-                "slot": i,
-                "policy_name": _policy_name_for_slot(metadata, i),
-                "painted_tiles": int(count),
-                "share_pct": round(share, 2),
-            }
+    policy_by_slot = {p.slot: p.policy_name for p in metadata.players if p.policy_name}
+    slots = [
+        SlotStats(
+            slot=i,
+            policy_name=policy_by_slot.get(i) or f"Slot {i}",
+            painted_tiles=count,
+            share_pct=round(count / total_tiles * 100.0, 2) if total_tiles > 0 else 0.0,
         )
+        for i, count in enumerate(results.painted_tiles)
+    ]
 
-    total_painted = sum(painted)
+    total_painted = sum(results.painted_tiles)
     unpainted = max(total_tiles - total_painted, 0)
-    unpainted_share = (unpainted / total_tiles * 100.0) if total_tiles > 0 else 0.0
+    unpainted_share = round(unpainted / total_tiles * 100.0, 2) if total_tiles > 0 else 0.0
 
-    # Winner / tie computation.
     if total_painted == 0:
         winner_slot: int | None = None
         margin = 0
         tie = False
     else:
-        max_count = max(painted)
-        leaders = [i for i, c in enumerate(painted) if c == max_count]
+        max_count = max(results.painted_tiles)
+        leaders = [i for i, c in enumerate(results.painted_tiles) if c == max_count]
         if len(leaders) > 1:
             winner_slot = None
             margin = 0
             tie = True
         else:
             winner_slot = leaders[0]
-            others = [c for i, c in enumerate(painted) if i != winner_slot]
+            others = [c for i, c in enumerate(results.painted_tiles) if i != winner_slot]
             margin = max_count - max(others) if others else max_count
             tie = False
 
-    return {
-        "episode_id": metadata.get("episode_id"),
-        "variant_id": metadata.get("variant_id"),
-        "grid": {"width": width, "height": height, "total_tiles": total_tiles},
-        "ticks": int(results["ticks"]),
-        "duration_seconds": metadata.get("duration_seconds"),
-        "slots": slots,
-        "unpainted_tiles": int(unpainted),
-        "unpainted_share_pct": round(unpainted_share, 2),
-        "winner_slot": winner_slot,
-        "margin_tiles": int(margin),
-        "tie": tie,
-    }
-
-
-
-def _format_duration(stats: dict[str, Any]) -> str:
-    dur = stats.get("duration_seconds")
-    ticks = stats.get("ticks")
-    if isinstance(dur, (int, float)):
-        return f"{dur:.1f} s ({ticks} ticks)"
-    return f"{ticks} ticks"
-
-
-def render_summary_markdown(stats: dict[str, Any]) -> str:
-    grid = stats["grid"]
-    lines: list[str] = []
-    lines.append(f"# PaintArena \u2014 Episode {stats.get('episode_id') or 'unknown'}")
-    lines.append("")
-    lines.append(
-        f"**Variant:** {stats.get('variant_id') or 'unknown'} \u00b7 "
-        f"**Grid:** {grid['width']} \u00d7 {grid['height']} ({grid['total_tiles']} tiles) \u00b7 "
-        f"**Duration:** {_format_duration(stats)}"
+    return PaintArenaStats(
+        episode_id=metadata.episode_id,
+        variant_id=metadata.variant_id,
+        grid=GridStats(width=width, height=height, total_tiles=total_tiles),
+        ticks=results.ticks,
+        duration_seconds=metadata.duration_seconds,
+        slots=slots,
+        unpainted_tiles=unpainted,
+        unpainted_share_pct=unpainted_share,
+        winner_slot=winner_slot,
+        margin_tiles=margin,
+        tie=tie,
     )
-    lines.append("")
-    lines.append("| Slot | Policy | Tiles painted | Share |")
-    lines.append("| --- | --- | --- | --- |")
-    for s in stats["slots"]:
-        lines.append(
-            f"| {s['slot']} | {s['policy_name']} | "
-            f"{s['painted_tiles']} / {grid['total_tiles']} | {s['share_pct']:.1f}% |"
-        )
-    lines.append(
-        f"| \u2014 | unpainted | {stats['unpainted_tiles']} / {grid['total_tiles']} "
-        f"| {stats['unpainted_share_pct']:.1f}% |"
-    )
-    lines.append("")
 
-    if stats["winner_slot"] is None and stats["unpainted_tiles"] == grid["total_tiles"]:
-        lines.append("**Result:** no tiles were painted; no winner.")
-    elif stats["tie"]:
-        leaders = [s for s in stats["slots"] if s["painted_tiles"] == max(t["painted_tiles"] for t in stats["slots"])]
-        lines.append(
-            f"**Result:** tied at {leaders[0]['painted_tiles']} tiles "
-            f"({', '.join(s['policy_name'] for s in leaders)})."
-        )
+
+def render_summary_markdown(stats: PaintArenaStats) -> str:
+    grid = stats.grid
+    if stats.duration_seconds is not None:
+        duration = f"{stats.duration_seconds:.1f} s ({stats.ticks} ticks)"
     else:
-        winner = next(s for s in stats["slots"] if s["slot"] == stats["winner_slot"])
-        lines.append(
-            f"**Winner:** Slot {winner['slot']} ({winner['policy_name']}) "
-            f"by {stats['margin_tiles']} tiles."
-        )
+        duration = f"{stats.ticks} ticks"
+
+    lines = [
+        f"# PaintArena \u2014 Episode {stats.episode_id or 'unknown'}",
+        "",
+        (
+            f"**Variant:** {stats.variant_id} \u00b7 "
+            f"**Grid:** {grid.width} \u00d7 {grid.height} ({grid.total_tiles} tiles) \u00b7 "
+            f"**Duration:** {duration}"
+        ),
+        "",
+        "| Slot | Policy | Tiles painted | Share |",
+        "| --- | --- | --- | --- |",
+    ]
+    for s in stats.slots:
+        lines.append(f"| {s.slot} | {s.policy_name} | {s.painted_tiles} / {grid.total_tiles} | {s.share_pct:.1f}% |")
+    lines.append(
+        f"| \u2014 | unpainted | {stats.unpainted_tiles} / {grid.total_tiles} | {stats.unpainted_share_pct:.1f}% |"
+    )
+    lines.append("")
+
+    if stats.winner_slot is None and stats.unpainted_tiles == grid.total_tiles:
+        lines.append("**Result:** no tiles were painted; no winner.")
+    elif stats.tie:
+        max_painted = max(s.painted_tiles for s in stats.slots)
+        leaders = [s for s in stats.slots if s.painted_tiles == max_painted]
+        lines.append(f"**Result:** tied at {max_painted} tiles ({', '.join(s.policy_name for s in leaders)}).")
+    else:
+        winner = next(s for s in stats.slots if s.slot == stats.winner_slot)
+        lines.append(f"**Winner:** Slot {winner.slot} ({winner.policy_name}) by {stats.margin_tiles} tiles.")
     return "\n".join(lines) + "\n"
 
 
 def build_envelope(
-    results: dict[str, Any],
-    metadata: dict[str, Any],
-    manifest: dict[str, Any],
+    results: PaintArenaResults,
+    metadata: EpisodeMetadata,
+    manifest: PartialManifest,
 ) -> Envelope:
-    variant_id = metadata.get("variant_id")
-    if not isinstance(variant_id, str) or not variant_id:
-        raise ValueError("episode metadata is missing 'variant_id'")
-    variant = lookup_variant(manifest, variant_id)
+    variant = next((v for v in manifest.variants if v.id == metadata.variant_id), None)
+    if variant is None:
+        raise KeyError(f"variant_id {metadata.variant_id!r} not found in manifest.variants")
     stats = build_stats(results, metadata, variant)
-    summary = render_summary_markdown(stats)
     return Envelope(
         version="1",
         artifacts=[
-            Artifact(id="summary", content_type="text/markdown", content=summary),
-            Artifact(id="stats", content_type="application/json", content=stats),
+            Artifact(id="summary", content_type="text/markdown", content=render_summary_markdown(stats)),
+            Artifact(id="stats", content_type="application/json", content=stats.model_dump()),
         ],
     )
 
@@ -349,39 +304,14 @@ def build_envelope(
 # ---------- orchestration ----------
 
 
-def _log(reporter_id: str, msg: str) -> None:
-    print(f"[{reporter_id}] {msg}", file=sys.stderr, flush=True)
-
-
 def run(inputs: ReporterInputs) -> None:
-    """Read inputs, build envelope, validate, write to output URI."""
-    results = read_json(inputs.results_uri)
-    metadata = read_json(inputs.episode_metadata_uri)
-    manifest = read_json(inputs.manifest_uri)
+    results = PaintArenaResults.model_validate(read_json(inputs.results_uri))
+    metadata = EpisodeMetadata.model_validate(read_json(inputs.episode_metadata_uri))
+    manifest = PartialManifest.model_validate(read_json(inputs.manifest_uri))
     envelope = build_envelope(results=results, metadata=metadata, manifest=manifest)
-    payload = envelope.to_json_bytes()
-    validate_envelope(json.loads(payload))  # self-check round-tripped output
-    write_uri(inputs.report_output_uri, payload, content_type="application/json")
-
-
-def main(argv: list[str] | None = None) -> int:  # noqa: ARG001 -- reserved for future flags
-    reporter_id = os.environ.get("COGAME_REPORTER_ID", "paint-arena-summarizer")
-    try:
-        inputs = load_reporter_inputs()
-    except KeyError as exc:
-        _log(reporter_id, f"startup error: {exc}")
-        return 1
-    try:
-        run(inputs)
-    except (KeyError, ValueError, json.JSONDecodeError) as exc:
-        _log(inputs.reporter_id, f"reporter failed: {exc}")
-        return 1
-    except Exception as exc:  # pragma: no cover -- last-resort surface
-        _log(inputs.reporter_id, f"unexpected error: {exc!r}")
-        return 1
-    _log(inputs.reporter_id, "wrote envelope to " + inputs.report_output_uri)
-    return 0
+    write_uri(inputs.report_output_uri, envelope.to_json_bytes(), content_type="application/json")
+    print(f"[{inputs.reporter_id}] wrote envelope to {inputs.report_output_uri}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run(load_reporter_inputs())
