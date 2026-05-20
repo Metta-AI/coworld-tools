@@ -2,7 +2,7 @@
 # Containerized end-to-end smoke test for paint_arena_summarizer.
 #
 # Builds the image, runs it against the checked-in synthetic fixtures
-# (smoke/fixtures/{results,metadata,manifest}.json), and asserts that the
+# (smoke/fixtures/{results,metadata,replay}.json), and asserts that the
 # emitted envelope is well-formed, has the expected D3 shape, and preserves
 # the contract-aligned key ordering across the container boundary.
 #
@@ -31,8 +31,8 @@ docker run --rm \
   -v "${FIXTURES}":/in:ro \
   -v "${OUTDIR}":/out \
   -e COGAME_RESULTS_URI=file:///in/results.json \
+  -e COGAME_REPLAY_URI=file:///in/replay.json \
   -e COGAME_EPISODE_METADATA_URI=file:///in/metadata.json \
-  -e COGAME_MANIFEST_URI=file:///in/manifest.json \
   -e COGAME_REPORT_OUTPUT_URI=file:///out/report.json \
   -e COGAME_REPORTER_ID=paint-arena-summarizer \
   "${IMAGE}"
@@ -98,7 +98,8 @@ i_artifacts = text.index('"artifacts"')
 if not i_version < i_artifacts:
     fail("serialized 'version' must appear before 'artifacts'")
 
-# Stats sanity: variant_id resolves and grid dimensions came from manifest.
+# Stats sanity: variant_id propagates from metadata and grid dimensions came
+# from the replay's `config` block (per D11 -- no manifest URI in v1).
 stats = artifacts[1]["content"]
 if stats.get("variant_id") != "default":
     fail(f"stats.variant_id expected 'default', got {stats.get('variant_id')!r}")

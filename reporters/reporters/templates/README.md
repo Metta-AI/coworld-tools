@@ -40,7 +40,7 @@ If you find yourself wanting to run a template directly against real game result
 For everything the reporter contract requires — lifecycle, inputs, outputs, failure semantics, certification — read these first:
 
 - [`../../README.md`](../../README.md) — repository overview, layout, the v1 contract in one breath, conventions every reporter must follow.
-- [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) — full v1 design with the D1–D10 decisions log: the per-episode trigger and purity rules (D1), the env-supplied URI input contract (D2) including `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_MANIFEST_URI`, `COGAME_REPORTER_ID`, and the write target `COGAME_REPORT_OUTPUT_URI`, the JSON envelope schema and first-class content types (D3), multi-reporter execution (D4), and failure handling (D8).
+- [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) — full v1 design with the D1–D11 decisions log: the per-episode trigger and purity rules (D1), the env-supplied URI input contract (D2, narrowed by D11) including `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_REPORTER_ID`, and the write target `COGAME_REPORT_OUTPUT_URI`, the JSON envelope schema and first-class content types (D3), multi-reporter execution (D4), and failure handling (D8).
 - [`../reporter_sdk/`](../reporter_sdk/) — the shared, pip-installable Python library implementing those contract primitives. Templates and concrete reporters both depend on it.
 
 Templates in this directory must stay aligned with those documents. If a template drifts from the contract, fix the template — the contract is the source of truth.

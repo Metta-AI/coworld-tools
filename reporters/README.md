@@ -10,7 +10,7 @@ A **coworld** is a Softmax v2 tournament unit: one game container + one or more 
 
 Each reporter is a process-style container that:
 
-1. Reads what it needs from env-supplied URIs (game results, replay, logs, episode metadata, the full manifest, and its own reporter id).
+1. Reads what it needs from env-supplied URIs (game results, replay, logs, episode metadata, and its own reporter id).
 2. Writes a single JSON envelope of `{id, content_type, content}` artifacts to its output URI.
 3. Exits.
 
@@ -63,10 +63,9 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 | Variable | Purpose |
 | --- | --- |
 | `COGAME_RESULTS_URI` | Game results JSON (validates against `game.results_schema`) |
-| `COGAME_REPLAY_URI` | Game replay artifact (game-owned format) |
+| `COGAME_REPLAY_URI` | Game replay artifact (game-owned format); also the source of game config for reporters that need it (D11) |
 | `COGAME_LOG_URI` | Episode logs — optional, present iff the game wrote them |
 | `COGAME_EPISODE_METADATA_URI` | Platform-generated episode metadata JSON |
-| `COGAME_MANIFEST_URI` | Full coworld manifest JSON |
 | `COGAME_REPORTER_ID` | This reporter's manifest `id` (plain string, not a URI) |
 | `COGAME_REPORT_OUTPUT_URI` | **Write target** for the JSON envelope |
 

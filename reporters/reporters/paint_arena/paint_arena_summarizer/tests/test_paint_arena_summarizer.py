@@ -27,12 +27,12 @@ def _models(
     *,
     results: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
-    manifest: dict[str, Any] | None = None,
-) -> tuple[par.PaintArenaResults, par.EpisodeMetadata, par.PartialManifest]:
+    replay: dict[str, Any] | None = None,
+) -> tuple[par.PaintArenaResults, par.EpisodeMetadata, par.PaintArenaReplay]:
     return (
         par.PaintArenaResults.model_validate(results or fixtures.make_results_happy()),
         par.EpisodeMetadata.model_validate(metadata or fixtures.make_metadata()),
-        par.PartialManifest.model_validate(manifest or fixtures.make_manifest()),
+        par.PaintArenaReplay.model_validate(replay or fixtures.make_replay()),
     )
 
 
@@ -40,8 +40,8 @@ def _models(
 
 
 def test_happy_path_envelope_shape() -> None:
-    results, metadata, manifest = _models()
-    env = par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+    results, metadata, replay = _models()
+    env = par.build_envelope(results=results, metadata=metadata, replay=replay)
     assert env.version == "1"
     assert [a.id for a in env.artifacts] == ["summary", "stats"]
     assert env.artifacts[0].content_type == "text/markdown"
@@ -56,8 +56,8 @@ def test_envelope_key_order_is_intentional_not_alphabetical() -> None:
     the primary one by D3 convention -- accidental sort_keys reintroduction
     would clobber this and break the contract's primary-artifact rule.
     """
-    results, metadata, manifest = _models()
-    env = par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+    results, metadata, replay = _models()
+    env = par.build_envelope(results=results, metadata=metadata, replay=replay)
     payload = env.to_json_bytes()
     text = payload.decode("utf-8")
     assert text.index('"version"') < text.index('"artifacts"')
@@ -72,9 +72,8 @@ def test_envelope_key_order_is_intentional_not_alphabetical() -> None:
 
 
 def test_happy_path_stats_numbers() -> None:
-    results, metadata, manifest = _models()
-    variant = next(v for v in manifest.variants if v.id == metadata.variant_id)
-    stats = par.build_stats(results=results, metadata=metadata, variant=variant)
+    results, metadata, replay = _models()
+    stats = par.build_stats(results=results, metadata=metadata, config=replay.config)
     assert stats.episode_id == "ep_abc123"
     assert stats.variant_id == "default"
     assert stats.grid.width == 12
@@ -92,8 +91,8 @@ def test_happy_path_stats_numbers() -> None:
 
 
 def test_zero_paint_episode() -> None:
-    results, metadata, manifest = _models(results=fixtures.make_results_zero_paint())
-    env = par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+    results, metadata, replay = _models(results=fixtures.make_results_zero_paint())
+    env = par.build_envelope(results=results, metadata=metadata, replay=replay)
     stats = env.artifacts[1].content
     assert stats["winner_slot"] is None
     assert stats["tie"] is False
@@ -104,8 +103,8 @@ def test_zero_paint_episode() -> None:
 
 
 def test_tie_episode() -> None:
-    results, metadata, manifest = _models(results=fixtures.make_results_tie())
-    env = par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+    results, metadata, replay = _models(results=fixtures.make_results_tie())
+    env = par.build_envelope(results=results, metadata=metadata, replay=replay)
     stats = env.artifacts[1].content
     assert stats["winner_slot"] is None
     assert stats["tie"] is True
@@ -117,18 +116,26 @@ def test_tie_episode() -> None:
 def test_policy_name_falls_back_to_slot_label() -> None:
     metadata_dict = fixtures.make_metadata()
     metadata_dict["players"][1]["policy_name"] = None
-    results, metadata, manifest = _models(metadata=metadata_dict)
-    env = par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+    results, metadata, replay = _models(metadata=metadata_dict)
+    env = par.build_envelope(results=results, metadata=metadata, replay=replay)
     stats = env.artifacts[1].content
     assert stats["slots"][1]["policy_name"] == "Slot 1"
 
 
-def test_lookup_variant_missing_raises() -> None:
-    results, metadata, manifest = _models(
-        metadata=fixtures.make_metadata(variant_id="not-a-real-variant"),
-    )
-    with pytest.raises(KeyError):
-        par.build_envelope(results=results, metadata=metadata, manifest=manifest)
+def test_replay_missing_config_raises() -> None:
+    """Replay payload without a usable `config` block fails fast at validation."""
+    bad_replay = fixtures.make_replay()
+    del bad_replay["config"]
+    with pytest.raises(ValidationError):
+        par.PaintArenaReplay.model_validate(bad_replay)
+
+
+def test_replay_config_missing_dimensions_raises() -> None:
+    """A `config` block missing width/height is a contract violation, not a fallback case."""
+    bad_replay = fixtures.make_replay()
+    del bad_replay["config"]["width"]
+    with pytest.raises(ValidationError):
+        par.PaintArenaReplay.model_validate(bad_replay)
 
 
 def test_envelope_model_rejects_bad_shape() -> None:
@@ -170,16 +177,16 @@ def _setup_inputs(
     *,
     results: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
-    manifest: dict[str, Any] | None = None,
+    replay: dict[str, Any] | None = None,
 ) -> tuple[dict[str, str], Path]:
     results_uri = _write_json(tmp_path / "results.json", results or fixtures.make_results_happy())
     metadata_uri = _write_json(tmp_path / "metadata.json", metadata or fixtures.make_metadata())
-    manifest_uri = _write_json(tmp_path / "manifest.json", manifest or fixtures.make_manifest())
+    replay_uri = _write_json(tmp_path / "replay.json", replay or fixtures.make_replay())
     out_path = tmp_path / "report.json"
     env = {
         "COGAME_RESULTS_URI": results_uri,
+        "COGAME_REPLAY_URI": replay_uri,
         "COGAME_EPISODE_METADATA_URI": metadata_uri,
-        "COGAME_MANIFEST_URI": manifest_uri,
         "COGAME_REPORT_OUTPUT_URI": out_path.as_uri(),
         "COGAME_REPORTER_ID": "paint-arena-summarizer",
     }
@@ -212,13 +219,14 @@ def test_run_is_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert first == second
 
 
-def test_run_missing_variant_raises(
+def test_run_malformed_replay_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    env, out_path = _setup_inputs(
-        tmp_path, metadata=fixtures.make_metadata(variant_id="ghost")
-    )
-    with pytest.raises(KeyError, match="ghost"):
+    """Replay without a usable `config` surfaces as a ValidationError, no envelope written."""
+    bad_replay = fixtures.make_replay()
+    del bad_replay["config"]
+    env, out_path = _setup_inputs(tmp_path, replay=bad_replay)
+    with pytest.raises(ValidationError):
         _invoke_run(monkeypatch, env)
     assert not out_path.exists()
 
@@ -248,8 +256,8 @@ def test_load_reporter_inputs_missing_env_var_raises(
 ) -> None:
     for k in (
         "COGAME_RESULTS_URI",
+        "COGAME_REPLAY_URI",
         "COGAME_EPISODE_METADATA_URI",
-        "COGAME_MANIFEST_URI",
         "COGAME_REPORT_OUTPUT_URI",
         "COGAME_REPORTER_ID",
     ):

@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Produce a per-episode human-readable summary and a machine-readable stats artifact for the PaintArena coworld. Pure function of `COGAME_RESULTS_URI` + `COGAME_EPISODE_METADATA_URI` + `COGAME_MANIFEST_URI`; deterministic; no replay or log access in v1.
+Produce a per-episode human-readable summary and a machine-readable stats artifact for the PaintArena coworld. Pure function of `COGAME_RESULTS_URI` + `COGAME_EPISODE_METADATA_URI` + `COGAME_REPLAY_URI` (for grid dimensions only — no frame data is read); deterministic; no log access in v1.
 
 This document is load-bearing in two directions: it specifies what the implementation must do, and it records the decisions the SDK extraction pass will refer back to.
 
@@ -14,10 +14,9 @@ This document is load-bearing in two directions: it specifies what the implement
 | --- | --- | --- |
 | `COGAME_RESULTS_URI` | **Yes** | Source of `scores` / `painted_tiles` / `ticks`. |
 | `COGAME_EPISODE_METADATA_URI` | **Yes** | Per-slot `policy_name`, `started_at`/`ended_at`/`duration_seconds`, `episode_id`, `variant_id`. |
-| `COGAME_MANIFEST_URI` | **Yes** | Look up `variants[].game_config.{width,height}` keyed on `variant_id` → grid total tiles. |
+| `COGAME_REPLAY_URI` | **Yes** | Source of `config.{width,height}` for the grid total-tile count. Per REPORTER_DESIGN.md D11 the manifest is no longer passed at runtime; PaintArena's game server embeds its `CONFIG` in `_replay_payload`, so the replay is the canonical per-episode source. `frames` and `results` inside the replay are ignored by this reporter. |
 | `COGAME_REPORTER_ID` | Logs only | Stamped into log lines for observability; not used for output content. |
 | `COGAME_REPORT_OUTPUT_URI` | **Yes** | Write target for the envelope. |
-| `COGAME_REPLAY_URI` | No | v1 summary doesn't need frame-by-frame data. Reserve for a future heatmap/highlight reporter. |
 | `COGAME_LOG_URI` | No | Not relevant to PaintArena summary content. |
 
 ## Output envelope
@@ -75,10 +74,11 @@ Generalized over slot count (results schema allows 1–4; iterate, don't hard-co
 
 ## Decisions locked in
 
-1. **Grid-coverage percentages, not within-painted ratios.** Reading the manifest + variant lookup is worth it: it answers the natural "did you cover the board?" question and demonstrates the manifest-access pattern the SDK will absorb.
+1. **Grid-coverage percentages, not within-painted ratios.** Knowing the grid dimensions answers the natural "did you cover the board?" question. Originally sourced via a manifest-variant lookup; since REPORTER_DESIGN.md D11 dropped the manifest URI, the same dimensions come from the replay's `config` block.
 2. **`policy_name` from episode metadata for player display**, falling back to `"Slot N"` when null (e.g. certification context with no real policy). `policy_name` is the tournament-meaningful identity; variant-config `player_names` is cosmetic and ignored.
-3. **Two artifacts: `summary` (markdown) and `stats` (json). No heatmap PNG in v1.** Embedding a heatmap requires reading the replay and pulls binary-content-type plumbing into the first reporter before we know what the SDK should expose for binary artifacts. Defer to a later iteration or to a separate `paint_arena_highlight_reel` reporter.
+3. **Two artifacts: `summary` (markdown) and `stats` (json). No heatmap PNG in v1.** Embedding a heatmap requires reading the replay's `frames` and pulls binary-content-type plumbing into the first reporter before we know what the SDK should expose for binary artifacts. Defer to a later iteration or to a separate `paint_arena_highlight_reel` reporter. (The current reporter does read the replay, but only its `config` block — it intentionally does not touch `frames`.)
 4. **Generic-over-slot-count.** Iterate `painted_tiles`; do not hard-code 2 players.
+5. **Couple to PaintArena's replay shape, not to a generic schema.** This reporter is a PaintArena-coworld build artifact; the `config.width` / `config.height` access path is hard-wired to what `paintarena/game/server.py::_replay_payload` writes. The replay format is owned by the same coworld bundle, so this is acceptable per REPORTER_DESIGN.md D11.
 
 ## Failure-mode behavior
 
@@ -87,7 +87,7 @@ Generalized over slot count (results schema allows 1–4; iterate, don't hard-co
 | All inputs valid, normal episode | Write envelope with both artifacts | 0 |
 | `painted_tiles` sums to 0 (no tiles painted) | Write envelope; summary says "no tiles painted; no winner"; stats has `winner_slot: null`, `tie: false`, `margin_tiles: 0` | 0 |
 | Tied painted-tile counts | Write envelope; summary says "tied at N tiles"; stats has `winner_slot: null`, `tie: true`, `margin_tiles: 0` | 0 |
-| `variant_id` from metadata not found in manifest's `variants[]` | Log error, exit non-zero (`nonzero_exit` per D8) | 1 |
+| Replay JSON missing `config` block, or `config` missing `width`/`height` | `ValidationError` propagates; exit non-zero (`nonzero_exit` per D8) | 1 |
 | Results JSON missing required field or unparseable | Log error, exit non-zero | 1 |
 | Output URI unreachable | Bubble up exception, exit non-zero | 1 |
 
@@ -101,13 +101,12 @@ These primitives live inline in `paint_arena_summarizer.py` for v1. The SDK extr
 - `read_uri(uri) -> bytes` / `write_uri(uri, payload, content_type)` — scheme-dispatched (`file://`, `http(s)://`) with retries on 429/5xx for HTTP. Stdlib + `requests`.
 - `Envelope` / `Artifact` dataclasses with `to_json_bytes()`.
 - `validate_envelope(envelope_dict)` — dict-shape D3 check; not full jsonschema.
-- `lookup_variant(manifest_dict, variant_id) -> variant_dict` — KeyError-raising if not found.
 
-Anything *not* in that list (PaintArena results parsing, summary phrasing, the per-slot percentage math) stays in this reporter forever.
+Anything *not* in that list (PaintArena results parsing, replay-`config` parsing, summary phrasing, the per-slot percentage math) stays in this reporter forever. Replay parsing in particular is coworld-specific by design (D11) and is not a candidate for SDK promotion.
 
 ## Determinism and testing
 
-Output is a pure function of (results JSON, episode metadata JSON, manifest JSON). Test plan:
+Output is a pure function of (results JSON, episode metadata JSON, replay JSON). Test plan:
 
 - Unit tests with hand-crafted fixture JSONs covering the failure-mode table above.
 - Determinism check: run summarizer twice on the same fixtures, byte-compare envelope JSON.
@@ -115,7 +114,7 @@ Output is a pure function of (results JSON, episode metadata JSON, manifest JSON
 
 ## Non-goals (v1)
 
-- No replay reading (no heatmap, no per-tick curves).
+- No frame-level replay reading (no heatmap, no per-tick curves). The reporter parses the replay's `config` block but never touches `frames`.
 - No log reading.
 - No external network calls beyond input/output URIs (D1 purity).
 - No LLM involvement.

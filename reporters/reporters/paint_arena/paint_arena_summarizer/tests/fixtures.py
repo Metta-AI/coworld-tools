@@ -9,41 +9,30 @@ from copy import deepcopy
 from typing import Any
 
 
-def make_manifest() -> dict[str, Any]:
+def make_replay(width: int = 12, height: int = 8) -> dict[str, Any]:
+    """Synthetic PaintArena replay payload.
+
+    Shape mirrors what the PaintArena game server writes
+    (packages/coworld/.../paintarena/game/server.py::_replay_payload):
+    `{config, player_names, frames, results}`. The reporter only reads
+    `config.width` and `config.height` (D11); other fields are present so the
+    fixture realistically exercises pydantic's extras-ignored behavior.
+    """
     return deepcopy(
         {
-            "game": {
-                "name": "paintarena",
-                "version": "0.1.5",
-                "results_schema": {},
+            "config": {
+                "width": width,
+                "height": height,
+                "max_ticks": 100,
+                "tick_rate": 5,
+                "players": [
+                    {"name": "Sweep Painter 1"},
+                    {"name": "Sweep Painter 2"},
+                ],
             },
-            "variants": [
-                {
-                    "id": "default",
-                    "name": "Default",
-                    "game_config": {
-                        "width": 12,
-                        "height": 8,
-                        "max_ticks": 100,
-                        "tick_rate": 5,
-                        "players": [
-                            {"name": "Sweep Painter 1"},
-                            {"name": "Sweep Painter 2"},
-                        ],
-                    },
-                },
-                {
-                    "id": "small",
-                    "name": "Small",
-                    "game_config": {
-                        "width": 4,
-                        "height": 4,
-                        "max_ticks": 20,
-                        "tick_rate": 5,
-                        "players": [{"name": "A"}, {"name": "B"}],
-                    },
-                },
-            ],
+            "player_names": ["Sweep Painter 1", "Sweep Painter 2"],
+            "frames": [],
+            "results": {},
         }
     )
 

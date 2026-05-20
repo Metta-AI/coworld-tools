@@ -1,8 +1,10 @@
 """PaintArena summarizer reporter.
 
-Pure function of (results JSON, episode metadata JSON, manifest JSON) that
+Pure function of (results JSON, episode metadata JSON, replay JSON) that
 produces a JSON envelope with two artifacts: a Markdown summary and a JSON
-stats blob. See DESIGN.md for the full specification.
+stats blob. See DESIGN.md for the full specification. Grid dimensions come
+from the game-owned replay's `config` (per the reporter contract D11);
+PaintArena's replay format is defined by its game server in coworld.
 
 The inline primitives in this file (ReporterInputs, read_uri/write_uri,
 Envelope/Artifact) are SDK extraction candidates -- once a second reporter
@@ -28,8 +30,8 @@ from pydantic import BaseModel, NonNegativeInt, model_validator
 
 class ReporterInputs(BaseModel):
     results_uri: str
+    replay_uri: str
     episode_metadata_uri: str
-    manifest_uri: str
     report_output_uri: str
     reporter_id: str
 
@@ -37,8 +39,8 @@ class ReporterInputs(BaseModel):
 def load_reporter_inputs() -> ReporterInputs:
     return ReporterInputs(
         results_uri=os.environ["COGAME_RESULTS_URI"],
+        replay_uri=os.environ["COGAME_REPLAY_URI"],
         episode_metadata_uri=os.environ["COGAME_EPISODE_METADATA_URI"],
-        manifest_uri=os.environ["COGAME_MANIFEST_URI"],
         report_output_uri=os.environ["COGAME_REPORT_OUTPUT_URI"],
         reporter_id=os.environ["COGAME_REPORTER_ID"],
     )
@@ -145,18 +147,18 @@ class EpisodeMetadata(BaseModel):
     players: list[PlayerMetadata] = []
 
 
-class GameConfig(BaseModel):
+class ReplayConfig(BaseModel):
+    # Subset of the PaintArena replay's `config` dict that this reporter
+    # consumes. Other config fields (max_ticks, tick_rate, players, ...) are
+    # ignored. See packages/coworld/.../paintarena/game/server.py::_replay_payload.
     width: int
     height: int
 
 
-class Variant(BaseModel):
-    id: str
-    game_config: GameConfig
-
-
-class PartialManifest(BaseModel):
-    variants: list[Variant] = []
+class PaintArenaReplay(BaseModel):
+    # Subset of the PaintArena replay payload. Other top-level fields
+    # (player_names, frames, results) are ignored by this reporter.
+    config: ReplayConfig
 
 
 class SlotStats(BaseModel):
@@ -192,10 +194,10 @@ class PaintArenaStats(BaseModel):
 def build_stats(
     results: PaintArenaResults,
     metadata: EpisodeMetadata,
-    variant: Variant,
+    config: ReplayConfig,
 ) -> PaintArenaStats:
-    width = variant.game_config.width
-    height = variant.game_config.height
+    width = config.width
+    height = config.height
     total_tiles = width * height
 
     policy_by_slot = {p.slot: p.policy_name for p in metadata.players if p.policy_name}
@@ -286,12 +288,9 @@ def render_summary_markdown(stats: PaintArenaStats) -> str:
 def build_envelope(
     results: PaintArenaResults,
     metadata: EpisodeMetadata,
-    manifest: PartialManifest,
+    replay: PaintArenaReplay,
 ) -> Envelope:
-    variant = next((v for v in manifest.variants if v.id == metadata.variant_id), None)
-    if variant is None:
-        raise KeyError(f"variant_id {metadata.variant_id!r} not found in manifest.variants")
-    stats = build_stats(results, metadata, variant)
+    stats = build_stats(results, metadata, replay.config)
     return Envelope(
         version="1",
         artifacts=[
@@ -307,8 +306,8 @@ def build_envelope(
 def run(inputs: ReporterInputs) -> None:
     results = PaintArenaResults.model_validate(read_json(inputs.results_uri))
     metadata = EpisodeMetadata.model_validate(read_json(inputs.episode_metadata_uri))
-    manifest = PartialManifest.model_validate(read_json(inputs.manifest_uri))
-    envelope = build_envelope(results=results, metadata=metadata, manifest=manifest)
+    replay = PaintArenaReplay.model_validate(read_json(inputs.replay_uri))
+    envelope = build_envelope(results=results, metadata=metadata, replay=replay)
     write_uri(inputs.report_output_uri, envelope.to_json_bytes(), content_type="application/json")
     print(f"[{inputs.reporter_id}] wrote envelope to {inputs.report_output_uri}", file=sys.stderr, flush=True)
 
