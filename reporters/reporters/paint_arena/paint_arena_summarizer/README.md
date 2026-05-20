@@ -54,9 +54,12 @@ Both `file://` and `http(s)://` URIs are supported. HTTP requests retry on 429 a
 ## Building the image
 
 ```bash
-./build.sh                  # builds paint-arena-summarizer:latest
-IMAGE=ghcr.io/.../par:1 ./build.sh
+./build.sh                              # builds paint-arena-summarizer:latest for linux/amd64
+IMAGE=ghcr.io/.../par:1 ./build.sh      # override tag
+PLATFORM=linux/arm64 ./build.sh         # override platform (local-only; rejected by coworld upload)
 ```
+
+`build.sh` defaults to `--platform linux/amd64` because `coworld upload` requires amd64 (hosted episodes run on amd64) and would reject a host-arch build from Apple Silicon. On non-amd64 hosts the build and any subsequent `docker run` happen under emulation, which is slower but keeps the locally tested image byte-identical to the uploadable image.
 
 The Docker build context is `reporters/` (the directory containing `reporter_sdk/` and per-coworld trees), so the Dockerfile can `COPY` both the shared SDK and the reporter source from one context. The SDK is installed even though its public surface is currently empty — this reserves the import path for the imminent extraction.
 
