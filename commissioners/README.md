@@ -2,7 +2,7 @@
 
 Commissioner implementations for **coworlds** - containers and tooling that orchestrate tournament rounds, schedule episodes, carry round state, and return scoring or graduation decisions to the platform.
 
-> **Status:** repository scaffold only. Unlike grader and diagnoser, the coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
+> **Status:** repository scaffold only. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
 
 ## What is a coworld commissioner?
 
@@ -54,7 +54,7 @@ Each leaf commissioner directory follows the same placeholder shape:
 - `~/coding/metta/packages/coworld/` - coworld package: manifest schema, runner, certifier, and role types.
 - `~/coding/metta/packages/coworld/src/coworld/types.py` - source of truth for the `commissioner` manifest section.
 - `~/coding/metta/packages/coworld/src/coworld/commissioner/protocol.py` - canonical commissioner protocol.
-- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, grader, reporter, commissioner, diagnoser, and optimizer roles.
+- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, reporter, commissioner, diagnoser, and optimizer roles.
 - `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` - simplest reference coworld.
 
 ## Conventions for new commissioners
