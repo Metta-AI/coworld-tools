@@ -1,22 +1,24 @@
 # reporters
 
-Reporter implementations for **coworlds** — containers that consume a finished episode's artifacts (results, replay, logs, episode metadata) and produce a JSON envelope of analysis artifacts (summaries, stats, visualizations) for downstream surfacing in Observatory.
+Reporter implementations for **coworlds** — runnables that turn sparse episode experience (results, replays, logs, metadata, and game-authored context) into dense report artifacts for people, agents, and Observatory surfaces.
 
-> **Status:** v1 contract complete (see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md), decisions D1–D10). One concrete reporter implemented — [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — driving upcoming SDK and template extraction. Remaining reporter directories below are scaffolding.
+> **Status:** canonical Coworld role repo. One concrete reporter is implemented — [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — and the current envelope-style implementation details live in [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Remaining reporter directories below are scaffolding.
 
 ## What is a coworld reporter?
 
-A **coworld** is a Softmax v2 tournament unit: one game container + one or more player containers + a `coworld_manifest.json`. A **reporter** is an optional role declared in the manifest under `reporter: [...]` that runs after an episode completes successfully.
+A **coworld** is a Softmax v2 tournament unit: one game container + one or more player containers + a `coworld_manifest.json`. A **reporter** is an optional role declared in the manifest under `reporter: [...]` that runs after episode artifacts are available.
+
+A reporter compresses replay-level experience into a denser signal. That can be a narrative recap, commentary for surfaces like The Column, a highlight reel, an HTML or Markdown report, JSON stats, a Parquet/rich-data dump, or another artifact that helps humans and downstream agents understand what happened. Former "extractor" use cases belong here as structured-data reporters; Coworld does not have a separate canonical top-level extractor role.
 
 Each reporter is a process-style container that:
 
 1. Reads what it needs from env-supplied URIs (game results, replay, logs, episode metadata, and its own reporter id).
-2. Writes a single JSON envelope of `{id, content_type, content}` artifacts to its output URI.
+2. Writes its declared report artifact or artifact bundle to its output URI.
 3. Exits.
 
-The platform persists each envelope and exposes it through Observatory's API and frontend, plus through the `coworld` CLI.
+The platform persists reporter outputs and exposes them through Observatory's API and frontend, plus through the `coworld` CLI.
 
-Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Full v1 contract and decisions log: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
+Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Current envelope-style implementation notes and decisions log: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
 
 ## Repository layout
 
@@ -44,15 +46,15 @@ Each leaf reporter directory follows the same shape:
 
 | File | Purpose |
 | --- | --- |
-| `<reporter_name>.py` | Reporter entrypoint. Reads env-supplied input URIs, constructs an envelope, writes to `COGAME_REPORT_OUTPUT_URI`, exits 0. |
+| `<reporter_name>.py` | Reporter entrypoint. Reads env-supplied input URIs, writes the reporter output, exits 0. |
 | `build.sh` | Builds the reporter's Docker image. Each reporter is its own image; reporters do not share a build system. |
 | `README.md` | Reporter-specific docs — what artifacts it produces, expected `id`s, how to test locally, any external dependencies. |
 
-Reporters are **independent Docker images**, not a unified Python package — each leaf directory is the source root for one image. They do, however, share one **importable Python library**: [`reporters/reporter_sdk/`](reporters/reporter_sdk/), a pip-installable package providing envelope construction, env-supplied URI I/O, and contract-aligned types. Templates and concrete reporters depend on it so the v1 contract is encoded once rather than re-derived per reporter. Per-reporter `build.sh` scripts use `reporters/` as the Docker build context so both the SDK and the reporter source are reachable from a single `COPY` plane.
+Reporters are **independent Docker images**, not a unified Python package — each leaf directory is the source root for one image. They do, however, share one **importable Python library**: [`reporters/reporter_sdk/`](reporters/reporter_sdk/), a pip-installable package that currently provides envelope construction, env-supplied URI I/O, and contract-aligned types for envelope-style reporters. Templates and concrete reporters depend on it so shared reporter mechanics are encoded once rather than re-derived per reporter. Per-reporter `build.sh` scripts use `reporters/` as the Docker build context so both the SDK and the reporter source are reachable from a single `COPY` plane.
 
 The repo-root `pyproject.toml` is a workspace anchor for `uv` / `.venv` setup; it intentionally has no runtime code or dependencies of its own.
 
-## The v1 contract in one breath
+## Current envelope runtime
 
 From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 
@@ -69,7 +71,7 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 | `COGAME_REPORTER_ID` | This reporter's manifest `id` (plain string, not a URI) |
 | `COGAME_REPORT_OUTPUT_URI` | **Write target** for the JSON envelope |
 
-**Output.** A single JSON envelope written to `COGAME_REPORT_OUTPUT_URI`:
+**Output.** The implemented summarizer path writes a single JSON envelope to `COGAME_REPORT_OUTPUT_URI`:
 
 ```jsonc
 {
@@ -95,7 +97,7 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 }
 ```
 
-**First-class content types in v1:** `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). `text/html` is stored but never inline-rendered. Other content types are stored and downloadable but not inline-rendered. (D3)
+**Envelope content types:** `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). `text/html` is stored but never inline-rendered. Other content types are stored and downloadable but not inline-rendered. (D3)
 
 **Behavior contract.** Reporters are pure functions of their inputs — only side effect is writing the output URI; no external network calls beyond input/output URIs; no persistent state across runs. Determinism is strongly preferred but not required. (D1)
 
@@ -103,7 +105,7 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 
 **Failure handling.** Five failure codes (`start_failed`, `nonzero_exit`, `timeout`, `missing_output`, `invalid_envelope`). One retry on `timeout` only — never on other failure modes. Reporter status does not affect the runner's exit code; episode success and reporter status are orthogonal. (D8)
 
-For everything else — certification, Observatory API surface, CLI, naming, the deferred-ideas inventory — read [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
+For everything else about the current envelope runtime — certification, Observatory API surface, CLI, naming, and the deferred-ideas inventory — read [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
 
 ## Status of each component
 
@@ -144,12 +146,12 @@ The reporters in this repo target coworlds defined in the broader [`metta`](../m
 
 ## Conventions for new reporters
 
-Once implementations land, every reporter in this repo will share these v1 contract obligations (from [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md)):
+New reporters should start from the canonical Coworld role contract:
 
 - Read env-supplied URIs only; no other inputs.
-- Write exactly one valid envelope to `COGAME_REPORT_OUTPUT_URI` before exiting 0. Empty `artifacts: []` is a legal "ran successfully, nothing to surface" signal.
-- Be a pure function of inputs. No external API calls outside what's reachable via the supplied URIs.
+- Write the declared output artifact or artifact bundle before exiting 0.
+- Prefer pure functions of inputs. If a reporter needs richer external context, document that dependency in the reporter README and manifest.
 - Self-validate output internally if correctness matters (encouraged, not required).
-- Match the per-reporter README structure — what artifacts are produced, what their `id`s and content types are, any non-obvious dependencies.
+- Match the per-reporter README structure — what artifacts are produced, their content types or file layout, and any non-obvious dependencies.
 
 Detailed per-reporter author guidance will live in the eventual `REPORTER_RUNTIME_README.md` in the metta repo. This README points at the design; that one will point at the contract.
