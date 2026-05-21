@@ -70,7 +70,7 @@ The guidance worker reads it when constructing the LLM prompt.
    `MeetingFallbackTicksLeft` (100), navigate to the role-aware
    evidence/alibi fallback target and confirm.
 3. **Auto-vote delay** — if no LLM action has ever arrived and
-   `MeetingAutoVoteDelayTicks` (360) have elapsed, vote for the
+   `MeetingAutoVoteDelayTicks` (96) have elapsed, vote for the
    role-aware fallback target.
 4. **Process LLM action** — pop one action per tick from
    `meetPendingActions` and execute it.
@@ -204,7 +204,9 @@ hard witnessed venting, probabilistic near-vent appearances,
 distance-weighted near-body sightings, witnessed-kill counts, visible
 vote dots, and chat mentions by resolved player color, then subtracts
 solo-survival trust; if no score reaches `MeetingCrewEvidenceThreshold`, it
-votes SKIP.
+votes SKIP. The current threshold is intentionally low enough that one
+visible vote dot counts as actionable fallback evidence when the LLM path
+has not produced an action.
 
 The LLM prompt uses the same weighting direction but keeps the uncertainty
 visible in chat. A repeated `near_vent_appearance`,
@@ -232,14 +234,14 @@ For the no-LLM path (defaults-only, or LLM too slow).
 
 **Trigger:** `meetLastLlmActionTick < 0` (no LLM action has ever
 arrived this meeting) AND `ticksInMeeting >= MeetingAutoVoteDelayTicks`
-(360, ~15s).
+(96, ~4s).
 
 **Behavior:** same as fallback — navigate to `strategicFallbackVoteSlot`
 and confirm.
 
-**Purpose:** ensures the bot votes within 15s even without an LLM,
-rather than waiting the full meeting timer. More aggressive than the
-safety net but only activates in the absence of any LLM activity.
+**Purpose:** ensures the bot votes within 4s even without an LLM,
+rather than waiting until late in the meeting timer. More aggressive than
+the safety net but only activates in the absence of any LLM activity.
 
 ---
 
@@ -306,11 +308,11 @@ All live in `tuning.nim`:
 |---|---|---|
 | `MeetingFallbackTicksLeft` | 100 | Safety-net fires with ~4s remaining. |
 | `MeetingDurationEstimateTicks` | 600 | Conservative meeting length estimate (~25s). |
-| `MeetingAutoVoteDelayTicks` | 360 | No-LLM fallback: vote via evidence/alibi strategy after 15s. |
+| `MeetingAutoVoteDelayTicks` | 96 | No-LLM fallback: vote via evidence/alibi strategy after 4s. |
 | `MeetingCursorHoldTicks` | 3 | Ticks to hold each cursor pulse before releasing for the next step. |
 | `MeetingChatLineGapTicks` | 12 | Min ticks between chat packets. |
 | `MeetingLlmActionPeriodTicks` | 48 | Faster meeting cadence for speak/vote/confirm LLM actions. |
-| `MeetingCrewEvidenceThreshold` | 5 | Minimum fallback score before crew votes a player instead of SKIP. |
+| `MeetingCrewEvidenceThreshold` | 3 | Minimum fallback score before crew votes a player instead of SKIP. |
 | `MeetingBodyEvidenceRadius` | 48 | World-pixel radius for counting a player near a body. |
 | `MeetingBodyEvidenceMaxStrength` | 8 | Per-sighting near-body score at body-contact distance. |
 | `MeetingBodyEvidenceCooldownTicks` | 72 | Cooldown before counting the same near-body evidence again. |

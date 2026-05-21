@@ -867,10 +867,13 @@ proc decideNextMaskInner(bot: var Bot): uint8 =
 
     # kill_confirmed: flag set by the mode.
     if bot.modeScratch.huntKillConfirmed:
+      let targetColor = bot.modeScratch.huntLastKillTargetColor
+      let markedDead = recordConfirmedKill(bot.belief, targetColor)
       var payload = newJObject()
-      payload["target_color"] = newJInt(bot.modeScratch.huntLastKillTargetColor)
+      payload["target_color"] = newJInt(targetColor)
       payload["strike_position"] = %*[bot.modeScratch.huntStrikeTargetX,
                                       bot.modeScratch.huntStrikeTargetY]
+      payload["marked_dead"] = newJBool(markedDead)
       logGameEvent(bot.trace, "kill_confirmed", bot.belief.tick, $payload)
       bot.modeScratch.huntKillConfirmed = false
 

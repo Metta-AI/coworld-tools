@@ -194,8 +194,11 @@ On subsequent ticks after a strike (while `huntStrikeTick >= 0`):
     (`huntPreStrikeKillReady and not belief.percep.killReady`)
   - **Confirmed** when the cooldown resets: sets `huntKillConfirmed =
     true` (for trace), clears strike and target state, and enters the
-    post-kill alibi phase. A body near the strike point also sends the
-    bot into post-kill behavior, even if the cooldown edge was missed.
+    post-kill alibi phase. `bot.nim` consumes the confirmation to mark
+    the target colour dead in memory so later seeking does not re-target
+    the same victim if body detection lags or misses. A body near the
+    strike point also sends the bot into post-kill behavior, even if the
+    cooldown edge was missed.
   - **Waiting:** If not yet confirmed, returns `DisciplineKillStrike`
     aimed at the strike target position (stays close in case kill
     didn't land).
@@ -404,11 +407,12 @@ confirmation logic.
 
 ```json
 { "t": <tick>, "kind": "kill_confirmed",
-  "target_color": <int> }
+  "target_color": <int>,
+  "marked_dead": <bool> }
 ```
 
-The flag is consumed (reset to false) immediately after the trace
-event is emitted.
+The flag is consumed (reset to false) immediately after the target is
+marked dead in memory and the trace event is emitted.
 
 ---
 
@@ -479,6 +483,7 @@ waiting for kill confirmation" without reading raw mode scratch.
    post-kill plan before weakening the general body reflex.
 
 2. **Kill confirmation trace richness.** The `kill_confirmed` trace
-   event currently only emits `target_color`. Adding
+   event currently emits `target_color`, `strike_position`, and whether
+   belief memory marked the target dead. Adding
    `ticks_since_strike` and `body_distance` would aid offline analysis.
    Low priority.

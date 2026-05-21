@@ -111,6 +111,19 @@ proc main() =
   if inf.memory.perPlayer[6].role != RoleImposter:
     fail "failed-kill inference should mark memory role as imposter"
 
+  # Confirmed kills mark the target dead even before body detection catches up.
+  var killMem = initBelief()
+  killMem.self.role = RoleImposter
+  killMem.self.colorIndex = 4
+  if not recordConfirmedKill(killMem, 6):
+    fail "confirmed kill should mark a live target dead"
+  if killMem.memory.perPlayer[6].alive:
+    fail "confirmed kill target should no longer be alive"
+  if recordConfirmedKill(killMem, 4):
+    fail "confirmed kill should ignore self color"
+  if not killMem.memory.perPlayer[4].alive:
+    fail "confirmed kill should not mark self dead"
+
   echo "OK"
 
 when isMainModule:
