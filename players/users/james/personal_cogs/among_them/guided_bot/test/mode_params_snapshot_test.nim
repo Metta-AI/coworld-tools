@@ -10,6 +10,7 @@ import ../belief
 import ../mode_registry
 import ../snapshot
 import ../perception/data
+import ../tuning
 import ../modes/task_completing as taskMode
 import ../modes/pretending as pretendingMode
 import ../modes/hunting as huntingMode
@@ -40,6 +41,10 @@ proc gameplayBelief(role: BotRole): Belief =
   result.percep.killReady = false
   result.ensureTaskSlotsInitialized()
 
+proc completeExpectedCrewTasks(belief: var Belief) =
+  for i in 0 ..< min(CrewPostTaskCompleteCount, belief.tasks.slots.len):
+    belief.tasks.slots[i].state = TaskCompleted
+
 proc testTaskCompletingUsesIndexTarget() =
   var belief = gameplayBelief(RoleCrewmate)
   let targetIdx = min(3, referenceData.map.tasks.high)
@@ -58,6 +63,54 @@ proc testTaskCompletingUsesIndexTarget() =
   expect(intent.steerValid, "task_completing target emits movement")
   expectEq(intent.steerTo.x, ts.passableCX, "task_completing target x")
   expectEq(intent.steerTo.y, ts.passableCY, "task_completing target y")
+
+proc testTaskCompletingPostTaskShadowsCrewmate() =
+  var belief = gameplayBelief(RoleCrewmate)
+  belief.self.colorIndex = 0
+  belief.completeExpectedCrewTasks()
+  belief.percep.cameraX = 0
+  belief.percep.cameraY = 0
+  belief.percep.visibleCrewmates.add CrewmateMatch(
+    x: 120, y: 80, colorIndex: 2, flipH: false)
+  let params = ModeParams(
+    mode: ModeTaskCompleting,
+    tcTarget: TaskTarget(kind: TgtNearestMandatory, taskIndex: -1, roomId: -1),
+    tcAbandonOnNearbyBody: true)
+  var scratch: ModeScratch
+  taskMode.onEnter(belief, params, scratch)
+
+  let intent = taskMode.decide(belief, params, scratch)
+
+  expect(intent.steerValid, "post-task crew behavior emits movement")
+  expectEq(intent.steerTo.x, 122, "post-task crew shadows crewmate x")
+  expectEq(intent.steerTo.y, 88, "post-task crew shadows crewmate y")
+  expect(not intent.pressA, "post-task shadowing does not press emergency")
+  expectEq(scratch.tcLockedTaskIndex, -1,
+           "post-task crew behavior suppresses geometry fallback")
+
+proc testTaskCompletingPostTaskCallsButtonWithEvidence() =
+  var belief = gameplayBelief(RoleCrewmate)
+  belief.self.colorIndex = 0
+  belief.completeExpectedCrewTasks()
+  let button = referenceData.map.button
+  let buttonX = button.x + button.w div 2
+  let buttonY = button.y + button.h div 2
+  belief.percep.selfX = buttonX
+  belief.percep.selfY = buttonY
+  belief.memory.perPlayer[3].nearVentEvidenceScore = CrewButtonEvidenceThreshold
+  let params = ModeParams(
+    mode: ModeTaskCompleting,
+    tcTarget: TaskTarget(kind: TgtNearestMandatory, taskIndex: -1, roomId: -1),
+    tcAbandonOnNearbyBody: true)
+  var scratch: ModeScratch
+  taskMode.onEnter(belief, params, scratch)
+
+  let intent = taskMode.decide(belief, params, scratch)
+
+  expect(intent.steerValid, "post-task evidence button emits movement")
+  expectEq(intent.steerTo.x, buttonX, "post-task evidence button x")
+  expectEq(intent.steerTo.y, buttonY, "post-task evidence button y")
+  expect(intent.pressA, "post-task evidence presses emergency in range")
 
 proc testPretendingUsesIndexTarget() =
   var belief = gameplayBelief(RoleImposter)
@@ -178,6 +231,8 @@ proc testAllModesHaveLlmSummary() =
 
 proc main() =
   testTaskCompletingUsesIndexTarget()
+  testTaskCompletingPostTaskShadowsCrewmate()
+  testTaskCompletingPostTaskCallsButtonWithEvidence()
   testPretendingUsesIndexTarget()
   testHuntingCoverModeIdleDoesNotPatrol()
   testTaskBodyAbandonParamGatesReportReflex()

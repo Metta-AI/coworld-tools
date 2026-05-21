@@ -76,6 +76,9 @@ const
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
   TaskReEvalPeriodTicks*      = 24   ## After hysteresis, reconsider locked Navigate targets at most this often (~1s).
   TaskSwitchDistanceRatio*    = 0.5  ## Same-tier switch only when candidate distance is below this fraction of current distance.
+  CrewPostTaskCompleteCount*  = 8    ## Assigned crew task count; after this, stop weak geometry fallback wandering.
+  CrewButtonEvidenceThreshold* = 8   ## Suspicion score needed to call an emergency after own tasks are done.
+  CrewButtonRange*            = 20   ## World-px distance for pressing the cafeteria emergency button.
 
   # --- Idle-mode wander -----------------------------------------------
   IdleWanderPeriod*           = 36   ## Ticks per direction change in idle wander (~1.5s at 24Hz).

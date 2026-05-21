@@ -81,12 +81,18 @@ the reflex system already gates body→reporting on `not isGhost`.
 2. **Target validation** — if the locked target's belief state is
    `TaskCompleted` or `resolvedNotMine`, unlock immediately and fall
    through to selection.
-3. **Hysteresis** — if a target is locked and `TaskCommitTicks` (48)
+3. **Post-task crew behavior** — alive crewmates that have confirmed
+   `CrewPostTaskCompleteCount` (8) tasks and currently see no task
+   icons/radar evidence stop weak geometry fallback wandering. They
+   shadow a visible crewmate, move to the cafeteria button if alone,
+   and press the button only when existing memory evidence reaches
+   `CrewButtonEvidenceThreshold`.
+4. **Hysteresis** — if a target is locked and `TaskCommitTicks` (48)
    haven't elapsed since locking, keep the current target (prevents
    oscillation).
-4. **Target selection** — if no target is locked, run the 3-tier
+5. **Target selection** — if no target is locked, run the 3-tier
    priority system (§6) to pick one.
-5. **Phase dispatch** — execute the current phase (Navigate, Hold,
+6. **Phase dispatch** — execute the current phase (Navigate, Hold,
    or Confirm).
 
 ```text
@@ -239,56 +245,37 @@ Run every gameplay frame in `belief.nim`. For each station `i`:
 ### 5.4 Radar-ray exclusion (negative evidence from dot absence)
 
 In addition to icon-miss pruning (§5.2) which requires the task to be
-on-screen, the belief layer proactively excludes off-screen tasks using
-radar dot absence.
+on-screen, the belief layer can exclude off-screen tasks using radar-ray
+evidence.
 
-**Principle:** the server draws a yellow radar dot on the screen edge
-for every assigned off-screen task. If a task's projected dot position
-is far from ALL detected dots for multiple consecutive frames, the task
-cannot be assigned to us.
+**Principle:** the server draws a yellow radar dot on the screen edge for
+every assigned off-screen task. From the player's position, each detected
+dot defines a ray into the world. If no detected ray intersects a task's
+padded icon AABB, that off-screen task is not consistent with the current
+radar evidence.
 
-**Algorithm** (runs per-frame in `updateTaskState`, after the checkout
-pass):
+**Algorithm** (runs per-frame in `updateTaskState`, before checkout):
 
-1. Skip if: not localized, alive imposter, task on-screen, or fewer
-   than `RadarExclusionMinDots` (1) dots detected.
-2. Compute the task's projected dot position via `projectedRadarDot`
-   (ray-clip from player screen pos to icon screen pos, clipped to
-   viewport boundary).
-3. Find the nearest detected dot (Chebyshev distance).
-4. If nearest > `RadarExclusionDistance` (8 px): increment
-   `radarExclusionCount` (saturates at `RadarExclusionFrames`).
-5. If nearest ≤ threshold: reset counter to 0.
-6. When counter reaches `RadarExclusionFrames` (12): the task is
-   **soft-excluded** from tier-3 target selection. Unlike icon-miss,
-   this does NOT set `resolvedNotMine` — the exclusion is reversible.
-   The task re-enters tier-3 when the counter resets (bot moves, dot
-   aligns again). Tier-1 (icon) and tier-2 (checkout) ignore the
-   counter entirely.
+1. Skip if: not localized, alive imposter, task on-screen, or fewer than
+   `RadarRayMinPips` (1) dots detected.
+2. For each detected dot, cast a ray from the player's world position
+   through the dot direction.
+3. If no ray intersects the task's padded icon AABB
+   (`RadarRayIconPadding = 14`), set `radarRayExcluded = true` for this
+   frame.
+4. Tier-3 geometry selection skips tasks where `radarRayExcluded == true`.
+   Tier 1 icon evidence and tier 2 checkout latches ignore the flag.
 
-**Shielding:** not needed — soft exclusion does not permanently latch
-state; the counter naturally resets when evidence changes.
-
-**Resets:** counter resets on: round reset, checkout latch fires (dot
-matched), task comes on-screen, localization loss.
-
-**Why soft?** Radar-ray evidence is positional: from the bot's current
-location a task's direction doesn't match any dot. But as the bot moves
-angles change, and a previously-excluded task may align with a dot from
-a new position. Permanent exclusion causes deadlocks when the dot set
-shrinks (tasks completed → fewer dots → remaining tasks falsely excluded
-from earlier positions).
-
-**Parameters** (in `tuning.nim`):
-- `RadarExclusionDistance = 8` — 4× match tolerance; conservative.
-- `RadarExclusionFrames = 12` — ~0.5s at 24 Hz.
-- `RadarExclusionMinDots = 1` — safety: don't exclude with 0 dots.
+**Why per-frame?** Radar-ray evidence is positional and reversible. As the
+bot moves, a task that did not align with any dot from the previous
+position may align from the next one. The flag is therefore not a durable
+negative belief; only `resolvedNotMine` is durable.
 
 ### 5.5 Round reset
 
 On role-reveal interstitial: `resetTaskSlots` clears all slots to
 `TaskNotDoing`, clears `checkout`, `resolvedNotMine`, `iconMissCount`,
-and `radarExclusionCount`.
+and radar-ray transient state.
 
 ### 5.6 Mode-belief interaction
 
@@ -327,12 +314,33 @@ where `slots[i].checkout == true`, `state != TaskCompleted`, and
 but the icon isn't currently visible (station is off-screen).
 
 **Tier 3 — Unresolved stations** (`TierGeometry`). Stations where
-`state != TaskCompleted` and `not resolvedNotMine`. Pick the nearest.
-This is the weakest tier — the station might not be assigned to us.
+`state != TaskCompleted`, `not resolvedNotMine`, and
+`not radarRayExcluded`. Pick the nearest. This is the weakest tier —
+the station might not be assigned to us.
 
 All tiers skip `TaskCompleted` and `resolvedNotMine` stations.
 
-### 6.2 Target hysteresis and opportunistic switching
+### 6.2 Post-task crew behavior
+
+The map has 40 task stations, but a crewmate receives a smaller assigned
+set. Once the bot has confirmed `CrewPostTaskCompleteCount` (8) tasks,
+has no visible task icons, has no radar dots, and has no latched
+`TaskConfirmed`/`TaskCheckout` station, it suppresses the tier-3 geometry
+fallback. This keeps a finished alive crewmate from roaming to arbitrary
+unassigned stations and dying in low-traffic rooms.
+
+In this post-task state:
+
+- If any live non-self player has actionable memory evidence at or above
+  `CrewButtonEvidenceThreshold`, the bot navigates to the cafeteria
+  emergency button and presses A only within `CrewButtonRange`.
+- Otherwise, it shadows the closest visible non-self crewmate.
+- If no other crewmate is visible, it returns to the cafeteria button
+  without pressing A.
+
+Ghosts never use this branch; they keep completing tasks.
+
+### 6.3 Target hysteresis and opportunistic switching
 
 Once locked (`tcLockedTaskIndex >= 0`), the target is kept for at
 least `TaskCommitTicks` (48 ticks, ~2s). This prevents thrashing when
@@ -351,7 +359,7 @@ run this opportunistic re-selection.
 If the locked target becomes `TaskCompleted` or `resolvedNotMine`,
 the lock is broken immediately regardless of the commit window.
 
-### 6.3 LLM-directed targets
+### 6.4 LLM-directed targets
 
 When the LLM provides `tcTarget.kind == TgtIndex`, the mode locks that
 station directly (skipping tier selection) if the station is available.
@@ -485,12 +493,15 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 | `TaskIconMissResolveFrames` | 6 | Consecutive icon-absent frames for "not mine" pruning. |
 | `TaskClearScreenMargin` | 8 | Pixel margin for "icon area fully on-screen" check. |
 | `RadarMatchTolerance` | 2 | Chebyshev distance for radar-dot → station matching. |
-| `RadarExclusionDistance` | 8 | Chebyshev distance above which a projected dot counts absent. |
-| `RadarExclusionFrames` | 12 | Consecutive absent-dot frames before excluding a station. |
-| `RadarExclusionMinDots` | 1 | Minimum detected radar dots required before exclusion can run. |
+| `RadarRayIconPadding` | 14 | Half-extent of the padded task-icon AABB used by radar-ray exclusion. |
+| `RadarRayMinPips` | 1 | Minimum detected radar dots required before radar-ray exclusion can run. |
+| `PipDisappearGraceTicks` | 5 | Suppresses icon-miss counting briefly after radar pips disappear. |
 | `TaskCommitTicks` | 48 | Hysteresis: keep target for at least ~2s before reconsidering. |
 | `TaskReEvalPeriodTicks` | 24 | Minimum interval between post-hysteresis Navigate re-evaluations (~1s). |
 | `TaskSwitchDistanceRatio` | 0.5 | Same-tier switch threshold: candidate must be less than half the current distance. |
+| `CrewPostTaskCompleteCount` | 8 | Confirmed own-task count after which an alive crewmate stops weak geometry fallback wandering when task evidence is quiet. |
+| `CrewButtonEvidenceThreshold` | 8 | Suspicion score needed before a post-task crewmate calls an emergency meeting. |
+| `CrewButtonRange` | 20 | World-pixel range for pressing A on the cafeteria emergency button. |
 
 ---
 
@@ -584,8 +595,11 @@ task_completing {
 ```
 
 This makes the crewmate cycle through task stations using the 3-tier
-priority system. The LLM can override with a `TgtIndex` to direct the
-bot to a specific station, or switch to a different mode entirely.
+priority system while task evidence remains live. After eight confirmed
+task completions and no remaining icon/radar evidence, the same mode
+switches to the post-task crew behavior in §6.2. The LLM can override
+with a `TgtIndex` to direct the bot to a specific station, or switch to a
+different mode entirely.
 
 For ghosts, the same default with `tcAbandonOnNearbyBody: false`.
 
@@ -595,7 +609,8 @@ For ghosts, the same default with `tcAbandonOnNearbyBody: false`.
 
 The mode communicates with the action layer via three disciplines:
 
-- **`DisciplineNormal`** — used during the Navigate phase. The action
+- **`DisciplineNormal`** — used during the Navigate phase and post-task
+  crew movement. The action
   layer uses the waypoint graph and baked edge paths to reach
   `steerTo`. For ghosts, straight-line steering is used instead.
 - **`DisciplineTaskHold`** — used during the Hold phase. The action
@@ -604,9 +619,10 @@ The mode communicates with the action layer via three disciplines:
 - **`DisciplineNoOp`** — used during the Confirm phase. The action
   layer emits no buttons (the bot stands still and observes).
 
-The mode sets `pressA: true` during Hold but does not set it during
-Navigate or Confirm. The actual button press during Hold is handled
-by the action layer based on `DisciplineTaskHold`.
+The mode sets `pressA: true` during Hold via `DisciplineTaskHold`. It can
+also set `pressA: true` during post-task emergency-button behavior when
+the bot is in button range and has enough memory evidence. It does not
+set `pressA` during ordinary Navigate or Confirm.
 
 ---
 
@@ -628,8 +644,10 @@ The task state is included in LLM snapshots via `snapshot.nim`:
 
 The LLM sees per-station evidence state plus the active mode params and
 summary. For `task_completing`, `current_mode.summary` includes phase,
-directed target kind/index or room, locked task, selection tier, hold
-remaining, and confirm countdown where applicable. It also sees:
+directed target kind/index or room, locked task, selection tier, completed
+task count, live-task-evidence status, post-task-crew-behavior status,
+best emergency-button evidence score, hold remaining, and confirm
+countdown where applicable. It also sees:
 
 - `current_mode: { "name": "task_completing", "params": {...}, "summary": {...}, "source": "default" | "llm" | "reflex", "ticks_active": <int> }`
 - The full perception data (visible crewmates, bodies, task icons).
