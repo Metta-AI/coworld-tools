@@ -709,6 +709,17 @@ the aggregate-driven scoreboard**: phase 2 produces a useful HTML
 summary using results-JSON only, before the binary format work
 starts.
 
+> **Current status (2026-05-20):** phases 1–5 are landed on the
+> `among-them-summarizer-phase-1` branch (not yet on `main`), plus
+> one design-correction commit that removed the `likely_dead` and
+> meetings inferences described in §Frictions #4 and #5 and added
+> the explicit slot ↔ connection-order mapping (`SlotStats.join_order`,
+> `AmongThemStats.slot_to_join_order`, `join` event payload's
+> `player_index`). Validated end-to-end against two real
+> `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games.
+> Phases 6 (determinism + zip-contract tests), 7 (Dockerfile +
+> smoke), and 8 (README) remain.
+
 ### Phase 1 — Skeleton: I/O contract round-trip
 
 **Goal.** A reporter that loads its env URIs, reads no input content,

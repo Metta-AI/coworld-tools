@@ -2,7 +2,7 @@
 
 Reporter implementations for **coworlds** — runnables that turn sparse episode experience (results, replays, logs, metadata, and game-authored context) into dense report artifacts for people, agents, and Observatory surfaces.
 
-> **Status:** canonical Coworld role repo. Concrete summarizers exist for [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/). The current envelope-style implementation details live in [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Remaining reporter directories below are scaffolding.
+> **Status:** canonical Coworld role repo. Two concrete reporters are implemented under the D12 zip + `render.txt` contract: [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/) (phases 1–5 + design correction landed; phases 6–8 — determinism tests, Dockerfile/smoke, README expansion — deferred). The current v1 contract details live in [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) (decisions D1–D12). Remaining reporter directories listed in the status table below are scaffolding.
 
 ## What is a coworld reporter?
 
@@ -18,7 +18,7 @@ Each reporter is a process-style container that:
 
 The platform persists reporter outputs and exposes them through Observatory's API and frontend, plus through the `coworld` CLI.
 
-Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Current envelope-style implementation notes and decisions log: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
+Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Current v1 contract and decisions log: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
 
 ## Repository layout
 
@@ -28,9 +28,9 @@ reporters/
 ├── pyproject.toml                             # workspace anchor (see reporter_sdk for the shared library)
 ├── docs/
 │   ├── COWORLD_REFERENCE.md                   # coworld navigation guide
-│   └── REPORTER_DESIGN.md                     # v1 reporter design + D1–D10 decisions
+│   └── REPORTER_DESIGN.md                     # v1 reporter design + D1–D12 decisions
 └── reporters/                                 # reporter implementations + shared SDK
-    ├── reporter_sdk/                          # pip-installable shared library (envelope, I/O, types)
+    ├── reporter_sdk/                          # pip-installable shared library (zip writer, I/O, event-log schema, types)
     ├── templates/
     │   └── summarizer_template/               # starting point for new summarizer-style reporters
     ├── among_them/
@@ -50,13 +50,13 @@ Each leaf reporter directory follows the same shape:
 | `build.sh` | Builds the reporter's Docker image. Each reporter is its own image; reporters do not share a build system. |
 | `README.md` | Reporter-specific docs — what artifacts it produces, expected `id`s, how to test locally, any external dependencies. |
 
-Reporters are **independent Docker images**, not a unified Python package — each leaf directory is the source root for one image. They do, however, share one **importable Python library**: [`reporters/reporter_sdk/`](reporters/reporter_sdk/), a pip-installable package that currently provides envelope construction, env-supplied URI I/O, and contract-aligned types for envelope-style reporters. Templates and concrete reporters depend on it so shared reporter mechanics are encoded once rather than re-derived per reporter. Per-reporter `build.sh` scripts use `reporters/` as the Docker build context so both the SDK and the reporter source are reachable from a single `COPY` plane.
+Reporters are **independent Docker images**, not a unified Python package — each leaf directory is the source root for one image. They do, however, share one **importable Python library**: [`reporters/reporter_sdk/`](reporters/reporter_sdk/), a pip-installable package that will provide the zip-output writer, env-supplied URI I/O, the shared `(ts, player, key, value)` event-log schema, and contract-aligned types per D12. The SDK skeleton exists today but exports no real surface yet — those primitives are still inlined in `paint_arena_summarizer.py` and `among_them_summarizer.py`, where they'll be lifted from once the two reporters' shared shape is stable (see the "Build strategy" section). Per-reporter `build.sh` scripts use `reporters/` as the Docker build context so both the SDK and the reporter source are reachable from a single `COPY` plane.
 
 The repo-root `pyproject.toml` is a workspace anchor for `uv` / `.venv` setup; it intentionally has no runtime code or dependencies of its own.
 
-## Current envelope runtime
+## v1 reporter runtime
 
-From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
+From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) (decisions D1–D12; D3's JSON envelope was superseded by D12's single-zip output on 2026-05-20):
 
 **Trigger.** Per-episode, after the game and player containers exit successfully and artifacts validate (D1, D6).
 
@@ -69,52 +69,40 @@ From [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md):
 | `COGAME_LOG_URI` | Episode logs — optional, present iff the game wrote them |
 | `COGAME_EPISODE_METADATA_URI` | Platform-generated episode metadata JSON |
 | `COGAME_REPORTER_ID` | This reporter's manifest `id` (plain string, not a URI) |
-| `COGAME_REPORT_OUTPUT_URI` | **Write target** for the JSON envelope |
+| `COGAME_REPORT_OUTPUT_URI` | **Write target** for the output zip file |
 
-**Output.** The implemented summarizer path writes a single JSON envelope to `COGAME_REPORT_OUTPUT_URI`:
+**Output (D12).** Each reporter writes a single zip file to `COGAME_REPORT_OUTPUT_URI`. Content types are inferred from file extensions — no in-band metadata. An optional top-level `render.txt` lists, one zip-relative path per line, the files Observatory renders inline (in order). Renderable extensions in v1: `.md`, `.txt`, `.html` / `.htm`. Other extensions (`.png`, `.json`, `.parquet`, `.svg`, …) MUST NOT appear in `render.txt`; they live in the zip as downloads, referenced from rendered files via relative paths. Missing/empty `render.txt` = nothing inline. Empty zip = "ran successfully, nothing to surface" (valid output).
 
-```jsonc
-{
-  "version": "1",
-  "artifacts": [
-    {
-      "id": "summary",
-      "content_type": "text/markdown",
-      "content": "# Episode Summary\n\nSlot 0 won by ..."
-    },
-    {
-      "id": "stats",
-      "content_type": "application/json",
-      "content": { "scores": [42, 38], "ticks": 100, "winner_slot": 0 }
-    },
-    {
-      "id": "heatmap",
-      "content_type": "image/png",
-      "encoding": "base64",
-      "content": "iVBORw0KGgo..."
-    }
-  ]
-}
+Example (paint_arena's actual output):
+
+```
+report.zip
+├── summary.html        # rendered inline (listed in render.txt)
+├── stats.json          # download-only; referenced from HTML footer
+├── proximity.parquet   # download-only; per-tick event log
+└── render.txt          # single line: "summary.html\n"
 ```
 
-**Envelope content types:** `text/markdown`, `text/plain`, `application/json`, `image/png` (base64). `text/html` is stored but never inline-rendered. Other content types are stored and downloadable but not inline-rendered. (D3)
+**Determinism (D12).** Reporters that want byte-identical reruns over identical inputs MUST pin zip-entry mtimes (e.g. `ZipInfo.date_time = (1980, 1, 1, 0, 0, 0)`); Python's default `os.stat` mtimes would otherwise break the guarantee. Determinism is strongly preferred but not required (D1) — LLM-based reporters are permitted as long as purity holds.
 
-**Behavior contract.** Reporters are pure functions of their inputs — only side effect is writing the output URI; no external network calls beyond input/output URIs; no persistent state across runs. Determinism is strongly preferred but not required. (D1)
+**Behavior contract (D1).** Reporters are pure functions of their inputs — only side effect is writing the output URI; no external network calls beyond input/output URIs; no persistent state across runs.
 
-**Multi-reporter.** When a coworld declares multiple reporters, all run in parallel with isolated inputs/outputs/failures. Resource baseline per reporter: 2 CPU + 2 GiB memory. (D4)
+**Multi-reporter (D4).** When a coworld declares multiple reporters, all run in parallel with isolated inputs/outputs/failures. Resource baseline per reporter: 2 CPU + 2 GiB memory.
 
-**Failure handling.** Five failure codes (`start_failed`, `nonzero_exit`, `timeout`, `missing_output`, `invalid_envelope`). One retry on `timeout` only — never on other failure modes. Reporter status does not affect the runner's exit code; episode success and reporter status are orthogonal. (D8)
+**Failure handling (D8, D12).** Five failure codes (`start_failed`, `nonzero_exit`, `timeout`, `missing_output`, `invalid_output`). `invalid_output` covers unreadable zips, `render.txt` listing a missing file, and `render.txt` listing a file whose extension isn't in the renderable allowlist. One retry on `timeout` only — never on other failure modes. Reporter status does not affect the runner's exit code; episode success and reporter status are orthogonal.
 
-For everything else about the current envelope runtime — certification, Observatory API surface, CLI, naming, and the deferred-ideas inventory — read [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
+**Zip safety is the consumer's responsibility (D12).** Path traversal on extract, zip bombs, symlink entries, excessive file count, and large single-entry streaming are enforced by Observatory and the local runner — not by the reporter contract.
+
+For everything else — certification, Observatory API surface, CLI, naming, and the deferred-ideas inventory — read [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md).
 
 ## Status of each component
 
 | Component | Coworld | Kind | Status |
 | --- | --- | --- | --- |
-| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented** — first concrete reporter; tests passing; primitives inline, awaiting SDK extraction |
-| `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in `paint_arena_summarizer` |
-| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived from `paint_arena_summarizer` once the SDK is extracted |
-| `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented** — emits an HTML, Markdown, and JSON zip from episode results; replay-rich reporting is future work |
+| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented** — first concrete reporter; tests passing; D12 zip + `render.txt` contract; primitives inline, awaiting SDK extraction |
+| `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in `paint_arena_summarizer` and `among_them_summarizer` |
+| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived once the SDK is extracted from the two concrete reporters |
+| `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented (phases 1–5 + design correction)** — second concrete reporter; D12 zip + `render.txt` contract; full binary `.bitreplay` parser, input-stream analytics, HTML scoreboard with palette + sparkline; tests passing. Phases 6 (determinism tests) / 7 (Dockerfile + smoke) / 8 (README expansion) deferred. See [`reporters/among_them/among_them_summarizer/DESIGN.md`](reporters/among_them/among_them_summarizer/DESIGN.md). |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation |
 | `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation |
 
@@ -124,12 +112,12 @@ We are intentionally **not** building the SDK and `summarizer_template` first. T
 
 The new order is:
 
-1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with envelope construction, env-supplied URI I/O, and types all inline in the reporter. PaintArena is the right starting target: spec 0043 already uses `paintarena-reporter` as its worked example, the game has the smallest results schema in the reference coworlds (`scores`, `painted_tiles`, `ticks` — see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) for the broader contract), and the metta repo has a complete PaintArena example to point at. **Done.** See [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — implementation, Dockerfile, build script, and pytest suite covering the failure-mode table in `DESIGN.md`.
+1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with the deterministic zip writer, env-supplied URI I/O, the shared `(ts, player, key, value)` event-log schema, and contract-aligned types all inline in the reporter. PaintArena is the right starting target: spec 0043 already uses `paintarena-reporter` as its worked example, the game has the smallest results schema in the reference coworlds (`scores`, `painted_tiles`, `ticks` — see [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) for the broader contract), and the metta repo has a complete PaintArena example to point at. **Done.** See [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — implementation (originally on the D3 envelope shape; migrated to the D12 zip + `render.txt` shape in 2026-05-20), Dockerfile, build script, and pytest suite covering the failure-mode table in `DESIGN.md`.
 2. **Extract `reporter_sdk`** from the inline primitives in `paint_arena_summarizer` once they exist. The API is whatever turns out to actually be useful, not what we guessed in advance. The extraction candidates are explicitly listed in the reporter's `DESIGN.md` ("Inline primitives" section) and labelled in `paint_arena_summarizer.py`.
 3. **Extract `templates/summarizer_template`** from `paint_arena_summarizer` by stripping the PaintArena-specific bits. The "canonical summarizer shape" is whatever the concrete reporter ends up being once the SDK absorbs the reusable parts.
-4. **Build the second concrete summarizer** (likely `among_them/among_them_summarizer`) against the extracted SDK, using the template as the starting skeleton. Pain points uncovered in step 4 feed back into the SDK and template.
+4. **Build the second concrete summarizer.** `among_them/among_them_summarizer` is now in progress (phases 1–5 landed; phases 6–8 deferred). We **inverted the original step ordering** here: rather than extract the SDK first and write the second reporter against it, we wrote the second reporter inline as well — same primitive duplication as PaintArena — so that the SDK extraction has *two* real consumers driving its API rather than one. Pain points uncovered while writing reporter #2 feed back into the SDK and template in the still-pending step 2/3 extraction work.
 
-Cost of this order: the first reporter does not get to import polished helpers — it builds them inline. That is the point. The duplication and friction that surface when writing it are exactly the signal we need to know what belongs in the SDK.
+Cost of this order: the first two reporters do not get to import polished helpers — they build them inline, with literal copy-paste of the inline primitives (`ReporterInputs`, `read_uri`/`write_uri`, `write_deterministic_zip`, `EVENT_LOG_SCHEMA`, `write_events_parquet`) between them. That is the point. The duplication and friction that surface when writing them are exactly the signal we need to know what belongs in the SDK.
 
 ## Related metta repo locations
 
@@ -149,9 +137,10 @@ The reporters in this repo target coworlds defined in the broader [`metta`](../m
 New reporters should start from the canonical Coworld role contract:
 
 - Read env-supplied URIs only; no other inputs.
-- Write the declared output artifact or artifact bundle before exiting 0.
+- Write a single zip file to `COGAME_REPORT_OUTPUT_URI` before exiting 0; an empty zip is a valid output (D12).
+- If the zip should render anything inline, include a top-level `render.txt` listing the renderable files (one zip-relative path per line) — extensions must be in the D12 allowlist (`.md`, `.txt`, `.html` / `.htm`).
+- Pin zip-entry mtimes to a fixed value (e.g. `(1980, 1, 1, 0, 0, 0)`) if byte-identical reruns matter; without this, deterministic reporters still drift through `os.stat`-stamped mtimes.
 - Prefer pure functions of inputs. If a reporter needs richer external context, document that dependency in the reporter README and manifest.
-- Self-validate output internally if correctness matters (encouraged, not required).
-- Match the per-reporter README structure — what artifacts are produced, their content types or file layout, and any non-obvious dependencies.
+- Match the per-reporter README structure — what artifacts are produced, the zip layout, which files `render.txt` lists, and any non-obvious dependencies. [`reporters/paint_arena/paint_arena_summarizer/README.md`](reporters/paint_arena/paint_arena_summarizer/README.md) is the reference shape.
 
 Detailed per-reporter author guidance will live in the eventual `REPORTER_RUNTIME_README.md` in the metta repo. This README points at the design; that one will point at the contract.
