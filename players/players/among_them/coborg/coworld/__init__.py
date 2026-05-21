@@ -1,1 +1,1 @@
-"""Coworld integration for coborg_among_them: Docker image + player bridge."""
+"""Coworld integration for among_them_coborg: Docker image + player bridge."""

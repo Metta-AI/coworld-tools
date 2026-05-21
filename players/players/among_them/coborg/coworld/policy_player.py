@@ -42,7 +42,7 @@ from players.among_them.coborg.types import (
     AmongThemObservation,
 )
 
-LOGGER = logging.getLogger("coborg_among_them.coworld")
+LOGGER = logging.getLogger("among_them_coborg.coworld")
 
 
 async def run_player(engine_ws_url: str, *, slot: int = 0) -> None:
@@ -51,7 +51,7 @@ async def run_player(engine_ws_url: str, *, slot: int = 0) -> None:
     trace_sink = JsonStderrTraceSink()
     runtime = build_runtime(trace_sink=trace_sink)
     LOGGER.info(
-        "connecting coborg_among_them player to %s (slot=%s)", engine_ws_url, slot
+        "connecting among_them_coborg player to %s (slot=%s)", engine_ws_url, slot
     )
     frames_seen = 0
     try:
@@ -95,7 +95,7 @@ def _describe(message: Any) -> str:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="coborg_among_them BitWorld player bridge"
+        description="among_them_coborg BitWorld player bridge"
     )
     parser.add_argument(
         "--url",

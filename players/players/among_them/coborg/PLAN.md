@@ -1,4 +1,4 @@
-# coborg_among_them — Implementation Plan
+# among-them-coborg — Implementation Plan
 
 Status: P0 scaffold landed; P1 (perception port) is next.
 Created: 2026-05-13.
@@ -20,10 +20,9 @@ session to pick up cold.
 
 ## 1. Mission
 
-Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
+Build a new BitWorld Among Them agent named **`among-them-coborg`** that:
 
-1. Lives in `~/coding/players/` at
-   `players/among_them/coborg/`
+1. Lives in this repo at `players/among_them/coborg/`
    — a **sibling** of the existing scripted `among_them/` package, not
    nested inside it. Nesting was tried briefly during P0 scaffolding and
    abandoned because importing any submodule transitively loaded
@@ -37,8 +36,8 @@ Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
    coborg runtime client.
 3. Runs **completely in Python** — no Nim toolchain in the runtime image, no
    `.so` produced from Nim. The Nim perception modules in
-   `~/coding/personal_cogs/among_them/{common,guided_bot}/perception*/` must
-   be **ported to Python** with high efficiency.
+   `users/james/personal_cogs/among_them/{common,guided_bot}/perception*/`
+   (in this repo) must be **ported to Python** with high efficiency.
 4. Perception is **pixel-first**: parse the BitWorld 128×128 4-bit packed frame,
    not just the structured state vector. Hybrid (using the state vector for
    things that are lossy from pixels, e.g. task progress) is acceptable and
@@ -52,8 +51,8 @@ Build a new BitWorld Among Them agent named **`coborg_among_them`** that:
 8. Scope-capped at **P4 Imposter** (deterministic role-aware agent). LLM
    strategy is explicitly deferred to a follow-on plan.
 9. Is a **parallel experiment**. The existing `guided_bot` in
-   `~/coding/personal_cogs/among_them/guided_bot/` remains the production
-   Daily-league submission throughout.
+   `users/james/personal_cogs/among_them/guided_bot/` (in this repo)
+   remains the production Daily-league submission throughout.
 
 ---
 
@@ -63,7 +62,7 @@ From the conversation that produced this plan:
 
 | # | Decision | Source |
 |---|---|---|
-| D1 | Name is `coborg_among_them`; lives as a sibling of the scripted `among_them/` package (briefly nested during P0, then moved out because importing any submodule transitively loaded the parent's eager `mettagrid` import — a heavy coupling we did not want on the noop bot path). | James, 2026-05-13. |
+| D1 | Agent name is `among-them-coborg` (the coplayer manifest `name` field, also the Docker tag `coborg-among-them:dev`). Python package is `players.among_them.coborg`. The leaf directory `players/among_them/coborg/` is a sibling of the scripted `among_them/` package (briefly nested during P0, then moved out because importing any submodule transitively loaded the parent's eager `mettagrid` import — a heavy coupling we did not want on the noop bot path). | James, 2026-05-13 (name); 2026-05-21 (canonicalized to `among-them-coborg`). |
 | D2 | Perception is pixel-first, ported from the Nim modules. | James, 2026-05-13. |
 | D3 | All logs/traces go to stderr. | James, 2026-05-13. |
 | D4 | Local execution uses Coworld-first CLI flow (no Nim server scripts). | James, 2026-05-13. |
@@ -82,18 +81,25 @@ session should proceed under them unless James says otherwise.
 
 ### 3.0 Repo roles at a glance
 
-- **`~/coding/players/`** — this repo. Hosts the coborg framework and
-  all Python agent policies, including this new agent.
+- **this repo** (checked out at `~/coding/players_checkouts/players_main/`
+  on James's machine; remote `Metta-AI/players`). Hosts the Coworld
+  Player SDK (`players/player_sdk/`), every Python agent policy including
+  this new agent (`players/among_them/coborg/`), and the in-repo home of
+  the production `guided_bot` and its supporting Nim perception kernels
+  under `users/james/personal_cogs/among_them/`.
 - **`~/coding/bitworld/`** — the **BitWorld game implementation** itself
   (Nim). `~/coding/bitworld/among_them/` is the Among Them game: server,
   Skeld map, sprite atlas, manifest, native player bots in `players/` and
   `bot-policies/`, replay viewer. Source of truth for game constants
-  (`cogame_manifest.json`, `coworld_manifest.json`, `config.json`).
-- **`~/coding/personal_cogs/among_them/`** — the **`guided_bot` production
-  Daily-league submission**. This is the hybrid Python+Nim bot whose
-  perception stack and policy bridge we are porting to Python + coborg.
-  Includes `common/perception_kernels/` (shared Nim kernels) and
-  `guided_bot/perception/` (bot-specific Nim perception).
+  (`coworld_manifest.json`, `config.json`).
+- **`users/james/personal_cogs/among_them/`** (in this repo) — the
+  **`guided_bot` production Daily-league submission**. This is the
+  hybrid Python+Nim bot whose perception stack and policy bridge we are
+  porting to Python + coborg. Includes `common/perception_kernels/`
+  (shared Nim kernels) and `guided_bot/perception/` (bot-specific Nim
+  perception). Was previously a sibling repo at `~/coding/personal_cogs/`
+  before being absorbed into this monorepo; treat the in-repo copy as the
+  source of truth.
 - **`~/coding/metta/`** — Metta-AI/metta. Hosts the **Coworld tournament
   runner** under `packages/coworld/`, including the `coworld` CLI we use
   for local play and the WebSocket protocol the agent must speak.
@@ -101,18 +107,23 @@ session should proceed under them unless James says otherwise.
 ### 3.1 Coworld Player SDK — the runtime we're using
 
 - Package: `players.player_sdk`
-- Source dir: `~/coding/players/players/player_sdk/`
+- Source dir: `players/player_sdk/` (this repo)
 - Key files:
   - `__init__.py` — public re-exports (read first; this is the API surface).
   - `runtime.py` — `AgentRuntime`, `Reflex`, `ReflexRule`, `RuntimeContext`.
   - `modes.py` — `Mode`, `ModeRegistry`, `DirectiveValidationError`.
-  - `strategy.py` — `Strategy`, `Synchronous/Threaded/Async/ManualStrategyRunner`.
-  - `types.py` — `ModeParams`, `ModeDirective`, `SharedMemory`,
-    `BeliefSnapshot`, `ModeDecision`, `ActionIntent`, `ActionCommand`,
-    `StrategyResult`, `EmptyModeParams`.
-  - `trace.py` — `TraceEvent`, `TraceSink`, `MetricsSink` and concrete
-    `Null/List/Logging/Wandb` adapters.
+  - `strategy.py` — `Strategy`, `AsyncStrategy`, `StrategyRunner` and the
+    concrete `Manual/Synchronous/Threaded/AsyncStrategyRunner` variants.
+  - `types.py` — `ModeParams`, `EmptyModeParams`, `ModeDirective`,
+    `SharedMemory`, `SharedMemoryView`, `ActionIntent`, `ActionCommand`,
+    `StrategyResult`, `ModeDecision`, `BeliefSnapshot`.
+  - `trace.py` — `TraceEvent`, `TraceSink`, `MetricsSink`, `MetricSample`,
+    and concrete `Null/List/Logging` trace+metrics sinks plus
+    `WandbMetricsSink` (metrics-only; no `WandbTraceSink`).
   - `buffers.py` — `OverwriteBuffer` (newest-wins).
+  - `coworld_json_bridge.py` — JSON `coworld.player.v1` adapter used by
+    cogsguard-family players. **Not used by this agent** — Among Them
+    speaks the binary `bitscreen_v1` wire protocol; see `coworld/README.md`.
 - Docs:
   - `docs/metta_cogames_framework/README.md` — full architecture reference
     (read sections "Inner Loop Contract", "Mode Completion And Stalling",
@@ -124,7 +135,7 @@ session should proceed under them unless James says otherwise.
 
 ### 3.2 Existing Among Them prior art (read for state shapes and parsers)
 
-In `~/coding/players/`:
+In this repo:
 
 - `players/among_them/scripted/__init__.py` —
   Softmax's `BitWorldAmongThemScoutPolicy` / `BitWorldAmongThemCyborgPolicy`,
@@ -138,10 +149,10 @@ In `~/coding/players/`:
 
 In `~/coding/bitworld/among_them/` (game implementation, Nim):
 
-- `cogame_manifest.json`, `coworld_manifest.json`, `config.json` — **source
-  of truth for game constants** (player count, imposter count, tasks per
-  player, kill range, vote timer, etc.). Inspect these at P0; if numbers
-  drift from what's in §3.4 below, the manifest wins.
+- `coworld_manifest.json`, `config.json` — **source of truth for game
+  constants** (player count, imposter count, tasks per player, kill
+  range, vote timer, etc.). Inspect these at P0; if numbers drift from
+  what's in §3.4 below, the manifest wins.
 - `among_them.nim`, `server.nim`, `sim.nim` — game server / simulation.
   Skim only as needed to understand observation framing.
 - `players/` — native player bots (Nim, compiled to `.dylib` and wrapped
@@ -151,26 +162,36 @@ In `~/coding/bitworld/among_them/` (game implementation, Nim):
   (Nim bot ↔ LLM) — reference for the LLM-bounded pattern, not used by
   this agent.
 
-In `~/coding/personal_cogs/among_them/` (the guided_bot we're porting from):
+In `users/james/personal_cogs/among_them/` (the guided_bot we're porting
+from; in this repo):
 
-- `README.md` — game constants, Coworld submission flow notes (some of it
-  references the legacy Docker-image flow; we want the new Coworld-first
-  flow per §6 below).
+- `README.md` — current Coworld-only workspace boundary notes for the
+  guided_bot. Does **not** carry the game constants (those live in the
+  bitworld manifest above).
 - `guided_bot/README.md` and `guided_bot/DESIGN.md` — the current hybrid
   Python+Nim production bot. Read DESIGN.md for the mode list, reflex list,
   belief structure, and trace schema we'll mirror.
 - `guided_bot/coworld/policy_player.py` — the existing `bitscreen_v1`
   binary protocol bridge (Python; talks WebSocket to the Coworld runner).
-  This is the closest analog to what `coborg_among_them/coworld/policy_player.py`
-  must do, minus the Nim FFI glue and minus the modulabot-era hybrid.
+  This is the closest analog to what
+  `players/among_them/coborg/coworld/policy_player.py` must do, minus the
+  Nim FFI glue.
 - `guided_bot/perception.nim` and `guided_bot/perception/*.nim` — the
   bot-specific perception modules to port (see §5).
 - `common/perception_kernels/*.nim` — the shared perception kernels
   (sprite_match, actors, localize, ocr) to port (see §5).
-- `guided_bot/perception/baked/` — pre-baked sprite atlas data. Needs a
-  one-shot extractor script that emits numpy `.npz`. Check it in.
-- `scripts/capture.py` — existing tool that captures BitWorld frames to
-  `.npy`. Useful for building the parity fixture set.
+- `guided_bot/perception/baked/` — pre-baked sprite atlas data
+  (`palette.bin`, `sprites.bin`, `map_pixels.bin`, `walk_mask.bin`,
+  `wall_mask.bin`, `font.bin`, `map.json`, `manifest.json`,
+  `nav_graph.json`, `nav_paths.bin`). Re-bakeable via
+  `guided_bot/tools/bake_assets.{nim,sh}` from the upstream bitworld
+  checkout; the in-repo result is checked in.
+- `guided_bot/tools/` — offline developer utilities (`bake_assets`,
+  `bake_nav.py`, `frame_viewer.py`, `frame_to_text.py`,
+  `waypoint_editor.py`). **No frame-capture utility exists today**;
+  P1 will either add one (instrumenting `guided_bot` to dump
+  per-tick packed frames + percept sidecars) or replay recorded
+  Coworld sessions. See §5.4 and §11 item 3.
 
 ### 3.3 Coworld toolchain (how we run it locally)
 
@@ -195,10 +216,13 @@ In `~/coding/personal_cogs/among_them/` (the guided_bot we're porting from):
 
 ### 3.4 Game constants reference
 
-From `~/coding/personal_cogs/among_them/README.md`:
+Approximate defaults to seed the design — the downloaded
+`coworld_manifest.json` and `~/coding/bitworld/among_them/config.json`
+are the source of truth and override anything below:
 
 - Screen: 128×128, 4-bit indexed palette (PICO-8).
-- Players: 8 (2 imposters by default).
+- Players: 8 (2 imposters by default; `imposterCount: 2` in the
+  bitworld manifest).
 - Tasks per player: 8.
 - Vote timer: 600 ticks.
 - Imposter kill cooldown: 1200 ticks.
@@ -216,7 +240,7 @@ Rooted at
 `players/among_them/coborg/`:
 
 ```
-coborg_among_them/
+coborg/
   PLAN.md                           # this file
   README.md                         # what/why/status, written in P0
   DESIGN.md                         # architecture, decisions, tradeoffs, written in P0
@@ -360,9 +384,14 @@ inputs/outputs, no API change.
 
 This is what makes the port credible.
 
-1. **Capture**: Use `~/coding/personal_cogs/among_them/scripts/capture.py`
-   (or wrap it from `perception/parity/capture_fixtures.py`) to record
-   ~50–100 frames from a `guided_bot` run, intentionally spanning all
+1. **Capture**: No frame-capture utility ships today (the previous plan
+   referenced a `scripts/capture.py` that does not exist in this repo).
+   At P1, land a `perception/parity/capture_fixtures.py` that either
+   (a) instruments `users/james/personal_cogs/among_them/guided_bot/`
+   to dump per-tick packed frames + structured state vector + Nim
+   percept JSON sidecars during a normal `coworld play` run, or
+   (b) replays a recorded Coworld session (the runner already supports
+   `replay`). Aim for ~50–100 frames intentionally spanning all
    gameplay phases: lobby, playing, body-sighted, meeting, voting,
    role-reveal, interstitial. Save the packed 128×128 frame plus the
    structured state vector.
@@ -550,8 +579,8 @@ from §3.4, prefer the manifest values.
   post-run.
 - **Stdout is reserved for protocol traffic.** Audit dependencies for
   rogue `print()` calls in P0; if any show up, redirect or replace.
-- Trace event names follow the Cyborg framework canonical set as actually
-  emitted by `players.player_sdk`: `perception`, `belief_updated`,
+- Trace event names follow the Coworld Player SDK canonical set as
+  actually emitted by `players.player_sdk`: `perception`, `belief_updated`,
   `mode_entered`, `mode_exited`, `mode_completed`, `mode_stalled`,
   `reflex_evaluated`, `reflex_fired`, `action_intent`, `act_command`,
   `snapshot_submitted`, `strategy_evaluated`, `strategy_inferences`,
@@ -613,10 +642,14 @@ from §3.4, prefer the manifest values.
      `~/.nimby/pkgs/<name>/` missing `.git`, re-run sync). If it still
      fails, surface to James before writing any code.
 2. **Land P0 scaffold.** Mirror §4 layout. Get the noop agent through a full `coworld play` run with stderr traces visible. Don't move on until §6 P0 done-criteria are all green.
-3. **Capture parity fixtures from current `guided_bot`.** Use
-   `~/coding/personal_cogs/among_them/scripts/capture.py` and instrument
-   `guided_bot`'s perception to emit per-frame JSON sidecars. Aim for
-   50–100 frames spanning all phases. Check fixtures into
+3. **Capture parity fixtures from current `guided_bot`.** No
+   ready-made capture utility exists; land
+   `perception/parity/capture_fixtures.py` first (see §5.4 step 1)
+   that either instruments
+   `users/james/personal_cogs/among_them/guided_bot/` to dump per-tick
+   packed frames + Nim percept JSON sidecars during a `coworld play`
+   run, or replays a recorded Coworld session. Aim for 50–100 frames
+   spanning all phases. Check fixtures into
    `perception/parity/fixtures/`.
 4. **Start the perception port at `frame.py` then `sprite_match.py`.** Get
    parity-green on actor matches first; that proves the spine of the
@@ -649,13 +682,14 @@ These were drafted in the plan but not explicitly confirmed:
 - **User**: James Boggs (jmsboggs@gmail.com).
 - **Active production bot is `guided_bot`**, not this one. Do not modify
   guided_bot or its submission flow unless James explicitly says so.
-- **The modulabot directory in personal_cogs is deprecated** and must not
-  be touched.
-- **The Cyborg framework has no other concrete game agents yet.** This bot
-  is the framework's first real client; treat the framework's docs
-  (especially the "Design Invariants" and "Anti-Patterns" sections of
+- **The Coworld Player SDK has no other concrete game agents yet.** This
+  bot is the SDK's first real client; treat the SDK docs (especially the
+  "Design Invariants" and "Anti-Patterns" sections of
   `players/player_sdk/docs/metta_cogames_framework/README.md`) as
-  non-negotiable.
+  non-negotiable. Those docs still use "Cyborg framework" as the
+  architecture name; the package was renamed to `players.player_sdk` /
+  "Coworld Player SDK" but the underlying two-loop architecture name
+  is retained there.
 - **Stdout = protocol, stderr = logs.** Audit deps for stray `print()`
   during P0.
 - **One Docker image fills all 8 player slots** in `coworld play`.
@@ -669,21 +703,24 @@ These were drafted in the plan but not explicitly confirmed:
 
 ## 14. Pointer summary (cheat-sheet)
 
+Paths without a leading `~/` or `/` are relative to this repo root
+(`~/coding/players_checkouts/players_main/` on James's machine).
+
 | Need | Path |
 |---|---|
-| Player SDK framework code | `~/coding/players/players/player_sdk/` |
-| Player SDK framework docs | `…/player_sdk/docs/metta_cogames_framework/README.md` |
-| Player SDK toy example | `…/player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
-| Existing scripted Among Them (state-vector reference) | `~/coding/players/players/among_them/scripted/__init__.py` |
+| Player SDK framework code | `players/player_sdk/` |
+| Player SDK framework docs | `players/player_sdk/docs/metta_cogames_framework/README.md` |
+| Player SDK toy example | `players/player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
+| Existing scripted Among Them (state-vector reference) | `players/among_them/scripted/__init__.py` |
 | BitWorld Among Them game source (Nim) | `~/coding/bitworld/among_them/` |
-| Game constants (source of truth) | `~/coding/bitworld/among_them/{cogame,coworld}_manifest.json`, `config.json` |
+| Game constants (source of truth) | `~/coding/bitworld/among_them/coworld_manifest.json`, `~/coding/bitworld/among_them/config.json` |
 | Native player bots (reference only) | `~/coding/bitworld/among_them/players/` |
-| Current production bot (do NOT modify; port source) | `~/coding/personal_cogs/among_them/guided_bot/` |
-| Nim perception (shared kernels; port source) | `~/coding/personal_cogs/among_them/common/perception_kernels/` |
-| Nim perception (bot-specific; port source) | `~/coding/personal_cogs/among_them/guided_bot/perception/` |
-| Existing coworld player bridge to mirror | `~/coding/personal_cogs/among_them/guided_bot/coworld/policy_player.py` |
-| Frame capture script | `~/coding/personal_cogs/among_them/scripts/capture.py` |
+| Current production bot (do NOT modify; port source) | `users/james/personal_cogs/among_them/guided_bot/` |
+| Nim perception (shared kernels; port source) | `users/james/personal_cogs/among_them/common/perception_kernels/` |
+| Nim perception (bot-specific; port source) | `users/james/personal_cogs/among_them/guided_bot/perception/` |
+| Existing coworld player bridge to mirror | `users/james/personal_cogs/among_them/guided_bot/coworld/policy_player.py` |
+| Frame capture script | _(not yet implemented; see §5.4 step 1 and §11 item 3)_ |
 | Coworld CLI source | `~/coding/metta/packages/coworld/src/coworld/cli.py` |
 | Coworld play source | `~/coding/metta/packages/coworld/src/coworld/play.py` |
 | Coworld runner (protocol authority) | `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` |
-| This plan | `~/coding/players/players/among_them/coborg/PLAN.md` |
+| This plan | `players/among_them/coborg/PLAN.md` |

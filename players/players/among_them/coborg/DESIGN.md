@@ -1,4 +1,4 @@
-# coborg_among_them — Design
+# among-them-coborg — Design
 
 Durable architecture notes for the coborg-based BitWorld Among Them agent.
 This document captures decisions, contracts, and invariants that should
@@ -37,7 +37,7 @@ short-term todos.
 
 ### Inner-loop vs strategy-loop split
 
-The Cyborg framework's [inner-loop contract][coborg-readme] is non-negotiable:
+The Coworld Player SDK's [inner-loop contract][coborg-readme] is non-negotiable:
 
 - Perception, belief update, mode decision, and action resolution all run on
   every tick, deterministically, never blocking on outer-loop computation.
@@ -144,7 +144,9 @@ to source from the structured state vector than from pixels (e.g.
 
 ## 7. Trace event vocabulary
 
-Inherited from the Cyborg framework canonical set:
+Inherited from the Coworld Player SDK canonical set (still labelled
+"Cyborg framework" in the underlying architecture docs at
+`players/player_sdk/docs/metta_cogames_framework/`):
 
 `perception`, `belief_updated`, `mode_entered`, `mode_exited`,
 `mode_completed`, `mode_stalled`, `reflex_evaluated`, `reflex_fired`,

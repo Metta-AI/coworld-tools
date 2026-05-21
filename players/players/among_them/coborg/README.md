@@ -1,8 +1,10 @@
-# coborg_among_them
+# among-them-coborg
 
 A pure-Python Among Them agent built on the
-[`players.player_sdk`](../../player_sdk/) two-loop Cyborg runtime (the
-Coworld Player SDK). This is the SDK's **first concrete in-repo game client**.
+[`players.player_sdk`](../../player_sdk/) — the **Coworld Player SDK**,
+a two-loop runtime (fast symbolic inner loop + slower outer strategy
+loop; architecture historically called "Cyborg"). This is the SDK's
+**first concrete in-repo game client**.
 
 > **Status (2026-05-19)**: **P0 scaffold landed.** Idle/noop agent wired
 > end-to-end through the BitWorld `bitscreen_v1` WebSocket bridge; 17 tests
@@ -15,12 +17,13 @@ Coworld Player SDK). This is the SDK's **first concrete in-repo game client**.
 
 ## What this is
 
-`coborg_among_them` is a new BitWorld Among Them agent that:
+`among-them-coborg` is a new BitWorld Among Them agent that:
 
 - Runs **completely in Python** — no Nim toolchain in the runtime image, no
   `.so` produced from Nim. The Nim perception stack (~3.5k lines across
-  `personal_cogs/among_them/{common,guided_bot}/perception*/`) is being
-  **ported to numpy** in P1, with parity tests against the Nim ground truth.
+  `users/james/personal_cogs/among_them/{common,guided_bot}/perception*/`)
+  is being **ported to numpy** in P1, with parity tests against the Nim
+  ground truth.
 - Is **pixel-first**: parses BitWorld's 128×128 4-bit packed frame directly.
   A small, documented set of belief fields may be sourced from the structured
   state vector when pixels would be lossy (see PLAN §10 R5, D9).
@@ -33,8 +36,8 @@ Coworld Player SDK). This is the SDK's **first concrete in-repo game client**.
   explicitly deferred to a follow-on plan (PLAN §6 "Out of scope").
 
 This is a **parallel experiment**. The production Daily-league submission
-remains `guided_bot` in `~/coding/personal_cogs/among_them/guided_bot/`,
-which is not modified by this work (PLAN D7).
+remains `guided_bot` in `users/james/personal_cogs/among_them/guided_bot/`
+(in this repo), which is not modified by this work (PLAN D7).
 
 ## How it differs from the other Among Them players in this repo
 
@@ -52,7 +55,7 @@ The `players/among_them/` tree currently holds three Among Them players:
 - `coborg/` (this package) — Python coborg agent. See table below for how
   it compares to the scripted policy above:
 
-| | Scripted `among_them` | `coborg_among_them` (this package) |
+| | Scripted `among_them` | `among-them-coborg` (this package) |
 |---|---|---|
 | Architecture | flat `AgentPolicy.act()` | coborg two-loop (inner + strategy) |
 | Perception | state vector | 128×128 pixel frame (numpy) |
@@ -170,10 +173,10 @@ is for cogsguard-style JSON players.
 | Player SDK toy example (assembly pattern to mirror) | `../../player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
 | Existing scripted Among Them (state-vector reference) | [`../scripted/__init__.py`](../scripted/__init__.py) |
 | Nim starter player (sibling leaf) | [`../starter/README.md`](../starter/README.md) |
-| Current production bot (do **not** modify) | `~/coding/personal_cogs/among_them/guided_bot/` |
-| Nim perception — shared kernels (port source) | `~/coding/personal_cogs/among_them/common/perception_kernels/` |
-| Nim perception — bot-specific (port source) | `~/coding/personal_cogs/among_them/guided_bot/perception/` |
-| Coworld player bridge to mirror | `~/coding/personal_cogs/among_them/guided_bot/coworld/policy_player.py` |
+| Current production bot (do **not** modify) | [`../../../users/james/personal_cogs/among_them/guided_bot/`](../../../users/james/personal_cogs/among_them/guided_bot/) |
+| Nim perception — shared kernels (port source) | [`../../../users/james/personal_cogs/among_them/common/perception_kernels/`](../../../users/james/personal_cogs/among_them/common/perception_kernels/) |
+| Nim perception — bot-specific (port source) | [`../../../users/james/personal_cogs/among_them/guided_bot/perception/`](../../../users/james/personal_cogs/among_them/guided_bot/perception/) |
+| Coworld player bridge to mirror | [`../../../users/james/personal_cogs/among_them/guided_bot/coworld/policy_player.py`](../../../users/james/personal_cogs/among_them/guided_bot/coworld/policy_player.py) |
 | Coworld runner (protocol authority) | `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` |
 | BitWorld Among Them game source (Nim) | `~/coding/bitworld/among_them/` |
 | Coworld manifest (game constants) | `~/coding/bitworld/among_them/coworld_manifest.json` |
