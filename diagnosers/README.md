@@ -2,7 +2,7 @@
 
 Diagnoser implementations for **coworlds** - policy-facing runnables and prompts that evaluate a target policy and produce actionable advice or assay results.
 
-> **Status:** canonical Coworld role repo, scaffold only. The role is defined at the manifest level, but hosted runner support and concrete diagnoser implementations are still pending.
+> **Status:** canonical Coworld role repo. The Among Them starter diagnoser is implemented in [`diagnosers/among_them/among_them_diagnoser/`](diagnosers/among_them/among_them_diagnoser/). The role is defined at the manifest level, but hosted runner support is still pending.
 
 ## What is a coworld diagnoser?
 
@@ -47,7 +47,7 @@ Each leaf diagnoser directory follows the same placeholder shape:
 | Diagnoser | Coworld | Status |
 | --- | --- | --- |
 | `templates/diagnoser_template` | (template) | Scaffold only - no implementation |
-| `among_them/among_them_diagnoser` | Among Them | Scaffold only - no implementation |
+| `among_them/among_them_diagnoser` | Among Them | Starter implementation - emits Markdown policy-assay advice from a target policy and optional episode artifacts |
 | `paint_arena/paint_arena_diagnoser` | PaintArena | Scaffold only - no implementation |
 | `cogs_v_clips/cogs_v_clips_diagnoser` | Cogs vs Clips | Scaffold only - no implementation |
 
