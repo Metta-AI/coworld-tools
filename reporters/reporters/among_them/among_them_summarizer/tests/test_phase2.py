@@ -140,41 +140,6 @@ def test_derive_verdict_draw() -> None:
     assert verdict.any_winner is False
 
 
-# ---------- meetings estimate ----------
-
-
-def test_estimate_meetings_max_across_slots() -> None:
-    # Three meetings: every slot voted in every meeting (each slot has
-    # vote_players=2 + vote_skip=1 = 3 total).
-    per = [(2, 1, 0)] * 8
-    results = ats.AmongThemResults.model_validate(
-        fixtures.make_results_meetings(per_slot_votes=per)
-    )
-    meetings = ats.estimate_meetings(results)
-    assert meetings.estimated_count == 3
-    assert meetings.total_vote_players == 16
-    assert meetings.total_vote_skip == 8
-    assert meetings.total_vote_timeout == 0
-
-
-def test_estimate_meetings_zero() -> None:
-    per = [(0, 0, 0)] * 8
-    results = ats.AmongThemResults.model_validate(
-        fixtures.make_results_meetings(per_slot_votes=per)
-    )
-    assert ats.estimate_meetings(results).estimated_count == 0
-
-
-def test_estimate_meetings_uneven_uses_max() -> None:
-    # A slot that died after meeting 1 has 1 total; a survivor has 3.
-    # The estimate is the max (3), not the average.
-    per = [(3, 0, 0)] + [(1, 0, 0)] * 7
-    results = ats.AmongThemResults.model_validate(
-        fixtures.make_results_meetings(per_slot_votes=per)
-    )
-    assert ats.estimate_meetings(results).estimated_count == 3
-
-
 # ---------- slot stats ----------
 
 
@@ -196,80 +161,6 @@ def test_build_slot_stats_generalized(n_slots: int) -> None:
         assert s.joined_tick == 0
         assert s.left_tick is None
         assert s.input_press_total is None
-
-
-def test_likely_dead_crewmate_who_lost_in_crew_win() -> None:
-    """Crewmate with `win=False` when crew won the team → killed."""
-    # Default imposter_slots is (0, 1) for an 8-slot fixture; pick a
-    # known crewmate slot (2) and force them to have lost.
-    results = fixtures.make_results(slots=8, winner_side="Crewmate")
-    crew_slot = 2
-    assert results["crew"][crew_slot] == 1, "expected slot 2 to be a crewmate"
-    results["win"][crew_slot] = False
-    metadata = fixtures.make_metadata(slots=8)
-    config = ats.GameConfig.model_validate(fixtures.make_game_config())
-    slots = ats.build_slot_stats(
-        ats.AmongThemResults.model_validate(results),
-        ats.EpisodeMetadata.model_validate(metadata),
-        config,
-    )
-    assert slots[crew_slot].role == "Crewmate"
-    assert slots[crew_slot].won is False
-    assert slots[crew_slot].likely_dead is True
-
-
-def test_likely_dead_winner_is_not_dead() -> None:
-    results = fixtures.make_results(slots=8, winner_side="Crewmate")
-    metadata = fixtures.make_metadata(slots=8)
-    config = ats.GameConfig.model_validate(fixtures.make_game_config())
-    slots = ats.build_slot_stats(
-        ats.AmongThemResults.model_validate(results),
-        ats.EpisodeMetadata.model_validate(metadata),
-        config,
-    )
-    crew_winners = [s for s in slots if s.role == "Crewmate" and s.won]
-    assert all(not s.likely_dead for s in crew_winners)
-
-
-def test_likely_dead_imposter_who_lost_in_crew_win() -> None:
-    """Imposter with `win=False` when crew won → likely voted out
-    (the inference, per Friction §4, conflates 'voted out' with
-    'alive at end' for crew-by-tasks wins; the HTML tooltip will
-    surface that ambiguity)."""
-    results = fixtures.make_results(slots=8, winner_side="Crewmate")
-    imposter_slot = 0
-    assert results["imposter"][imposter_slot] == 1
-    metadata = fixtures.make_metadata(slots=8)
-    config = ats.GameConfig.model_validate(fixtures.make_game_config())
-    slots = ats.build_slot_stats(
-        ats.AmongThemResults.model_validate(results),
-        ats.EpisodeMetadata.model_validate(metadata),
-        config,
-    )
-    # imposter individually lost (crew won); inference flags as likely dead
-    # because the imposter's "team" (Imposter) didn't win.
-    assert slots[imposter_slot].role == "Imposter"
-    assert slots[imposter_slot].won is False
-    # Per the rule in _likely_dead: likely_dead=True only when team==winner_side.
-    # Here team=Imposter, winner_side=Crewmate, so the rule returns False.
-    # The HTML still shows "Lost"; phase 2's inference is intentionally
-    # narrow (see DESIGN.md §Friction #4).
-    assert slots[imposter_slot].likely_dead is False
-
-
-def test_likely_dead_lost_in_imposter_win_not_flagged() -> None:
-    """Crewmate who lost while imposters won — we don't claim 'killed'
-    (could be killed earlier or alive at end). Inference returns False."""
-    results = fixtures.make_results(slots=8, winner_side="Imposter")
-    metadata = fixtures.make_metadata(slots=8)
-    config = ats.GameConfig.model_validate(fixtures.make_game_config())
-    slots = ats.build_slot_stats(
-        ats.AmongThemResults.model_validate(results),
-        ats.EpisodeMetadata.model_validate(metadata),
-        config,
-    )
-    crew_losers = [s for s in slots if s.role == "Crewmate"]
-    assert all(not s.likely_dead for s in crew_losers)
 
 
 def test_slot_stats_tasks_assigned_only_for_crew() -> None:

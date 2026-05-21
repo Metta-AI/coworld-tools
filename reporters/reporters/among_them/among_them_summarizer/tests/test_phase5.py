@@ -160,36 +160,6 @@ def test_swatch_count_equals_slot_count() -> None:
     assert html.count('class="swatch"') == 8
 
 
-# ---------- ghost glyph for likely_dead ----------
-
-
-def test_ghost_glyph_appears_only_for_likely_dead_slots() -> None:
-    # Crewmate-win scenario; mutate two slots to lose individually
-    # so they're flagged as likely_dead.
-    results = fixtures.make_results_crewmate_win(slots=8)
-    # Slots 0 and 1 are imposters by default; pick crewmate slots 2 and 3.
-    results["win"][2] = False
-    results["win"][3] = False
-    html = _html_from(
-        _build_zip(results=results, replay_bytes=_make_replay_with_inputs(slots=8))
-    )
-    # Each likely_dead slot gets one ghost glyph; non-likely-dead get none.
-    count = html.count('class="ghost"')
-    assert count == 2, f"expected 2 ghost glyphs (slots 2, 3), got {count}"
-
-
-def test_no_ghost_glyph_when_no_one_likely_dead() -> None:
-    # Imposter win — by the inference rule, only crewmates whose
-    # team won would be flagged. Here imposters won, so no one is.
-    html = _html_from(
-        _build_zip(
-            results=fixtures.make_results_imposter_win(),
-            replay_bytes=_make_replay_with_inputs(slots=8),
-        )
-    )
-    assert 'class="ghost"' not in html
-
-
 # ---------- sparkline SVG ----------
 
 
@@ -249,14 +219,7 @@ def test_sparkline_dims_buckets_outside_player_presence() -> None:
     assert 'class="bar-present"' in spark
 
 
-# ---------- footer + meetings footnote ----------
-
-
-def test_meetings_note_links_to_design() -> None:
-    """The meetings card's footnote mentions DESIGN.md so a reader can
-    discover the friction discussion behind the 'estimated' label."""
-    html = _html_from(_build_zip())
-    assert "DESIGN.md" in html
+# ---------- footer ----------
 
 
 def test_footer_carries_episode_and_reporter_ids() -> None:

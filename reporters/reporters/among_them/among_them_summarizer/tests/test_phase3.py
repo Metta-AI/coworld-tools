@@ -330,6 +330,76 @@ def test_game_result_uses_last_tick() -> None:
     assert gr["value"]["total_ticks"] == 2400
 
 
+def test_slot_join_order_populated_from_replay() -> None:
+    """SlotStats.join_order is the connection-order index that joined
+    into the slot (from the replay's ReplayJoinRecord.player field)."""
+    # Build a replay where slots are assigned out-of-order: slot 3
+    # joins first (player_index=0), slot 0 joins second (player_index=1),
+    # slot 5 joins third (player_index=2).
+    records = (
+        fixtures.make_record_join(time_ms=0, player=0, name="a", slot=3)
+        + fixtures.make_record_join(time_ms=0, player=1, name="b", slot=0)
+        + fixtures.make_record_join(time_ms=0, player=2, name="c", slot=5)
+        + fixtures.make_record_tick_hash(tick=100)
+    )
+    replay_bytes = fixtures.make_replay_bytes(records=records)
+    payload = ats.build_zip_bytes(
+        results=ats.AmongThemResults.model_validate(
+            fixtures.make_results_crewmate_win(slots=8)
+        ),
+        metadata=ats.EpisodeMetadata.model_validate(fixtures.make_metadata()),
+        replay_bytes=replay_bytes,
+    )
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        stats = json.loads(zf.read("stats.json"))
+    # Slot 3 joined at connection index 0; slot 0 at index 1; slot 5 at 2.
+    assert stats["slots"][3]["join_order"] == 0
+    assert stats["slots"][0]["join_order"] == 1
+    assert stats["slots"][5]["join_order"] == 2
+    # Slots that never received a join record have join_order=None.
+    assert stats["slots"][1]["join_order"] is None
+    assert stats["slots"][2]["join_order"] is None
+    # The convenience top-level mapping carries the same values.
+    assert stats["slot_to_join_order"] == [1, None, None, 0, None, 2, None, None]
+
+
+def test_join_event_carries_player_index() -> None:
+    """The `join` event in events.parquet exposes both `slot` and
+    `player_index` so downstream ingesters can reconstruct the
+    connection-order ↔ slot mapping from the parquet alone."""
+    import pyarrow.parquet as pq
+
+    records = (
+        fixtures.make_record_join(time_ms=0, player=0, name="a", slot=3)
+        + fixtures.make_record_join(time_ms=0, player=1, name="b", slot=0)
+        + fixtures.make_record_tick_hash(tick=100)
+    )
+    replay_bytes = fixtures.make_replay_bytes(records=records)
+    payload = ats.build_zip_bytes(
+        results=ats.AmongThemResults.model_validate(
+            fixtures.make_results_crewmate_win(slots=8)
+        ),
+        metadata=ats.EpisodeMetadata.model_validate(fixtures.make_metadata()),
+        replay_bytes=replay_bytes,
+    )
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        table = pq.read_table(io.BytesIO(zf.read("events.parquet")))
+    rows = [
+        {"player": p, "value": json.loads(v)}
+        for p, k, v in zip(
+            table["player"].to_pylist(),
+            table["key"].to_pylist(),
+            table["value"].to_pylist(),
+        )
+        if k == "join"
+    ]
+    by_slot = {r["player"]: r["value"] for r in rows}
+    assert by_slot[3]["player_index"] == 0
+    assert by_slot[3]["slot"] == 3
+    assert by_slot[0]["player_index"] == 1
+    assert by_slot[0]["slot"] == 0
+
+
 def test_disconnects_section_in_html_only_when_present() -> None:
     """The HTML's Disconnects section is rendered only when there's at
     least one mid-game leave. Slot identifiers appear in the disconnect

@@ -97,49 +97,41 @@ without external fetches. Sections, top to bottom:
      otherwise `"Slot N"`.
    - Role badge: "Imposter" (with dark-red tint) or "Crewmate" (with teal
      tint), from `imposter[i]` / `crew[i]`.
-   - Outcome badge: "Won" / "Lost" / "Draw"; ghost-glyph if the player was
-     killed (best-effort inference: a crewmate with `tasks < tasks_per_player`
-     and `win == false` while their team won → likely killed; we mark this
-     "killed?" with a tooltip rather than asserting it, because the replay
-     doesn't carry death events. Imposters voted out are similarly inferred
-     from `crew_win and imposter[i] == 1`).
+   - Outcome badge: "Won" / "Lost". The reporter intentionally does
+     **not** infer whether a losing player died vs. survived without
+     a win — that signal is not in the artifacts the reporter sees,
+     and any inference would be guess-work. See §Frictions for the
+     full rationale.
    - Numeric columns: score, kills, tasks-done / tasks-assigned (assigned
      is `0` for imposters and `config.tasksPerPlayer` for crewmates, both
      read from the replay's `configJson`), votes cast on players, skip
      votes, timeout votes.
-   - A per-row activity bar: total input-press transitions during ticks
-     where the player was present, normalized to the busiest player in the
-     episode. This is a coarse "how active was this slot" signal; see
-     §"Frame-derived analytics".
+   - A per-row activity sparkline: one rect per N-tick bucket
+     (default bucket = `ReplayFps * 10`, i.e. 10 seconds), height
+     proportional to that bucket's press count normalized to the
+     busiest bucket across all slots. Buckets outside the slot's
+     `[joined_tick, left_tick]` presence window are dimmed.
 
-4. **Meetings summary.** A small card with the sums across all slots:
-   `meetings_held` (= `max(vote_players[i] + vote_skip[i] + vote_timeout[i])`
-   across alive-at-vote slots — every alive slot votes once per meeting,
-   so any one slot's total is a lower bound; the max across slots is the
-   tightest estimate from aggregates alone), total votes cast on players,
-   total skip votes, total timeouts. The card carries a "no per-meeting
-   breakdown" note linking to §"Frictions and obstacles" for why this
-   reporter does not show per-meeting transcripts in v1.
-
-5. **Activity profile.** A small SVG strip per player showing input
-   intensity across the game timeline — one bar per N-tick bucket
-   (default bucket = `ReplayFps * 10`, i.e. 10 seconds; tunable as a
-   module constant). The strip dims to gray before the player's join
-   tick and after their leave tick, so a disconnected player is visibly
-   "ended early."
-
-6. **Disconnects** (only shown when any leaves occurred before game over).
+4. **Disconnects** (only shown when any leaves occurred before game over).
    Per-disconnect row: player, leave tick, leave time, how many ticks
    remained when they left. The `ReplayLeaveRecord` timestamps come
    straight from the binary replay.
 
-7. **Footer.** Reference to `stats.json` and `events.parquet`,
-   episode/reporter id, replay format version stamp.
+5. **Footer.** Reference to `stats.json` and `events.parquet`,
+   episode/reporter id.
+
+The reporter does **not** render a Meetings summary card. While
+`results.json` carries per-slot `vote_players` / `vote_skip` /
+`vote_timeout` counts (which appear in the scoreboard's numeric
+columns), any attempt to aggregate them into a "meetings held" count
+is a best-effort inference (every slot may vote once per meeting they
+attend, but slots can die before/between meetings) that the reporter
+cannot validate without the per-meeting events the game does not
+emit. See §Frictions for the full rationale.
 
 Module-level rendering constants (slot color hex map, activity-bucket
-size, ghost-glyph SVG path, role-tint hex, bar geometry) live next to
-the rendering code as named constants — same style as
-`paint_arena_summarizer._SLOT_COLORS`.
+size, role-tint hex, bar geometry) live next to the rendering code as
+named constants — same style as `paint_arena_summarizer._SLOT_COLORS`.
 
 ### `stats.json` (download-only)
 
@@ -170,6 +162,7 @@ the rendering code as named constants — same style as
   "slots": [
     {
       "slot": 0,
+      "join_order": 0,                  // connection-order index this slot was assigned at join time
       "policy_name": "evidencebot_v2",  // from episode metadata
       "in_game_name": "red",            // from replay join
       "color_index": 0,
@@ -185,18 +178,11 @@ the rendering code as named constants — same style as
       "vote_timeout": 0,
       "joined_tick": 0,
       "left_tick": null,
-      "present_ticks": 9903,
       "input_press_total": 1452,
-      "input_press_per_kind": { "up": 312, "down": 290, "left": 188, "right": 201, "select": 102, "attack": 287, "b": 72 },
-      "likely_dead": false              // best-effort inference (see HTML §scoreboard)
+      "input_press_per_kind": { "up": 312, "down": 290, "left": 188, "right": 201, "select": 102, "attack": 287, "b": 72 }
     }
   ],
-  "meetings": {
-    "estimated_count": 4,               // see derivation note
-    "total_vote_players": 18,
-    "total_vote_skip": 6,
-    "total_vote_timeout": 2
-  },
+  "slot_to_join_order": [0, 1, 2, 3, 4, 5, 6, 7],  // flat slot → connection-order mapping; null entries when no join
   "disconnects": [
     { "slot": 5, "leave_tick": 7124, "leave_seconds": 296.83 }
   ],
@@ -217,6 +203,16 @@ then to `"Slot N"`. `tasks_assigned` is `0` for imposters and
 `configJson` embedded in the replay header rather than from any external
 source.
 
+**Slot ↔ connection-order mapping.** The `slot` field is the
+tournament/results-JSON slot index. `join_order` is the
+connection-order index (the index into `sim.players` at the moment of
+join — what the replay's `ReplayJoinRecord.player` field carries).
+The two often agree but can differ when the game auto-assigns slots
+or when players join out-of-order. Downstream ingesters get the
+mapping three ways: row-by-row via `slots[i].join_order`, flat via
+the top-level `slot_to_join_order`, or by filtering `join` events in
+`events.parquet` (which carry both `slot` and `player_index`).
+
 ### `events.parquet` (download-only)
 
 Same shared `(ts, player, key, value)` schema as PaintArena
@@ -231,17 +227,26 @@ Same shared `(ts, player, key, value)` schema as PaintArena
 
 `key` kinds emitted in v1, with their JSON payload shape:
 
-- **`game_config`** — one row, `ts=0`, `player=-1`. Payload: the parsed
-  `configJson` from the replay header (keys: `seed`, `min_players`,
-  `imposter_count`, `tasks_per_player`, `kill_cooldown_ticks`,
-  `vote_timer_ticks`, `max_ticks`, `map_path`, …).
+- **`game_config`** — one row, `ts=0`, `player=-1`. Payload: the
+  parsed subset of `configJson` from the replay header — exactly the
+  fields the reporter consumes (`seed`, `min_players`, `imposter_count`,
+  `auto_imposter_count`, `tasks_per_player`, `kill_cooldown_ticks`,
+  `vote_timer_ticks`, `max_ticks`, `map_path`, `slots`). The raw
+  configJson the game writes has more fields (motion constants,
+  rendering toggles, etc.) which the reporter intentionally drops.
+  Included in the parquet so cross-episode aggregators can read the
+  per-episode config without fetching `stats.json` separately.
 - **`join`** — one row per `ReplayJoinRecord`, `ts=join_tick`,
-  `player=join.player`. Payload: `{"slot", "name", "color_index",
-  "color_name", "token_present"}`. The `token` value itself is **not**
-  included (per the reporter contract, tokens are episode-scoped secrets
-  and reporters that incidentally observe them should not surface them).
+  `player=slot` (the resolved slot id, not the raw `join.player`).
+  Payload: `{"slot", "player_index", "name", "token_present"}`.
+  `player_index` is the connection-order index this join was assigned
+  to at join time (= the raw `ReplayJoinRecord.player`), so consumers
+  can reconstruct the slot ↔ connection-order mapping from the
+  parquet alone. The `token` value itself is **not** included (per
+  the reporter contract, tokens are episode-scoped secrets and
+  reporters that incidentally observe them should not surface them).
 - **`leave`** — one row per `ReplayLeaveRecord`, `ts=leave_tick`,
-  `player=leave.player`. Payload: `{"ticks_remaining": int}`.
+  `player=slot`. Payload: `{"ticks_remaining": int}`.
 - **`input_press`** — one row per *button-press transition* (0→1 edge) per
   player per button. `ts=tick`, `player=slot`. Payload:
   `{"button": "up"|"down"|"left"|"right"|"select"|"attack"|"b"}`.
@@ -255,19 +260,23 @@ Same shared `(ts, player, key, value)` schema as PaintArena
   "intensity over time" query.
 - **`player_summary`** — one row per slot, `ts=last_tick`, `player=slot`.
   Payload: `{"role", "won", "score", "kills", "tasks", "tasks_assigned",
-  "vote_players", "vote_skip", "vote_timeout", "input_press_total",
-  "joined_tick", "left_tick", "likely_dead"}`. The same struct as
-  `stats.json::slots[i]`; included in parquet for downstream consumers
-  that want all of episode-level state in one columnar source.
+  "vote_players", "vote_skip", "vote_timeout", "policy_name",
+  "join_order", "joined_tick", "left_tick", "in_game_name",
+  "color_name"}`. Mirrors `stats.json::slots[i]`; included in parquet
+  for downstream consumers that want all of episode-level state in
+  one columnar source.
 - **`game_result`** — one row, `ts=last_tick`, `player=-1`. Payload:
   `{"winner_side", "time_limit_reached", "any_winner", "total_ticks",
   "duration_seconds"}`.
 
-Notably **not** emitted in v1 (these are exactly the events we cannot
-derive without re-simulation or a richer game-side artifact):
+Notably **not** emitted (these are exactly the events that would
+require either game-side instrumentation we don't have or
+re-simulation — both out of scope; see §Frictions for the v2 path):
 
 - `kill` / `body_reported` / `meeting_called` / `vote_cast` /
-  `vote_result` / `vote_chat` / `task_complete` / `vent` / `phase_change`.
+  `vote_result` / `vote_chat` / `task_complete` / `vent` /
+  `phase_change` / `meetings_held` (any aggregate inference) /
+  `likely_dead` (any inference about per-player alive/dead state).
 
 These are listed in §"Frictions and obstacles" with a concrete path to
 add them in a v2.
@@ -352,20 +361,6 @@ event is "any leave record whose tick is more than `ReplayFps * 5` ticks
 before the last hash tick" — we want to flag genuine mid-game
 disconnects, not the natural cleanup at episode end.
 
-### Meetings count (best-effort)
-
-From results.json alone we have per-slot `vote_players + vote_skip +
-vote_timeout`. Every *alive* slot votes once per meeting (per `tallyVotes`
-in `sim.nim:2862-2897`); a slot that died before a meeting cannot vote in
-that meeting. So the **maximum** across slots of
-`vote_players + vote_skip + vote_timeout` is a tight lower bound on the
-number of meetings held and, in the common case where the slot that
-voted in every meeting exists (any slot alive at the end of the game
-satisfies this), equals the count exactly. Edge case: if every player
-who lived to the end never had a single vote-timeout but votes are split
-among slots that died, the estimate undercounts; the HTML labels this
-"estimated" rather than "exact."
-
 ### Tradeoffs
 
 - **Why count input *transitions* not *ticks-held***: transitions are the
@@ -376,22 +371,30 @@ among slots that died, the estimate undercounts; the HTML labels this
   different shapes. The firehose lets you grep for a specific button at
   a specific tick; the buckets let you draw a heatmap without scanning
   every row.
-- **Why a 10-second bucket?** A meeting is ≥ vote-timer-ticks /
-  ReplayFps ≈ 250 s at default config; 10-s buckets give ~25 buckets per
-  meeting and ~40 over a full 10000-tick game. Tunable as
+- **Why a 10-second bucket?** A vote-timer at the default config is
+  `voteTimerTicks / ReplayFps = 250 s`; 10-s buckets give ~25 buckets
+  per voting window and ~40 over a full 10000-tick game. Tunable as
   `ACTIVITY_BUCKET_TICKS` (module constant) if the default proves wrong.
 - **Why not infer phases from inputs?** It's tempting (no movement for
   N consecutive ticks across all live players ≈ meeting) but unreliable:
   bots running idle policies look identical to a paused meeting, and a
   meeting with movement (cursor navigation) also has inputs. We don't
-  infer phases in v1; we emit raw counts and let the consumer correlate
-  if they want.
-- **Why surface "likely_dead" at all, given we can't prove it?** It
-  carries genuine signal in 90%+ of games (a crewmate with 0 of 8 tasks
-  while crew wins is overwhelmingly likely to have been killed). The
-  HTML marks the inference visually (a tooltip saying "inferred from
-  task completion"); `stats.json::likely_dead` is a boolean a downstream
-  consumer can ignore if it wants exact data.
+  infer phases; we emit raw counts and let the consumer correlate.
+- **Why no `likely_dead` inference?** Whether a losing slot died
+  mid-game vs. survived without a win is not in the artifacts the
+  reporter sees, and any rule we'd write ("crewmate, lost, team won
+  → killed") would be a guess that breaks in edge cases. We don't
+  surface what we can't prove. The data that *is* available — `won`,
+  `tasks`, `kills`, `vote_players`, `vote_skip`, `vote_timeout`,
+  per-slot `input_press_total` — is enough for a reader to form
+  their own judgement.
+- **Why no aggregate meetings count?** Same reason. The per-slot
+  vote counts in `results.json` *do* appear in the scoreboard (those
+  are facts), but turning them into "N meetings were held" is an
+  inference: every alive slot votes once per meeting they attend, but
+  slots can die before or between meetings. The reporter doesn't
+  emit a meetings-held count, a meetings card, or any field that
+  aggregates across the per-slot vote totals.
 
 ## Decisions locked in
 
@@ -424,9 +427,9 @@ among slots that died, the estimate undercounts; the HTML labels this
    colors in the HTML match what a viewer of `among_them`'s
    `/clients/global` would have seen.
 6. **HTML, not Markdown.** Same rationale as PaintArena: once the
-   summary needs colored swatches, role badges, ghost glyphs, and small
-   per-player activity sparklines, raw HTML with inline SVG is the
-   simpler primitive than fighting Markdown's renderer. Page is
+   summary needs colored swatches, role badges, and small per-player
+   activity sparklines, raw HTML with inline SVG is the simpler
+   primitive than fighting Markdown's renderer. Page is
    self-contained for the iframe+CSP sandbox.
 7. **Shared event-log schema.** `events.parquet` uses the same
    `(ts, player, key, value)` schema as
@@ -499,8 +502,10 @@ binary replay bytes) within one pinned `pyarrow` version. Test plan:
   buttons each generate one transition.
 - **Disconnect classification**: leave at last_tick → not flagged;
   leave at last_tick - 6 s → flagged.
-- **Meeting estimate** boundary tests against synthetic results arrays
-  where the answer is known.
+- **Slot ↔ connection-order mapping**: `SlotStats.join_order` is the
+  `ReplayJoinRecord.player` index that joined into that slot;
+  `stats.slot_to_join_order[i]` matches; the `join` parquet event
+  payload carries both `slot` and `player_index`.
 - **Verdict derivation** against hand-crafted results JSONs (imposter
   win, crewmate win, draw, plus the rare "no slot has `crew == 1` and
   no slot has `imposter == 1`" malformed-results case).
@@ -595,29 +600,39 @@ color. The HTML's swatch then matches the *probable* in-game color in
 the common configured-roster case and is a reasonable visual proxy
 otherwise.
 
-### 4. "Was this player killed?" is an inference
+### 4. "Was this player killed?" — not surfaced
 
 The results JSON carries `win` per slot but not `alive` per slot. A
-losing crewmate is either dead or alive-when-imposters-won; a losing
-imposter is either voted out or alive-when-crewmates-won-by-tasks.
-Without per-event detail we infer:
+losing crewmate could be dead or alive-when-imposters-won; a losing
+imposter could be voted out or alive-when-crewmates-won-by-tasks.
+**The reporter does not infer.** Earlier drafts surfaced a
+`likely_dead` boolean derived from team outcome ("crewmate, lost,
+crew won → killed"); that rule was removed because (a) the inference
+fails for crew-by-tasks wins where imposters lose but aren't
+ejected, and (b) the reporter shouldn't claim per-slot facts it
+can't prove. The data that *is* available — `won`, `tasks`,
+`kills`, vote counts, input-press totals — is enough for a reader
+to form their own judgement; we don't pre-bake it.
 
-- Crewmate, `win == false`, crew won → likely killed mid-game.
-- Crewmate, `win == false`, imposter won, tasks far below assigned →
-  likely killed earlier.
-- Imposter, `win == false`, crew won → likely voted out (could also be
-  killed if vigilante-style mods existed, but Among Them imposters
-  can't be killed by crew without voting).
+Closing this gap would require either path A from §1 (game writes
+a structured per-tick events.jsonl) or an `alive` array added to
+the results schema.
 
-The HTML marks these inferences with a "?" suffix and tooltip; the
-`stats.json::likely_dead` boolean is the same inference. Replacing this
-inference with truth requires path A from §1.
+### 5. Meetings count — not surfaced
 
-### 5. Meeting count is bounded, not exact
+For the same reason: every alive slot votes once per meeting they
+attend, but slots can die before or between meetings. An aggregate
+"meetings held" count derived from per-slot `vote_players +
+vote_skip + vote_timeout` is a bounded estimate, not a fact. Earlier
+drafts surfaced this as a meetings card; it was removed for the same
+reason as `likely_dead`.
 
-Covered in §"Frame-derived analytics > Meetings count". The
-aggregates-only path gives a tight lower bound; the HTML labels the
-number "estimated." Path A from §1 also closes this.
+The per-slot `vote_players` / `vote_skip` / `vote_timeout` counts
+remain in the scoreboard — those are facts from the results JSON.
+What's *not* in any output is any field that pretends to know how
+many meetings the game held overall.
+
+Closing this gap also requires path A from §1.
 
 ### 6. The replay format is version 3 today, with no compatibility guarantees
 
@@ -672,10 +687,9 @@ the reader form judgements. This is mostly a *content* friction, not a
 
 - Does the activity-bucket size of 10 s look right on a real 8-player
   Among Them episode? Tune `ACTIVITY_BUCKET_TICKS` after the first
-  rendered fixture.
-- Should the HTML render the inferred "likely_dead" markers, or is the
-  inference's wrong-ness more confusing than the absence is? Decide
-  after seeing real episodes; the boolean is in `stats.json` either way.
+  rendered fixture. (Initial validation against a real 10000-tick
+  game produced ~40 buckets — feels right; revisit if visual density
+  is off.)
 - When `COGAME_EVENTS_URI` lands (path A of §Frictions item 1), do we
   push the rich `kill`/`vote_*`/`task_complete` keys into this reporter
   or fork a `among_them_summarizer_v2`? Default: extend in place,
@@ -733,7 +747,7 @@ peek only at its `configJson` header for `imposterCount` /
   `names`, `scores`, `win`, `tasks`, `kills`, `imposter`, `crew`,
   `vote_players`, `vote_skip`, `vote_timeout`), `EpisodeMetadata`,
   `AmongThemStats`, `SlotStats`, `GameConfig` (the subset we consume),
-  `VerdictBlock`, `MeetingsBlock`.
+  `VerdictBlock`.
 - **Replay header-only parser.** A trimmed version of the full parser
   that reads the BITWORLD magic, version, game name/version, timestamp,
   and `configJson` — and stops. Total LOC ≈ 30. Returns `GameConfig`
@@ -741,15 +755,14 @@ peek only at its `configJson` header for `imposterCount` /
 - `derive_verdict(results)` → `VerdictBlock` covering Imposter/Crew/Draw.
 - `build_slot_stats(results, metadata, config)` → `list[SlotStats]`
   with `policy_name`, `in_game_name=None`, `joined_tick=0`,
-  `left_tick=None`, role/won/score/kills/tasks/votes filled,
-  `likely_dead` inference. (`in_game_name`, `joined_tick`, `left_tick`
-  remain placeholders until phase 3.)
-- `estimate_meetings(results)` → `MeetingsBlock`.
+  `left_tick=None`, role/won/score/kills/tasks/votes filled.
+  (`in_game_name`, `joined_tick`, `left_tick`, `join_order` remain
+  placeholders until phase 3.)
 - Minimal HTML rendering: header, verdict band, scoreboard table.
-  Inline CSS (~80 lines). **No** color swatches, **no** activity bars,
-  **no** ghost glyphs yet — those need the full palette and the
-  per-slot input metrics from phase 4. Use plain badges and a CSS
-  background-color for role tinting so the page still looks reasonable.
+  Inline CSS (~80 lines). **No** color swatches, **no** activity bars
+  yet — those need the full palette and the per-slot input metrics
+  from phase 4. Use plain badges and a CSS background-color for role
+  tinting so the page still looks reasonable.
 - `stats.json` written with everything we have so far (slot rows have
   null `joined_tick`/`left_tick`/`input_press_total`/`buckets`).
 - `events.parquet` written with just three keys: `game_config`,
@@ -761,10 +774,7 @@ peek only at its `configJson` header for `imposterCount` /
 **Tests.**
 - Verdict derivation: 3 fixtures (imposter win, crew win, draw),
   asserting the right `winner_side`.
-- Meetings estimate: hand-crafted results JSON where the answer is
-  known.
 - Slot stats: generalized over slot count (4 slots, 8 slots, 16 slots).
-- `likely_dead` inference happy/sad cases.
 - Zip-shape: 4 entries (`summary.html`, `stats.json`,
   `events.parquet`, `render.txt`); `render.txt` is `summary.html\n`;
   every listed path exists and has a renderable extension.
@@ -861,7 +871,7 @@ across slots.
 
 **Dependencies.** Phase 3.
 
-### Phase 5 — HTML polish: palette, role badges, ghost glyphs, activity SVG, disconnects, footer
+### Phase 5 — HTML polish: palette, role badges, activity SVG, disconnects, footer
 
 **Goal.** The HTML matches the §`summary.html` (rendered) section of
 this design. Inline CSS only; no `<script>`, no `<link>`.
@@ -871,15 +881,13 @@ this design. Inline CSS only; no `<script>`, no `<link>`.
   values. Map from the `PlayerColorNames` index to a CSS hex string.
 - Color swatch component (mirrors PaintArena's `_slot_swatch`).
 - Role badges: "Imposter" / "Crewmate", tinted via inline style.
-- Ghost glyph SVG path for `likely_dead == true`; inline CSS classes
-  so it pairs with the outcome badge.
+- Outcome badge: "Won" / "Lost" only — no per-slot alive/dead
+  inference (see §Frictions #4).
 - Verdict ribbon: red/teal/gray tinting per `winner_side`.
 - Per-row activity sparkline: small `<svg viewBox>` with one `<rect>`
-  per non-empty bucket, height proportional to that bucket's count
-  normalized to the busiest slot in the episode. Dimmed segments
-  before `joined_tick` and after `left_tick`.
-- Meetings card with the "estimated count" footnote linking to the
-  Frictions section.
+  per bucket, height proportional to that bucket's count normalized
+  to the busiest bucket across all slots. Dimmed segments before
+  `joined_tick` and after `left_tick`.
 - Disconnects table (only rendered when `disconnects` is non-empty).
 - Footer with episode/reporter id and references to `stats.json` /
   `events.parquet`.
@@ -895,8 +903,9 @@ this design. Inline CSS only; no `<script>`, no `<link>`.
 - Verdict ribbon contains the right text for known fixtures.
 
 **Deliverable.** Visual review by opening `summary.html` in a browser
-from a real fixture; the four cards (verdict, scoreboard, meetings,
-activity profile) are clearly distinguishable.
+from a real fixture; the verdict, scoreboard, and (if any)
+disconnects cards are clearly distinguishable, and per-row activity
+sparklines show meaningful per-slot variation.
 
 **Dependencies.** Phases 2, 3, 4 (palette needs phase 3; activity SVG
 needs phase 4).
