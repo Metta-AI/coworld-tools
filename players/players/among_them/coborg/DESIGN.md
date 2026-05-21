@@ -5,8 +5,10 @@ This document captures decisions, contracts, and invariants that should
 outlive any single phase of work. See `PLAN.md` for the phased schedule and
 short-term todos.
 
-> **Status (P0, 2026-05-13):** Initial scaffold. Idle-only deterministic
-> noop agent wired through the Coworld WebSocket bridge.
+> **Status (P0 landed, 2026-05-19):** Idle/noop agent wired end-to-end
+> through the BitWorld `bitscreen_v1` WebSocket bridge with 17 tests green.
+> The architecture, contracts, and invariants below are the durable baseline
+> P1+ builds on; per-phase deltas live in `PLAN.md`.
 
 ---
 
@@ -35,7 +37,7 @@ short-term todos.
 
 ### Inner-loop vs strategy-loop split
 
-The Coborg framework's [inner-loop contract][coborg-readme] is non-negotiable:
+The Cyborg framework's [inner-loop contract][coborg-readme] is non-negotiable:
 
 - Perception, belief update, mode decision, and action resolution all run on
   every tick, deterministically, never blocking on outer-loop computation.
@@ -46,7 +48,7 @@ The Coborg framework's [inner-loop contract][coborg-readme] is non-negotiable:
   trivially equivalent to "default directive every tick." The strategy
   abstraction stays in place so P2+ swaps it out without restructuring.
 
-[coborg-readme]: ../../../../../frameworks/coborg/docs/metta_cogames_framework/README.md
+[coborg-readme]: ../../player_sdk/docs/metta_cogames_framework/README.md
 
 ### LLM boundary
 
@@ -118,13 +120,11 @@ Per PLAN §8 and decision D3:
   `unpack_frame` is exported for P1 but not called.
 - Belief carries only a tick counter. P1 introduces the
   self/world/entities/tasks/social/inferences sections per PLAN §4.
-- `policy_adapter.py` is a P0 stub — the mettagrid `AgentPolicy` integration
-  is not exercised; the Coworld bridge is the only entry point.
-- Auto-detection of the JSON variant of `coworld.player.v1` (used by some
-  hosted Coworld runners; see `guided_bot/coworld/policy_player.py`) is not
-  implemented. If a non-binary first message arrives the bridge logs it at
-  debug level and continues — the smoke run will then time out. If P0
-  exercise hits this, add the JSON path mirroring guided_bot.
+- The bridge speaks `bitscreen_v1` binary only. Among Them never serves the
+  JSON `coworld.player.v1` protocol, so there is no JSON fallback path; if
+  the runner ever sends a non-binary first message the bridge logs it at
+  debug level and the smoke run will time out. Treat that as a runner-side
+  misconfiguration rather than something to handle here.
 - Reflexes, fallbacks, mode TTLs, and `apply_inferences` are unused in P0
   (the only registered mode is `idle`, which is always legal).
 
@@ -144,12 +144,13 @@ to source from the structured state vector than from pixels (e.g.
 
 ## 7. Trace event vocabulary
 
-Inherited from the Coborg canonical set:
+Inherited from the Cyborg framework canonical set:
 
 `perception`, `belief_updated`, `mode_entered`, `mode_exited`,
 `mode_completed`, `mode_stalled`, `reflex_evaluated`, `reflex_fired`,
-`action_intent`, `act_command`, `snapshot_submitted`, `strategy_inferences`,
-`directive_rejected`, `directive_reaffirmed`, `fallback_activated`.
+`action_intent`, `act_command`, `snapshot_submitted`, `strategy_evaluated`,
+`strategy_inferences`, `directive_rejected`, `directive_reaffirmed`,
+`fallback_activated`.
 
 Game-specific extensions reserved for later phases:
 

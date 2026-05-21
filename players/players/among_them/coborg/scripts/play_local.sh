@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-IMAGE_TAG="${1:-coborg_among_them:dev}"
+IMAGE_TAG="${1:-coborg-among-them:dev}"
 METTA_REPO="${METTA_REPO:-$HOME/coding/metta}"
 
 repo_root() {

@@ -1,4 +1,8 @@
-"""``coworld.player.v1`` WebSocket bridge for the coborg Among Them agent.
+"""``bitscreen_v1`` binary WebSocket bridge for the coborg Among Them agent.
+
+Among Them speaks the binary ``bitscreen_v1`` wire protocol, not the JSON
+``coworld.player.v1`` used by cogsguard players, so this leaf does not use
+the SDK's ``players.player_sdk.coworld_json_bridge``.
 
 The bridge:
 

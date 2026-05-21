@@ -1,10 +1,20 @@
 # coborg_among_them — Implementation Plan
 
-Status: planning complete, implementation not yet started.
+Status: P0 scaffold landed; P1 (perception port) is next.
 Created: 2026-05-13.
 Owner: James (jmsboggs@gmail.com).
 Author of this plan: prior Claude Code session; record carried over for a fresh
 session to pick up cold.
+
+> **Current status (2026-05-19):** P0 deliverables in §6 are largely landed.
+> The idle/noop runtime, action resolver, stderr trace sinks, `bitscreen_v1`
+> WebSocket bridge, Dockerfile, `build.sh`, and `scripts/play_local.sh` are
+> all in place; `pytest players/among_them/coborg/tests` is green
+> (17 tests including an in-process Coworld bridge smoke). R1 toolchain
+> flake (§10) was root-caused and resolved 2026-05-13. §11 items 1–2 are
+> done; pick up from item 3 (capture parity fixtures) when starting P1.
+> See [`README.md`](./README.md) for the runnable surface today and
+> [`DESIGN.md`](./DESIGN.md) for the durable architecture notes.
 
 ---
 
@@ -120,9 +130,11 @@ In `~/coding/players/`:
   Softmax's `BitWorldAmongThemScoutPolicy` / `BitWorldAmongThemCyborgPolicy`,
   a screen-space scripted policy. **Not a coborg client.** Useful reference
   for: structured state-vector layout (`STATE_*`, `HEADER_*`, `PLAYER_*`,
-  `TASK_*` constants), BitWorld action constants, the mettagrid
-  `AgentPolicy` / `MultiAgentPolicy` interface, the `PolicyEnvInterface`
-  hookups. This is the **parent package** of `coborg_among_them/`.
+  `TASK_*` constants) and BitWorld action constants. It is a **sibling**
+  package of `coborg/` under `players/among_them/`, not a parent. Its
+  mettagrid `AgentPolicy` plumbing is not relevant to this agent, which
+  ships as a Docker image and is driven exclusively by the Coworld runner
+  over the `bitscreen_v1` WebSocket.
 
 In `~/coding/bitworld/among_them/` (game implementation, Nim):
 
@@ -147,11 +159,10 @@ In `~/coding/personal_cogs/among_them/` (the guided_bot we're porting from):
 - `guided_bot/README.md` and `guided_bot/DESIGN.md` — the current hybrid
   Python+Nim production bot. Read DESIGN.md for the mode list, reflex list,
   belief structure, and trace schema we'll mirror.
-- `guided_bot/coworld/policy_player.py` — the existing
-  `coworld.player.v1` protocol bridge (Python; talks WebSocket to the
-  Coworld runner). This is the closest analog to what
-  `coborg_among_them/coworld/policy_player.py` must do, minus the Nim FFI
-  glue and minus the modulabot-era hybrid.
+- `guided_bot/coworld/policy_player.py` — the existing `bitscreen_v1`
+  binary protocol bridge (Python; talks WebSocket to the Coworld runner).
+  This is the closest analog to what `coborg_among_them/coworld/policy_player.py`
+  must do, minus the Nim FFI glue and minus the modulabot-era hybrid.
 - `guided_bot/perception.nim` and `guided_bot/perception/*.nim` — the
   bot-specific perception modules to port (see §5).
 - `common/perception_kernels/*.nim` — the shared perception kernels
@@ -209,7 +220,7 @@ coborg_among_them/
   PLAN.md                           # this file
   README.md                         # what/why/status, written in P0
   DESIGN.md                         # architecture, decisions, tradeoffs, written in P0
-  __init__.py                       # public AmongThemCoborgPolicy entry
+  __init__.py                       # public build_runtime entry
   types.py                          # Observation, Percept, Belief, ActionState, Intent, Command
   belief.py                         # update_belief, evidence ledger
   perception/
@@ -252,10 +263,9 @@ coborg_among_them/
     rule_based.py                   # deterministic strategy
     snapshot.py                     # belief -> structured context (reserved for LLM later)
   trace.py                          # stderr trace + metrics sink setup
-  policy_adapter.py                 # mettagrid AgentPolicy wrapper around AgentRuntime
   coworld/
     Dockerfile
-    policy_player.py                # coworld.player.v1 stdin/WebSocket bridge
+    policy_player.py                # bitscreen_v1 binary WebSocket bridge
     entrypoint.sh
     README.md
   scripts/
@@ -277,7 +287,6 @@ coborg_among_them/
     test_strategy_rule_based.py
     test_action.py
     test_reflexes.py
-    test_policy_adapter.py
     test_coworld_player_smoke.py
 ```
 
@@ -397,9 +406,9 @@ mergeable unit.
 - `types.py` with skeleton `Observation`, `Percept`, `Belief`, `ActionState`,
   `Intent`, `Command` (most fields will be filled in P1/P2).
 - `modes/idle.py` (emits noop).
-- `policy_adapter.py` — mettagrid `AgentPolicy` wrapper around `AgentRuntime`.
-- `coworld/policy_player.py` — `coworld.player.v1` bridge (port the bits of
-  `guided_bot/coworld/policy_player.py` that we still need, minus Nim FFI).
+- `coworld/policy_player.py` — `bitscreen_v1` binary WebSocket bridge (port
+  the bits of `guided_bot/coworld/policy_player.py` that we still need,
+  minus Nim FFI).
 - `coworld/Dockerfile` + `entrypoint.sh`.
 - `trace.py` with `LoggingTraceSink` + `LoggingMetricsSink` wired to a
   stderr `StreamHandler`, plus a `JsonStderrTraceSink` (~30 lines).
@@ -412,11 +421,11 @@ mergeable unit.
 **Done when**:
 1. `cd ~/coding/metta && uv run coworld download among_them -o ./coworld`
    succeeds.
-2. `docker build -t coborg_among_them:dev -f .../coworld/Dockerfile .`
+2. `docker build -t coborg-among-them:dev -f .../coworld/Dockerfile .`
    produces a working linux/amd64 image.
 3. `cd ~/coding/metta && uv run coworld play ./coworld/coworld_manifest.json \
      --variant default --timeout-seconds 120 --no-open-browser \
-     coborg_among_them:dev` boots, runs to completion, and the agent emits
+     coborg-among-them:dev` boots, runs to completion, and the agent emits
    noop actions every tick.
 4. Trace events appear on stderr in the container log; stdout shows only
    protocol traffic.
@@ -487,30 +496,38 @@ uv run coworld play ./coworld/coworld_manifest.json \
     --variant default \
     --timeout-seconds 120 \
     --no-open-browser \
-    coborg_among_them:dev
+    coborg-among-them:dev
 ```
 
 The single positional `player_images` arg is reused for every player slot.
 `--run` lets us override the container argv if needed.
 
-### 7.2 Player container shape
+### 7.2 Player container shape (as built in P0)
 
-- `coworld/Dockerfile`: base `python:3.12-slim`. Steps:
-  1. `pip install --no-cache-dir uv` (or use `pip` directly).
-  2. Copy the players repo (or just `players/`) into `/srv/players`.
-  3. `pip install -e /srv/players[cogames]`.
-  4. `ENV PYTHONUNBUFFERED=1`.
-  5. `ENTRYPOINT ["/srv/players/.../coborg_among_them/coworld/entrypoint.sh"]`.
-  6. Build target `linux/amd64`.
-- `coworld/entrypoint.sh`: forwards args to
+- `coworld/Dockerfile` (base `python:3.12-slim`, `--platform=linux/amd64`):
+  1. `ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1`.
+  2. `WORKDIR /srv/players`.
+  3. Install runtime deps directly so they cache independently of source:
+     `pip install "numpy>=2.0.0" "pydantic>=2.12.2" "websockets>=13.0"`.
+     This deliberately skips the `cogames` extra in `pyproject.toml` (which
+     pulls `cogames` + `mettagrid`, a heavy Bazel + Nim build); the noop
+     bot does not need any of it.
+  4. `COPY pyproject.toml README.md ./` and `COPY players ./players`.
+  5. `pip install --no-deps -e .` (deps are already satisfied above).
+  6. `COPY .../coworld/entrypoint.sh /usr/local/bin/entrypoint.sh` and
+     `ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]`.
+- `coworld/entrypoint.sh` execs
   `python -m players.among_them.coborg.coworld.policy_player "$@"`.
-  Stderr stays attached; stdout is the protocol channel.
-- `coworld/policy_player.py`: connects via the runner-provided transport
-  (the existing `guided_bot/coworld/policy_player.py` uses WebSocket;
-  confirm against
-  `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` —
-  read this before writing the bridge). Holds one `AgentRuntime`; calls
-  `runtime.step(observation)` per tick. Emits actions via the protocol.
+  Stderr stays attached; stdout is reserved as a protocol channel even
+  though the bridge connects out, not in.
+- `coworld/policy_player.py` is the `bitscreen_v1` binary WebSocket
+  bridge. It reads `COGAMES_ENGINE_WS_URL` (the runner injects this with
+  `?slot=N&token=…` already filled in), holds one `AgentRuntime`, and
+  calls `runtime.step(observation)` per inbound 8192-byte frame, sending
+  each resulting wire packet back to the server. Pinned against
+  `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` at SHA
+  `e791117ff1aac01a8ae220c258ab121876511aed`; verify against that file
+  before each phase boundary and update the pin in `coworld/README.md`.
 
 ### 7.3 Manifest variants
 
@@ -533,14 +550,17 @@ from §3.4, prefer the manifest values.
   post-run.
 - **Stdout is reserved for protocol traffic.** Audit dependencies for
   rogue `print()` calls in P0; if any show up, redirect or replace.
-- Trace event names follow the coborg canonical set
-  (`perception`, `belief_diff`, `snapshot_submitted`, `strategy_evaluated`,
-  `directive_published`, `directive_consumed`, `mode_entered`,
-  `mode_exited`, `mode_stalled`, `mode_completed`, `reflex_fired`,
-  `reflex_evaluated`, `action_intent`, `act_command`, `fallback_activated`,
-  `validation_rejected`) plus game-specific extras (`phase_change`,
+- Trace event names follow the Cyborg framework canonical set as actually
+  emitted by `players.player_sdk`: `perception`, `belief_updated`,
+  `mode_entered`, `mode_exited`, `mode_completed`, `mode_stalled`,
+  `reflex_evaluated`, `reflex_fired`, `action_intent`, `act_command`,
+  `snapshot_submitted`, `strategy_evaluated`, `strategy_inferences`,
+  `directive_rejected`, `directive_reaffirmed`, `fallback_activated`.
+  Game-specific extensions reserved for later phases: `phase_change`,
   `body_sighted`, `task_started`, `task_completed`, `kill_attempted`,
-  `vote_cast`, `chat_received`, `chat_sent`).
+  `vote_cast`, `chat_received`, `chat_sent`. The authoritative copy of
+  this vocabulary lives in `DESIGN.md` §7; treat that section as the
+  source of truth and keep it in sync if the SDK adds events.
 
 ---
 
@@ -553,7 +573,7 @@ from §3.4, prefer the manifest values.
   scratch preservation on reaffirmation.
 - **Reflex**: priority ordering, fallback activation, TTL expiry traces.
 - **Adapter smoke**: `test_coworld_player_smoke.py` replays a recorded
-  `coworld.player.v1` transcript and asserts the expected action stream.
+  `bitscreen_v1` transcript and asserts the expected action stream.
 - **End-to-end**: every phase ends with a passing `coworld play` run; CI
   gates the cheap subset.
 
@@ -569,7 +589,7 @@ from §3.4, prefer the manifest values.
 | R4 | **OCR / voting parser edge cases.** Game screens have many corner states. | Port the simple cases first; leave explicit `TODO(parity-edge-case)` markers. Rely on the parity fixture set to surface the rare states; add fixtures when we hit one in the wild. |
 | R5 | **Pixel vs state-vector divergence.** Some belief fields (e.g. exact task progress percentage) are easier and lossless from the structured state vector. | Pixel-first overall, but allow specific fields to be sourced from the state vector. Document each such field in `DESIGN.md` under a "State-vector taps" section. James drafted-approved this (D9). |
 | R6 | **Coworld manifest variants.** `--variant default` may not exist on every variant set. | Inspect `coworld_manifest.json` at P0; fall back to `manifest.variants[0]` and surface the choice in `play_local.sh`. |
-| R7 | **Protocol drift.** `coworld.player.v1` is a moving target. The `guided_bot/coworld/policy_player.py` port is correct as of 2026-05-13; verify against `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` at P0 and again at P4. | Pin against runner.py at the version that was current when this plan was written; record the git SHA in `coworld/README.md`. |
+| R7 | **Protocol drift.** `bitscreen_v1` is the binary wire protocol BitWorld serves to Among Them players (see `~/coding/bitworld/docs/bitscreen_v1.md` and the spec at https://github.com/Metta-AI/bitworld/blob/master/docs/bitscreen_v1.md). The `guided_bot/coworld/policy_player.py` port is correct as of 2026-05-13; verify against the BitWorld spec and against `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` at P0 and again at P4. | Pin against runner.py at the version that was current when this plan was written; record the git SHA in `coworld/README.md`. Re-check the `bitscreen_v1` spec doc whenever upgrading the bitworld submodule. |
 | R8 | **Nim libguidedbot.dylib dependency for parity ground truth.** Parity needs the Nim perception to produce JSON sidecars. | At P1 we'll either (a) ship a small Nim CLI inside `perception/parity/` that reuses `guided_bot`'s perception modules, or (b) instrument `guided_bot`'s existing run to dump per-frame parity sidecars. (a) is preferred — keeps the parity rig self-contained. |
 
 ---
@@ -631,18 +651,19 @@ These were drafted in the plan but not explicitly confirmed:
   guided_bot or its submission flow unless James explicitly says so.
 - **The modulabot directory in personal_cogs is deprecated** and must not
   be touched.
-- **Coborg has no other concrete game agents yet.** This bot is the
-  framework's first real client; treat the framework's docs (especially
-  the "Design Invariants" and "Anti-Patterns" sections of
-  `frameworks/coborg/docs/metta_cogames_framework/README.md`) as
+- **The Cyborg framework has no other concrete game agents yet.** This bot
+  is the framework's first real client; treat the framework's docs
+  (especially the "Design Invariants" and "Anti-Patterns" sections of
+  `players/player_sdk/docs/metta_cogames_framework/README.md`) as
   non-negotiable.
 - **Stdout = protocol, stderr = logs.** Audit deps for stray `print()`
   during P0.
 - **One Docker image fills all 8 player slots** in `coworld play`.
 - **Parity-first perception**: don't merge perception changes without
   green parity tests against the Nim output.
-- **uv run flakiness flagged but not yet resolved (R1).** Confirm
-  before P0.
+- **R1 uv run flakiness — root-caused and resolved 2026-05-13.** Recovery
+  procedure stays documented in §10 R1 in case the nimby lock ever sticks
+  again.
 
 ---
 

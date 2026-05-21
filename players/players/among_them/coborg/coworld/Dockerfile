@@ -2,7 +2,7 @@
 #
 # Build (from the players repo root):
 #   docker build --platform linux/amd64 \
-#     -t coborg_among_them:dev \
+#     -t coborg-among-them:dev \
 #     -f players/among_them/coborg/coworld/Dockerfile \
 #     .
 #

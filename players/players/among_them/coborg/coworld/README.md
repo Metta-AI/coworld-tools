@@ -9,9 +9,13 @@ Player container assets for the coborg Among Them agent.
   noop player only needs `numpy`, `pydantic`, and `websockets`.
 - `entrypoint.sh` — execs `python -m
   players.among_them.coborg.coworld.policy_player`.
-- `policy_player.py` — `coworld.player.v1` WebSocket bridge. Reads the
+- `policy_player.py` — `bitscreen_v1` binary WebSocket bridge. Reads the
   Coworld runner-supplied `COGAMES_ENGINE_WS_URL`, loops over 8192-byte
   packed frames, and dispatches each through the coborg `AgentRuntime`.
+  Among Them speaks the binary `bitscreen_v1` protocol — not the JSON
+  `coworld.player.v1` used by cogsguard players, so this bridge is
+  game-specific and does not share code with
+  `players/player_sdk/coworld_json_bridge.py`.
 
 ## Build
 
@@ -30,13 +34,18 @@ manifests only.
 
 ## Run via Coworld
 
+The canonical entrypoint is the leaf's
+[`scripts/play_local.sh`](../scripts/play_local.sh), which builds the image
+if missing and runs `uv run coworld play` with the P0 defaults. The
+equivalent manual invocation:
+
 ```bash
 cd ~/coding/metta
 uv run coworld play ./coworld/coworld_manifest.json \
   --variant default \
   --timeout-seconds 120 \
   --no-open-browser \
-  coborg_among_them:dev
+  coborg-among-them:dev
 ```
 
 The one positional `player_images` arg is reused for all 8 player slots.
