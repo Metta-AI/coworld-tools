@@ -2,7 +2,7 @@
 
 Grader implementations for **coworlds** - containers that evaluate coworld runs, submissions, or artifacts and produce grading outputs for downstream tournament and Observatory workflows.
 
-> **Status:** repository scaffold only. The coworld `grader` runtime contract is not defined yet; see [`docs/GRADER_DESIGN.md`](docs/GRADER_DESIGN.md) for the current design placeholder and open questions.
+> **Status:** canonical Coworld role repo. The Among Them minimal grader is implemented in [`graders/among_them/among_them_grader/`](graders/among_them/among_them_grader/). Hosted grader execution is still pending; see [`docs/GRADER_DESIGN.md`](docs/GRADER_DESIGN.md) for the current design placeholder and open questions.
 
 ## What is a coworld grader?
 
@@ -45,7 +45,7 @@ Each leaf grader directory follows the same placeholder shape:
 | Grader | Coworld | Status |
 | --- | --- | --- |
 | `templates/grader_template` | (template) | Scaffold only - no implementation |
-| `among_them/among_them_grader` | Among Them | Scaffold only - no implementation |
+| `among_them/among_them_grader` | Among Them | Minimal implementation - emits a scalar JSON score from episode results |
 | `paint_arena/paint_arena_grader` | PaintArena | Scaffold only - no implementation |
 | `cogs_v_clips/cogs_v_clips_grader` | Cogs vs Clips | Scaffold only - no implementation |
 
