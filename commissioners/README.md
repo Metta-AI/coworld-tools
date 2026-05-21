@@ -2,7 +2,7 @@
 
 Commissioner implementations for **coworlds** - containers and tooling that orchestrate tournament rounds, schedule episodes, carry round state, and return scoring or graduation decisions to the platform.
 
-> **Status:** repository scaffold only. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
+> **Status:** canonical Coworld role repo. The Among Them reference descriptor is implemented in [`commissioners/among_them/among_them_commissioner/`](commissioners/among_them/among_them_commissioner/); hosted scheduling still lives in Observatory's `AmongThemCommissioner`. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
 
 ## What is a coworld commissioner?
 
@@ -45,7 +45,7 @@ Each leaf commissioner directory follows the same placeholder shape:
 | Commissioner | Coworld | Status |
 | --- | --- | --- |
 | `templates/commissioner_template` | (template) | Scaffold only - no implementation |
-| `among_them/among_them_commissioner` | Among Them | Scaffold only - no implementation |
+| `among_them/among_them_commissioner` | Among Them | Reference descriptor - points manifest consumers at the hosted Observatory `AmongThemCommissioner` |
 | `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
 | `cogs_v_clips/cogs_v_clips_commissioner` | Cogs vs Clips | Scaffold only - no implementation |
 
