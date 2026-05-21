@@ -39,14 +39,13 @@ This directory is a standalone UV project:
 uv run coworld --help
 uv run coworld leagues
 uv run coworld download among_them --output-dir ./coworld
-uv run coworld play ./coworld/coworld_manifest.json "$IMAGE" --no-open-browser
-uv run coworld run-episode ./coworld/coworld_manifest.json "$IMAGE"
+uv run coworld play "$COWORLD_ID" "$IMAGE" --no-open-browser
+uv run coworld run-episode "$COWORLD_ID" "$IMAGE"
 ```
 
-Use the manifest path printed by `coworld download`. Public PyPI `coworld`
-releases have written `./coworld/coworld_manifest.json`; the editable Metta
-source may move toward a cached
-`./coworld/<coworld-id>/coworld_manifest.json` layout.
+`coworld download` writes `./coworld/<coworld-id>/coworld_manifest.json` and
+prints the `<coworld-id>` plus a suggested `coworld play` command. Pass that
+bare id to `play` / `run-episode`, or use the full manifest path if needed.
 
 Use `coworld play` as the replacement for the deleted local match scripts.
 Use `coworld run-episode` when you want saved episode artifacts for validation.
