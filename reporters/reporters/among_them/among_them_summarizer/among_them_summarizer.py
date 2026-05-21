@@ -1,12 +1,17 @@
 """Among Them summarizer reporter.
 
-Phase 5 (HTML polish): on top of phase 4's data layer, dresses the
-HTML with per-slot color swatches keyed to the 16-color in-game
-palette, ghost glyphs for `likely_dead` slots, per-slot activity
-sparkline SVGs (one rect per bucket, height ∝ presses, dimmed
-outside `[joined_tick, left_tick]`), and a meetings footnote linking
-to DESIGN.md for the friction discussion behind the "estimated"
-label.
+Reports only facts the reporter can read or derive without
+inference. Specifically removed (after phase 5):
+  - The `likely_dead` inference and its ghost-glyph rendering. Whether
+    a slot was killed or alive at episode end is not recoverable from
+    the binary replay or the results JSON without a richer game-side
+    events file; the reporter no longer guesses.
+  - The meetings card and `estimate_meetings`. The same constraint
+    applies — meetings called, ballots cast, transcripts spoken all
+    live in the game's stdout text, not in the artifacts the reporter
+    sees. The per-slot `vote_players` / `vote_skip` / `vote_timeout`
+    counts remain in the scoreboard (those *are* facts from the
+    results JSON).
 
 Inline CSS only; no `<script>`, no `<link>`. The page renders inside
 Observatory's iframe+CSP sandbox without external fetches.
@@ -369,7 +374,20 @@ class VerdictBlock(BaseModel):
 
 
 class SlotStats(BaseModel):
+    """Per-slot summary.
+
+    `join_order` is the connection-order index this slot was assigned
+    to at join time (the `ReplayJoinRecord.player` field — the index
+    into `sim.players` at the moment of join). `slot` is the
+    tournament/results-JSON slot index. The two differ when the game
+    auto-assigns slots or when a player joins out-of-order; downstream
+    ingesters that want the connection-order ↔ slot mapping read
+    `join_order` here or filter the `join` events in events.parquet.
+    `None` when no join record exists for this slot.
+    """
+
     slot: int
+    join_order: int | None
     policy_name: str
     in_game_name: str | None
     color_index: int | None
@@ -385,16 +403,8 @@ class SlotStats(BaseModel):
     vote_timeout: int
     joined_tick: int
     left_tick: int | None
-    likely_dead: bool
     input_press_total: int | None = None
     input_press_per_kind: dict[str, int] | None = None
-
-
-class MeetingsBlock(BaseModel):
-    estimated_count: int
-    total_vote_players: int
-    total_vote_skip: int
-    total_vote_timeout: int
 
 
 class Disconnect(BaseModel):
@@ -442,6 +452,17 @@ class ActivityBlock(BaseModel):
 
 
 class AmongThemStats(BaseModel):
+    """Top-level stats blob.
+
+    `slot_to_join_order` is a convenience array indexed by slot, where
+    each entry is the connection-order index that joined into that slot
+    (or `None` if no join record exists for the slot). The same mapping
+    is available row-by-row via `slots[i].join_order`; this top-level
+    field is a flat view for downstream ingesters that just want the
+    mapping. The full granular event data lives in
+    `events.parquet`'s `join` rows.
+    """
+
     episode_id: str | None
     variant_id: str
     duration_seconds: float | None
@@ -451,7 +472,7 @@ class AmongThemStats(BaseModel):
     config: GameConfig
     verdict: VerdictBlock
     slots: list[SlotStats]
-    meetings: MeetingsBlock
+    slot_to_join_order: list[int | None]
     disconnects: list[Disconnect]
     activity: ActivityBlock
 
@@ -709,33 +730,6 @@ def derive_verdict(results: AmongThemResults) -> VerdictBlock:
     )
 
 
-def estimate_meetings(results: AmongThemResults) -> MeetingsBlock:
-    """Lower-bound estimate of meetings held during the episode.
-
-    Every alive slot votes (or times out) exactly once per meeting
-    (`sim.nim:2862-2897::tallyVotes`). So `vote_players + vote_skip +
-    vote_timeout` per slot is the number of meetings that slot
-    participated in, and the max across slots is the tightest lower
-    bound on the total. See DESIGN.md §"Meetings count (best-effort)".
-    """
-    vp = results.vote_players or []
-    vs = results.vote_skip or []
-    vt = results.vote_timeout or []
-    n = results.slot_count
-    per_slot = [
-        (vp[i] if i < len(vp) else 0)
-        + (vs[i] if i < len(vs) else 0)
-        + (vt[i] if i < len(vt) else 0)
-        for i in range(n)
-    ]
-    return MeetingsBlock(
-        estimated_count=max(per_slot) if per_slot else 0,
-        total_vote_players=sum(vp),
-        total_vote_skip=sum(vs),
-        total_vote_timeout=sum(vt),
-    )
-
-
 def _resolve_policy_name(
     slot: int,
     results_names: list[str | None] | None,
@@ -764,21 +758,6 @@ def _slot_role(
     if crew and slot < len(crew) and crew[slot] == 1:
         return "Crewmate"
     return None
-
-
-def _likely_dead(role: str | None, won: bool, winner_side: str) -> bool:
-    """Inference: did this player die before the game ended?
-
-    Only flags the unambiguous case: the player's team won the game
-    overall, but they personally didn't win. The only way that
-    happens in Among Them is if they were killed (crew) or ejected
-    (which by sim convention sets their win flag to False since the
-    game continued without them — for imposters, see Friction §4 of
-    DESIGN.md). Other cases (lost in a losing team, won) stay False.
-    """
-    if won or role is None:
-        return False
-    return winner_side == role
 
 
 def _resolve_color(slot: int, config: GameConfig) -> tuple[int | None, str | None]:
@@ -830,10 +809,18 @@ def resolve_slot_events(replay: BitReplay) -> dict[int, dict[str, Any]]:
         tick = tick_from_ms(time_ms)
         if kind == "join":
             join = record  # type: ignore[assignment]
-            slot = join.slot if join.slot >= 0 else len(current_players)  # type: ignore[attr-defined]
+            # `join_order` is the connection-order index this slot was
+            # assigned to at join time — equal to the current length of
+            # `sim.players` (which the writer recorded as
+            # `ReplayJoinRecord.player`). Slots that get an explicit
+            # `slot >= 0` get that slot id; `slot < 0` falls back to
+            # using the join-order index as the slot.
+            join_order = len(current_players)
+            slot = join.slot if join.slot >= 0 else join_order  # type: ignore[attr-defined]
             current_players.append(slot)
             entry = info.setdefault(slot, {})
             entry["joined_tick"] = tick
+            entry["join_order"] = join_order
             entry["in_game_name"] = join.name  # type: ignore[attr-defined]
             entry.setdefault("left_tick", None)
         else:
@@ -993,7 +980,6 @@ def build_slot_stats(
     passed (phase 4 callers), the values land in `SlotStats`.
     """
     n = results.slot_count
-    verdict = derive_verdict(results)
     policy_by_slot = {p.slot: p.policy_name for p in metadata.players}
     slot_events = resolve_slot_events(replay) if replay is not None else {}
     win = results.win or []
@@ -1011,6 +997,7 @@ def build_slot_stats(
         out.append(
             SlotStats(
                 slot=i,
+                join_order=slot_event.get("join_order"),
                 policy_name=_resolve_policy_name(i, results.names, policy_by_slot),
                 in_game_name=slot_event.get("in_game_name"),
                 color_index=color_index,
@@ -1026,7 +1013,6 @@ def build_slot_stats(
                 vote_timeout=int(vt[i]) if i < len(vt) else 0,
                 joined_tick=slot_event.get("joined_tick", 0),
                 left_tick=slot_event.get("left_tick"),
-                likely_dead=_likely_dead(role, won, verdict.winner_side),
                 input_press_total=(
                     input_press_totals[i]
                     if input_press_totals and i < len(input_press_totals)
@@ -1093,7 +1079,7 @@ def build_stats(
         config=replay.header.config,
         verdict=derive_verdict(results),
         slots=slots,
-        meetings=estimate_meetings(results),
+        slot_to_join_order=[s.join_order for s in slots],
         disconnects=collect_disconnects(slots, last_tick),
         activity=activity,
     )
@@ -1138,7 +1124,13 @@ def build_event_rows(
         # the raw join.player index).
         current_players: list[int] = []
         for join in replay.joins:
-            slot = join.slot if join.slot >= 0 else len(current_players)
+            # `player_index` is the connection-order index this join was
+            # assigned to at join time — equal to the current length of
+            # `sim.players`. Exposing it lets downstream ingesters
+            # reconstruct the slot ↔ connection-order mapping from the
+            # parquet alone.
+            player_index = len(current_players)
+            slot = join.slot if join.slot >= 0 else player_index
             current_players.append(slot)
             rows.append(
                 {
@@ -1149,6 +1141,7 @@ def build_event_rows(
                         {
                             "name": join.name,
                             "slot": slot,
+                            "player_index": player_index,
                             "token_present": join.token_present,
                         }
                     ),
@@ -1236,8 +1229,8 @@ def build_event_rows(
                         "vote_players": s.vote_players,
                         "vote_skip": s.vote_skip,
                         "vote_timeout": s.vote_timeout,
-                        "likely_dead": s.likely_dead,
                         "policy_name": s.policy_name,
+                        "join_order": s.join_order,
                         "joined_tick": s.joined_tick,
                         "left_tick": s.left_tick,
                         "in_game_name": s.in_game_name,
@@ -1318,9 +1311,6 @@ table.scores td.num { text-align: right; }
 .outcome { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; letter-spacing: 0.04em; }
 .outcome.won  { background: #d1e7dd; color: #0f5132; }
 .outcome.lost { background: #f8d7da; color: #842029; }
-.outcome.dead { background: #fff3cd; color: #664d03; display: inline-flex; align-items: center; gap: 4px; }
-.outcome.dead .ghost { color: #664d03; }
-.ghost { display: inline-block; vertical-align: middle; }
 .swatch {
   display: inline-block;
   width: 10px; height: 10px;
@@ -1342,11 +1332,6 @@ h2 {
   font-size: 12px; color: #495057; display: flex; flex-wrap: wrap; gap: 16px;
 }
 .config-strip .item strong { color: #212529; }
-.meetings { display: flex; gap: 24px; font-size: 13px; }
-.meetings .stat { display: flex; flex-direction: column; }
-.meetings .stat .label { color: #6c757d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-.meetings .stat .value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.meetings .note { color: #6c757d; font-size: 12px; margin-top: 8px; }
 footer { margin-top: 24px; font-size: 11px; color: #adb5bd; text-align: center; }
 """.strip()
 
@@ -1376,19 +1361,6 @@ def _role_badge_html(role: str | None) -> str:
     return '<span class="role unknown">?</span>'
 
 
-# Simple ghost glyph (the silhouette of a dead-and-roaming crewmate
-# trailing a wisp). One inline SVG path; no fills beyond the slot
-# color it inherits from the surrounding `currentColor`.
-_GHOST_GLYPH_SVG = (
-    '<svg class="ghost" viewBox="0 0 14 14" width="14" height="14" '
-    'aria-label="likely killed" role="img">'
-    '<path fill="currentColor" d="M7 1.6c-2.4 0-4.2 1.9-4.2 4.3v6.3l1.5-1 '
-    "1.4 1 1.3-1 1.3 1 1.4-1 1.5 1V5.9c0-2.4-1.8-4.3-4.2-4.3zM5.7 5.4a.95.95 "
-    '0 110 1.9.95.95 0 010-1.9zm2.6 0a.95.95 0 110 1.9.95.95 0 010-1.9z"/>'
-    "</svg>"
-)
-
-
 def _slot_color_hex(slot: SlotStats) -> str:
     """The CSS hex for this slot. Falls back to a neutral gray when
     the slot has no resolved color (e.g. an unknown color name in
@@ -1412,15 +1384,6 @@ def _swatch_html(slot: SlotStats) -> str:
 def _outcome_badge_html(s: SlotStats) -> str:
     if s.won:
         return '<span class="outcome won">Won</span>'
-    if s.likely_dead:
-        # Ghost glyph + "Lost" label. The ghost glyph carries
-        # `class="ghost"` so tests can verify only likely_dead slots
-        # show it; the badge label clarifies that the inference is
-        # team-outcome based.
-        return (
-            '<span class="outcome dead" title="inferred from team outcome">'
-            f"{_GHOST_GLYPH_SVG}<span>Lost</span></span>"
-        )
     return '<span class="outcome lost">Lost</span>'
 
 
@@ -1587,24 +1550,6 @@ def _disconnects_html(disconnects: list[Disconnect], slots: list[SlotStats]) -> 
     )
 
 
-def _meetings_html(meetings: MeetingsBlock) -> str:
-    return (
-        '<div class="meetings">'
-        f'<div class="stat"><span class="label">Meetings (est.)</span>'
-        f'<span class="value">{meetings.estimated_count}</span></div>'
-        f'<div class="stat"><span class="label">Votes on players</span>'
-        f'<span class="value">{meetings.total_vote_players}</span></div>'
-        f'<div class="stat"><span class="label">Skip votes</span>'
-        f'<span class="value">{meetings.total_vote_skip}</span></div>'
-        f'<div class="stat"><span class="label">Timeouts</span>'
-        f'<span class="value">{meetings.total_vote_timeout}</span></div>'
-        "</div>"
-        '<div class="note">Meeting count is a lower bound from per-slot vote totals; '
-        "per-meeting transcripts and ballots require richer game-side events "
-        "(see DESIGN.md §Frictions).</div>"
-    )
-
-
 def render_summary_html(stats: AmongThemStats) -> str:
     episode_label = stats.episode_id or "unknown"
     disconnects_section = ""
@@ -1650,16 +1595,10 @@ game v{html_escape(stats.game_version)}
 {_scoreboard_html(stats)}
 </section>
 
-<section class="card">
-<h2>Meetings</h2>
-{_meetings_html(stats.meetings)}
-</section>
-
 {disconnects_section}
 
 <footer>full stats: <code>stats.json</code> &middot;
-event log: <code>events.parquet</code> &middot;
-reporter v0.5 (phase 5)</footer>
+event log: <code>events.parquet</code></footer>
 </div>
 </body>
 </html>
