@@ -2,7 +2,7 @@
 
 Reporter implementations for **coworlds** — runnables that turn sparse episode experience (results, replays, logs, metadata, and game-authored context) into dense report artifacts for people, agents, and Observatory surfaces.
 
-> **Status:** canonical Coworld role repo. One concrete reporter is implemented — [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) — and the current envelope-style implementation details live in [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Remaining reporter directories below are scaffolding.
+> **Status:** canonical Coworld role repo. Concrete summarizers exist for [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/). The current envelope-style implementation details live in [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Remaining reporter directories below are scaffolding.
 
 ## What is a coworld reporter?
 
@@ -114,7 +114,7 @@ For everything else about the current envelope runtime — certification, Observ
 | `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented** — first concrete reporter; tests passing; primitives inline, awaiting SDK extraction |
 | `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in `paint_arena_summarizer` |
 | `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived from `paint_arena_summarizer` once the SDK is extracted |
-| `among_them/among_them_summarizer` | Among Them | Reporter | Scaffold only — no implementation |
+| `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented** — emits an HTML, Markdown, and JSON zip from episode results; replay-rich reporting is future work |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation |
 | `cogs_v_clips/cogs_v_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation |
 
