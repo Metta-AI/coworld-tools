@@ -1,11 +1,11 @@
 """Among Them summarizer reporter.
 
-Phase 3 (binary replay parser): on top of phase 2's aggregates path,
-parses the full `.bitreplay` v3 record stream (joins, leaves, inputs,
-hashes) and wires per-slot `in_game_name` / `joined_tick` / `left_tick`
-/ `color_*` plus episode-level `total_ticks` and disconnect events.
-Input-stream analytics (button-press counts, activity buckets) still
-land in phase 4.
+Phase 4 (input-stream analytics): on top of phase 3, walks the
+`.bitreplay` input records, performs per-player edge detection on
+button-press transitions, and emits per-slot `input_press_total` /
+`input_press_per_kind`, plus per-(slot, time-bucket) `activity_bucket`
+events. The HTML scoreboard gains a basic activity column (phase 5
+replaces it with a proper sparkline SVG).
 
 The output zip contains:
 
@@ -204,6 +204,23 @@ _RECORD_LEAVE = 0x04
 # Matches the design's "5 s before end" rule.
 _DISCONNECT_GRACE_TICKS = REPLAY_FPS * 5
 
+# Input bitmask layout (mirrors `common/protocol.nim:18-24`).
+BUTTONS: tuple[tuple[str, int], ...] = (
+    ("up", 0x01),
+    ("down", 0x02),
+    ("left", 0x04),
+    ("right", 0x08),
+    ("select", 0x10),
+    ("attack", 0x20),
+    ("b", 0x40),
+)
+BUTTON_NAMES: tuple[str, ...] = tuple(name for name, _ in BUTTONS)
+
+# Activity-bucket width in ticks (10 s at 24 fps). At ~10 s per bucket,
+# a default 10000-tick episode produces ~40 buckets — enough resolution
+# to draw an intensity sparkline without flooding the parquet.
+ACTIVITY_BUCKET_TICKS = REPLAY_FPS * 10
+
 
 def tick_from_ms(ms: int) -> int:
     """Convert a replay millisecond timestamp to a simulation tick.
@@ -357,6 +374,44 @@ class Disconnect(BaseModel):
     leave_seconds: float | None
 
 
+class InputPress(BaseModel):
+    """One newly-set edge (0→1 transition) of one button by one slot."""
+
+    tick: int
+    slot: int
+    button: str  # one of BUTTON_NAMES
+
+
+class ActivityBucket(BaseModel):
+    """Per-slot, per-time-bucket aggregate of edge-detected presses.
+
+    Buckets are aligned to multiples of `ACTIVITY_BUCKET_TICKS` from
+    tick 0. Empty buckets (no presses) are not represented.
+    """
+
+    slot: int
+    bucket_start_tick: int
+    bucket_ticks: int
+    presses_total: int
+    presses_by_button: dict[str, int]
+
+
+class ActivityPerSlot(BaseModel):
+    """The activity-strip data for one slot. The list is dense over the
+    range [first non-empty bucket, last non-empty bucket]; empty
+    interior buckets carry 0 so the HTML can render a continuous bar
+    sequence without gaps.
+    """
+
+    slot: int
+    presses_per_bucket: list[int]
+
+
+class ActivityBlock(BaseModel):
+    bucket_ticks: int
+    buckets_per_slot: list[ActivityPerSlot]
+
+
 class AmongThemStats(BaseModel):
     episode_id: str | None
     variant_id: str
@@ -369,6 +424,7 @@ class AmongThemStats(BaseModel):
     slots: list[SlotStats]
     meetings: MeetingsBlock
     disconnects: list[Disconnect]
+    activity: ActivityBlock
 
 
 class BitReplayHeader(BaseModel):
@@ -759,19 +815,153 @@ def resolve_slot_events(replay: BitReplay) -> dict[int, dict[str, Any]]:
     return info
 
 
+def extract_input_presses(replay: BitReplay) -> list[InputPress]:
+    """Walk every input record in time order; emit one `InputPress`
+    for each newly-set edge bit (0→1 transition) per slot.
+
+    The binary stream's `input.player` is the index into `sim.players`
+    at the moment of the record, which mutates across leaves. The
+    walker maintains the live `player_index → slot` mapping alongside
+    a per-slot `prev_mask`, mirroring how the game's writer emits
+    records (`server.nim` only writes a record when the per-player
+    mask changes — so each record is guaranteed to differ from the
+    previous mask for that player).
+
+    Time-order tie-break at the same `time_ms`:
+      joins (0) < inputs (1) < leaves (2)
+    so a player who joins and presses on the same ms produces a
+    correctly-ordered (join, press) pair; same for press-then-leave.
+    """
+    events: list[tuple[int, int, str, Any]] = []
+    for j in replay.joins:
+        events.append((j.time_ms, 0, "join", j))
+    for inp in replay.inputs:
+        events.append((inp.time_ms, 1, "input", inp))
+    for lv in replay.leaves:
+        events.append((lv.time_ms, 2, "leave", lv))
+    events.sort(key=lambda e: (e[0], e[1]))
+
+    current_players: list[int] = []
+    prev_mask_by_slot: dict[int, int] = {}
+    presses: list[InputPress] = []
+    for time_ms, _priority, kind, record in events:
+        tick = tick_from_ms(time_ms)
+        if kind == "join":
+            slot = record.slot if record.slot >= 0 else len(current_players)
+            current_players.append(slot)
+            prev_mask_by_slot.setdefault(slot, 0)
+        elif kind == "leave":
+            if 0 <= record.player < len(current_players):
+                current_players.pop(record.player)
+        else:  # input
+            if not (0 <= record.player < len(current_players)):
+                continue  # defensive: input from an unknown player index
+            slot = current_players[record.player]
+            prev = prev_mask_by_slot.get(slot, 0)
+            cur = record.keys
+            edges = cur & ~prev
+            for name, bit in BUTTONS:
+                if edges & bit:
+                    presses.append(InputPress(tick=tick, slot=slot, button=name))
+            prev_mask_by_slot[slot] = cur
+    return presses
+
+
+def bucket_presses(
+    presses: list[InputPress], *, bucket_ticks: int = ACTIVITY_BUCKET_TICKS
+) -> list[ActivityBucket]:
+    """Aggregate edge-detected presses into per-(slot, bucket) windows.
+
+    Empty buckets are not emitted; downstream consumers that want a
+    dense per-slot intensity strip should fill gaps with zero (see
+    `build_activity_block`).
+    """
+    if bucket_ticks <= 0:
+        raise ValueError(f"bucket_ticks must be positive, got {bucket_ticks!r}")
+    agg: dict[tuple[int, int], dict[str, int]] = {}
+    for p in presses:
+        bucket_start = (p.tick // bucket_ticks) * bucket_ticks
+        slot_key = (p.slot, bucket_start)
+        agg.setdefault(slot_key, {})
+        agg[slot_key][p.button] = agg[slot_key].get(p.button, 0) + 1
+    out: list[ActivityBucket] = []
+    for (slot, bucket_start), counts in sorted(agg.items()):
+        out.append(
+            ActivityBucket(
+                slot=slot,
+                bucket_start_tick=bucket_start,
+                bucket_ticks=bucket_ticks,
+                presses_total=sum(counts.values()),
+                presses_by_button=dict(sorted(counts.items())),
+            )
+        )
+    return out
+
+
+def per_slot_press_summary(
+    presses: list[InputPress], slot_count: int
+) -> tuple[list[int], list[dict[str, int]]]:
+    """Reduce a flat press list to per-slot (total, per-button) summaries.
+
+    Returns `(totals, per_kind)` aligned by slot index 0..slot_count-1.
+    Slots with no presses get `total=0` and `per_kind={}`.
+    """
+    totals = [0] * slot_count
+    per_kind: list[dict[str, int]] = [{} for _ in range(slot_count)]
+    for p in presses:
+        if 0 <= p.slot < slot_count:
+            totals[p.slot] += 1
+            per_kind[p.slot][p.button] = per_kind[p.slot].get(p.button, 0) + 1
+    return totals, [dict(sorted(d.items())) for d in per_kind]
+
+
+def build_activity_block(
+    buckets: list[ActivityBucket],
+    *,
+    slot_count: int,
+    last_tick: int,
+    bucket_ticks: int = ACTIVITY_BUCKET_TICKS,
+) -> ActivityBlock:
+    """Densify the sparse bucket list into one `presses_per_bucket`
+    array per slot, with zero-padding so each slot's array has the
+    same length (covering ticks 0..last_tick).
+
+    The dense form is what the HTML sparkline expects; the sparse
+    bucket events go into the parquet.
+    """
+    n_buckets = max(1, (last_tick // bucket_ticks) + 1) if last_tick > 0 else 0
+    per_slot_counts: list[list[int]] = [[0] * n_buckets for _ in range(slot_count)]
+    for b in buckets:
+        if 0 <= b.slot < slot_count:
+            idx = b.bucket_start_tick // bucket_ticks
+            if 0 <= idx < n_buckets:
+                per_slot_counts[b.slot][idx] = b.presses_total
+    return ActivityBlock(
+        bucket_ticks=bucket_ticks,
+        buckets_per_slot=[
+            ActivityPerSlot(slot=i, presses_per_bucket=per_slot_counts[i])
+            for i in range(slot_count)
+        ],
+    )
+
+
 def build_slot_stats(
     results: AmongThemResults,
     metadata: EpisodeMetadata,
     config: GameConfig,
     *,
     replay: BitReplay | None = None,
+    input_press_totals: list[int] | None = None,
+    input_press_per_kind: list[dict[str, int]] | None = None,
 ) -> list[SlotStats]:
     """Build per-slot stats from the aggregate arrays in results.json,
     optionally enriched with replay-derived per-slot fields
-    (`in_game_name`, `joined_tick`, `left_tick`, `color_*`) when a
-    parsed `BitReplay` is passed.
+    (`in_game_name`, `joined_tick`, `left_tick`, `color_*`) and
+    input-stream summaries (`input_press_total`, `input_press_per_kind`).
 
-    Phase 4 will also wire `input_press_total` / `input_press_per_kind`.
+    When `input_press_*` lists are omitted, the input fields surface
+    as `None` / `None` (phase 2 / phase 3 callers); when they are
+    passed (phase 4 callers), the values land in `SlotStats`.
     """
     n = results.slot_count
     verdict = derive_verdict(results)
@@ -808,8 +998,16 @@ def build_slot_stats(
                 joined_tick=slot_event.get("joined_tick", 0),
                 left_tick=slot_event.get("left_tick"),
                 likely_dead=_likely_dead(role, won, verdict.winner_side),
-                input_press_total=None,
-                input_press_per_kind=None,
+                input_press_total=(
+                    input_press_totals[i]
+                    if input_press_totals and i < len(input_press_totals)
+                    else None
+                ),
+                input_press_per_kind=(
+                    input_press_per_kind[i]
+                    if input_press_per_kind and i < len(input_press_per_kind)
+                    else None
+                ),
             )
         )
     return out
@@ -841,8 +1039,21 @@ def build_stats(
     metadata: EpisodeMetadata,
     replay: BitReplay,
 ) -> AmongThemStats:
-    slots = build_slot_stats(results, metadata, replay.header.config, replay=replay)
     last_tick = replay.last_tick
+    presses = extract_input_presses(replay)
+    buckets = bucket_presses(presses)
+    totals, per_kind = per_slot_press_summary(presses, results.slot_count)
+    slots = build_slot_stats(
+        results,
+        metadata,
+        replay.header.config,
+        replay=replay,
+        input_press_totals=totals,
+        input_press_per_kind=per_kind,
+    )
+    activity = build_activity_block(
+        buckets, slot_count=results.slot_count, last_tick=last_tick
+    )
     return AmongThemStats(
         episode_id=metadata.episode_id,
         variant_id=metadata.variant_id,
@@ -855,6 +1066,7 @@ def build_stats(
         slots=slots,
         meetings=estimate_meetings(results),
         disconnects=collect_disconnects(slots, last_tick),
+        activity=activity,
     )
 
 
@@ -866,16 +1078,19 @@ def build_event_rows(
 ) -> list[dict[str, Any]]:
     """Assemble event-log rows.
 
-    Phase 3 keys emitted:
+    Phase 4 keys emitted:
       - `game_config` (ts=0, player=-1)
       - `join` (ts=joined_tick, player=slot) — one per ReplayJoinRecord
       - `leave` (ts=left_tick, player=slot) — one per ReplayLeaveRecord
+      - `input_press` (ts=tick, player=slot) — one per 0→1 button-edge
+      - `activity_bucket` (ts=bucket_start_tick, player=slot) — per
+        (slot, time-bucket) aggregate with `presses_total` and
+        `presses_by_button`. Empty buckets are not emitted.
       - `player_summary` (ts=last_tick, player=slot)
       - `game_result` (ts=last_tick, player=-1)
 
     `join` payloads carry `token_present: bool` only — never the token
-    string (DESIGN.md decision #9). Phase 4 will add `input_press` and
-    `activity_bucket`.
+    string (DESIGN.md decision #9).
     """
     rows: list[dict[str, Any]] = []
     last_tick = stats.total_ticks or 0
@@ -945,6 +1160,36 @@ def build_event_rows(
                         }
                     )
                 next_leave = next(leaves_iter, None)
+        # input_press + activity_bucket rows derived from the replay's
+        # input stream. Walked once via extract_input_presses (the
+        # canonical edge-detection pass) so the parquet's
+        # `input_press` rows and `stats.slots[i].input_press_*`
+        # summaries agree by construction.
+        presses = extract_input_presses(replay)
+        for p in presses:
+            rows.append(
+                {
+                    "ts": p.tick,
+                    "player": p.slot,
+                    "key": "input_press",
+                    "value": _stable_json({"button": p.button}),
+                }
+            )
+        for b in bucket_presses(presses):
+            rows.append(
+                {
+                    "ts": b.bucket_start_tick,
+                    "player": b.slot,
+                    "key": "activity_bucket",
+                    "value": _stable_json(
+                        {
+                            "bucket_ticks": b.bucket_ticks,
+                            "presses_total": b.presses_total,
+                            "presses_by_button": b.presses_by_button,
+                        }
+                    ),
+                }
+            )
     for s in stats.slots:
         rows.append(
             {
@@ -1045,6 +1290,17 @@ table.scores td.num { text-align: right; }
 .outcome.won  { background: #d1e7dd; color: #0f5132; }
 .outcome.lost { background: #f8d7da; color: #842029; }
 .outcome.dead { background: #fff3cd; color: #664d03; }
+.activity-col { min-width: 120px; }
+.activity-cell {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.activity-bar {
+  display: inline-block; height: 8px; background: #6c757d;
+  border-radius: 4px; min-width: 1px; max-width: 80px;
+}
+.activity-num {
+  font-size: 11px; color: #495057; font-variant-numeric: tabular-nums;
+}
 h2 {
   font-size: 13px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.06em; color: #495057; margin: 0 0 10px;
@@ -1121,8 +1377,32 @@ def _config_strip_html(config: GameConfig) -> str:
     return '<div class="config-strip">' + "".join(parts) + "</div>"
 
 
+def _activity_bar_html(slot: SlotStats, max_total: int) -> str:
+    """A tiny proportional bar for the scoreboard's Activity column.
+
+    Phase 4 ships this minimal shape; phase 5 replaces it with a per-
+    slot intensity sparkline (one bar per bucket) and dims segments
+    outside the slot's [joined_tick, left_tick] window.
+    """
+    total = slot.input_press_total or 0
+    if max_total <= 0:
+        pct = 0.0
+    else:
+        pct = (total / max_total) * 100.0
+    return (
+        f'<span class="activity-cell" title="{total} presses">'
+        f'<span class="activity-bar" style="width:{pct:.1f}%"></span>'
+        f'<span class="activity-num">{total}</span>'
+        "</span>"
+    )
+
+
 def _scoreboard_html(stats: AmongThemStats) -> str:
     rows: list[str] = []
+    max_press = max(
+        (s.input_press_total or 0 for s in stats.slots),
+        default=0,
+    )
     for s in stats.slots:
         tasks_cell = (
             f"{s.tasks} / {s.tasks_assigned}" if s.tasks_assigned > 0 else f"{s.tasks}"
@@ -1139,6 +1419,7 @@ def _scoreboard_html(stats: AmongThemStats) -> str:
             f'<td class="num">{s.vote_players}</td>'
             f'<td class="num">{s.vote_skip}</td>'
             f'<td class="num">{s.vote_timeout}</td>'
+            f'<td class="activity-col">{_activity_bar_html(s, max_press)}</td>'
             "</tr>"
         )
     return (
@@ -1151,6 +1432,7 @@ def _scoreboard_html(stats: AmongThemStats) -> str:
         '<th class="num">Vote on</th>'
         '<th class="num">Skip</th>'
         '<th class="num">Timeout</th>'
+        "<th>Activity</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
