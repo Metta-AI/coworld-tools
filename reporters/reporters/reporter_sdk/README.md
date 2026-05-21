@@ -2,15 +2,15 @@
 
 Shared, pip-installable Python package providing the primitives every coworld reporter in this repo programs against.
 
-> **Status: intentionally on hold.** The package exists and is installable but exposes no real surface yet, and we are deliberately **not** adding one until [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) is built end-to-end with its primitives inline. The SDK's API will then be *extracted* from that reporter — see the "Build strategy" section of the [root README](../../README.md) for the rationale. The skeleton exists now so the import path is reserved and the package is wired up for an editable install whenever it becomes useful.
+> **Status: still intentionally on hold.** The package exists and is installable but exposes no real surface yet. The two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/) — both inline the primitives that will live here. The SDK's API will be *extracted* from those two reporters once their shared shape is stable; see the "Build strategy" section of the [root README](../../README.md) for the rationale. The skeleton exists now so the import path is reserved and the package is wired up for an editable install whenever it becomes useful.
 
 ## Purpose
 
-Encode the v1 coworld reporter contract — defined in [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) — once, in one importable place. Concrete reporters consume the SDK so they do not each re-derive envelope construction, env-supplied URI resolution, or contract-aligned types from the design document.
+Encode the v1 coworld reporter contract — defined in [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) (decisions D1–D12) — once, in one importable place. Concrete reporters consume the SDK so they do not each re-derive the deterministic zip writer, the `(ts, player, key, value)` event-log schema, env-supplied URI resolution, or contract-aligned types from the design document.
 
 Scope is deliberately narrow:
 
-- **In scope:** envelope schema and builders, env-var URI accessors, `runner/io.py`-compatible I/O wrappers, shared dataclasses/Pydantic models for envelope and episode-metadata shapes, validation helpers.
+- **In scope:** the D12 zip writer with pinned-mtime determinism, `render.txt` assembly + validation, env-var URI accessors, `runner/io.py`-compatible I/O wrappers, the shared parquet event-log schema, shared dataclasses/Pydantic models for episode-metadata shapes, HTTP retry helpers.
 - **Out of scope:** anything game-specific (results parsing, replay decoding, summary phrasing). Those belong in the game-specific reporter under `reporters/<coworld>/`.
 
 The SDK is a library, not a framework — it provides primitives reporters call, not a lifecycle reporters fit into. The platform-side lifecycle lives in metta's `packages/coworld/`.
@@ -52,40 +52,58 @@ CMD ["python", "-m", "reporter.<entrypoint>"]
 
 Reporters build against repo-HEAD SDK by default. If a reporter ever needs to pin to an older SDK, bump the SDK version, tag the commit, and have that reporter install from a built wheel instead — the package is structured to support this without rework.
 
-## Usage
+## Extraction candidates (still inline in the two reporters)
+
+These primitives are duplicated verbatim between `paint_arena_summarizer.py` and `among_them_summarizer.py`; they're the shopping list for the upcoming extraction pass:
+
+- `ReporterInputs` (Pydantic model) + `load_reporter_inputs()` — reads the `COGAME_*` env vars into a typed value.
+- `read_uri(uri) -> bytes` / `write_uri(uri, payload, content_type)` / `read_json(uri)` — scheme-dispatched I/O over `file://` and `http(s)://` with retries on 429/5xx (5 attempts, exponential backoff).
+- `write_deterministic_zip(entries)` — `zipfile.ZipFile` helper with pinned `date_time=(1980, 1, 1, 0, 0, 0)` for byte-identical reruns per D12.
+- `EVENT_LOG_SCHEMA` (the `(ts: int64, player: int16, key: string, value: string)` pyarrow schema) + `write_events_parquet(rows)` — the shared event-log columnar shape used by both reporters and intended for cross-coworld aggregation.
+- `_stable_json(obj)` — `json.dumps(obj, sort_keys=True, separators=(",", ":"))` for byte-identical parquet payloads.
+
+Each reporter labels these in its own `DESIGN.md` ("Inline primitives" section) so the extraction pass has a clear inventory.
+
+## Usage (post-extraction sketch)
 
 ```python
-# Indicative — actual API will be added as the first concrete reporter is written.
-from reporter_sdk.envelope import Envelope, Artifact
-from reporter_sdk.io import read_input_uri, write_output_uri
-from reporter_sdk.env import reporter_inputs
-
-inputs = reporter_inputs()  # reads COGAME_* env vars
-results = read_input_uri(inputs.results_uri)
-
-envelope = Envelope(
-    version="1",
-    artifacts=[
-        Artifact(id="summary", content_type="text/markdown", content="# ..."),
-        Artifact(id="stats",   content_type="application/json", content={"...": "..."}),
-    ],
+# Indicative — actual API will be added during extraction.
+from reporter_sdk import (
+    ReporterInputs,
+    load_reporter_inputs,
+    read_json,
+    write_uri,
+    write_deterministic_zip,
+    EVENT_LOG_SCHEMA,
+    write_events_parquet,
 )
-write_output_uri(inputs.report_output_uri, envelope.to_json())
+
+inputs: ReporterInputs = load_reporter_inputs()
+results = read_json(inputs.results_uri)
+# ... build per-coworld stats / HTML / event rows ...
+zip_bytes = write_deterministic_zip([
+    ("summary.html", summary_html_bytes),
+    ("stats.json", stats_json_bytes),
+    ("events.parquet", events_parquet_bytes),
+    ("render.txt", b"summary.html\n"),
+])
+write_uri(inputs.report_output_uri, zip_bytes, content_type="application/zip")
 ```
 
-The above is a sketch of the intended ergonomics, not a stable API. Treat the contract in [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) (especially decisions D2, D3, D4, D10) as the source of truth; the SDK is the implementation of that contract.
+Treat the contract in [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) (especially D1, D2, D4, D10, D11, D12) as the source of truth; the SDK is the implementation of that contract.
 
 ## Versioning
 
-`0.0.0` until the first concrete reporter ships and validates the API shape. From there, SemVer:
+`0.0.0` until the extraction pass produces the first real public API. From there, SemVer:
 
 - **0.x.y** — pre-1.0, breaking changes allowed at minor bumps. Coordinate via the commit that introduces the break.
-- **1.0.0** — first release once at least two concrete reporters depend on a stable API surface.
+- **1.0.0** — first release once both PaintArena and Among Them reporters import a stable surface.
 
 Because reporters build against repo-HEAD by default, breaking changes require updating every consumer in the same commit. Treat that as the forcing function for keeping the API small and considered.
 
 ## References
 
 - [`../../README.md`](../../README.md) — repository overview and v1 contract summary.
-- [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) — full v1 design and decisions log (D1–D10). The SDK exists to encode this document; if the two disagree, the design doc wins and the SDK is wrong.
-- [`../templates/`](../templates/) — game-agnostic template reporters built on top of this SDK.
+- [`../../docs/REPORTER_DESIGN.md`](../../docs/REPORTER_DESIGN.md) — full v1 design and decisions log (D1–D12). The SDK exists to encode this document; if the two disagree, the design doc wins and the SDK is wrong.
+- [`../paint_arena/paint_arena_summarizer/`](../paint_arena/paint_arena_summarizer/) and [`../among_them/among_them_summarizer/`](../among_them/among_them_summarizer/) — the two concrete reporters whose inline primitives are the source material for extraction.
+- [`../templates/`](../templates/) — template reporter scaffolds (will be extracted from the concrete reporters after the SDK lands).
