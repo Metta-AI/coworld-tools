@@ -1,11 +1,15 @@
 """Among Them summarizer reporter.
 
-Phase 4 (input-stream analytics): on top of phase 3, walks the
-`.bitreplay` input records, performs per-player edge detection on
-button-press transitions, and emits per-slot `input_press_total` /
-`input_press_per_kind`, plus per-(slot, time-bucket) `activity_bucket`
-events. The HTML scoreboard gains a basic activity column (phase 5
-replaces it with a proper sparkline SVG).
+Phase 5 (HTML polish): on top of phase 4's data layer, dresses the
+HTML with per-slot color swatches keyed to the 16-color in-game
+palette, ghost glyphs for `likely_dead` slots, per-slot activity
+sparkline SVGs (one rect per bucket, height ∝ presses, dimmed
+outside `[joined_tick, left_tick]`), and a meetings footnote linking
+to DESIGN.md for the friction discussion behind the "estimated"
+label.
+
+Inline CSS only; no `<script>`, no `<link>`. The page renders inside
+Observatory's iframe+CSP sandbox without external fetches.
 
 The output zip contains:
 
@@ -252,6 +256,31 @@ PLAYER_COLOR_NAMES = [
     "dark navy",
     "black",
 ]
+
+# Phase-5 hex codes for the 16 in-game color names. These are CSS
+# stand-ins for the game's actual paletted colors (the game uses a
+# 16-color indexed framebuffer); they're picked for accessible contrast
+# on a white-card background so the scoreboard swatch unambiguously
+# identifies the slot's in-game color. Order is intentional: keys
+# match PLAYER_COLOR_NAMES one-for-one.
+AMONG_THEM_COLORS: dict[str, str] = {
+    "red": "#e63946",
+    "orange": "#f08a3e",
+    "yellow": "#f4c430",
+    "light blue": "#7fc7ff",
+    "pink": "#f4a8c8",
+    "lime": "#a3e635",
+    "blue": "#1d4ed8",
+    "pale blue": "#c8e0ff",
+    "gray": "#8c97a3",
+    "white": "#f1f3f5",
+    "dark brown": "#5b3a1f",
+    "brown": "#9c6b3c",
+    "dark teal": "#0f766e",
+    "green": "#16a34a",
+    "dark navy": "#0b1e3f",
+    "black": "#1a1a1a",
+}
 
 
 # ---------- input models ----------
@@ -1289,18 +1318,22 @@ table.scores td.num { text-align: right; }
 .outcome { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; letter-spacing: 0.04em; }
 .outcome.won  { background: #d1e7dd; color: #0f5132; }
 .outcome.lost { background: #f8d7da; color: #842029; }
-.outcome.dead { background: #fff3cd; color: #664d03; }
-.activity-col { min-width: 120px; }
-.activity-cell {
-  display: inline-flex; align-items: center; gap: 6px;
+.outcome.dead { background: #fff3cd; color: #664d03; display: inline-flex; align-items: center; gap: 4px; }
+.outcome.dead .ghost { color: #664d03; }
+.ghost { display: inline-block; vertical-align: middle; }
+.swatch {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
-.activity-bar {
-  display: inline-block; height: 8px; background: #6c757d;
-  border-radius: 4px; min-width: 1px; max-width: 80px;
-}
-.activity-num {
-  font-size: 11px; color: #495057; font-variant-numeric: tabular-nums;
-}
+.slot-cell { display: inline-flex; align-items: center; }
+.activity-col { min-width: 110px; }
+.sparkline { display: block; vertical-align: middle; }
+.sparkline .bar-present { opacity: 1; }
+.sparkline .bar-absent  { opacity: 0.22; }
 h2 {
   font-size: 13px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.06em; color: #495057; margin: 0 0 10px;
@@ -1343,11 +1376,51 @@ def _role_badge_html(role: str | None) -> str:
     return '<span class="role unknown">?</span>'
 
 
+# Simple ghost glyph (the silhouette of a dead-and-roaming crewmate
+# trailing a wisp). One inline SVG path; no fills beyond the slot
+# color it inherits from the surrounding `currentColor`.
+_GHOST_GLYPH_SVG = (
+    '<svg class="ghost" viewBox="0 0 14 14" width="14" height="14" '
+    'aria-label="likely killed" role="img">'
+    '<path fill="currentColor" d="M7 1.6c-2.4 0-4.2 1.9-4.2 4.3v6.3l1.5-1 '
+    "1.4 1 1.3-1 1.3 1 1.4-1 1.5 1V5.9c0-2.4-1.8-4.3-4.2-4.3zM5.7 5.4a.95.95 "
+    '0 110 1.9.95.95 0 010-1.9zm2.6 0a.95.95 0 110 1.9.95.95 0 010-1.9z"/>'
+    "</svg>"
+)
+
+
+def _slot_color_hex(slot: SlotStats) -> str:
+    """The CSS hex for this slot. Falls back to a neutral gray when
+    the slot has no resolved color (e.g. an unknown color name in
+    config.slots[].color, per `_resolve_color`)."""
+    if slot.color_name and slot.color_name in AMONG_THEM_COLORS:
+        return AMONG_THEM_COLORS[slot.color_name]
+    return AMONG_THEM_COLORS["gray"]
+
+
+def _swatch_html(slot: SlotStats) -> str:
+    """A small inline-style swatch keyed to the slot's color. Carries
+    `class="swatch"` so phase-5 tests can count one per row."""
+    color = _slot_color_hex(slot)
+    label = html_escape(slot.color_name or "unknown")
+    return (
+        f'<span class="swatch" style="background:{color}" '
+        f'title="{label}" aria-hidden="true"></span>'
+    )
+
+
 def _outcome_badge_html(s: SlotStats) -> str:
     if s.won:
         return '<span class="outcome won">Won</span>'
     if s.likely_dead:
-        return '<span class="outcome dead" title="inferred from team outcome">Lost (likely killed)</span>'
+        # Ghost glyph + "Lost" label. The ghost glyph carries
+        # `class="ghost"` so tests can verify only likely_dead slots
+        # show it; the badge label clarifies that the inference is
+        # team-outcome based.
+        return (
+            '<span class="outcome dead" title="inferred from team outcome">'
+            f"{_GHOST_GLYPH_SVG}<span>Lost</span></span>"
+        )
     return '<span class="outcome lost">Lost</span>'
 
 
@@ -1377,39 +1450,91 @@ def _config_strip_html(config: GameConfig) -> str:
     return '<div class="config-strip">' + "".join(parts) + "</div>"
 
 
-def _activity_bar_html(slot: SlotStats, max_total: int) -> str:
-    """A tiny proportional bar for the scoreboard's Activity column.
+def _sparkline_html(
+    slot: SlotStats,
+    buckets: list[int],
+    *,
+    bucket_ticks: int,
+    max_bucket: int,
+) -> str:
+    """Per-slot activity sparkline.
 
-    Phase 4 ships this minimal shape; phase 5 replaces it with a per-
-    slot intensity sparkline (one bar per bucket) and dims segments
-    outside the slot's [joined_tick, left_tick] window.
+    One `<rect>` per bucket, height proportional to that bucket's
+    press count normalized to the busiest bucket across all slots
+    (so bar heights are comparable row-to-row). Buckets outside the
+    slot's `[joined_tick, left_tick]` presence window carry the
+    `bar-absent` class (dimmed via CSS) — present-window buckets
+    carry `bar-present`. Empty present buckets render as a thin
+    baseline tick so the reader sees the row exists.
     """
+    n = len(buckets)
+    if n == 0:
+        return (
+            f'<svg class="sparkline" data-slot="{slot.slot}" aria-hidden="true"></svg>'
+        )
+    bar_w = 6
+    bar_gap = 2
+    max_bar_h = 22
+    pad_y = 2
+    svg_w = n * (bar_w + bar_gap) - bar_gap + 4  # +4 for left/right pad
+    svg_h = max_bar_h + 2 * pad_y
+    bottom = svg_h - pad_y
+    left_tick = slot.left_tick if slot.left_tick is not None else None
+    joined_tick = slot.joined_tick
+    color = _slot_color_hex(slot)
+    rects: list[str] = []
+    for i, count in enumerate(buckets):
+        bucket_start = i * bucket_ticks
+        bucket_end = bucket_start + bucket_ticks
+        present = bucket_end > joined_tick and (
+            left_tick is None or bucket_start < left_tick
+        )
+        # Minimum 1px so an empty present bucket still draws a baseline.
+        if max_bucket > 0 and count > 0:
+            h = max(1, round(count / max_bucket * max_bar_h))
+        else:
+            h = 1
+        x = 2 + i * (bar_w + bar_gap)
+        y = bottom - h
+        klass = "bar-present" if present else "bar-absent"
+        rects.append(
+            f'<rect class="{klass}" x="{x}" y="{y}" width="{bar_w}" '
+            f'height="{h}" rx="1" fill="{color}"/>'
+        )
     total = slot.input_press_total or 0
-    if max_total <= 0:
-        pct = 0.0
-    else:
-        pct = (total / max_total) * 100.0
     return (
-        f'<span class="activity-cell" title="{total} presses">'
-        f'<span class="activity-bar" style="width:{pct:.1f}%"></span>'
-        f'<span class="activity-num">{total}</span>'
-        "</span>"
+        f'<svg class="sparkline" data-slot="{slot.slot}" '
+        f'viewBox="0 0 {svg_w} {svg_h}" width="{svg_w}" height="{svg_h}" '
+        f'role="img" aria-label="{total} presses across {n} buckets">'
+        + "".join(rects)
+        + "</svg>"
     )
 
 
 def _scoreboard_html(stats: AmongThemStats) -> str:
     rows: list[str] = []
-    max_press = max(
-        (s.input_press_total or 0 for s in stats.slots),
+    # Normalize sparkline bar heights to the busiest bucket *across
+    # all slots* so the visual scale is comparable row-to-row.
+    buckets_by_slot = {
+        b.slot: b.presses_per_bucket for b in stats.activity.buckets_per_slot
+    }
+    max_bucket = max(
+        (max(buckets, default=0) for buckets in buckets_by_slot.values()),
         default=0,
     )
     for s in stats.slots:
         tasks_cell = (
             f"{s.tasks} / {s.tasks_assigned}" if s.tasks_assigned > 0 else f"{s.tasks}"
         )
+        sparkline = _sparkline_html(
+            s,
+            buckets_by_slot.get(s.slot, []),
+            bucket_ticks=stats.activity.bucket_ticks,
+            max_bucket=max_bucket,
+        )
         rows.append(
             "<tr>"
-            f"<td>Slot {s.slot}</td>"
+            f'<td><span class="slot-cell">{_swatch_html(s)}Slot {s.slot}</span></td>'
             f"<td>{html_escape(s.policy_name)}</td>"
             f"<td>{_role_badge_html(s.role)}</td>"
             f"<td>{_outcome_badge_html(s)}</td>"
@@ -1419,7 +1544,7 @@ def _scoreboard_html(stats: AmongThemStats) -> str:
             f'<td class="num">{s.vote_players}</td>'
             f'<td class="num">{s.vote_skip}</td>'
             f'<td class="num">{s.vote_timeout}</td>'
-            f'<td class="activity-col">{_activity_bar_html(s, max_press)}</td>'
+            f'<td class="activity-col">{sparkline}</td>'
             "</tr>"
         )
     return (
@@ -1534,7 +1659,7 @@ game v{html_escape(stats.game_version)}
 
 <footer>full stats: <code>stats.json</code> &middot;
 event log: <code>events.parquet</code> &middot;
-reporter v0.3 (phase 3)</footer>
+reporter v0.5 (phase 5)</footer>
 </div>
 </body>
 </html>
