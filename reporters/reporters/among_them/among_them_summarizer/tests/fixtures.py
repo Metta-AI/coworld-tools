@@ -36,17 +36,21 @@ def make_replay_bytes(
     format_version: int = 3,
     timestamp_ms: int = 0,
     magic: bytes = b"BITWORLD",
+    records: bytes = b"",
 ) -> bytes:
-    """Build a minimal-but-valid bitreplay header (no records).
+    """Build a bitreplay (header + optional records body).
 
     Layout per `among_them/replays.nim:148-161` and
     `among_them/sim.nim:9-18`:
 
         magic (8B) | format_version (u16) | game_name (str) |
-        game_version (str) | timestamp_ms (u64) | config_json (str)
+        game_version (str) | timestamp_ms (u64) | config_json (str) |
+        records...
 
     Tests can override any field to exercise the parser's rejection
-    paths (magic mismatch, version mismatch, etc.).
+    paths (magic mismatch, version mismatch, etc.) and can pass a
+    pre-assembled `records` byte string built from the
+    `make_record_*` helpers below.
     """
     cfg = config if config is not None else make_game_config()
     payload = bytearray(magic)
@@ -55,7 +59,79 @@ def make_replay_bytes(
     payload += _u16_str(game_version)
     payload += struct.pack("<Q", timestamp_ms)
     payload += _u16_str(json.dumps(cfg))
+    payload += records
     return bytes(payload)
+
+
+# Record-type constants (mirror `among_them/sim.nim:14-17`).
+_RECORD_TICK_HASH = 0x01
+_RECORD_INPUT = 0x02
+_RECORD_JOIN = 0x03
+_RECORD_LEAVE = 0x04
+
+
+def make_record_join(
+    *, time_ms: int, player: int, name: str, slot: int, token: str = ""
+) -> bytes:
+    """Encode one ReplayJoinRecord (record_type=0x03)."""
+    return (
+        bytes([_RECORD_JOIN])
+        + struct.pack("<I", time_ms)
+        + bytes([player])
+        + _u16_str(name)
+        + struct.pack("<h", slot)  # signed 16-bit (`writeI16` in replays.nim)
+        + _u16_str(token)
+    )
+
+
+def make_record_leave(*, time_ms: int, player: int) -> bytes:
+    """Encode one ReplayLeaveRecord (record_type=0x04)."""
+    return bytes([_RECORD_LEAVE]) + struct.pack("<I", time_ms) + bytes([player])
+
+
+def make_record_input(*, time_ms: int, player: int, keys: int) -> bytes:
+    """Encode one ReplayInputRecord (record_type=0x02). `keys` is the
+    7-bit button bitmask from `common/protocol.nim:18-24`."""
+    return (
+        bytes([_RECORD_INPUT])
+        + struct.pack("<I", time_ms)
+        + bytes([player])
+        + bytes([keys])
+    )
+
+
+def make_record_tick_hash(*, tick: int, hash_value: int = 0) -> bytes:
+    """Encode one ReplayTickHashRecord (record_type=0x01)."""
+    return (
+        bytes([_RECORD_TICK_HASH])
+        + struct.pack("<I", tick)
+        + struct.pack("<Q", hash_value)
+    )
+
+
+def make_typical_replay_bytes(
+    *,
+    slots: int = 8,
+    last_tick: int = 1200,
+    leave_player: int | None = None,
+    leave_time_ms: int | None = None,
+    config: dict[str, Any] | None = None,
+) -> bytes:
+    """Build a complete `.bitreplay` with N joins (one per slot, time=0,
+    monotonic by player), an optional leave, and a single hash record at
+    `last_tick`. Useful for phase-3+ tests that need a header AND a tick
+    timeline AND join-derived per-slot info.
+    """
+    records = b""
+    for i in range(slots):
+        records += make_record_join(
+            time_ms=0, player=i, name=f"in-game-{i}", slot=i, token=f"tok-{i}"
+        )
+    if leave_player is not None and leave_time_ms is not None:
+        records += make_record_leave(time_ms=leave_time_ms, player=leave_player)
+    # Hash at the very end so last_tick is well-defined.
+    records += make_record_tick_hash(tick=last_tick, hash_value=42)
+    return make_replay_bytes(config=config, records=records)
 
 
 def make_game_config(**overrides: Any) -> dict[str, Any]:
