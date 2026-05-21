@@ -1,9 +1,11 @@
 """Among Them summarizer reporter.
 
-Phase 2 (aggregates path): builds a usable per-episode summary from
-`COGAME_RESULTS_URI` + `COGAME_EPISODE_METADATA_URI` + the
-`.bitreplay` header (game config). Per-record replay parsing and
-input-stream analytics land in phases 3-4.
+Phase 3 (binary replay parser): on top of phase 2's aggregates path,
+parses the full `.bitreplay` v3 record stream (joins, leaves, inputs,
+hashes) and wires per-slot `in_game_name` / `joined_tick` / `left_tick`
+/ `color_*` plus episode-level `total_ticks` and disconnect events.
+Input-stream analytics (button-press counts, activity buckets) still
+land in phase 4.
 
 The output zip contains:
 
@@ -191,6 +193,28 @@ GAME_NAME = "among_them"
 SUPPORTED_REPLAY_FORMAT_VERSION = 3
 REPLAY_MAGIC = b"BITWORLD"
 
+# Record-type bytes from `among_them/sim.nim:14-17`.
+_RECORD_TICK_HASH = 0x01
+_RECORD_INPUT = 0x02
+_RECORD_JOIN = 0x03
+_RECORD_LEAVE = 0x04
+
+# Disconnect classification threshold: a leave more than this many ticks
+# before the last hash tick is treated as a genuine mid-game disconnect.
+# Matches the design's "5 s before end" rule.
+_DISCONNECT_GRACE_TICKS = REPLAY_FPS * 5
+
+
+def tick_from_ms(ms: int) -> int:
+    """Convert a replay millisecond timestamp to a simulation tick.
+
+    Mirrors `among_them/replays.nim:56-58::tickTime` in reverse:
+    `tick = ms * ReplayFps // 1000`. Integer floor so the tick of a
+    fractional-millisecond timestamp falls on the earlier frame.
+    """
+    return (ms * REPLAY_FPS) // 1000
+
+
 # Mirror of `among_them/sim.nim:123-140`. Index = color slot assigned by
 # the game; same order the game uses for auto-assignment.
 PLAYER_COLOR_NAMES = [
@@ -254,6 +278,20 @@ class EpisodeMetadata(BaseModel):
     players: list[PlayerMetadata] = Field(default_factory=list)
 
 
+class PlayerSlotConfig(BaseModel):
+    """Per-slot configuration that may appear in the replay's
+    `configJson.slots[i]` (mirrors `sim.nim::PlayerSlotConfig`). All
+    fields are optional — the game only writes the ones the operator
+    explicitly set.
+    """
+
+    name: str | None = None
+    color: str | None = None  # color name, e.g. "red", "light blue"
+    role: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
 class GameConfig(BaseModel):
     """The subset of `among_them/sim.nim::GameConfig` this reporter
     consumes. Other fields in the replay's configJson are ignored.
@@ -270,6 +308,7 @@ class GameConfig(BaseModel):
     max_ticks: int = Field(10000, alias="maxTicks")
     seed: int | None = None
     map_path: str | None = Field(None, alias="mapPath")
+    slots: list[PlayerSlotConfig] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
@@ -342,13 +381,84 @@ class BitReplayHeader(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class ReplayJoin(BaseModel):
+    """A `ReplayJoinRecord` (0x03). `slot < 0` means the game
+    auto-assigned the slot at runtime; we treat it as "slot unknown
+    from the replay alone." `token_present` is the only token-related
+    field that ever surfaces in outputs (the token string itself is
+    parsed and immediately dropped — see DESIGN.md decision #9).
+    """
+
+    time_ms: int
+    player: int
+    name: str
+    slot: int
+    token_present: bool
+
+
+class ReplayLeave(BaseModel):
+    """A `ReplayLeaveRecord` (0x04). The `player` field is the index
+    into `sim.players` at the time of the leave, which shifts as
+    earlier leaves remove entries from that array."""
+
+    time_ms: int
+    player: int
+
+
+class ReplayInput(BaseModel):
+    """A `ReplayInputRecord` (0x02). `keys` is the 7-bit button bitmask
+    from `common/protocol.nim:18-24`."""
+
+    time_ms: int
+    player: int
+    keys: int
+
+
+class ReplayHash(BaseModel):
+    """A `ReplayTickHashRecord` (0x01). The reporter uses `tick` only;
+    the `hash` is for game-side replay verification."""
+
+    tick: int
+    hash: int
+
+
+class BitReplay(BaseModel):
+    header: BitReplayHeader
+    joins: list[ReplayJoin]
+    leaves: list[ReplayLeave]
+    inputs: list[ReplayInput]
+    hashes: list[ReplayHash]
+
+    @property
+    def last_tick(self) -> int:
+        return self.hashes[-1].tick if self.hashes else 0
+
+
 # ---------- bitreplay header parser ----------
+
+
+def _read_u8(data: bytes, offset: int) -> tuple[int, int]:
+    if offset + 1 > len(data):
+        raise ValueError(f"bitreplay truncated at offset {offset}")
+    return data[offset], offset + 1
 
 
 def _read_u16(data: bytes, offset: int) -> tuple[int, int]:
     if offset + 2 > len(data):
         raise ValueError(f"bitreplay truncated at offset {offset}")
     return struct.unpack_from("<H", data, offset)[0], offset + 2
+
+
+def _read_i16(data: bytes, offset: int) -> tuple[int, int]:
+    if offset + 2 > len(data):
+        raise ValueError(f"bitreplay truncated at offset {offset}")
+    return struct.unpack_from("<h", data, offset)[0], offset + 2
+
+
+def _read_u32(data: bytes, offset: int) -> tuple[int, int]:
+    if offset + 4 > len(data):
+        raise ValueError(f"bitreplay truncated at offset {offset}")
+    return struct.unpack_from("<I", data, offset)[0], offset + 4
 
 
 def _read_u64(data: bytes, offset: int) -> tuple[int, int]:
@@ -364,19 +474,9 @@ def _read_str(data: bytes, offset: int) -> tuple[str, int]:
     return data[offset : offset + length].decode("utf-8"), offset + length
 
 
-def parse_bitreplay_header(data: bytes) -> BitReplayHeader:
-    """Parse a `.bitreplay` v3 header.
-
-    Layout (`among_them/replays.nim:148-161`):
-
-        magic (8B "BITWORLD") | format_version (u16) |
-        game_name (u16+utf8)  | game_version (u16+utf8) |
-        timestamp_ms (u64)    | config_json (u16+utf8)
-
-    Refuses anything that isn't `BITWORLD` + format-version 3 + game-name
-    `among_them`. Returns the parsed header and game config; record
-    parsing (joins/leaves/inputs/hashes) lands in phase 3.
-    """
+def _parse_bitreplay_header(data: bytes) -> tuple[BitReplayHeader, int]:
+    """Parse a `.bitreplay` v3 header; return the header and the byte
+    offset of the first record."""
     if len(data) < len(REPLAY_MAGIC):
         raise ValueError(f"bitreplay too short for magic ({len(data)} bytes)")
     if data[: len(REPLAY_MAGIC)] != REPLAY_MAGIC:
@@ -397,12 +497,93 @@ def parse_bitreplay_header(data: bytes) -> BitReplayHeader:
     timestamp_ms, offset = _read_u64(data, offset)
     config_json, offset = _read_str(data, offset)
     config = GameConfig.model_validate(json.loads(config_json))
-    return BitReplayHeader(
+    header = BitReplayHeader(
         game_name=game_name,
         game_version=game_version,
         format_version=format_version,
         timestamp_ms=timestamp_ms,
         config=config,
+    )
+    return header, offset
+
+
+def parse_bitreplay_header(data: bytes) -> BitReplayHeader:
+    """Parse just the header of a `.bitreplay` v3 file (drops record
+    parsing). Retained for callers that only need the game config.
+
+    Layout (`among_them/replays.nim:148-161`):
+
+        magic (8B "BITWORLD") | format_version (u16) |
+        game_name (u16+utf8)  | game_version (u16+utf8) |
+        timestamp_ms (u64)    | config_json (u16+utf8)
+
+    Refuses anything that isn't `BITWORLD` + format-version 3 + game-name
+    `among_them`.
+    """
+    header, _ = _parse_bitreplay_header(data)
+    return header
+
+
+def parse_bitreplay(data: bytes) -> BitReplay:
+    """Parse a full `.bitreplay` v3 file: header + every record type.
+
+    Record dispatch table (`among_them/sim.nim:14-17`):
+      0x01 tick-hash   — u32 tick, u64 hash
+      0x02 input       — u32 time_ms, u8 player, u8 keys
+      0x03 join        — u32 time_ms, u8 player, str name, i16 slot, str token
+      0x04 leave       — u32 time_ms, u8 player
+
+    Refuses unknown record bytes with a `ValueError`. Truncated records
+    surface the same way the per-field readers already raise (truncation
+    at offset N).
+
+    The `token` string in each join is read because the binary format
+    requires reading it (the length-prefix must be consumed to advance
+    the cursor) but is never stored on the returned object — only the
+    derived `token_present: bool` survives.
+    """
+    header, offset = _parse_bitreplay_header(data)
+    joins: list[ReplayJoin] = []
+    leaves: list[ReplayLeave] = []
+    inputs: list[ReplayInput] = []
+    hashes: list[ReplayHash] = []
+    while offset < len(data):
+        record_type, offset = _read_u8(data, offset)
+        if record_type == _RECORD_TICK_HASH:
+            tick, offset = _read_u32(data, offset)
+            hash_value, offset = _read_u64(data, offset)
+            hashes.append(ReplayHash(tick=tick, hash=hash_value))
+        elif record_type == _RECORD_INPUT:
+            time_ms, offset = _read_u32(data, offset)
+            player, offset = _read_u8(data, offset)
+            keys, offset = _read_u8(data, offset)
+            inputs.append(ReplayInput(time_ms=time_ms, player=player, keys=keys))
+        elif record_type == _RECORD_JOIN:
+            time_ms, offset = _read_u32(data, offset)
+            player, offset = _read_u8(data, offset)
+            name, offset = _read_str(data, offset)
+            slot, offset = _read_i16(data, offset)
+            token, offset = _read_str(data, offset)
+            joins.append(
+                ReplayJoin(
+                    time_ms=time_ms,
+                    player=player,
+                    name=name,
+                    slot=slot,
+                    token_present=bool(token),
+                )
+            )
+        elif record_type == _RECORD_LEAVE:
+            time_ms, offset = _read_u32(data, offset)
+            player, offset = _read_u8(data, offset)
+            leaves.append(ReplayLeave(time_ms=time_ms, player=player))
+        else:
+            raise ValueError(
+                f"unknown bitreplay record type 0x{record_type:02x} at offset "
+                f"{offset - 1}"
+            )
+    return BitReplay(
+        header=header, joins=joins, leaves=leaves, inputs=inputs, hashes=hashes
     )
 
 
@@ -515,20 +696,87 @@ def _likely_dead(role: str | None, won: bool, winner_side: str) -> bool:
     return winner_side == role
 
 
+def _resolve_color(slot: int, config: GameConfig) -> tuple[int | None, str | None]:
+    """Map a slot index to (color_index, color_name).
+
+    Preference: `config.slots[slot].color` when set; otherwise the
+    positional fallback `PLAYER_COLOR_NAMES[slot % 16]`. The positional
+    fallback only matches the in-game color when no fixed-color slot
+    config was set — see DESIGN.md §"Color from join slot config, with
+    a fallback palette".
+    """
+    if slot < 0:
+        return None, None
+    if slot < len(config.slots):
+        configured = config.slots[slot].color
+        if configured:
+            if configured in PLAYER_COLOR_NAMES:
+                return PLAYER_COLOR_NAMES.index(configured), configured
+            # Unknown color name in config — surface the name but no index.
+            return None, configured
+    idx = slot % len(PLAYER_COLOR_NAMES)
+    return idx, PLAYER_COLOR_NAMES[idx]
+
+
+def resolve_slot_events(replay: BitReplay) -> dict[int, dict[str, Any]]:
+    """Walk joins and leaves in time order; return per-slot
+    `joined_tick` / `left_tick` / `in_game_name`.
+
+    Maintains a tiny simulation of `sim.players` (an ordered list of
+    slot numbers) so that the `player` field in a leave record — which
+    is the index into `sim.players` at the moment of the leave, not the
+    slot — can be mapped back to the right slot. Joins append to the
+    current-players list; leaves pop the named index.
+
+    Pragmatic assumption (DESIGN.md decision #3): no mid-game rejoins.
+    The reporter never sees that pattern in tournament play, and a
+    cleaner simulation here would only matter once the game protocol
+    permits it.
+    """
+    events: list[tuple[int, int, str, ReplayJoin | ReplayLeave]] = []
+    for j in replay.joins:
+        events.append((j.time_ms, 0, "join", j))
+    for lv in replay.leaves:
+        events.append((lv.time_ms, 1, "leave", lv))
+    events.sort(key=lambda e: (e[0], e[1]))
+    current_players: list[int] = []
+    info: dict[int, dict[str, Any]] = {}
+    for time_ms, _, kind, record in events:
+        tick = tick_from_ms(time_ms)
+        if kind == "join":
+            join = record  # type: ignore[assignment]
+            slot = join.slot if join.slot >= 0 else len(current_players)  # type: ignore[attr-defined]
+            current_players.append(slot)
+            entry = info.setdefault(slot, {})
+            entry["joined_tick"] = tick
+            entry["in_game_name"] = join.name  # type: ignore[attr-defined]
+            entry.setdefault("left_tick", None)
+        else:
+            leave = record  # type: ignore[assignment]
+            if 0 <= leave.player < len(current_players):  # type: ignore[attr-defined]
+                slot = current_players.pop(leave.player)  # type: ignore[attr-defined]
+                info.setdefault(slot, {})["left_tick"] = tick
+    return info
+
+
 def build_slot_stats(
     results: AmongThemResults,
     metadata: EpisodeMetadata,
     config: GameConfig,
+    *,
+    replay: BitReplay | None = None,
 ) -> list[SlotStats]:
-    """Build per-slot stats from the aggregate arrays in results.json.
+    """Build per-slot stats from the aggregate arrays in results.json,
+    optionally enriched with replay-derived per-slot fields
+    (`in_game_name`, `joined_tick`, `left_tick`, `color_*`) when a
+    parsed `BitReplay` is passed.
 
-    Phase 2: `in_game_name`, `color_index`, `color_name`, `joined_tick`,
-    `left_tick`, `input_press_*` are filled in by phase 3+. They appear
-    as None / placeholder values here.
+    Phase 4 will also wire `input_press_total` / `input_press_per_kind`.
     """
     n = results.slot_count
     verdict = derive_verdict(results)
     policy_by_slot = {p.slot: p.policy_name for p in metadata.players}
+    slot_events = resolve_slot_events(replay) if replay is not None else {}
     win = results.win or []
     tasks = results.tasks or []
     kills = results.kills or []
@@ -539,13 +787,15 @@ def build_slot_stats(
     for i in range(n):
         role = _slot_role(i, results.imposter, results.crew)
         won = bool(win[i]) if i < len(win) else False
+        color_index, color_name = _resolve_color(i, config)
+        slot_event = slot_events.get(i, {})
         out.append(
             SlotStats(
                 slot=i,
                 policy_name=_resolve_policy_name(i, results.names, policy_by_slot),
-                in_game_name=None,
-                color_index=None,
-                color_name=None,
+                in_game_name=slot_event.get("in_game_name"),
+                color_index=color_index,
+                color_name=color_name,
                 role=role,
                 won=won,
                 score=float(results.scores[i]) if i < len(results.scores) else 0.0,
@@ -555,8 +805,8 @@ def build_slot_stats(
                 vote_players=int(vp[i]) if i < len(vp) else 0,
                 vote_skip=int(vs[i]) if i < len(vs) else 0,
                 vote_timeout=int(vt[i]) if i < len(vt) else 0,
-                joined_tick=0,
-                left_tick=None,
+                joined_tick=slot_event.get("joined_tick", 0),
+                left_tick=slot_event.get("left_tick"),
                 likely_dead=_likely_dead(role, won, verdict.winner_side),
                 input_press_total=None,
                 input_press_per_kind=None,
@@ -565,35 +815,70 @@ def build_slot_stats(
     return out
 
 
+def collect_disconnects(slots: list[SlotStats], last_tick: int) -> list[Disconnect]:
+    """A `Disconnect` is a leave that happened more than 5 s before the
+    last hash tick (DESIGN.md §"Disconnect / present-ticks"). Leaves
+    within that grace period are treated as natural cleanup at episode
+    end.
+    """
+    out: list[Disconnect] = []
+    for s in slots:
+        if s.left_tick is None:
+            continue
+        if last_tick - s.left_tick > _DISCONNECT_GRACE_TICKS:
+            out.append(
+                Disconnect(
+                    slot=s.slot,
+                    leave_tick=s.left_tick,
+                    leave_seconds=s.left_tick / REPLAY_FPS,
+                )
+            )
+    return out
+
+
 def build_stats(
     results: AmongThemResults,
     metadata: EpisodeMetadata,
-    header: BitReplayHeader,
+    replay: BitReplay,
 ) -> AmongThemStats:
+    slots = build_slot_stats(results, metadata, replay.header.config, replay=replay)
+    last_tick = replay.last_tick
     return AmongThemStats(
         episode_id=metadata.episode_id,
         variant_id=metadata.variant_id,
         duration_seconds=metadata.duration_seconds,
-        total_ticks=None,  # phase 3 reads this from the last hash record
+        total_ticks=last_tick if last_tick > 0 else None,
         replay_fps=REPLAY_FPS,
-        game_version=header.game_version,
-        config=header.config,
+        game_version=replay.header.game_version,
+        config=replay.header.config,
         verdict=derive_verdict(results),
-        slots=build_slot_stats(results, metadata, header.config),
+        slots=slots,
         meetings=estimate_meetings(results),
-        disconnects=[],  # phase 3 fills this in from leave records
+        disconnects=collect_disconnects(slots, last_tick),
     )
 
 
 # ---------- parquet event-log assembly ----------
 
 
-def build_event_rows(stats: AmongThemStats) -> list[dict[str, Any]]:
-    """Phase 2 events: game_config, one player_summary per slot,
-    game_result. Phase 3 adds join/leave; phase 4 adds input_press
-    and activity_bucket.
+def build_event_rows(
+    stats: AmongThemStats, replay: BitReplay | None = None
+) -> list[dict[str, Any]]:
+    """Assemble event-log rows.
+
+    Phase 3 keys emitted:
+      - `game_config` (ts=0, player=-1)
+      - `join` (ts=joined_tick, player=slot) — one per ReplayJoinRecord
+      - `leave` (ts=left_tick, player=slot) — one per ReplayLeaveRecord
+      - `player_summary` (ts=last_tick, player=slot)
+      - `game_result` (ts=last_tick, player=-1)
+
+    `join` payloads carry `token_present: bool` only — never the token
+    string (DESIGN.md decision #9). Phase 4 will add `input_press` and
+    `activity_bucket`.
     """
     rows: list[dict[str, Any]] = []
+    last_tick = stats.total_ticks or 0
     rows.append(
         {
             "ts": 0,
@@ -602,10 +887,68 @@ def build_event_rows(stats: AmongThemStats) -> list[dict[str, Any]]:
             "value": _stable_json(stats.config.model_dump()),
         }
     )
+    if replay is not None:
+        # Build a player_index -> slot map by walking joins in order
+        # (mirrors resolve_slot_events but tracks the per-join slot so we
+        # can emit a join row referencing the correct slot rather than
+        # the raw join.player index).
+        current_players: list[int] = []
+        for join in replay.joins:
+            slot = join.slot if join.slot >= 0 else len(current_players)
+            current_players.append(slot)
+            rows.append(
+                {
+                    "ts": tick_from_ms(join.time_ms),
+                    "player": slot,
+                    "key": "join",
+                    "value": _stable_json(
+                        {
+                            "name": join.name,
+                            "slot": slot,
+                            "token_present": join.token_present,
+                        }
+                    ),
+                }
+            )
+        # Re-walk for leaves, replaying the same join-driven mutation
+        # of current_players so leave.player resolves to the right slot.
+        current_players = []
+        joins_iter = iter(sorted(replay.joins, key=lambda j: j.time_ms))
+        leaves_iter = iter(sorted(replay.leaves, key=lambda lv: lv.time_ms))
+        # Merge-walk by timestamp.
+        next_join = next(joins_iter, None)
+        next_leave = next(leaves_iter, None)
+        while next_join is not None or next_leave is not None:
+            take_join = next_leave is None or (
+                next_join is not None and next_join.time_ms <= next_leave.time_ms
+            )
+            if take_join:
+                slot = next_join.slot if next_join.slot >= 0 else len(current_players)
+                current_players.append(slot)
+                next_join = next(joins_iter, None)
+            else:
+                lv = next_leave
+                if 0 <= lv.player < len(current_players):
+                    slot = current_players.pop(lv.player)
+                    rows.append(
+                        {
+                            "ts": tick_from_ms(lv.time_ms),
+                            "player": slot,
+                            "key": "leave",
+                            "value": _stable_json(
+                                {
+                                    "ticks_remaining": max(
+                                        0, last_tick - tick_from_ms(lv.time_ms)
+                                    )
+                                }
+                            ),
+                        }
+                    )
+                next_leave = next(leaves_iter, None)
     for s in stats.slots:
         rows.append(
             {
-                "ts": 0,
+                "ts": last_tick,
                 "player": s.slot,
                 "key": "player_summary",
                 "value": _stable_json(
@@ -621,13 +964,17 @@ def build_event_rows(stats: AmongThemStats) -> list[dict[str, Any]]:
                         "vote_timeout": s.vote_timeout,
                         "likely_dead": s.likely_dead,
                         "policy_name": s.policy_name,
+                        "joined_tick": s.joined_tick,
+                        "left_tick": s.left_tick,
+                        "in_game_name": s.in_game_name,
+                        "color_name": s.color_name,
                     }
                 ),
             }
         )
     rows.append(
         {
-            "ts": 0,
+            "ts": last_tick,
             "player": -1,
             "key": "game_result",
             "value": _stable_json(
@@ -810,6 +1157,29 @@ def _scoreboard_html(stats: AmongThemStats) -> str:
     )
 
 
+def _disconnects_html(disconnects: list[Disconnect], slots: list[SlotStats]) -> str:
+    name_by_slot = {s.slot: s.policy_name for s in slots}
+    rows: list[str] = []
+    for d in disconnects:
+        label = html_escape(name_by_slot.get(d.slot, f"Slot {d.slot}"))
+        when = f"tick {d.leave_tick}"
+        if d.leave_seconds is not None:
+            when += f" ({d.leave_seconds:.1f} s)"
+        rows.append(
+            "<tr>"
+            f"<td>Slot {d.slot}</td>"
+            f"<td>{label}</td>"
+            f"<td>{html_escape(when)}</td>"
+            "</tr>"
+        )
+    return (
+        '<table class="scores">'
+        "<thead><tr><th>Slot</th><th>Policy</th><th>Left at</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
 def _meetings_html(meetings: MeetingsBlock) -> str:
     return (
         '<div class="meetings">'
@@ -830,6 +1200,14 @@ def _meetings_html(meetings: MeetingsBlock) -> str:
 
 def render_summary_html(stats: AmongThemStats) -> str:
     episode_label = stats.episode_id or "unknown"
+    disconnects_section = ""
+    if stats.disconnects:
+        disconnects_section = (
+            '<section class="card">'
+            "<h2>Disconnects</h2>"
+            f"{_disconnects_html(stats.disconnects, stats.slots)}"
+            "</section>"
+        )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -870,9 +1248,11 @@ game v{html_escape(stats.game_version)}
 {_meetings_html(stats.meetings)}
 </section>
 
+{disconnects_section}
+
 <footer>full stats: <code>stats.json</code> &middot;
 event log: <code>events.parquet</code> &middot;
-reporter v0.2 (phase 2)</footer>
+reporter v0.3 (phase 3)</footer>
 </div>
 </body>
 </html>
@@ -888,22 +1268,23 @@ def build_zip_bytes(
     metadata: EpisodeMetadata,
     replay_bytes: bytes,
 ) -> bytes:
-    """Build the phase-2 output zip:
+    """Build the phase-3 output zip:
 
         summary.html  (rendered)
         stats.json    (download-only)
         events.parquet (download-only)
         render.txt    (lists summary.html)
 
-    Phase 2 ignores all records in the replay beyond the header
-    (config-bearing). Phase 3 extends this to consume joins / leaves /
-    inputs / hashes.
+    Phase 3 parses the full `.bitreplay` (header + records) and wires
+    per-slot join/leave fields, episode `total_ticks`, and the
+    `join` / `leave` keys in events.parquet. Phase 4 will add the
+    `input_press` and `activity_bucket` keys.
     """
-    header = parse_bitreplay_header(replay_bytes)
-    stats = build_stats(results, metadata, header)
+    replay = parse_bitreplay(replay_bytes)
+    stats = build_stats(results, metadata, replay)
     summary_html = render_summary_html(stats).encode("utf-8")
     stats_json = (json.dumps(stats.model_dump(), indent=2) + "\n").encode("utf-8")
-    events_parquet = write_events_parquet(build_event_rows(stats))
+    events_parquet = write_events_parquet(build_event_rows(stats, replay))
     render_txt = b"summary.html\n"
     return write_deterministic_zip(
         [
