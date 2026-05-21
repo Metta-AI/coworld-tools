@@ -3,9 +3,11 @@
 #
 # Builds the image, runs it against the checked-in synthetic fixtures
 # (smoke/fixtures/{results,metadata,replay}.json), and asserts that the
-# emitted zip is well-formed and matches the D12 contract: three top-level
-# entries (summary.md, stats.json, render.txt), render.txt lists summary.md,
-# pinned mtimes for byte-identical reruns, stats sanity (grid + winner).
+# emitted zip is well-formed and matches the D12 contract: four top-level
+# entries (summary.html, stats.json, proximity.parquet, render.txt),
+# render.txt lists summary.html, pinned mtimes for byte-identical reruns,
+# stats sanity (grid + winner), and a non-empty proximity.parquet derived
+# from the fixture's scripted frames.
 #
 # Use this as the integration-level check that complements the in-process
 # pytest suite. The pytest suite exercises every code path; this script
@@ -61,14 +63,15 @@ def fail(msg: str) -> None:
 
 RENDERABLE_EXTS = {".md", ".txt", ".html", ".htm"}
 PINNED_MTIME = (1980, 1, 1, 0, 0, 0)
+EXPECTED_ENTRIES = {"summary.html", "stats.json", "proximity.parquet", "render.txt"}
 
 with zipfile.ZipFile(path) as zf:
     if zf.testzip() is not None:
         fail("zip failed integrity check (testzip)")
     infos = zf.infolist()
     names = [i.filename for i in infos]
-    if set(names) != {"summary.md", "stats.json", "render.txt"}:
-        fail(f"expected entries {{summary.md, stats.json, render.txt}}, got {set(names)!r}")
+    if set(names) != EXPECTED_ENTRIES:
+        fail(f"expected entries {EXPECTED_ENTRIES!r}, got {set(names)!r}")
 
     for info in infos:
         if info.date_time != PINNED_MTIME:
@@ -76,8 +79,8 @@ with zipfile.ZipFile(path) as zf:
 
     render_txt = zf.read("render.txt").decode("utf-8")
     lines = [line.strip() for line in render_txt.splitlines() if line.strip()]
-    if lines != ["summary.md"]:
-        fail(f'render.txt expected ["summary.md"], got {lines!r}')
+    if lines != ["summary.html"]:
+        fail(f'render.txt expected ["summary.html"], got {lines!r}')
     if "render.txt" in lines:
         fail("render.txt MUST NOT list itself (D12)")
     if len(lines) != len(set(lines)):
@@ -89,7 +92,14 @@ with zipfile.ZipFile(path) as zf:
         if ext not in RENDERABLE_EXTS:
             fail(f"render.txt lists {line!r} with non-renderable extension {ext!r} (D12)")
 
+    summary_html = zf.read("summary.html").decode("utf-8")
+    if not summary_html.startswith("<!DOCTYPE html>"):
+        fail("summary.html does not look like an HTML document")
+    if "<script" in summary_html or "<link" in summary_html:
+        fail("summary.html is not self-contained (found <script> or <link>)")
+
     stats = json.loads(zf.read("stats.json"))
+    parquet_size = zf.getinfo("proximity.parquet").file_size
 
 # Stats sanity: variant_id propagates from metadata and grid dimensions came
 # from the replay's `config` block (per D11 -- no manifest URI in v1).
@@ -100,8 +110,12 @@ if grid.get("width") != 12 or grid.get("height") != 8:
     fail(f"stats.grid expected 12x8, got {grid!r}")
 if stats.get("winner_slot") != 0:
     fail(f"stats.winner_slot expected 0, got {stats.get('winner_slot')!r}")
+if stats.get("proximity_event_count", 0) < 1:
+    fail(f"stats.proximity_event_count expected >= 1 (fixture has frames), got {stats.get('proximity_event_count')!r}")
+if parquet_size == 0:
+    fail("proximity.parquet is empty (file_size == 0)")
 
-print("OK: zip shape, render.txt manifest, pinned mtimes, and stats sanity all match D12")
+print("OK: zip shape, render.txt manifest, pinned mtimes, stats sanity, and parquet presence all match D12")
 PY
 
 echo "==> smoke test passed"
