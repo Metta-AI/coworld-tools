@@ -511,11 +511,14 @@ All live in the task-completing lifecycle block in `tuning.nim`:
 
 | Condition | Target mode | Params issued | Reflex name |
 |---|---|---|---|
-| `body_newly_in_view` (body count increased) AND crewmate, alive, not ghost | `reporting` | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
+| Unknown visible body AND crewmate, alive, not ghost | `reporting` | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
 
-This reflex fires when a new body appears in the field of view
-(`reflex.nim`). It computes the body's world position from screen coords
-+ camera offset and creates a reporting directive. The mode's
+This reflex fires when `reflex.nim` sees a visible body whose world
+position does not match remembered body positions. It computes that
+body's world position from screen coords + camera offset and creates a
+reporting directive. This is position-based rather than only count-based,
+so a different body can still be reported if it replaces another visible
+body without increasing the visible body count. The mode's
 `tcAbandonOnNearbyBody` param gates this reflex, alongside the structural
 checks that the bot is a living non-ghost crewmate.
 
@@ -530,8 +533,10 @@ checks that the bot is a living non-ghost crewmate.
 ### 12.3 Cooldown
 
 The body-report reflex is subject to `ReflexCooldownTicks` (96 ticks,
-~4s). If a second body appears within the cooldown window, the reflex
-does not re-fire.
+~4s). If another unknown body appears within the cooldown window, the
+reflex does not re-fire; after the cooldown, known-body memory prevents
+re-reporting the same corpse while still allowing a different corpse to
+trigger reporting.
 
 ---
 

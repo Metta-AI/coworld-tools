@@ -213,11 +213,12 @@ in-range detection. Both must stay in sync.
 
 | Source mode | Condition | Params issued | Reflex name |
 |---|---|---|---|
-| `task_completing` | `body_newly_in_view` (body count increased) AND crewmate, alive, not ghost | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
+| `task_completing` | Unknown visible body AND crewmate, alive, not ghost | `repBodyLocation: <body_world_pos>`, TTL 480 | `body_newly_in_view_report` |
 
-This reflex fires without LLM approval. The body's world position is
-computed from `visibleBodies[0]` screen coords + camera offset at the
-moment of detection (`reflex.nim:99-101`).
+This reflex fires without LLM approval. `reflex.nim` keeps remembered
+body positions and reports the first visible body that does not match a
+known body, so a different body can still trigger reporting even when the
+visible body count stays stable.
 
 The reflex only fires from `task_completing` — if the crewmate is in
 another mode (for example `meeting`), bodies don't trigger reporting.
@@ -243,8 +244,10 @@ When `repGaveUp` is set, `bot.nim` forces a switch to
 ### 10.4 Cooldown
 
 The body-report reflex is subject to `ReflexCooldownTicks` (96 ticks,
-~4s). If a second body appears within the cooldown window, the reflex
-does not re-fire (prevents thrashing when multiple bodies are visible).
+~4s). If another unknown body appears within the cooldown window, the
+reflex does not re-fire; after the cooldown, known-body memory prevents
+re-reporting the same corpse while still allowing a different corpse to
+trigger reporting.
 
 ---
 
@@ -307,10 +310,10 @@ Reporting exposes a compact mode summary in LLM snapshots. The LLM sees:
 
 ## 14. Open questions
 
-1. **Multi-body priority.** The reflex always picks `visibleBodies[0]`
-   as the report target. If multiple bodies are visible, it doesn't
-   consider which is closest or most accessible. Low priority — the
-   first body in the list is typically the most recently detected.
+1. **Multi-body priority.** The reflex reports the first unknown body in
+   the perception order. If multiple unknown bodies are visible, it
+   doesn't consider which is closest or most accessible. Low priority —
+   the first unknown body is usually enough to force the meeting.
 
 2. **Re-report after give-up.** If the bot gives up and returns to
    `task_completing`, the same body (if still visible) could trigger
