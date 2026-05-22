@@ -35,8 +35,25 @@ COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
 python -m tribal_village_env.coworld.server
 ```
 
-Open `/clients/global` for the live map. A player connects to
-`/clients/player?slot=<slot>&token=<token>`.
+Open `/clients/global` for the live map. It connects to `/global?frame=1` and
+renders the normal Nim renderer's RGB frame stream from the Python FFI. A
+player connects to `/clients/player?slot=<slot>&token=<token>` and controls one
+villager through the 11x11 `tribalcog-sprite-v1` local view exposed by
+`/player`.
+
+## Native WASM client
+
+The native Nim/Emscripten browser build is optional for local development:
+
+```bash
+nimble wasm
+```
+
+That writes `tribal_village.js`, `tribal_village.wasm`, and
+`tribal_village.data` under `build/web/`. While the Coworld server is running,
+open `/clients/wasm/` to load those generated assets. This client is the native
+standalone Tribal Cog browser build; `/global` and `/player` remain the Coworld
+spectator and player-control routes.
 
 ## Reference player
 

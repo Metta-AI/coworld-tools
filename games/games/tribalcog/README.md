@@ -43,6 +43,9 @@ COGAME_CONFIG_URI=file:///tmp/tribalcog-config.json \
 COGAME_RESULTS_URI=file:///tmp/tribalcog-results.json \
 COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
 tribalcog coworld-server
+
+# Build the optional native Emscripten client served at /clients/wasm/
+nimble wasm
 ```
 
 **Controls:** Left-click (select), Right-click (command), WASD (move/pan), Space (pause/step), scroll (zoom), Ctrl+0-9 (control groups), Tab (cycle teams), F9 (weather), B (build menu)

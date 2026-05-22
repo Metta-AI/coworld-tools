@@ -19,9 +19,11 @@ from tribal_village_env.coworld.server import (
     CoworldConfig,
     decode_action,
     load_replay_data,
+    resolve_wasm_asset_path,
     slot_team_index,
     slot_to_team,
     sprite_view_from_observation,
+    wasm_media_type,
     winner_team,
 )
 
@@ -121,3 +123,26 @@ def test_load_replay_data_reads_zlib_json(tmp_path: Path) -> None:
     replay_path.write_bytes(zlib.compress(json.dumps(payload).encode()))
 
     assert load_replay_data(str(replay_path)) == payload
+
+
+def test_wasm_asset_resolution_stays_inside_build_dir(tmp_path: Path) -> None:
+    build_dir = tmp_path / "web"
+    build_dir.mkdir()
+    asset = build_dir / "tribal_village.js"
+    asset.write_text("console.log('tribal cog')\n")
+
+    assert resolve_wasm_asset_path(build_dir, "tribal_village.js") == asset.resolve()
+
+    with pytest.raises(FileNotFoundError):
+        resolve_wasm_asset_path(build_dir, "missing.js")
+    with pytest.raises(FileNotFoundError):
+        resolve_wasm_asset_path(build_dir, "nimcache/generated.c")
+    with pytest.raises(FileNotFoundError):
+        resolve_wasm_asset_path(build_dir, "../tribal_village.js")
+
+
+def test_wasm_asset_media_types() -> None:
+    assert wasm_media_type(Path("tribal_village.html")) == "text/html"
+    assert wasm_media_type(Path("tribal_village.js")) == "application/javascript"
+    assert wasm_media_type(Path("tribal_village.wasm")) == "application/wasm"
+    assert wasm_media_type(Path("tribal_village.data")) == "application/octet-stream"

@@ -70,6 +70,8 @@ when defined(renderTiming):
 
 when not defined(emscripten):
   import opengl
+else:
+  import windy/platforms/emscripten/emdefs
 
 let baseWindowSize = ivec2(1280, 800)
 let initialWindowSize = block:
@@ -1527,7 +1529,7 @@ when defined(emscripten):
     when defined(audio):
       updateAudio()
     pollEvents()
-  window.run(main)
+  emscripten_set_main_loop(main, 0, true)
 else:
   while not window.closeRequested:
     display()

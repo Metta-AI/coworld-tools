@@ -16,13 +16,28 @@ from urllib.request import Request, urlopen
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 
 from tribal_village_env.environment import ACTION_SPACE_SIZE, TribalVillageEnv
 
 CLIENTS_DIR = Path(__file__).parent / "clients"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WASM_DIR = PROJECT_ROOT / "build" / "web"
+WASM_SHELL = PROJECT_ROOT / "scripts" / "shell_minimal.html"
+WASM_REQUIRED_ASSETS = (
+    "tribal_village.js",
+    "tribal_village.wasm",
+    "tribal_village.data",
+)
+WASM_ASSET_NAMES = set(WASM_REQUIRED_ASSETS) | {"tribal_village.html"}
+WASM_MEDIA_TYPES = {
+    ".data": "application/octet-stream",
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".wasm": "application/wasm",
+}
 HTTP_USER_AGENT = "tribalcog-coworld/0.1"
 
 TEAM_COUNT = 8
@@ -252,6 +267,54 @@ TEAM_COLORS = [
     "#6f8be8",
     "#b46ce0",
 ]
+
+
+def wasm_media_type(path: Path) -> str:
+    return WASM_MEDIA_TYPES.get(path.suffix, "application/octet-stream")
+
+
+def resolve_wasm_asset_path(root: Path, asset_path: str) -> Path:
+    if asset_path not in WASM_ASSET_NAMES:
+        raise FileNotFoundError(asset_path)
+
+    resolved_root = root.resolve()
+    candidate = (resolved_root / asset_path).resolve()
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"Invalid WASM asset path: {asset_path}") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(candidate)
+    return candidate
+
+
+def missing_wasm_assets(root: Path = WASM_DIR) -> list[str]:
+    return [asset for asset in WASM_REQUIRED_ASSETS if not (root / asset).is_file()]
+
+
+def wasm_client_html() -> str:
+    html_path = WASM_DIR / "tribal_village.html"
+    if html_path.is_file():
+        return html_path.read_text()
+
+    html = WASM_SHELL.read_text()
+    script = '<script async type="text/javascript" src="tribal_village.js"></script>'
+    return html.replace("{{{ SCRIPT }}}", script).replace(
+        "<title>Emscripten-Generated Code</title>",
+        "<title>Tribal Cog WASM</title>",
+    )
+
+
+def wasm_missing_html(missing_assets: list[str]) -> str:
+    missing = ", ".join(missing_assets)
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>Tribal Cog WASM</title></head><body><main>"
+        "<h1>Tribal Cog WASM client is not built</h1>"
+        f"<p>Missing: <code>{missing}</code></p>"
+        "<p>Run <code>nimble wasm</code> from games/tribalcog, then reload.</p>"
+        "</main></body></html>"
+    )
 
 
 @dataclass(frozen=True)
@@ -719,6 +782,28 @@ def player_client() -> HTMLResponse:
 @app.get("/clients/replay")
 def replay_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())
+
+
+@app.get("/clients/wasm")
+def wasm_client_redirect() -> RedirectResponse:
+    return RedirectResponse("/clients/wasm/")
+
+
+@app.get("/clients/wasm/")
+def wasm_client() -> HTMLResponse:
+    missing_assets = missing_wasm_assets()
+    if missing_assets:
+        return HTMLResponse(wasm_missing_html(missing_assets), status_code=404)
+    return HTMLResponse(wasm_client_html())
+
+
+@app.get("/clients/wasm/{asset_path:path}")
+def wasm_asset(asset_path: str) -> FileResponse:
+    try:
+        path = resolve_wasm_asset_path(WASM_DIR, asset_path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404) from exc
+    return FileResponse(path, media_type=wasm_media_type(path))
 
 
 @app.websocket("/global")

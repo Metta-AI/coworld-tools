@@ -51,6 +51,14 @@ The `frame` field is sent every `render_every_steps` and at the end of the
 episode. `/global?frame=1` also includes a frame in the first snapshot. Its
 bytes are raw RGB pixels produced by the Nim renderer through the Python FFI.
 
+## Browser clients
+
+`/clients/global` is the Coworld spectator client for the `/global` websocket.
+After running `nimble wasm` from the Tribal Cog package root, `/clients/wasm/`
+serves the native Emscripten build from `build/web/` for local browser checks.
+The WASM client is separate from the Coworld player protocol; player slots still
+connect through `/player`.
+
 ## Replay messages
 
 In replay mode the server reads the replay artifact passed in `uri` and sends:
