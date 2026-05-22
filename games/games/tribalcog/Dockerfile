@@ -22,6 +22,23 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY . /app
 RUN nimby sync -g nimby.lock && \
-    pip install --no-cache-dir ".[test]"
+    nimble buildLib && \
+    cp libtribal_village.so tribal_village_env/libtribal_village.so && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.9.0+cpu" && \
+    pip install --no-cache-dir \
+      "numpy>=1.20.0" \
+      "gymnasium>=0.29.0" \
+      "opencv-python-headless>=4.8.0" \
+      "fastapi>=0.115.0" \
+      "typer>=0.19.2" \
+      "rich>=13.7.0" \
+      "pydantic>=2.0.0" \
+      "uvicorn[standard]>=0.34.0" \
+      "websockets>=15.0.0" \
+      psutil \
+      nvidia-ml-py \
+      rich-argparse && \
+    pip install --no-cache-dir --no-deps "pufferlib-core>=3.0.0" && \
+    pip install --no-cache-dir --no-deps .
 
 CMD ["python", "-m", "tribal_village_env.coworld.server"]

@@ -57,9 +57,24 @@ From a Metta checkout with Coworld installed, validate the manifest with:
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-The full hosted league shape has 1000 player slots. Local certification may need
-a runner profile that can launch many lightweight reference players or a
-single-process test harness for development smoke tests.
+The full hosted league shape has 1000 player slots, so certifying the checked-in
+manifest launches 1000 reference player containers. For local development,
+certify the same runtime with a temporary one-slot manifest:
+
+```bash
+jq '(.game.config_schema.properties.tokens.minItems = 1) |
+    (.game.config_schema.properties.tokens.maxItems = 1) |
+    (.game.results_schema.properties.scores.minItems = 1) |
+    (.game.results_schema.properties.scores.maxItems = 1) |
+    (.certification.players = [.certification.players[0]])' \
+  /Users/relh/Code/games/games/tribalcog/coworld_manifest.json \
+  > /tmp/tribalcog-cert-manifest.json
+
+uv run --package coworld coworld certify /tmp/tribalcog-cert-manifest.json --timeout-seconds 60
+```
+
+This keeps the hosted manifest honest while avoiding 1000 local player
+connections for routine smoke checks.
 
 ## Replay
 

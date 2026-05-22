@@ -29,13 +29,13 @@ def test_slot_mapping() -> None:
     assert slot_team_index(999) == 124
 
 
-def test_config_requires_1000_tokens() -> None:
-    with pytest.raises(ValueError, match="exactly 1000 tokens"):
-        CoworldConfig.from_dict({"tokens": ["one"], "max_steps": 1})
+def test_config_accepts_certification_sized_token_lists() -> None:
+    with pytest.raises(ValueError, match="between 1 and 1000 tokens"):
+        CoworldConfig.from_dict({"tokens": [], "max_steps": 1})
 
     config = CoworldConfig.from_dict(
         {
-            "tokens": [f"token-{idx}" for idx in range(PLAYER_SLOT_COUNT)],
+            "tokens": ["token-0"],
             "max_steps": 3,
             "seed": 7,
             "step_seconds": 0.01,
@@ -47,6 +47,11 @@ def test_config_requires_1000_tokens() -> None:
     assert config.max_steps == 3
     assert config.seed == 7
     assert config.render_every_steps == 2
+
+    with pytest.raises(ValueError, match="between 1 and 1000 tokens"):
+        CoworldConfig.from_dict(
+            {"tokens": [f"token-{idx}" for idx in range(PLAYER_SLOT_COUNT + 1)]}
+        )
 
 
 def test_decode_action_accepts_integer_and_verb_argument() -> None:

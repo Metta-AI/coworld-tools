@@ -45,9 +45,9 @@ class CoworldConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CoworldConfig":
         tokens = [str(token) for token in data.get("tokens", [])]
-        if len(tokens) != PLAYER_SLOT_COUNT:
+        if not 1 <= len(tokens) <= PLAYER_SLOT_COUNT:
             raise ValueError(
-                f"Tribal Cog Coworld requires exactly {PLAYER_SLOT_COUNT} tokens, "
+                f"Tribal Cog Coworld requires between 1 and {PLAYER_SLOT_COUNT} tokens, "
                 f"got {len(tokens)}"
             )
         if any(not token for token in tokens):
@@ -177,9 +177,10 @@ class TribalCogCoworld:
 
         self.players: dict[int, WebSocket] = {}
         self.global_viewers: set[WebSocket] = set()
+        self.player_slot_count = len(config.tokens)
         self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
-        self.last_rewards = [0.0 for _ in range(PLAYER_SLOT_COUNT)]
-        self.scores = [0.0 for _ in range(PLAYER_SLOT_COUNT)]
+        self.last_rewards = [0.0 for _ in range(self.player_slot_count)]
+        self.scores = [0.0 for _ in range(self.player_slot_count)]
         self.team_scores = [0.0 for _ in range(TEAM_COUNT)]
         self.started = False
         self.done = False
@@ -192,7 +193,7 @@ class TribalCogCoworld:
         self.env.close()
 
     def validate_slot(self, slot: int, token: str) -> bool:
-        return 0 <= slot < PLAYER_SLOT_COUNT and self.config.tokens[slot] == token
+        return 0 <= slot < self.player_slot_count and self.config.tokens[slot] == token
 
     def player_observation(self, slot: int, *, final: bool = False) -> dict[str, Any]:
         obs = np.ascontiguousarray(self.env.observations[slot])
@@ -218,7 +219,7 @@ class TribalCogCoworld:
             },
         }
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, include_frame: bool = True) -> dict[str, Any]:
         snapshot: dict[str, Any] = {
             "type": "state",
             "step": self.env.step_count,
@@ -227,7 +228,7 @@ class TribalCogCoworld:
             "paused": self.paused,
             "done": self.done,
             "connected_players": len(self.players),
-            "total_player_slots": PLAYER_SLOT_COUNT,
+            "total_player_slots": self.player_slot_count,
             "team_scores": self.team_scores.copy(),
             "team_connected_players": [
                 sum(1 for slot in self.players if slot_to_team(slot) == team)
@@ -235,7 +236,9 @@ class TribalCogCoworld:
             ],
             "step_seconds": self.config.step_seconds,
         }
-        if self.env.step_count % self.config.render_every_steps == 0 or self.done:
+        if include_frame and (
+            self.env.step_count % self.config.render_every_steps == 0 or self.done
+        ):
             frame = np.ascontiguousarray(self.env.render())
             snapshot["frame"] = {
                 "width": int(frame.shape[1]),
@@ -282,7 +285,7 @@ class TribalCogCoworld:
             await asyncio.gather(*player_tasks, *global_tasks, return_exceptions=True)
 
     def _update_scores(self) -> None:
-        rewards = [float(value) for value in self.env.rewards[:PLAYER_SLOT_COUNT]]
+        rewards = [float(value) for value in self.env.rewards[: self.player_slot_count]]
         self.last_rewards = rewards
         for slot, reward in enumerate(rewards):
             self.scores[slot] += reward
@@ -413,7 +416,7 @@ async def global_viewer(websocket: WebSocket) -> None:
     await websocket.accept()
     state.global_viewers.add(websocket)
     try:
-        await websocket.send_json(state.snapshot())
+        await websocket.send_json(state.snapshot(include_frame=False))
         async for _ in websocket.iter_json():
             pass
     finally:
@@ -426,7 +429,11 @@ async def replay_viewer(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
     await websocket.accept()
-    replay = load_replay_data(websocket.query_params["uri"])
+    try:
+        replay = load_replay_data(websocket.query_params["uri"])
+    except (OSError, ValueError, json.JSONDecodeError, zlib.error, gzip.BadGzipFile):
+        await websocket.close(code=1008)
+        return
     await websocket.send_json(
         {
             "type": "replay",
@@ -458,7 +465,7 @@ async def player(websocket: WebSocket) -> None:
     await websocket.accept()
     state.players[slot] = websocket
     await websocket.send_json(state.player_observation(slot))
-    if len(state.players) == PLAYER_SLOT_COUNT:
+    if len(state.players) == state.player_slot_count:
         await state.maybe_start()
 
     try:
