@@ -1,0 +1,114 @@
+{
+  "fixture": "voting_real_1432.bin",
+  "schema_version": 1,
+  "frame_length": 16384,
+  "screen_width": 128,
+  "screen_height": 128,
+  "sprite_matches": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": [
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          3,
+          50
+        ],
+        [
+          3,
+          66
+        ],
+        [
+          3,
+          82
+        ],
+        [
+          3,
+          98
+        ],
+        [
+          3,
+          114
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": []
+    }
+  ],
+  "actor_color_index": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          3,
+          18,
+          1
+        ],
+        [
+          3,
+          50,
+          3
+        ],
+        [
+          3,
+          66,
+          4
+        ],
+        [
+          3,
+          82,
+          5
+        ],
+        [
+          3,
+          98,
+          6
+        ],
+        [
+          3,
+          114,
+          7
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": []
+    }
+  ]
+}

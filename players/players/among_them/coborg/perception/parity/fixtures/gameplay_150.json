@@ -1,0 +1,80 @@
+{
+  "fixture": "gameplay_150.bin",
+  "schema_version": 1,
+  "frame_length": 16384,
+  "screen_width": 128,
+  "screen_height": 128,
+  "sprite_matches": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": [
+        [
+          41,
+          48
+        ],
+        [
+          58,
+          58
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": [
+        [
+          77,
+          43
+        ]
+      ]
+    }
+  ],
+  "actor_color_index": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          41,
+          48,
+          3
+        ],
+        [
+          58,
+          58,
+          0
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": [
+        [
+          77,
+          43,
+          2
+        ]
+      ]
+    }
+  ]
+}
