@@ -1,17 +1,22 @@
 # Tribal Village
 
-Multi-agent RL environment in Nim with a Python wrapper (PufferLib compatible). Teams of agents gather resources, craft items, build structures, train military units, research technologies, and compete across multiple victory conditions — inspired by Age of Empires II.
+Tribal Village is the Tribal Cog game package in `Metta-AI/games`: a native Nim simulation with a Python/PufferLib wrapper and CoGames training hooks. Teams gather resources, craft items, build structures, train military units, research technologies, and compete across Age of Empires II-inspired victory conditions.
+
+The package is currently a standalone CoGames/PufferLib environment, not a container-first Coworld runtime. If you add a Coworld manifest later, follow the current Metta Coworld contract: the game container owns `/healthz`, player/global/replay routes, result and replay artifact writes, and game-specific public docs such as `rules.md` plus `play_tribalcog.md`.
 
 <img width="2932" height="1578" alt="Tribal Village screenshot" src="https://github.com/user-attachments/assets/b1736191-ff85-48fa-b5cf-f47e441fd118" />
 
 ## Installation
 
-**Requirements:** Python 3.12+, Nim 2.2.6+ (via nimby), OpenGL
+**Requirements:** Python 3.11 or 3.12 for the package, Python 3.12 in the root `games` workspace, Nim 2.2.6 via `nimby`, and OpenGL for the GUI.
 
 ```bash
-# 1. Install Nim with nimby
-curl -L https://github.com/treeform/nimby/releases/download/0.1.11/nimby-$(uname -s)-$(uname -m) -o ./nimby
-chmod +x ./nimby && ./nimby use 2.2.6 && ./nimby sync -g nimby.lock
+# 1. Install Nim with nimby. The Python CLI can also bootstrap this on demand.
+# Pick the suffix for your platform: nimby-Linux-X64, nimby-macOS-ARM64, or nimby-macOS-X64.
+curl -L https://github.com/treeform/nimby/releases/download/0.1.11/nimby-macOS-ARM64 -o ./nimby
+chmod +x ./nimby
+./nimby use 2.2.6
+./nimby sync -g nimby.lock
 
 # 2. Install Python package
 pip install -e .
@@ -25,6 +30,9 @@ tribalcog play
 
 # Run with random actions (text mode)
 tribalcog play --render ansi --random-actions --steps 100
+
+# Run from the root Metta-AI/games uv workspace
+uv run --package tribalcog tribalcog play --render ansi --steps 100
 
 # Train with CoGames/PufferLib
 pip install -e .[cogames]
@@ -64,10 +72,11 @@ obs, reward, terminated, truncated, info = env.step(actions)
 | Topic | Description |
 |-------|-------------|
 | [Quickstart](docs/quickstart.md) | Prerequisites, building, running, testing |
+| [Metta Integration](docs/metta_integration.md) | How Tribal Cog fits `Metta-AI/games`, CoGames, Metta recipes, and future Coworld packaging |
 | [Cogame Template Sync](docs/cogame_template.md) | Template upstream and merge guidance |
 | [Game Logic](docs/game_logic.md) | Step loop, actions, entities, episode rules |
-| [Action Space](docs/action_space.md) | Discrete 250 actions (verb * 25 + direction/argument) |
-| [Observation Space](docs/observation_space.md) | 84 layers, 11x11 grid per agent |
+| [Action Space](docs/action_space.md) | Discrete 308 actions (11 verbs * 28 arguments) |
+| [Observation Space](docs/observation_space.md) | 101 layers, 11x11 grid per agent |
 | [Combat](docs/combat.md) | Combat rules, counters, siege, unit commands |
 | [Economy & Respawn](docs/economy_respawn.md) | Inventory, stockpiles, markets, trade, hearts |
 | [Victory Conditions](docs/victory_conditions.md) | Conquest, Wonder, Relic, KOTH, Regicide |

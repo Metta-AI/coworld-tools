@@ -1,6 +1,6 @@
 # CLI Playbook and Debugging
 
-Date: 2026-02-06
+Date: 2026-05-22
 Owner: Docs / Systems
 Status: Active
 
@@ -17,8 +17,14 @@ Preferred (CLI):
 Text-only smoke test (no GUI):
 - `tribalcog play --render ansi --steps 128`
 
+Root `Metta-AI/games` workspace:
+- `uv run --package tribalcog tribalcog play --render ansi --steps 128`
+
 Direct Nim run (bypasses Python CLI):
 - `nim r -d:release --path:src tribal_village.nim`
+
+Metta recipe bridge:
+- `metta play tribalcog max_steps=128`
 
 ### Makefile Targets
 
@@ -44,7 +50,11 @@ Key files:
 ## What the CLI Actually Does
 - Ensures the Nim library is built and up-to-date via `ensure_nim_library_current()`.
 - Bootstraps `nimby` if needed and installs Nim into `~/.nimby/nim/bin`.
-- Launches `nim r -d:release --path:src tribal_village.nim` for GUI mode.
+- Normal GUI mode builds or reuses the local `tribal_village` binary.
+- Profile, step-timing, and render-timing GUI runs invoke `nim r` directly with
+  the requested compile-time flags.
+- ANSI mode builds or reuses `tribal_village_env/libtribal_village.*` and runs
+  through the Python wrapper.
 
 ## Debug Flags and Timers
 Use these to confirm the sim is stepping or to identify stalls:

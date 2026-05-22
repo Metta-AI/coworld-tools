@@ -6,6 +6,7 @@
 
 ## Getting Started
 - `quickstart.md`: prerequisites, building, running, testing, and environment variables.
+- `metta_integration.md`: how Tribal Cog fits `Metta-AI/games`, Metta recipes, CoGames optional loading, and future Coworld packaging.
 - `cli_and_debugging.md`: CLI usage, debugging flags, common failure modes.
 - `cogame_template.md`: template upstream and merge guidance.
 

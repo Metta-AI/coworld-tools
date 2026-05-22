@@ -18,7 +18,7 @@ Audited 41 documentation files in `docs/` against the current codebase. Overall 
 
 | Document | Status | Notes |
 |----------|--------|-------|
-| `observation_space.md` | ✅ Accurate | 96 layers match `types.nim`, all layer indices correct |
+| `observation_space.md` | ✅ Accurate | 101 layers match `types.nim`, all layer indices correct |
 | `combat.md` | ✅ Accurate | Counter bonuses match `combat.nim`, siege 3x multiplier correct |
 | `game_logic.md` | ✅ Accurate | Core loop, victory conditions, unit stats all verified |
 | `terrain_biomes.md` | ✅ Accurate | Elevation rules, movement modifiers, biome bonuses all match |
@@ -55,10 +55,7 @@ Audited 41 documentation files in `docs/` against the current codebase. Overall 
 
 **Issue:** Documents 10 verbs (verb 0-9) but code has 11 verbs.
 
-**Current Doc:**
-```
-- **10 verbs** x **25 arguments** = **250 total actions**
-```
+**Former stale doc text:** documented the old pre-rally action count.
 
 **Actual Code (`src/common_types.nim:130`):**
 ```nim

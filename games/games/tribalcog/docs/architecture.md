@@ -122,7 +122,7 @@ Python                          Nim FFI                    Nim Core
 Shape: `[MapAgents, ObservationLayers, 11, 11]`
 
 - 1006 agents total (8 teams × 125 + 6 goblins)
-- 96 observation layers (terrain one-hot, thing one-hot, metadata)
+- 101 observation layers (terrain one-hot, thing one-hot, metadata)
 - 11×11 viewport centered on each agent
 
 Observations are rebuilt in batch at end of each step for efficiency.

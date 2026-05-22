@@ -1,23 +1,27 @@
 # Quickstart Guide
 
-Date: 2026-02-06
+Date: 2026-05-22
 Owner: Docs / Onboarding
 Status: Active
 
 This guide helps new developers get up and running with Tribal Village quickly.
 
+Run commands from `games/tribalcog` unless a command explicitly says it is for
+the root `Metta-AI/games` workspace.
+
 ## Prerequisites
 
 ### Nim
 
-- **Version**: 2.2.4 or later (2.2.6 recommended)
+- **Version**: 2.2.6 recommended
 - **Installation**: Use [nimby](https://github.com/treeform/nimby) for version management
 
 ```bash
-# Download nimby (adjust URL for your platform)
-curl -L https://github.com/treeform/nimby/releases/download/0.1.11/nimby-linux-x86_64 -o ./nimby
-# macOS ARM: nimby-macOS-ARM64
-# macOS x64: nimby-macOS-x86_64
+# Download nimby. Pick the suffix for your platform:
+#   Linux: nimby-Linux-X64
+#   macOS ARM: nimby-macOS-ARM64
+#   macOS x64: nimby-macOS-X64
+curl -L https://github.com/treeform/nimby/releases/download/0.1.11/nimby-macOS-ARM64 -o ./nimby
 chmod +x ./nimby
 
 # Install Nim and sync dependencies
@@ -25,11 +29,14 @@ chmod +x ./nimby
 ./nimby sync -g nimby.lock
 ```
 
-After installation, ensure `~/.nimby/nim/bin` is on your PATH.
+After installation, ensure `~/.nimby/nim/bin` is on your PATH. The Python CLI
+also bootstraps `nimby` and Nim 2.2.6 on demand when it builds the native
+library or GUI binary.
 
 ### Python (for training bindings)
 
-- **Version**: 3.12.x
+- **Version**: Python 3.11 or 3.12 for this package; Python 3.12 for the root
+  `Metta-AI/games` workspace.
 - **Packages**: gymnasium, numpy, pufferlib
 
 ```bash
@@ -41,6 +48,13 @@ For training support with CoGames/PufferLib:
 
 ```bash
 pip install -e .[cogames]
+```
+
+From the root `Metta-AI/games` workspace, use the workspace package instead of
+a separate editable install:
+
+```bash
+uv run --package tribalcog tribalcog --help
 ```
 
 ### System Dependencies
@@ -129,7 +143,8 @@ Or through the Python CLI:
 
 ```bash
 tribalcog play
-# This internally runs: nim r -d:release tribal_village.nim
+# Normal GUI mode builds/reuses the local tribal_village binary.
+# Timing/profile modes invoke Nim directly with the requested compile flags.
 ```
 
 ### Keyboard Controls
@@ -226,6 +241,7 @@ nim r --path:src tests/integration_behaviors.nim
    ```bash
    timeout 15s nim r -d:release --path:src tribal_village.nim
    ```
+   On macOS without GNU coreutils, use `gtimeout` instead of `timeout`.
 
 3. Test suite:
    ```bash
@@ -305,6 +321,9 @@ nim r -d:release --path:src tribal_village.nim
 # Headless smoke test
 tribalcog play --render ansi --steps 128
 
+# Same smoke test from the root Metta-AI/games uv workspace
+uv run --package tribalcog tribalcog play --render ansi --steps 128
+
 # Compile check (CI gate)
 make check
 
@@ -320,6 +339,18 @@ make build
 # Train with CoGames
 tribalcog train --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs
 ```
+
+### Metta Recipe Smoke
+
+From a Metta checkout with the Tribal Cog optional package available:
+
+```bash
+metta play tribalcog max_steps=128
+```
+
+This uses the Metta recipe bridge and delegates to the standalone `tribalcog`
+CLI. The recipe does not accept `policy_uri`, `num_agents`, or `cogs` overrides
+because the native Tribal Cog environment has a fixed agent layout.
 
 ### Compile-Time Flags
 

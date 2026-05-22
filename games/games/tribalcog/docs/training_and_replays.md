@@ -1,6 +1,6 @@
 # Training and Replay Integration Notes
 
-Date: 2026-02-06
+Date: 2026-05-22
 Owner: Docs / ML Systems
 Status: Active
 
@@ -13,6 +13,9 @@ hooks that exist today.
 CLI (training subcommand, requires the `cogames` extra):
 - `pip install -e .[cogames]`
 - `tribalcog train --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs`
+
+Root `Metta-AI/games` workspace:
+- `uv run --package tribalcog --extra cogames tribalcog train --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs`
 
 CoGames CLI (optional):
 - `cogames train-tribal -p class=tribal --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs`
@@ -32,8 +35,10 @@ Key files:
 - The repo is a standalone, installable Python package (pyproject-based).
 - The training CLI expects the native lib to be available
   (`tribal_village_env/libtribal_village.*`).
-- If training from a metta checkout, avoid older copies of tribalcog to
-  prevent conflicts in import resolution.
+- If training from a Metta checkout, avoid older copies of `tribalcog` to
+  prevent conflicts in import resolution. The intended optional-package source
+  for new Metta/CoGames metadata is `https://github.com/Metta-AI/games.git`
+  with subdirectory `games/tribalcog`.
 - PufferLib vs pufferlib-core mismatches have caused issues in past sessions;
   prefer the versions pinned in the workspace you are running.
 
@@ -49,8 +54,13 @@ Replays are written as compressed JSON: `*.json.z`.
 
 To enable during a run:
 1. Export `TV_REPLAY_DIR` (or `TV_REPLAY_PATH`).
-2. Run `tribalcog play` (or `nim r -d:release tribal_village.nim`).
+2. Run `tribalcog play` (or `nim r -d:release --path:src tribal_village.nim`).
 3. Verify output in the chosen directory.
+
+This replay writer is the native Tribal Cog replay path. It is not the same
+thing as hosted Coworld replay serving. A future Coworld runtime would still
+need to read `COGAME_SAVE_REPLAY_URI` in rollout mode and serve
+`/clients/replay?uri=...` when `COGAME_REPLAY_SERVER=1`.
 
 ## Common training issues seen in sessions
 - "SPS = 0" or no logs: check PufferLib versions and vector env wiring.

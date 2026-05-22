@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Date: 2026-02-06
+Date: 2026-05-22
 Owner: Docs / Systems
 Status: Active
 
@@ -15,24 +15,29 @@ be adjusted when creating an environment without recompiling.
 ### Python Usage
 
 ```python
-from tribal_village_env import make_tribal_village_env
+from tribal_village_env import TribalVillageEnv
+from tribal_village_env.config import EnvironmentConfig
 
-env = make_tribal_village_env(config={
-    "max_steps": 5000,
-    "heart_reward": 2.0,
-    "death_penalty": -10.0,
-    # ... other options
-})
+config = EnvironmentConfig(max_steps=5000)
+config.rewards.heart = 2.0
+config.rewards.death_penalty = -10.0
+
+env = TribalVillageEnv(config=config)
 ```
 
-Configuration values are passed through the FFI layer to the Nim engine. Unspecified values use
-defaults from `defaultEnvironmentConfig()` in `src/types.nim`.
+Legacy flat dictionaries such as `{"max_steps": 5000, "heart_reward": 2.0}`
+are still accepted for backward compatibility. Configuration values are passed
+through the FFI layer to the Nim engine. The Python wrapper starts from
+`tribal_village_env.config.EnvironmentConfig`; direct Nim runs start from
+`defaultEnvironmentConfig()` in `src/types.nim`.
 
 ### Core Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_steps` | int | 3000 | Maximum simulation steps per episode. Episode truncates when this limit is reached. |
+| `max_steps` | int | 10000 (Python), 3000 (direct Nim) | Maximum simulation steps per episode. Episode truncates when this limit is reached. |
+| `victory_condition` | int | 0 (Python), `VictoryAll` (direct Nim) | Victory condition enum value. `0` is `VictoryNone`; direct Nim defaults to all victory modes. |
+| `ai_mode` | str | `external` | Python wrapper controller mode: `external`, `builtin`, or `hybrid`. |
 
 **Impact:** Controls episode length. Longer episodes allow more complex strategies but increase
 training time. Short episodes (1000-2000) are good for rapid iteration; production training
@@ -165,7 +170,7 @@ They define the structural parameters of the simulation.
 | `ObservationWidth` | 11 | Width of agent observation window. |
 | `ObservationHeight` | 11 | Height of agent observation window. |
 | `ObservationRadius` | 5 | Observation radius (width / 2). |
-| `ObservationLayers` | 96 | Total observation tensor layers. |
+| `ObservationLayers` | 101 | Total observation tensor layers. |
 
 ### Unit Stats
 

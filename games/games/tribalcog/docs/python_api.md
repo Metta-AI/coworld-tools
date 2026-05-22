@@ -1,6 +1,6 @@
 # Python API Reference
 
-Date: 2026-02-06
+Date: 2026-05-22
 Owner: Engineering / AI
 Status: Active
 
@@ -81,7 +81,8 @@ Reset the environment to initial state.
 **Example:**
 ```python
 obs, info = env.reset(seed=42)
-# obs["agent_0"] is a numpy array of shape (84, 11, 11)
+# obs["agent_0"] is a numpy array of shape (env.obs_layers, 11, 11).
+# Current code reports 101 layers.
 ```
 
 #### step
@@ -93,7 +94,7 @@ step(actions: Dict[str, np.ndarray]) -> Tuple[Dict, Dict, Dict, Dict, Dict]
 Execute one environment step.
 
 **Parameters:**
-- `actions`: Dict mapping agent IDs to action integers (0-274)
+- `actions`: Dict mapping agent IDs to action integers (0-307)
 
 **Returns:**
 - `observations`: Dict mapping agent IDs to observation arrays
@@ -104,7 +105,7 @@ Execute one environment step.
 
 **Example:**
 ```python
-actions = {"agent_0": 25, "agent_1": 50}  # Move north, attack north
+actions = {"agent_0": 28, "agent_1": 56}  # Move north, attack north
 obs, rewards, terminated, truncated, info = env.step(actions)
 ```
 
@@ -132,11 +133,19 @@ Clean up environment resources. Always call when done.
 
 Configuration is passed as a dictionary to the environment constructor. Unspecified values use defaults.
 
+The Python wrapper defaults are not identical to the direct Nim executable:
+`EnvironmentConfig()` defaults to `max_steps=10000` and `victory_condition=0`
+(`VictoryNone`) before sending config through FFI. Direct Nim runs use
+`defaultEnvironmentConfig()` in `src/types.nim`, which defaults to
+`maxSteps=3000` and `VictoryAll`.
+
 ### Core Parameters
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `max_steps` | int | 3000 | Maximum steps per episode |
+| `max_steps` | int | 10000 | Maximum steps per episode |
+| `victory_condition` | int | 0 | Victory condition enum value (`0` is `VictoryNone`) |
+| `ai_mode` | str | `"external"` | Controller mode: `"external"`, `"builtin"`, or `"hybrid"` |
 | `render_mode` | str | `"rgb_array"` | Render mode (`"rgb_array"` or `"ansi"`) |
 | `render_scale` | int | 4 | Scale factor for RGB rendering |
 
