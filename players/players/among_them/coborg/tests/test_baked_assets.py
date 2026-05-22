@@ -15,9 +15,12 @@ from players.among_them.coborg.perception.data import (
     MAP_WIDTH,
     PALETTE,
     PALETTE_COLOR_TABLE_SIZE,
+    SPRITE_COUNT,
     SPRITE_SIZE,
     TRANSPARENT_INDEX,
     BakeManifestMismatch,
+    load_sprite_atlas,
+    load_sprite_index,
     verify_all,
 )
 from players.among_them.coborg.perception.data import baked_manifest, generate_baked
@@ -115,10 +118,10 @@ def test_verify_source_digest_accepts_sha1_and_sha256() -> None:
         generate_baked._verify_source_digest("x", data, "deadbeef")
 
 
-def test_generate_baked_skeleton_produces_empty_artifact_list(
+def test_generate_baked_no_handlers_produces_empty_artifact_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # No handlers are registered in S1.4a; regenerating against the real
+    # When no handlers are registered, regenerating against the real
     # upstream dir must succeed and emit a manifest with zero artifacts.
     monkeypatch.setattr(generate_baked, "HANDLERS", {})
     out_manifest = tmp_path / "baked_manifest.json"
@@ -131,3 +134,95 @@ def test_generate_baked_skeleton_produces_empty_artifact_list(
     assert manifest["schema_version"] == BAKE_SCHEMA_VERSION
     on_disk = json.loads(out_manifest.read_text())
     assert on_disk == manifest
+
+
+# --- sprite atlas (S1.4b) ---------------------------------------------------
+
+
+_EXPECTED_SPRITE_NAMES = ("player", "body", "ghost", "task", "kill_button", "ghost_icon")
+
+
+def test_sprite_atlas_shape_and_dtype() -> None:
+    atlas = load_sprite_atlas()
+    assert atlas.shape == (SPRITE_COUNT, SPRITE_SIZE, SPRITE_SIZE)
+    assert atlas.dtype == np.uint8
+    assert atlas.flags.writeable is False
+
+
+def test_sprite_atlas_matches_source_bin() -> None:
+    sprites_bin = (_UPSTREAM_BAKED_DIR / "sprites.bin").read_bytes()
+    atlas = load_sprite_atlas()
+    # The handler reshapes 864 bytes row-major into (6, 12, 12); the
+    # raw bytes must round-trip back identically.
+    assert atlas.tobytes() == sprites_bin
+
+
+def test_sprite_atlas_load_is_cached() -> None:
+    a1 = load_sprite_atlas()
+    a2 = load_sprite_atlas()
+    assert a1 is a2
+
+
+def test_sprite_index_keys_and_values() -> None:
+    index = load_sprite_index()
+    assert set(index.keys()) == set(_EXPECTED_SPRITE_NAMES)
+    assert sorted(index.values()) == list(range(SPRITE_COUNT))
+    # Preserve the canonical Nim ordering: player=0, body=1, ghost=2,
+    # task=3, kill_button=4, ghost_icon=5.
+    for expected_idx, name in enumerate(_EXPECTED_SPRITE_NAMES):
+        assert index[name] == expected_idx, (
+            f"sprite '{name}' expected at atlas index {expected_idx}, got {index[name]}"
+        )
+
+
+def test_sprite_index_load_is_cached() -> None:
+    i1 = load_sprite_index()
+    i2 = load_sprite_index()
+    assert i1 is i2
+
+
+def test_sprite_atlas_in_checked_in_manifest() -> None:
+    manifest = baked_manifest.load_manifest()
+    names = {a["name"] for a in manifest["artifacts"]}
+    assert "sprite_atlas.npz" in names
+    entry = next(a for a in manifest["artifacts"] if a["name"] == "sprite_atlas.npz")
+    assert entry["source"] == "sprites.bin"
+
+
+def test_regenerate_produces_deterministic_sprite_atlas(tmp_path: Path) -> None:
+    # Re-running the generator must produce byte-identical output so the
+    # checked-in manifest digest is stable across machines/runs.
+    out_manifest_1 = tmp_path / "m1.json"
+    out_dir_1 = tmp_path / "d1"
+    generate_baked.regenerate(
+        source_dir=_UPSTREAM_BAKED_DIR,
+        output_dir=out_dir_1,
+        output_manifest=out_manifest_1,
+    )
+    out_manifest_2 = tmp_path / "m2.json"
+    out_dir_2 = tmp_path / "d2"
+    generate_baked.regenerate(
+        source_dir=_UPSTREAM_BAKED_DIR,
+        output_dir=out_dir_2,
+        output_manifest=out_manifest_2,
+    )
+    a1 = (out_dir_1 / "sprite_atlas.npz").read_bytes()
+    a2 = (out_dir_2 / "sprite_atlas.npz").read_bytes()
+    assert hashlib.sha256(a1).hexdigest() == hashlib.sha256(a2).hexdigest()
+
+
+def test_regenerate_matches_checked_in_manifest(tmp_path: Path) -> None:
+    # Regenerating into a tmpdir must produce a manifest equal (modulo
+    # ordering) to the checked-in one. Catches accidental drift between
+    # source bytes and the recorded digests.
+    out_manifest = tmp_path / "baked_manifest.json"
+    fresh = generate_baked.regenerate(
+        source_dir=_UPSTREAM_BAKED_DIR,
+        output_dir=tmp_path,
+        output_manifest=out_manifest,
+    )
+    checked_in = baked_manifest.load_manifest()
+    assert fresh["source_manifest_sha256"] == checked_in["source_manifest_sha256"]
+    fresh_by_name = {a["name"]: a for a in fresh["artifacts"]}
+    checked_by_name = {a["name"]: a for a in checked_in["artifacts"]}
+    assert fresh_by_name == checked_by_name

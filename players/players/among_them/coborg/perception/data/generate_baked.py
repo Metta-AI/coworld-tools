@@ -31,7 +31,8 @@ from typing import Callable
 
 import numpy as np
 
-from .palette import BAKE_SCHEMA_VERSION
+from .palette import BAKE_SCHEMA_VERSION, SPRITE_SIZE
+from .sprites import SPRITE_COUNT
 
 _DATA_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _DATA_DIR.parents[4]
@@ -54,6 +55,21 @@ def register(source_filename: str, output_filename: str) -> Callable[[Handler], 
         return fn
 
     return decorator
+
+
+@register("sprites.bin", "sprite_atlas.npz")
+def _convert_sprites(data: bytes) -> dict[str, np.ndarray]:
+    """Reshape sprites.bin (864 bytes) into a (6, 12, 12) uint8 atlas."""
+    expected = SPRITE_COUNT * SPRITE_SIZE * SPRITE_SIZE
+    if len(data) != expected:
+        raise RuntimeError(
+            f"sprites.bin has {len(data)} bytes; expected {expected} "
+            f"({SPRITE_COUNT} sprites x {SPRITE_SIZE}x{SPRITE_SIZE} palette-indexed)"
+        )
+    atlas = np.frombuffer(data, dtype=np.uint8).reshape(
+        SPRITE_COUNT, SPRITE_SIZE, SPRITE_SIZE
+    )
+    return {"sprite_atlas": atlas}
 
 
 def _hex_digest(data: bytes, algo: str) -> str:

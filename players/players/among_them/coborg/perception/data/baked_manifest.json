@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
   "source_manifest_sha256": "e6767f002f73db4cf822ffe554994e31db9bd6d0b745c6bc936da487913d2922",
-  "artifacts": []
+  "artifacts": [
+    {
+      "name": "sprite_atlas.npz",
+      "source": "sprites.bin",
+      "sha256": "e28fd7a895c5bd72b6fd96be0ee01f077da8becaacd083daaf81fdd682134962"
+    }
+  ]
 }

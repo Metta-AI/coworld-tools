@@ -30,6 +30,7 @@ from .palette import (
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
+from .sprites import SPRITE_COUNT, load_sprite_atlas, load_sprite_index
 
 verify_all()
 
@@ -47,10 +48,13 @@ __all__ = [
     "PRINTABLE_ASCII_COUNT",
     "SHADE_TINT_COLOR",
     "SPACE_COLOR",
+    "SPRITE_COUNT",
     "SPRITE_DRAW_OFF_X",
     "SPRITE_DRAW_OFF_Y",
     "SPRITE_SIZE",
     "TINT_COLOR",
     "TRANSPARENT_INDEX",
+    "load_sprite_atlas",
+    "load_sprite_index",
     "verify_all",
 ]

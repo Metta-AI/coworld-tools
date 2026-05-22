@@ -43,6 +43,7 @@ players = [
   "**/*.md",
   "**/*.nim",
   "**/*.nims",
+  "**/*.npz",
   "**/*.txt",
   "**/.nim-version",
   "**/.nimby-version",
