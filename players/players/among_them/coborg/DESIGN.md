@@ -117,7 +117,9 @@ Per PLAN §8 and decision D3:
 ## 5. P0 scope and known limitations
 
 - Perception is a no-op; the frame bytes are not unpacked or parsed in P0.
-  `unpack_frame` is exported for P1 but not called.
+  As of S2.1 the 4-bpp unpacker lives at `perception.frame.unpack4bpp`;
+  the bridge will start invoking it once `perceive()` wires the percept
+  fields in S5.
 - Belief carries only a tick counter. P1 introduces the
   self/world/entities/tasks/social/inferences sections per PLAN §4.
 - The bridge speaks `bitscreen_v1` binary only. Among Them never serves the

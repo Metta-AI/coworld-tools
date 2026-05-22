@@ -13,10 +13,13 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
+# Screen / frame dimensions are owned by perception.frame (the Nim port of
+# guided_bot/perception/frame.nim). Re-exported here for back-compat with
+# code that pre-dates the P1 perception split (the coworld bridge and
+# tests both still reference PACKED_FRAME_BYTES via this module).
+from .perception.frame import PACKED_FRAME_LEN, SCREEN_HEIGHT as SCREEN_HEIGHT, SCREEN_WIDTH as SCREEN_WIDTH
 
-SCREEN_WIDTH = 128
-SCREEN_HEIGHT = 128
-PACKED_FRAME_BYTES = SCREEN_WIDTH * SCREEN_HEIGHT // 2  # 8192
+PACKED_FRAME_BYTES = PACKED_FRAME_LEN  # historical alias used by the bridge and tests
 
 
 @dataclass(frozen=True)
@@ -76,20 +79,6 @@ class AmongThemCommand:
     packet. Empty tuple means "no transmission this tick."""
 
     packets: tuple[bytes, ...] = ()
-
-
-def unpack_frame(packed_frame: bytes) -> np.ndarray:
-    """Unpack a 4-bit nybble-packed 128×128 frame into a uint8 array."""
-
-    if len(packed_frame) != PACKED_FRAME_BYTES:
-        raise ValueError(
-            f"expected {PACKED_FRAME_BYTES} packed bytes, got {len(packed_frame)}"
-        )
-    packed = np.frombuffer(packed_frame, dtype=np.uint8)
-    pixels = np.empty((PACKED_FRAME_BYTES * 2,), dtype=np.uint8)
-    pixels[0::2] = packed & 0x0F
-    pixels[1::2] = packed >> 4
-    return pixels.reshape((SCREEN_HEIGHT, SCREEN_WIDTH))
 
 
 def perceive(observation: AmongThemObservation, tick: int) -> AmongThemPercept:
