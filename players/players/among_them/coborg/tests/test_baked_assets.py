@@ -11,15 +11,20 @@ import pytest
 
 from players.among_them.coborg.perception.data import (
     BAKE_SCHEMA_VERSION,
+    DEFAULT_GLYPH_SPACING,
+    FIRST_PRINTABLE_ASCII,
     MAP_HEIGHT,
     MAP_SHAPE,
     MAP_WIDTH,
     PALETTE,
     PALETTE_COLOR_TABLE_SIZE,
+    PRINTABLE_ASCII_COUNT,
     SPRITE_COUNT,
     SPRITE_SIZE,
     TRANSPARENT_INDEX,
     BakeManifestMismatch,
+    Font,
+    load_font,
     load_map_pixels,
     load_sprite_atlas,
     load_sprite_index,
@@ -286,3 +291,104 @@ def test_raster_in_checked_in_manifest(
     by_name = {a["name"]: a for a in manifest["artifacts"]}
     assert npz_name in by_name
     assert by_name[npz_name]["source"] == source_name
+
+
+# --- font (S1.4d) -----------------------------------------------------------
+
+
+def _decode_font_bin_header(blob: bytes) -> tuple[int, int, int]:
+    height = blob[0]
+    spacing = blob[1]
+    count = blob[2] | (blob[3] << 8)
+    return height, spacing, count
+
+
+def test_font_header_matches_source_bin() -> None:
+    blob = (_UPSTREAM_BAKED_DIR / "font.bin").read_bytes()
+    height, spacing, count = _decode_font_bin_header(blob)
+    font = load_font()
+    assert font.height == height
+    assert font.spacing == spacing == DEFAULT_GLYPH_SPACING
+    assert count == PRINTABLE_ASCII_COUNT
+
+
+def test_font_arrays_shape_and_dtype() -> None:
+    font = load_font()
+    assert font.widths.shape == (PRINTABLE_ASCII_COUNT,)
+    assert font.widths.dtype == np.uint8
+    assert font.widths.flags.writeable is False
+    assert font.pixels.ndim == 3
+    assert font.pixels.shape[0] == PRINTABLE_ASCII_COUNT
+    assert font.pixels.shape[1] == font.height
+    assert font.pixels.shape[2] == int(font.widths.max())
+    assert font.pixels.dtype == np.uint8
+    assert font.pixels.flags.writeable is False
+    # 0/1 only.
+    assert set(np.unique(font.pixels).tolist()) <= {0, 1}
+
+
+def test_font_per_glyph_byte_parity() -> None:
+    blob = (_UPSTREAM_BAKED_DIR / "font.bin").read_bytes()
+    font = load_font()
+    pos = 4
+    for i in range(PRINTABLE_ASCII_COUNT):
+        w = blob[pos]
+        pos += 1
+        expected_body = blob[pos : pos + font.height * w]
+        pos += font.height * w
+        assert int(font.widths[i]) == w, f"glyph {i} width mismatch"
+        trimmed = font.pixels[i, :, :w]
+        assert trimmed.tobytes() == expected_body, f"glyph {i} pixel mismatch"
+    assert pos == len(blob), "trailing bytes in font.bin"
+
+
+def test_font_round_trip_to_source_bin() -> None:
+    # Reconstruct font.bin entirely from the npz and require byte-equality.
+    blob = (_UPSTREAM_BAKED_DIR / "font.bin").read_bytes()
+    font = load_font()
+    parts: list[bytes] = [
+        bytes([font.height, font.spacing]),
+        bytes([PRINTABLE_ASCII_COUNT & 0xFF, (PRINTABLE_ASCII_COUNT >> 8) & 0xFF]),
+    ]
+    for i in range(PRINTABLE_ASCII_COUNT):
+        w = int(font.widths[i])
+        parts.append(bytes([w]))
+        parts.append(font.pixels[i, :, :w].tobytes())
+    rebuilt = b"".join(parts)
+    assert rebuilt == blob
+
+
+def test_font_glyph_accessor_returns_trimmed_pixels() -> None:
+    font = load_font()
+    # ' ' (space) is glyph 0; per upstream it's a blank 3-wide glyph.
+    space = font.glyph(" ")
+    assert space.shape == (font.height, 3)
+    assert int(space.sum()) == 0
+    # '!' is glyph 1, width 1.
+    bang = font.glyph("!")
+    assert bang.shape == (font.height, 1)
+    assert int(bang.sum()) > 0
+
+
+def test_font_glyph_rejects_out_of_range() -> None:
+    font = load_font()
+    with pytest.raises(ValueError, match="outside the printable-ASCII range"):
+        font.glyph(chr(FIRST_PRINTABLE_ASCII - 1))
+    with pytest.raises(ValueError, match="outside the printable-ASCII range"):
+        font.glyph(chr(FIRST_PRINTABLE_ASCII + PRINTABLE_ASCII_COUNT))
+    with pytest.raises(ValueError, match="1-char string"):
+        font.glyph("ab")
+
+
+def test_font_load_returns_same_instance() -> None:
+    f1 = load_font()
+    f2 = load_font()
+    assert f1 is f2
+    assert isinstance(f1, Font)
+
+
+def test_font_in_checked_in_manifest() -> None:
+    manifest = baked_manifest.load_manifest()
+    by_name = {a["name"]: a for a in manifest["artifacts"]}
+    assert "font.npz" in by_name
+    assert by_name["font.npz"]["source"] == "font.bin"

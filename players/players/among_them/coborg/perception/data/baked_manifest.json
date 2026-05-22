@@ -3,6 +3,11 @@
   "source_manifest_sha256": "e6767f002f73db4cf822ffe554994e31db9bd6d0b745c6bc936da487913d2922",
   "artifacts": [
     {
+      "name": "font.npz",
+      "source": "font.bin",
+      "sha256": "f132e5b9bdbd6bb78bb894ad20cabfe3dc77bbf8688434c65a07f7562e4c64b6"
+    },
+    {
       "name": "map_pixels.npz",
       "source": "map_pixels.bin",
       "sha256": "d2514488925c5801fbd3488ba3001823974cfb317fb0d9b1d8740ab1063e47a3"

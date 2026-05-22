@@ -31,7 +31,13 @@ from typing import Callable
 
 import numpy as np
 
-from .palette import BAKE_SCHEMA_VERSION, MAP_HEIGHT, MAP_WIDTH, SPRITE_SIZE
+from .palette import (
+    BAKE_SCHEMA_VERSION,
+    MAP_HEIGHT,
+    MAP_WIDTH,
+    PRINTABLE_ASCII_COUNT,
+    SPRITE_SIZE,
+)
 from .sprites import SPRITE_COUNT
 
 _DATA_DIR = Path(__file__).resolve().parent
@@ -96,6 +102,58 @@ def _convert_walk_mask(data: bytes) -> dict[str, np.ndarray]:
 @register("wall_mask.bin", "wall_mask.npz")
 def _convert_wall_mask(data: bytes) -> dict[str, np.ndarray]:
     return _convert_raster("wall_mask.bin", "wall_mask", data)
+
+
+@register("font.bin", "font.npz")
+def _convert_font(data: bytes) -> dict[str, np.ndarray]:
+    """Decode variable-width tiny5 font into padded arrays.
+
+    Format matches Nim's ``loadFont`` in ``guided_bot/perception/data.nim``:
+    ``u8 height, u8 spacing, u16 count``, then ``count`` glyphs each
+    consisting of ``u8 width`` and ``height*width`` 0/1 pixel bytes.
+    """
+    if len(data) < 4:
+        raise RuntimeError(f"font.bin truncated header: {len(data)} bytes")
+    height = data[0]
+    spacing = data[1]
+    count = data[2] | (data[3] << 8)
+    if count != PRINTABLE_ASCII_COUNT:
+        raise RuntimeError(
+            f"font.bin glyph count {count} != PRINTABLE_ASCII_COUNT "
+            f"{PRINTABLE_ASCII_COUNT}"
+        )
+
+    widths = np.zeros(PRINTABLE_ASCII_COUNT, dtype=np.uint8)
+    glyph_bytes: list[bytes] = []
+    pos = 4
+    for i in range(PRINTABLE_ASCII_COUNT):
+        if pos >= len(data):
+            raise RuntimeError(f"font.bin truncated at glyph {i} header")
+        w = data[pos]
+        pos += 1
+        body = data[pos : pos + height * w]
+        if len(body) != height * w:
+            raise RuntimeError(f"font.bin truncated in glyph {i} body")
+        widths[i] = w
+        glyph_bytes.append(body)
+        pos += height * w
+    if pos != len(data):
+        raise RuntimeError(
+            f"font.bin trailing bytes: consumed {pos} of {len(data)}"
+        )
+
+    max_width = int(widths.max())
+    pixels = np.zeros((PRINTABLE_ASCII_COUNT, height, max_width), dtype=np.uint8)
+    for i, body in enumerate(glyph_bytes):
+        w = int(widths[i])
+        pixels[i, :, :w] = np.frombuffer(body, dtype=np.uint8).reshape(height, w)
+
+    return {
+        "font_height": np.array(height, dtype=np.uint8),
+        "font_spacing": np.array(spacing, dtype=np.uint8),
+        "glyph_widths": widths,
+        "glyph_pixels": pixels,
+    }
 
 
 def _hex_digest(data: bytes, algo: str) -> str:

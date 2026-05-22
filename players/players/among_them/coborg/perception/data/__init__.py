@@ -11,6 +11,7 @@ recovery is to re-run ``generate_baked.py``.
 from __future__ import annotations
 
 from .baked_manifest import BakeManifestMismatch, verify_all
+from .font import Font, load_font
 from .map import MAP_SHAPE, load_map_pixels, load_walk_mask, load_wall_mask
 from .palette import (
     BAKE_SCHEMA_VERSION,
@@ -40,6 +41,7 @@ __all__ = [
     "BakeManifestMismatch",
     "DEFAULT_GLYPH_SPACING",
     "FIRST_PRINTABLE_ASCII",
+    "Font",
     "LAST_PRINTABLE_ASCII",
     "MAP_HEIGHT",
     "MAP_SHAPE",
@@ -56,6 +58,7 @@ __all__ = [
     "SPRITE_SIZE",
     "TINT_COLOR",
     "TRANSPARENT_INDEX",
+    "load_font",
     "load_map_pixels",
     "load_sprite_atlas",
     "load_sprite_index",
