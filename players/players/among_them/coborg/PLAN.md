@@ -14,12 +14,13 @@ session to pick up cold.
 > an in-process Coworld bridge smoke). R1 toolchain flake (§10) was
 > root-caused and resolved 2026-05-13. §12 open items (D8, D9, P4 stop
 > point, parity-oracle source) were all confirmed 2026-05-22 — see §12
-> for the decision record. P1 oracle = expected values extracted from
-> the existing `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
-> assertions that already exercise the 11 recorded `.bin` fixtures
-> under `guided_bot/test/fixtures/`; a supplementary Nim CLI is only
-> added if a percept field needs parity coverage the existing tests
-> don't give. See [`README.md`](./README.md) for the runnable surface
+> for the decision record. S1 baked-asset sub-stack landed 2026-05-22
+> (palette + sprite_atlas + map_pixels + walk_mask + wall_mask + font;
+> digest-pinned regenerator). P1 oracle = a small Nim oracle dumper at
+> `perception/parity/extract_nim_oracle/` that imports the upstream
+> `guided_bot` perception modules, runs them against each fixture, and
+> emits JSON sidecars next to each `.bin` (decision tightened 2026-05-22
+> from "parse `_test.nim` assertions"; see §12). See [`README.md`](./README.md) for the runnable surface
 > today and [`DESIGN.md`](./DESIGN.md) for the durable architecture
 > notes.
 
@@ -294,9 +295,10 @@ coborg/
       sprite_index.json             # sprite-name -> (atlas offset, w, h, anchor)
       generate_baked.py             # one-shot: Nim baked/ -> numpy .npz (checked-in result)
     parity/
-      capture_fixtures.py           # capture frames + Nim percepts side-by-side
+      capture_fixtures.py           # (only if 11 fixtures don't span needed code paths) opt-in coworld-bridge dumper
       run_parity.py                 # diff Python percepts vs Nim percepts on fixture set
-      fixtures/                     # checked-in small fixture set with golden percepts
+      fixtures/                     # copies of guided_bot/test/fixtures/*.bin + per-fixture JSON sidecars
+      extract_nim_oracle/           # self-contained Nim program: imports upstream guided_bot perception, emits JSON sidecars per fixture
   modes/
     __init__.py
     idle.py
@@ -428,17 +430,21 @@ This is what makes the port credible.
    Coworld run is allowed and is the path of choice. Replaying a
    recorded Coworld session is also fine if the runner's `replay`
    path is the easier seam.
-2. **Ground truth (primary)**: Extract expected percept values from
-   the existing Nim test assertions at
-   `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
-   — those tests already pair the 11 `.bin` fixtures with concrete
-   expected `{actors, tasks, vote_state, ocr_text, interstitial,
-   localized, camera}` values. The Python parity harness consumes
-   that table directly. **Only if** a percept field needed for parity
-   coverage isn't asserted in any existing Nim test, ship a tiny
-   supplementary Nim CLI inside `perception/parity/` that re-uses
-   `guided_bot`'s perception modules to emit a JSON sidecar for that
-   specific field. No `libguidedbot.dylib` runtime dependency.
+2. **Ground truth (primary)**: A small Nim oracle dumper at
+   `perception/parity/extract_nim_oracle/` imports the upstream
+   `guided_bot` perception modules (compiled directly from the
+   `users/james/personal_cogs/among_them/` source tree), runs the
+   pipeline against each `.bin` fixture, and serializes the actual
+   computed percept fields to a JSON sidecar next to the fixture
+   (`gameplay_131.bin` → `gameplay_131.json`). The Python parity
+   harness consumes those sidecars. This is more robust than parsing
+   the existing `*_test.nim` assertion strings: many of those
+   assertions are `expect(cond)` rather than `expectEq(got, want)`
+   and carry no concrete value, and the dumper trivially extends to
+   S3/S4 percept fields that no current test exposes. The dumper is
+   a self-contained Nim program — no `libguidedbot.dylib` runtime
+   dependency, no `nimble`. Regenerate with `nim c -r` (one-shot;
+   sidecars are checked in). Decision tightened 2026-05-22.
 3. **Diff harness**: `perception/parity/run_parity.py` walks the fixture
    set, runs the Python perception over each packed frame, and asserts
    equality (with documented numeric tolerance for sub-pixel sweeps).
@@ -658,7 +664,7 @@ from §3.4, prefer the manifest values.
 | R5 | **Pixel vs state-vector divergence.** Some belief fields (e.g. exact task progress percentage) are easier and lossless from the structured state vector. | Pixel-first overall, but allow specific fields to be sourced from the state vector. Document each such field in `DESIGN.md` under a "State-vector taps" section. James drafted-approved this (D9). |
 | R6 | **Coworld manifest variants.** `--variant default` may not exist on every variant set. | Inspect `coworld_manifest.json` at P0; fall back to `manifest.variants[0]` and surface the choice in `play_local.sh`. |
 | R7 | **Protocol drift.** `bitscreen_v1` is the binary wire protocol BitWorld serves to Among Them players (see `~/coding/bitworld/docs/bitscreen_v1.md` and the spec at https://github.com/Metta-AI/bitworld/blob/master/docs/bitscreen_v1.md). The `guided_bot/coworld/policy_player.py` port is correct as of 2026-05-13; verify against the BitWorld spec and against `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` at P0 and again at P4. | Pin against runner.py at the version that was current when this plan was written; record the git SHA in `coworld/README.md`. Re-check the `bitscreen_v1` spec doc whenever upgrading the bitworld submodule. |
-| R8 | **Parity ground-truth source.** Parity needs concrete expected percept values to assert against. | **Decided 2026-05-22:** primary oracle = expected values extracted from the existing `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim` assertions that already exercise the 11 `.bin` fixtures under `guided_bot/test/fixtures/`. No `libguidedbot.dylib` runtime dependency. A small supplementary Nim CLI inside `perception/parity/` is only added if a percept field needed for parity coverage isn't asserted in any existing Nim test. |
+| R8 | **Parity ground-truth source.** Parity needs concrete expected percept values to assert against. | **Decided 2026-05-22 (tightened):** primary oracle = a small Nim oracle dumper at `perception/parity/extract_nim_oracle/` that imports the upstream `guided_bot` perception modules, runs them against each of the 11 `.bin` fixtures under `guided_bot/test/fixtures/`, and emits JSON sidecars. The Python parity harness consumes the sidecars. Earlier draft proposed parsing `*_test.nim` assertion strings instead; rejected because many assertions are `expect(cond)` not `expectEq(got, want)` and so carry no concrete value, and because the dumper extends trivially to S3/S4 percept fields that no current test exposes. Self-contained Nim program, no `libguidedbot.dylib` runtime dependency, no `nimble`. |
 
 ---
 
@@ -682,16 +688,18 @@ from §3.4, prefer the manifest values.
      fails, surface to James before writing any code.
 2. **Land P0 scaffold.** Mirror §4 layout. Get the noop agent through a full `coworld play` run with stderr traces visible. Don't move on until §6 P0 done-criteria are all green.
 3. **Wire up the parity harness against the 11 existing `.bin`
-   fixtures.** Fixtures and Nim test assertions already live at
-   `users/james/personal_cogs/among_them/guided_bot/test/fixtures/`
-   and `guided_bot/test/*_test.nim`; that's the P1 oracle (see §5.4).
-   Extract the expected-value tables from the Nim tests into a form
-   the Python parity harness can consume (a small one-shot extractor
-   is acceptable; do not stand up a parallel non-Coworld capture
-   loop). Only land `perception/parity/capture_fixtures.py` if a
-   percept code path turns out to be uncovered by the 11 fixtures —
-   and even then, instrument the Coworld bridge inside a real
-   `uv run coworld play` session, not a separate run path.
+   fixtures.** Fixtures live at
+   `users/james/personal_cogs/among_them/guided_bot/test/fixtures/`;
+   copy them into `players/among_them/coborg/perception/parity/fixtures/`
+   so the coborg checkout is self-contained per AGENTS.md (the set is
+   ~164 KB — trivial). Then build the Nim oracle dumper under
+   `perception/parity/extract_nim_oracle/` (see §5.4 step 2 and §10 R8).
+   The dumper is a self-contained Nim program that imports the
+   upstream `guided_bot` perception modules and emits JSON sidecars
+   next to each fixture. Only land `perception/parity/capture_fixtures.py`
+   if a percept code path turns out to be uncovered by the 11
+   fixtures — and even then, instrument the Coworld bridge inside a
+   real `uv run coworld play` session, not a separate run path.
 4. **Start the perception port at `frame.py` then `sprite_match.py`.** Get
    parity-green on actor matches first; that proves the spine of the
    port. Then ripple through `actors → tasks → localize → ocr → voting`.
@@ -713,12 +721,14 @@ James in the new session" were all resolved at the start of the
 3. **Phasing stop point.** **Confirmed.** Plan ends at P4
    (deterministic imposter-capable agent). LLM work is explicitly out
    of scope; revisit only if a P5 mandate is requested separately.
-4. **Parity ground-truth source.** **Confirmed.** Primary oracle =
-   expected values extracted from existing
-   `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
-   assertions over the 11 `.bin` fixtures. Supplementary Nim CLI only
-   if a percept field needed for parity coverage isn't asserted in
-   any existing Nim test. See §5.4 and §10 R8.
+4. **Parity ground-truth source.** **Confirmed 2026-05-22; tightened
+   same day.** Primary oracle = a small Nim oracle dumper at
+   `perception/parity/extract_nim_oracle/` that imports the upstream
+   `guided_bot` perception modules and emits JSON sidecars next to
+   each fixture. Earlier draft proposed parsing `*_test.nim`
+   assertion strings; rejected because many of those assertions
+   carry no concrete value and the dumper extends trivially to
+   S3/S4 percept fields. See §5.4 and §10 R8.
 
 ---
 
