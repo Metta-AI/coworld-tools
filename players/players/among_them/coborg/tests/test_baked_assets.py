@@ -12,6 +12,7 @@ import pytest
 from players.among_them.coborg.perception.data import (
     BAKE_SCHEMA_VERSION,
     MAP_HEIGHT,
+    MAP_SHAPE,
     MAP_WIDTH,
     PALETTE,
     PALETTE_COLOR_TABLE_SIZE,
@@ -19,8 +20,11 @@ from players.among_them.coborg.perception.data import (
     SPRITE_SIZE,
     TRANSPARENT_INDEX,
     BakeManifestMismatch,
+    load_map_pixels,
     load_sprite_atlas,
     load_sprite_index,
+    load_walk_mask,
+    load_wall_mask,
     verify_all,
 )
 from players.among_them.coborg.perception.data import baked_manifest, generate_baked
@@ -226,3 +230,59 @@ def test_regenerate_matches_checked_in_manifest(tmp_path: Path) -> None:
     fresh_by_name = {a["name"]: a for a in fresh["artifacts"]}
     checked_by_name = {a["name"]: a for a in checked_in["artifacts"]}
     assert fresh_by_name == checked_by_name
+
+
+# --- map rasters (S1.4c) ----------------------------------------------------
+
+
+_RASTER_LOADERS = [
+    ("map_pixels.bin", "map_pixels.npz", load_map_pixels),
+    ("walk_mask.bin", "walk_mask.npz", load_walk_mask),
+    ("wall_mask.bin", "wall_mask.npz", load_wall_mask),
+]
+
+
+@pytest.mark.parametrize(("source_name", "npz_name", "loader"), _RASTER_LOADERS)
+def test_raster_shape_and_dtype(source_name: str, npz_name: str, loader) -> None:
+    arr = loader()
+    assert arr.shape == MAP_SHAPE == (MAP_HEIGHT, MAP_WIDTH)
+    assert arr.dtype == np.uint8
+    assert arr.flags.writeable is False
+
+
+@pytest.mark.parametrize(("source_name", "npz_name", "loader"), _RASTER_LOADERS)
+def test_raster_matches_source_bin(source_name: str, npz_name: str, loader) -> None:
+    raw = (_UPSTREAM_BAKED_DIR / source_name).read_bytes()
+    arr = loader()
+    # Row-major reshape must round-trip back to the source bytes exactly.
+    assert arr.tobytes() == raw
+
+
+@pytest.mark.parametrize(("source_name", "npz_name", "loader"), _RASTER_LOADERS)
+def test_raster_load_is_cached(source_name: str, npz_name: str, loader) -> None:
+    assert loader() is loader()
+
+
+def test_walk_and_wall_masks_are_binary() -> None:
+    walk = load_walk_mask()
+    wall = load_wall_mask()
+    assert set(np.unique(walk).tolist()) <= {0, 1}
+    assert set(np.unique(wall).tolist()) <= {0, 1}
+
+
+def test_map_pixels_uses_valid_palette_indices() -> None:
+    pixels = load_map_pixels()
+    # Source observation: map_pixels uses palette indices 1..15
+    # (SPACE_COLOR / index 0 never appears in the level).
+    assert int(pixels.min()) >= 1
+    assert int(pixels.max()) <= PALETTE_COLOR_TABLE_SIZE - 1
+
+
+@pytest.mark.parametrize(("source_name", "npz_name", "loader"), _RASTER_LOADERS)
+def test_raster_in_checked_in_manifest(
+    source_name: str, npz_name: str, loader
+) -> None:
+    manifest = baked_manifest.load_manifest()
+    by_name = {a["name"]: a for a in manifest["artifacts"]}
+    assert npz_name in by_name
+    assert by_name[npz_name]["source"] == source_name

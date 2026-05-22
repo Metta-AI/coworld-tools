@@ -31,7 +31,7 @@ from typing import Callable
 
 import numpy as np
 
-from .palette import BAKE_SCHEMA_VERSION, SPRITE_SIZE
+from .palette import BAKE_SCHEMA_VERSION, MAP_HEIGHT, MAP_WIDTH, SPRITE_SIZE
 from .sprites import SPRITE_COUNT
 
 _DATA_DIR = Path(__file__).resolve().parent
@@ -70,6 +70,32 @@ def _convert_sprites(data: bytes) -> dict[str, np.ndarray]:
         SPRITE_COUNT, SPRITE_SIZE, SPRITE_SIZE
     )
     return {"sprite_atlas": atlas}
+
+
+def _convert_raster(name: str, key: str, data: bytes) -> dict[str, np.ndarray]:
+    expected = MAP_HEIGHT * MAP_WIDTH
+    if len(data) != expected:
+        raise RuntimeError(
+            f"{name} has {len(data)} bytes; expected {expected} "
+            f"({MAP_HEIGHT}x{MAP_WIDTH} palette-indexed)"
+        )
+    arr = np.frombuffer(data, dtype=np.uint8).reshape(MAP_HEIGHT, MAP_WIDTH)
+    return {key: arr}
+
+
+@register("map_pixels.bin", "map_pixels.npz")
+def _convert_map_pixels(data: bytes) -> dict[str, np.ndarray]:
+    return _convert_raster("map_pixels.bin", "map_pixels", data)
+
+
+@register("walk_mask.bin", "walk_mask.npz")
+def _convert_walk_mask(data: bytes) -> dict[str, np.ndarray]:
+    return _convert_raster("walk_mask.bin", "walk_mask", data)
+
+
+@register("wall_mask.bin", "wall_mask.npz")
+def _convert_wall_mask(data: bytes) -> dict[str, np.ndarray]:
+    return _convert_raster("wall_mask.bin", "wall_mask", data)
 
 
 def _hex_digest(data: bytes, algo: str) -> str:

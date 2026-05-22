@@ -3,9 +3,24 @@
   "source_manifest_sha256": "e6767f002f73db4cf822ffe554994e31db9bd6d0b745c6bc936da487913d2922",
   "artifacts": [
     {
+      "name": "map_pixels.npz",
+      "source": "map_pixels.bin",
+      "sha256": "d2514488925c5801fbd3488ba3001823974cfb317fb0d9b1d8740ab1063e47a3"
+    },
+    {
       "name": "sprite_atlas.npz",
       "source": "sprites.bin",
       "sha256": "e28fd7a895c5bd72b6fd96be0ee01f077da8becaacd083daaf81fdd682134962"
+    },
+    {
+      "name": "walk_mask.npz",
+      "source": "walk_mask.bin",
+      "sha256": "29e1c69ae10504d01c9fdf8d0db46e20a6b2f02810bc948c2db0292cc5b55e94"
+    },
+    {
+      "name": "wall_mask.npz",
+      "source": "wall_mask.bin",
+      "sha256": "4af4ac1f940523f9e9426dac56cba557a2e86c2dae6073838c5f715d51dfb710"
     }
   ]
 }
