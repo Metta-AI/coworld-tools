@@ -87,6 +87,7 @@ task wasm, "Build Tribal Village WASM demo":
     "-sASYNCIFY",
     "-sALLOW_MEMORY_GROWTH",
     "-sINITIAL_MEMORY=512MB",
+    "-sSTACK_SIZE=8388608",
     "-sFULL_ES3=1",
     "-sGL_ENABLE_GET_PROC_ADDRESS=1",
     "-sERROR_ON_UNDEFINED_SYMBOLS=0"
