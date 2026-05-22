@@ -6,15 +6,22 @@ Owner: James (jmsboggs@gmail.com).
 Author of this plan: prior Claude Code session; record carried over for a fresh
 session to pick up cold.
 
-> **Current status (2026-05-19):** P0 deliverables in §6 are largely landed.
-> The idle/noop runtime, action resolver, stderr trace sinks, `bitscreen_v1`
-> WebSocket bridge, Dockerfile, `build.sh`, and `scripts/play_local.sh` are
-> all in place; `pytest players/among_them/coborg/tests` is green
-> (17 tests including an in-process Coworld bridge smoke). R1 toolchain
-> flake (§10) was root-caused and resolved 2026-05-13. §11 items 1–2 are
-> done; pick up from item 3 (capture parity fixtures) when starting P1.
-> See [`README.md`](./README.md) for the runnable surface today and
-> [`DESIGN.md`](./DESIGN.md) for the durable architecture notes.
+> **Current status (2026-05-22):** P0 deliverables in §6 are landed and
+> P1 (perception port) is in flight. The idle/noop runtime, action
+> resolver, stderr trace sinks, `bitscreen_v1` WebSocket bridge,
+> Dockerfile, `build.sh`, and `scripts/play_local.sh` are all in place;
+> `pytest players/among_them/coborg/tests` is green (17 tests including
+> an in-process Coworld bridge smoke). R1 toolchain flake (§10) was
+> root-caused and resolved 2026-05-13. §12 open items (D8, D9, P4 stop
+> point, parity-oracle source) were all confirmed 2026-05-22 — see §12
+> for the decision record. P1 oracle = expected values extracted from
+> the existing `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
+> assertions that already exercise the 11 recorded `.bin` fixtures
+> under `guided_bot/test/fixtures/`; a supplementary Nim CLI is only
+> added if a percept field needs parity coverage the existing tests
+> don't give. See [`README.md`](./README.md) for the runnable surface
+> today and [`DESIGN.md`](./DESIGN.md) for the durable architecture
+> notes.
 
 ---
 
@@ -216,21 +223,42 @@ from; in this repo):
 
 ### 3.4 Game constants reference
 
-Approximate defaults to seed the design — the downloaded
-`coworld_manifest.json` and `~/coding/bitworld/among_them/config.json`
-are the source of truth and override anything below:
+Values below are taken from
+`~/coding/bitworld/among_them/coworld_manifest.json` (game version
+`0.1.20`, verified 2026-05-22). The `default` variant `game_config`
+block at the bottom of that file is the authoritative source for a
+local `coworld play` run; the schema `default`s in the top half apply
+when the variant doesn't override them. If a hosted Coworld variant
+differs, re-run `uv run coworld download among_them -o ./coworld` and
+re-read the manifest.
 
+Frame / players:
 - Screen: 128×128, 4-bit indexed palette (PICO-8).
-- Players: 8 (2 imposters by default; `imposterCount: 2` in the
-  bitworld manifest).
-- Tasks per player: 8.
-- Vote timer: 600 ticks.
-- Imposter kill cooldown: 1200 ticks.
-- Action space: 27 discrete actions (directional + A/B combinations).
+- Player slots: 8 (`minPlayers: 8`, max 16).
+- Imposters: 2 (`imposterCount: 2`, `autoImposterCount: false`).
+- Tasks per player: 8 (`tasksPerPlayer: 8`).
+- Emergency button calls per player: 1 (`buttonCalls: 1`).
 
-If the hosted Coworld variant differs from these defaults, the manifest
-downloaded by `coworld download among_them -o ./coworld` is the source of
-truth.
+Timing (all values in ticks):
+- `startWaitTicks`: 120 (lobby countdown).
+- `voteTimerTicks`: **6000** (voting phase).
+- `voteResultTicks`: 72 (vote result display).
+- `killCooldownTicks`: **900** (imposter kill cooldown).
+- `roleRevealTicks`: 120.
+- `taskCompleteTicks`: 72.
+- `messageCooldownTicks`: 100.
+- `gameOverTicks`: 360.
+- `maxTicks`: 10000 (episode cap).
+
+Interaction ranges (manifest defaults; pixels in screen space):
+- `killRange`: 20, `ventRange`: 16, `reportRange`: 20.
+
+Action space: the wire-level input is the `bitscreen_v1` 7-button mask
+(up/down/left/right exclusivity + Select/A/B); see
+`~/coding/bitworld/docs/bitscreen_v1.md` for the legal combinations.
+The previous plan's "27 discrete actions" figure was a downstream
+canonicalization assumption and is not pinned in this repo's source
+yet; revisit and pin in P2 when the action resolver hardens.
 
 ---
 
@@ -384,22 +412,33 @@ inputs/outputs, no API change.
 
 This is what makes the port credible.
 
-1. **Capture**: No frame-capture utility ships today (the previous plan
-   referenced a `scripts/capture.py` that does not exist in this repo).
-   At P1, land a `perception/parity/capture_fixtures.py` that either
-   (a) instruments `users/james/personal_cogs/among_them/guided_bot/`
-   to dump per-tick packed frames + structured state vector + Nim
-   percept JSON sidecars during a normal `coworld play` run, or
-   (b) replays a recorded Coworld session (the runner already supports
-   `replay`). Aim for ~50–100 frames intentionally spanning all
-   gameplay phases: lobby, playing, body-sighted, meeting, voting,
-   role-reveal, interstitial. Save the packed 128×128 frame plus the
-   structured state vector.
-2. **Ground truth**: For each fixture, run the existing Nim perception
-   (via `guided_bot`'s `libguidedbot.dylib` or a small Nim CLI we write
-   for the parity harness) and emit a JSON sidecar with:
-   `{actors: [...], tasks: [...], vote_state: {...}, ocr_text: [...],
-    interstitial: bool, localized: bool, camera: (x, y)}`.
+1. **Fixtures (primary, already exist)**: 11 packed-frame `.bin`
+   captures live at
+   `users/james/personal_cogs/among_them/guided_bot/test/fixtures/`
+   and are the P1 starting oracle set. They span the gameplay phases
+   the existing Nim tests already cover. **Additional capture is only
+   needed if a percept code path is uncovered by the 11 fixtures.** If
+   we need more, land
+   `perception/parity/capture_fixtures.py` that instruments the
+   Coworld bridge inside a normal `uv run coworld play` session to
+   dump packed frames + structured state vector. AGENTS.md's
+   "forbidden raw-capture run path" rule refers to a parallel
+   non-Coworld execution mode (e.g. a separate loop pulling frames
+   from a local server); instrumenting the bridge inside a real
+   Coworld run is allowed and is the path of choice. Replaying a
+   recorded Coworld session is also fine if the runner's `replay`
+   path is the easier seam.
+2. **Ground truth (primary)**: Extract expected percept values from
+   the existing Nim test assertions at
+   `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
+   — those tests already pair the 11 `.bin` fixtures with concrete
+   expected `{actors, tasks, vote_state, ocr_text, interstitial,
+   localized, camera}` values. The Python parity harness consumes
+   that table directly. **Only if** a percept field needed for parity
+   coverage isn't asserted in any existing Nim test, ship a tiny
+   supplementary Nim CLI inside `perception/parity/` that re-uses
+   `guided_bot`'s perception modules to emit a JSON sidecar for that
+   specific field. No `libguidedbot.dylib` runtime dependency.
 3. **Diff harness**: `perception/parity/run_parity.py` walks the fixture
    set, runs the Python perception over each packed frame, and asserts
    equality (with documented numeric tolerance for sub-pixel sweeps).
@@ -619,7 +658,7 @@ from §3.4, prefer the manifest values.
 | R5 | **Pixel vs state-vector divergence.** Some belief fields (e.g. exact task progress percentage) are easier and lossless from the structured state vector. | Pixel-first overall, but allow specific fields to be sourced from the state vector. Document each such field in `DESIGN.md` under a "State-vector taps" section. James drafted-approved this (D9). |
 | R6 | **Coworld manifest variants.** `--variant default` may not exist on every variant set. | Inspect `coworld_manifest.json` at P0; fall back to `manifest.variants[0]` and surface the choice in `play_local.sh`. |
 | R7 | **Protocol drift.** `bitscreen_v1` is the binary wire protocol BitWorld serves to Among Them players (see `~/coding/bitworld/docs/bitscreen_v1.md` and the spec at https://github.com/Metta-AI/bitworld/blob/master/docs/bitscreen_v1.md). The `guided_bot/coworld/policy_player.py` port is correct as of 2026-05-13; verify against the BitWorld spec and against `~/coding/metta/packages/coworld/src/coworld/runner/runner.py` at P0 and again at P4. | Pin against runner.py at the version that was current when this plan was written; record the git SHA in `coworld/README.md`. Re-check the `bitscreen_v1` spec doc whenever upgrading the bitworld submodule. |
-| R8 | **Nim libguidedbot.dylib dependency for parity ground truth.** Parity needs the Nim perception to produce JSON sidecars. | At P1 we'll either (a) ship a small Nim CLI inside `perception/parity/` that reuses `guided_bot`'s perception modules, or (b) instrument `guided_bot`'s existing run to dump per-frame parity sidecars. (a) is preferred — keeps the parity rig self-contained. |
+| R8 | **Parity ground-truth source.** Parity needs concrete expected percept values to assert against. | **Decided 2026-05-22:** primary oracle = expected values extracted from the existing `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim` assertions that already exercise the 11 `.bin` fixtures under `guided_bot/test/fixtures/`. No `libguidedbot.dylib` runtime dependency. A small supplementary Nim CLI inside `perception/parity/` is only added if a percept field needed for parity coverage isn't asserted in any existing Nim test. |
 
 ---
 
@@ -642,36 +681,44 @@ from §3.4, prefer the manifest values.
      `~/.nimby/pkgs/<name>/` missing `.git`, re-run sync). If it still
      fails, surface to James before writing any code.
 2. **Land P0 scaffold.** Mirror §4 layout. Get the noop agent through a full `coworld play` run with stderr traces visible. Don't move on until §6 P0 done-criteria are all green.
-3. **Capture parity fixtures from current `guided_bot`.** No
-   ready-made capture utility exists; land
-   `perception/parity/capture_fixtures.py` first (see §5.4 step 1)
-   that either instruments
-   `users/james/personal_cogs/among_them/guided_bot/` to dump per-tick
-   packed frames + Nim percept JSON sidecars during a `coworld play`
-   run, or replays a recorded Coworld session. Aim for 50–100 frames
-   spanning all phases. Check fixtures into
-   `perception/parity/fixtures/`.
+3. **Wire up the parity harness against the 11 existing `.bin`
+   fixtures.** Fixtures and Nim test assertions already live at
+   `users/james/personal_cogs/among_them/guided_bot/test/fixtures/`
+   and `guided_bot/test/*_test.nim`; that's the P1 oracle (see §5.4).
+   Extract the expected-value tables from the Nim tests into a form
+   the Python parity harness can consume (a small one-shot extractor
+   is acceptable; do not stand up a parallel non-Coworld capture
+   loop). Only land `perception/parity/capture_fixtures.py` if a
+   percept code path turns out to be uncovered by the 11 fixtures —
+   and even then, instrument the Coworld bridge inside a real
+   `uv run coworld play` session, not a separate run path.
 4. **Start the perception port at `frame.py` then `sprite_match.py`.** Get
    parity-green on actor matches first; that proves the spine of the
    port. Then ripple through `actors → tasks → localize → ocr → voting`.
 
 ---
 
-## 12. Open questions to confirm with James in the new session
+## 12. Decision record (resolved 2026-05-22)
 
-These were drafted in the plan but not explicitly confirmed:
+The four open items the previous session drafted as "confirm with
+James in the new session" were all resolved at the start of the
+2026-05-22 P1 kickoff:
 
-1. **D8** — Numpy-first / numba-fallback perception strategy. Default is
-   numpy first, measure, promote to numba per-kernel only if needed.
-2. **D9** — Allowing specific belief fields (e.g. `task_progress`) to be
-   sourced from the structured state vector when pixels would be lossy.
-   Default is "yes, document each tap in DESIGN.md."
-3. **Phasing stop point** — Plan ends at P4 (deterministic imposter-capable
-   agent). LLM is explicitly out of scope. Confirm before P5 work is
-   scheduled.
-4. **Where does Nim parity ground truth come from?** Plan default is a
-   small Nim CLI inside `perception/parity/` that reuses `guided_bot`'s
-   perception modules. Confirm vs. instrumenting `guided_bot` directly.
+1. **D8 — Numpy-first / numba-fallback perception strategy.**
+   **Confirmed.** Default is numpy first; promote to numba per-kernel
+   only after measurement shows the budget breached.
+2. **D9 — State-vector taps for belief fields.** **Confirmed.**
+   Allowed. Each tap (e.g. `task_progress`) must be documented in
+   `DESIGN.md` §6 "State-vector taps".
+3. **Phasing stop point.** **Confirmed.** Plan ends at P4
+   (deterministic imposter-capable agent). LLM work is explicitly out
+   of scope; revisit only if a P5 mandate is requested separately.
+4. **Parity ground-truth source.** **Confirmed.** Primary oracle =
+   expected values extracted from existing
+   `users/james/personal_cogs/among_them/guided_bot/test/*_test.nim`
+   assertions over the 11 `.bin` fixtures. Supplementary Nim CLI only
+   if a percept field needed for parity coverage isn't asserted in
+   any existing Nim test. See §5.4 and §10 R8.
 
 ---
 
