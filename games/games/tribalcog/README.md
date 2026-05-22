@@ -2,7 +2,7 @@
 
 Tribal Village is the Tribal Cog game package in `Metta-AI/games`: a native Nim simulation with a Python/PufferLib wrapper and CoGames training hooks. Teams gather resources, craft items, build structures, train military units, research technologies, and compete across Age of Empires II-inspired victory conditions.
 
-The package is currently a standalone CoGames/PufferLib environment, not a container-first Coworld runtime. If you add a Coworld manifest later, follow the current Metta Coworld contract: the game container owns `/healthz`, player/global/replay routes, result and replay artifact writes, and game-specific public docs such as `rules.md` plus `play_tribalcog.md`.
+The package now supports both standalone CoGames/PufferLib use and a container-first Coworld runtime. The Coworld shape lives beside the native package: `coworld_manifest.json`, `Dockerfile`, `player/Dockerfile`, and `tribal_village_env/coworld/`.
 
 <img width="2932" height="1578" alt="Tribal Village screenshot" src="https://github.com/user-attachments/assets/b1736191-ff85-48fa-b5cf-f47e441fd118" />
 
@@ -37,6 +37,12 @@ uv run --package tribalcog tribalcog play --render ansi --steps 100
 # Train with CoGames/PufferLib
 pip install -e .[cogames]
 tribalcog train --steps 1000000 --parallel-envs 8 --num-workers 4
+
+# Run as a Coworld game server
+COGAME_CONFIG_URI=file:///tmp/tribalcog-config.json \
+COGAME_RESULTS_URI=file:///tmp/tribalcog-results.json \
+COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
+tribalcog coworld-server
 ```
 
 **Controls:** Left-click (select), Right-click (command), WASD (move/pan), Space (pause/step), scroll (zoom), Ctrl+0-9 (control groups), Tab (cycle teams), F9 (weather), B (build menu)
@@ -89,6 +95,8 @@ obs, reward, terminated, truncated, info = env.step(actions)
 | [CLI & Debugging](docs/cli_and_debugging.md) | CLI usage, debugging flags |
 | [Training & Replays](docs/training_and_replays.md) | Training entrypoints, replay setup |
 | [Asset Pipeline](docs/asset_pipeline.md) | Asset generation workflow |
+| [Coworld Play Guide](tribal_village_env/coworld/docs/play_tribalcog.md) | Coworld server, player, certification, and replay workflow |
+| [Coworld Rules](tribal_village_env/coworld/docs/rules.md) | Hosted league player slots, scoring, actions, and episode rules |
 
 See [docs/README.md](docs/README.md) for the complete documentation index.
 
@@ -102,7 +110,11 @@ src/
   renderer.nim             # Rendering
   ffi.nim                  # C interface for Python
 tribal_village_env/         # Python wrapper + CLI
+  coworld/                  # Coworld server, reference player, clients, protocol docs
 data/                       # Sprites, fonts, UI
+coworld_manifest.json       # Hosted Coworld manifest
+Dockerfile                  # Game runtime image
+player/Dockerfile           # Lightweight reference player image
 ```
 
 ## License

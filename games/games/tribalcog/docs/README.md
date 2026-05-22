@@ -6,7 +6,11 @@
 
 ## Getting Started
 - `quickstart.md`: prerequisites, building, running, testing, and environment variables.
-- `metta_integration.md`: how Tribal Cog fits `Metta-AI/games`, Metta recipes, CoGames optional loading, and future Coworld packaging.
+- `metta_integration.md`: how Tribal Cog fits `Metta-AI/games`, Metta recipes, CoGames optional loading, and Coworld packaging.
+- `../tribal_village_env/coworld/docs/play_tribalcog.md`: Coworld server, reference player, certification, and replay workflow.
+- `../tribal_village_env/coworld/docs/rules.md`: hosted Coworld rules, slot model, actions, scoring, and episode end.
+- `../tribal_village_env/coworld/docs/player_protocol_spec.md`: player websocket observation/action protocol.
+- `../tribal_village_env/coworld/docs/global_protocol_spec.md`: global viewer and replay websocket protocol.
 - `cli_and_debugging.md`: CLI usage, debugging flags, common failure modes.
 - `cogame_template.md`: template upstream and merge guidance.
 

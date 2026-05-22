@@ -1,0 +1,3197 @@
+{
+  "$schema": "../../coworld_manifest_schema.json",
+  "game": {
+    "name": "tribalcog",
+    "version": "0.2.0",
+    "description": "Tribal Cog packaged as a hosted Coworld with one player slot per controllable team agent.",
+    "owner": "cogames@softmax.com",
+    "runnable": {
+      "type": "game",
+      "image": "ghcr.io/metta-ai/coworld-tribalcog-game:latest",
+      "run": [
+        "python",
+        "-m",
+        "tribal_village_env.coworld.server"
+      ]
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "max_steps",
+        "seed",
+        "step_seconds",
+        "victory_condition"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "minItems": 1000,
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "victory_condition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 180
+        },
+        "render_every_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 5
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scores",
+        "team_scores",
+        "steps",
+        "winner_team",
+        "victory_condition",
+        "truncation_reason"
+      ],
+      "properties": {
+        "scores": {
+          "type": "array",
+          "minItems": 1000,
+          "maxItems": 1000,
+          "items": {
+            "type": "number"
+          }
+        },
+        "team_scores": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          }
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "winner_team": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 7
+        },
+        "victory_condition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "truncation_reason": {
+          "type": "string",
+          "enum": [
+            "max_steps",
+            "game_over"
+          ]
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/player_protocol_spec.md"
+      },
+      "global": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/global_protocol_spec.md"
+      }
+    },
+    "docs": {
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/rules.md"
+          }
+        },
+        {
+          "id": "play_tribalcog.md",
+          "title": "play_tribalcog.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/play_tribalcog.md"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "random-agent-player",
+      "name": "Random Agent Player",
+      "type": "player",
+      "image": "ghcr.io/metta-ai/coworld-tribalcog-player:latest",
+      "run": [
+        "python",
+        "-m",
+        "tribal_village_env.coworld.player"
+      ],
+      "description": "Lightweight reference player that sends random legal Tribal Cog actions over the Coworld player protocol."
+    }
+  ],
+  "variants": [
+    {
+      "id": "hosted-daily",
+      "name": "Hosted Daily",
+      "game_config": {
+        "max_steps": 1000,
+        "seed": 0,
+        "step_seconds": 0.05,
+        "victory_condition": 0,
+        "player_connect_timeout_seconds": 180,
+        "render_every_steps": 5
+      },
+      "description": "Hosted eight-team Tribal Cog match with one Coworld player per controllable agent."
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "max_steps": 3,
+      "seed": 0,
+      "step_seconds": 0.01,
+      "victory_condition": 0,
+      "player_connect_timeout_seconds": 1,
+      "render_every_steps": 1
+    },
+    "players": [
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      },
+      {
+        "player_id": "random-agent-player"
+      }
+    ]
+  }
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tribal Cog Coworld</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #101314; color: #edf2ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
+    main { min-width: 0; display: grid; place-items: center; background: #171b1c; padding: 16px; }
+    aside { border-left: 1px solid #2f3739; padding: 16px; background: #111617; overflow: auto; }
+    canvas { width: min(100%, 1200px); height: auto; image-rendering: pixelated; background: #080a0a; border: 1px solid #2f3739; }
+    h1 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
+    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #253032; font-size: 14px; }
+    .teams { display: grid; gap: 6px; margin-top: 14px; }
+    .team { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 8px; font-size: 13px; }
+    .bar { height: 8px; background: #263033; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: #80d39b; }
+    @media (max-width: 800px) { body { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #2f3739; } }
+  </style>
+</head>
+<body>
+  <main><canvas id="view" width="1" height="1"></canvas></main>
+  <aside>
+    <h1>Tribal Cog</h1>
+    <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
+    <div class="stat"><span>Players</span><strong id="players">0 / 1000</strong></div>
+    <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
+    <div class="teams" id="teams"></div>
+  </aside>
+  <script>
+    const canvas = document.getElementById("view");
+    const ctx = canvas.getContext("2d");
+    const stepEl = document.getElementById("step");
+    const playersEl = document.getElementById("players");
+    const statusEl = document.getElementById("status");
+    const teamsEl = document.getElementById("teams");
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/global`);
+
+    ws.onmessage = (event) => {
+      const state = JSON.parse(event.data);
+      stepEl.textContent = `${state.step} / ${state.max_steps}`;
+      playersEl.textContent = `${state.connected_players} / ${state.total_player_slots}`;
+      statusEl.textContent = state.done ? "done" : state.started ? "running" : "waiting";
+      renderTeams(state);
+      if (state.frame) renderFrame(state.frame);
+    };
+    ws.onclose = () => { statusEl.textContent = "closed"; };
+
+    function renderFrame(frame) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const bytes = Uint8Array.from(atob(frame.data), c => c.charCodeAt(0));
+      const image = ctx.createImageData(frame.width, frame.height);
+      for (let src = 0, dst = 0; src < bytes.length; src += 3, dst += 4) {
+        image.data[dst] = bytes[src];
+        image.data[dst + 1] = bytes[src + 1];
+        image.data[dst + 2] = bytes[src + 2];
+        image.data[dst + 3] = 255;
+      }
+      ctx.putImageData(image, 0, 0);
+    }
+
+    function renderTeams(state) {
+      const maxScore = Math.max(1, ...state.team_scores.map(Math.abs));
+      teamsEl.innerHTML = "";
+      state.team_scores.forEach((score, index) => {
+        const row = document.createElement("div");
+        row.className = "team";
+        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${Math.min(100, Math.abs(score) / maxScore * 100)}%"></span></div><strong>${score.toFixed(1)}</strong>`;
+        teamsEl.appendChild(row);
+      });
+    }
+  </script>
+</body>
+</html>

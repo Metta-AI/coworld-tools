@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tribal Cog Player</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #121515; color: #eef2ee; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+    section { width: min(560px, 100%); border: 1px solid #303838; padding: 18px; background: #171d1d; }
+    h1 { margin: 0 0 14px; font-size: 18px; }
+    dl { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; margin: 0 0 18px; font-size: 14px; }
+    dt { color: #9fb0aa; }
+    dd { margin: 0; font-weight: 700; }
+    button, select { height: 36px; border: 1px solid #4b5a57; background: #202929; color: #eef2ee; padding: 0 12px; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>Tribal Cog Player</h1>
+    <dl>
+      <dt>Status</dt><dd id="status">connecting</dd>
+      <dt>Slot</dt><dd id="slot">-</dd>
+      <dt>Team</dt><dd id="team">-</dd>
+      <dt>Step</dt><dd id="step">0</dd>
+      <dt>Reward</dt><dd id="reward">0</dd>
+      <dt>Score</dt><dd id="score">0</dd>
+    </dl>
+    <div class="controls">
+      <select id="mode">
+        <option value="noop">Noop</option>
+        <option value="random">Random</option>
+      </select>
+      <button id="send">Send Action</button>
+    </div>
+  </section>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const slot = params.get("slot") || "0";
+    const token = params.get("token") || "";
+    const statusEl = document.getElementById("status");
+    const slotEl = document.getElementById("slot");
+    const teamEl = document.getElementById("team");
+    const stepEl = document.getElementById("step");
+    const rewardEl = document.getElementById("reward");
+    const scoreEl = document.getElementById("score");
+    const modeEl = document.getElementById("mode");
+    const sendEl = document.getElementById("send");
+    let actionSpace = 308;
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/player?slot=${encodeURIComponent(slot)}&token=${encodeURIComponent(token)}`);
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      statusEl.textContent = message.done ? "done" : message.started ? "running" : "waiting";
+      slotEl.textContent = message.slot;
+      teamEl.textContent = `${message.team_id} / ${message.team_agent_index}`;
+      stepEl.textContent = `${message.step} / ${message.max_steps}`;
+      rewardEl.textContent = Number(message.reward).toFixed(3);
+      scoreEl.textContent = Number(message.score).toFixed(3);
+      actionSpace = message.action_space || actionSpace;
+      if (!message.done && modeEl.value === "random") sendAction();
+    };
+    ws.onclose = () => { statusEl.textContent = "closed"; };
+    sendEl.onclick = sendAction;
+
+    function sendAction() {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const action = modeEl.value === "random" ? Math.floor(Math.random() * actionSpace) : 0;
+      ws.send(JSON.stringify({ action }));
+    }
+  </script>
+</body>
+</html>

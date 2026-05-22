@@ -166,6 +166,14 @@ def play(
         _run_ansi(steps=steps, max_steps=max_steps, random_actions=random_actions)
 
 
+@app.command("coworld-server", help="Run the Tribal Cog Coworld game server")
+def coworld_server() -> None:
+    ensure_nim_library_current()
+    from tribal_village_env.coworld.server import main
+
+    main()
+
+
 @app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,

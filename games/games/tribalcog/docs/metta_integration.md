@@ -90,12 +90,16 @@ still resolves to this package's `tribal_village_env/cogames/` modules.
 
 ## Coworld Status
 
-Tribal Cog is not currently a container-first Coworld game in this repository:
-there is no `coworld_manifest.json`, game `Dockerfile`, or hosted Coworld
-runtime server here.
+Tribal Cog now has a Coworld runtime in this repository:
 
-If Tribal Cog is promoted to a Coworld game, follow the canonical Metta
-Coworld game runtime contract instead of inventing a Tribal-specific variant:
+- `coworld_manifest.json` declares the hosted game, player image, docs,
+  variants, and certification fixture.
+- `Dockerfile` builds the game runtime image and serves the Coworld routes.
+- `player/Dockerfile` builds the lightweight reference player image.
+- `tribal_village_env/coworld/server.py` owns the game server.
+- `tribal_village_env/coworld/player.py` owns the bundled random/noop player.
+
+The implementation follows the canonical Metta Coworld game runtime contract:
 
 - Read concrete episode config from `COGAME_CONFIG_URI`.
 - Serve `GET /healthz` on `0.0.0.0:8080`.
@@ -105,10 +109,15 @@ Coworld game runtime contract instead of inventing a Tribal-specific variant:
 - Write replay artifacts to `COGAME_SAVE_REPLAY_URI`.
 - Serve replay mode when `COGAME_REPLAY_SERVER=1` is set.
 
-The manifest must describe the game container, config schema, results schema,
-protocol docs, variants, and certification fixture. Game docs should include
-both a rules page and a game-specific play guide, for example `rules.md` and
-`play_tribalcog.md`, when those files are added to a Coworld manifest.
+This first Coworld shape is intentionally per-agent: it exposes 1000 player
+slots, one for each controllable team agent. The 6 goblin agents are
+game-owned. The hosted runner must be able to schedule 1000 lightweight player
+processes or use a league-specific resource profile before this can run as a
+daily hosted league.
+
+The manifest describes the game container, config schema, results schema,
+protocol docs, variants, certification fixture, `rules.md`, and
+`play_tribalcog.md`.
 
 Do not treat local docs as proof that a live Coworld upload has the same docs.
 For hosted leagues, verify the uploaded Coworld manifest or Observatory row
@@ -139,3 +148,9 @@ make test-nim
 ```
 
 On Linux, use `timeout` instead of `gtimeout`.
+
+For Coworld contract checks from a Metta checkout, use:
+
+```bash
+uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
+```
