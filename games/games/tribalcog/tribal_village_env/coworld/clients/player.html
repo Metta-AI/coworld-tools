@@ -5,36 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tribal Cog Player</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #121515; color: #eef2ee; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 20px; }
-    section { width: min(560px, 100%); border: 1px solid #303838; padding: 18px; background: #171d1d; }
-    h1 { margin: 0 0 14px; font-size: 18px; }
-    dl { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; margin: 0 0 18px; font-size: 14px; }
-    dt { color: #9fb0aa; }
-    dd { margin: 0; font-weight: 700; }
-    button, select { height: 36px; border: 1px solid #4b5a57; background: #202929; color: #eef2ee; padding: 0 12px; }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #111514; color: #edf2ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 300px; background: #151a19; }
+    main { min-width: 0; display: grid; place-items: center; padding: 18px; }
+    aside { border-left: 1px solid #2f3836; padding: 16px; background: #101514; overflow: auto; }
+    h1 { margin: 0 0 14px; font-size: 18px; font-weight: 700; }
+    .view { width: min(90vmin, 760px); aspect-ratio: 1; display: grid; gap: 2px; background: #0a0d0c; border: 1px solid #2f3836; padding: 2px; }
+    .cell { min-width: 0; min-height: 0; border: 0; display: grid; place-items: center; color: #0a0d0c; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; }
+    .cell.center { outline: 2px solid #f1f4e8; outline-offset: -2px; }
+    .cell.obscured { color: #65706d; background: #1b2021 !important; }
+    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #25302e; font-size: 14px; }
+    .stat span { color: #aab7b1; }
+    .stat strong { text-align: right; }
+    .controls { display: grid; gap: 10px; margin-top: 16px; }
+    .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    button, select { min-height: 38px; border: 1px solid #4a5956; background: #202928; color: #eef2ee; font: inherit; }
+    button:hover, select:hover { border-color: #7f918b; }
+    button:active { transform: translateY(1px); }
+    select { width: 100%; padding: 0 8px; }
+    .wide { grid-column: 1 / -1; }
+    @media (max-width: 820px) { body { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #2f3836; } }
   </style>
 </head>
 <body>
-  <section>
+  <main><div class="view" id="view"></div></main>
+  <aside>
     <h1>Tribal Cog Player</h1>
-    <dl>
-      <dt>Status</dt><dd id="status">connecting</dd>
-      <dt>Slot</dt><dd id="slot">-</dd>
-      <dt>Team</dt><dd id="team">-</dd>
-      <dt>Step</dt><dd id="step">0</dd>
-      <dt>Reward</dt><dd id="reward">0</dd>
-      <dt>Score</dt><dd id="score">0</dd>
-    </dl>
+    <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
+    <div class="stat"><span>Slot</span><strong id="slot">-</strong></div>
+    <div class="stat"><span>Team</span><strong id="team">-</strong></div>
+    <div class="stat"><span>Step</span><strong id="step">0</strong></div>
+    <div class="stat"><span>Reward</span><strong id="reward">0</strong></div>
+    <div class="stat"><span>Score</span><strong id="score">0</strong></div>
     <div class="controls">
+      <select id="verb">
+        <option value="1">Move</option>
+        <option value="2">Attack</option>
+        <option value="3">Use</option>
+        <option value="9">Face</option>
+      </select>
       <select id="mode">
+        <option value="human">Human</option>
         <option value="noop">Noop</option>
         <option value="random">Random</option>
       </select>
-      <button id="send">Send Action</button>
+      <div class="row">
+        <button data-dir="4">NW</button>
+        <button data-dir="0">N</button>
+        <button data-dir="5">NE</button>
+        <button data-dir="2">W</button>
+        <button id="noop">-</button>
+        <button data-dir="3">E</button>
+        <button data-dir="6">SW</button>
+        <button data-dir="1">S</button>
+        <button data-dir="7">SE</button>
+      </div>
+      <button class="wide" id="send">Send Selected</button>
     </div>
-  </section>
+  </aside>
   <script>
     const params = new URLSearchParams(location.search);
     const slot = params.get("slot") || "0";
@@ -46,8 +75,10 @@
     const rewardEl = document.getElementById("reward");
     const scoreEl = document.getElementById("score");
     const modeEl = document.getElementById("mode");
-    const sendEl = document.getElementById("send");
+    const verbEl = document.getElementById("verb");
+    const viewEl = document.getElementById("view");
     let actionSpace = 308;
+    let selectedDirection = 0;
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/player?slot=${encodeURIComponent(slot)}&token=${encodeURIComponent(token)}`);
 
     ws.onmessage = (event) => {
@@ -59,15 +90,74 @@
       rewardEl.textContent = Number(message.reward).toFixed(3);
       scoreEl.textContent = Number(message.score).toFixed(3);
       actionSpace = message.action_space || actionSpace;
-      if (!message.done && modeEl.value === "random") sendAction();
+      if (message.sprite_view) renderView(message.sprite_view);
+      if (!message.done && modeEl.value === "random") sendRaw(Math.floor(Math.random() * actionSpace));
+      if (!message.done && modeEl.value === "noop") sendRaw(0);
     };
     ws.onclose = () => { statusEl.textContent = "closed"; };
-    sendEl.onclick = sendAction;
 
-    function sendAction() {
+    document.querySelectorAll("[data-dir]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedDirection = Number(button.dataset.dir);
+        sendDirectional(selectedDirection);
+      });
+    });
+    document.getElementById("noop").onclick = () => sendRaw(0);
+    document.getElementById("send").onclick = () => sendDirectional(selectedDirection);
+    document.addEventListener("keydown", (event) => {
+      const keyMap = { w: 0, s: 1, a: 2, d: 3, q: 4, e: 5, z: 6, c: 7, x: -1 };
+      if (!(event.key in keyMap)) return;
+      event.preventDefault();
+      const direction = keyMap[event.key];
+      if (direction < 0) sendRaw(0);
+      else sendDirectional(direction);
+    });
+
+    function sendDirectional(direction) {
+      selectedDirection = direction;
+      sendRaw(Number(verbEl.value) * 28 + direction);
+    }
+
+    function sendRaw(action) {
       if (ws.readyState !== WebSocket.OPEN) return;
-      const action = modeEl.value === "random" ? Math.floor(Math.random() * actionSpace) : 0;
       ws.send(JSON.stringify({ action }));
+    }
+
+    function renderView(view) {
+      viewEl.style.gridTemplateColumns = `repeat(${view.width}, minmax(0, 1fr))`;
+      viewEl.replaceChildren();
+      const centerX = view.center.x;
+      const centerY = view.center.y;
+      view.cells.flat().forEach((cell) => {
+        const button = document.createElement("button");
+        button.className = "cell";
+        if (cell.x === centerX && cell.y === centerY) button.classList.add("center");
+        if (cell.obscured) button.classList.add("obscured");
+        button.style.background = cell.color || "#4b534c";
+        button.textContent = cell.glyph || ".";
+        button.title = [cell.sprite, cell.unit_class, cell.orientation].filter(Boolean).join(" ");
+        button.onclick = () => {
+          const dx = Math.sign(cell.x - centerX);
+          const dy = Math.sign(cell.y - centerY);
+          const direction = directionArgument(dx, dy);
+          if (direction === null) sendRaw(0);
+          else sendDirectional(direction);
+        };
+        viewEl.appendChild(button);
+      });
+    }
+
+    function directionArgument(dx, dy) {
+      return {
+        "0,-1": 0,
+        "0,1": 1,
+        "-1,0": 2,
+        "1,0": 3,
+        "-1,-1": 4,
+        "1,-1": 5,
+        "-1,1": 6,
+        "1,1": 7,
+      }[`${dx},${dy}`] ?? null;
     }
   </script>
 </body>

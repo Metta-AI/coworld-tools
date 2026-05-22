@@ -155,7 +155,9 @@ For Coworld contract checks from a Metta checkout, use:
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-That full manifest is the hosted 1000-slot shape. For local smoke checks, use
-the one-slot temporary manifest recipe in
-`tribal_village_env/coworld/docs/play_tribalcog.md` so certification does not
-need to launch every hosted player slot.
+The checked-in hosted manifest is fixed at 1000 slots because current Coworld
+manifest validation requires `tokens.minItems == tokens.maxItems` and
+`certification.players` must match that count. For routine local certification,
+use the one-slot temporary manifest recipe in
+`tribal_village_env/coworld/docs/play_tribalcog.md` so the certifier exercises
+the same runtime without connecting every hosted player slot.

@@ -5,15 +5,23 @@ import zlib
 from pathlib import Path
 
 import pytest
+import numpy as np
 
+from tribal_village_env.coworld.player import choose_sprite_action
 from tribal_village_env.coworld.server import (
     AGENTS_PER_TEAM,
+    OBSCURED_LAYER,
     PLAYER_SLOT_COUNT,
+    TEAM_LAYER,
+    TERRAIN_LAYER_START,
+    THING_LAYER_START,
+    UNIT_CLASS_LAYER,
     CoworldConfig,
     decode_action,
     load_replay_data,
     slot_team_index,
     slot_to_team,
+    sprite_view_from_observation,
     winner_team,
 )
 
@@ -61,6 +69,45 @@ def test_decode_action_accepts_integer_and_verb_argument() -> None:
     assert decode_action({"action": 9999}) == 0
     assert decode_action({"action": "not-an-action"}) == 0
     assert decode_action({}) == 0
+
+
+def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
+    obs = np.zeros((101, 11, 11), dtype=np.uint8)
+    obs[TERRAIN_LAYER_START + 5, 5, 5] = 1
+    obs[THING_LAYER_START, 5, 5] = 1
+    obs[TEAM_LAYER, 5, 5] = 1
+    obs[UNIT_CLASS_LAYER, 5, 5] = 1
+    obs[OBSCURED_LAYER, 0, 0] = 1
+
+    view = sprite_view_from_observation(obs)
+
+    assert view["protocol"] == "tribalcog-sprite-v1"
+    assert view["width"] == 11
+    assert view["center"] == {"x": 5, "y": 5}
+    center = view["cells"][5][5]
+    assert center["sprite"] == "thing.agent"
+    assert center["team_id"] == 0
+    assert center["unit_class"] == "villager"
+    assert view["cells"][0][0]["sprite"] == "fog.unknown"
+
+
+def test_sprite_player_policy_moves_toward_visible_resource() -> None:
+    message = {
+        "team_id": 0,
+        "sprite_view": {
+            "center": {"x": 5, "y": 5},
+            "cells": [
+                [
+                    {"x": x, "y": y, "thing": None, "team_id": None, "obscured": False}
+                    for x in range(11)
+                ]
+                for y in range(11)
+            ],
+        },
+    }
+    message["sprite_view"]["cells"][5][6]["thing"] = "tree"
+
+    assert choose_sprite_action(message) == 1 * 28 + 3
 
 
 def test_winner_team_returns_none_on_tie() -> None:

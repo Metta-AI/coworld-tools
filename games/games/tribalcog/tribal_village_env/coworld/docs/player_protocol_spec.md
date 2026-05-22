@@ -30,6 +30,53 @@ The server sends one JSON observation message per tick:
   "score": 1.25,
   "team_score": 91.5,
   "action_space": 308,
+  "action_names": [
+    "noop",
+    "move",
+    "attack",
+    "use",
+    "swap",
+    "put",
+    "plant_lantern",
+    "plant_resource",
+    "build",
+    "orient",
+    "set_rally_point"
+  ],
+  "orientation_names": [
+    "north",
+    "south",
+    "west",
+    "east",
+    "north_west",
+    "north_east",
+    "south_west",
+    "south_east"
+  ],
+  "sprite_view": {
+    "protocol": "tribalcog-sprite-v1",
+    "width": 11,
+    "height": 11,
+    "radius": 5,
+    "center": {"x": 5, "y": 5},
+    "cells": [[
+      {
+        "x": 5,
+        "y": 5,
+        "terrain": "grass",
+        "thing": "agent",
+        "sprite": "thing.agent",
+        "glyph": "@",
+        "color": "#e3655b",
+        "team_id": 0,
+        "unit_class": "villager",
+        "orientation": "north",
+        "idle": true,
+        "tint": 0,
+        "obscured": false
+      }
+    ]]
+  },
   "observation": {
     "dtype": "uint8",
     "shape": [101, 11, 11],
@@ -39,8 +86,13 @@ The server sends one JSON observation message per tick:
 }
 ```
 
-The observation bytes are the existing Tribal Cog per-agent observation tensor
-encoded as contiguous raw `uint8` bytes.
+`sprite_view` is the preferred browser and lightweight policy contract. It is
+a semantic 11x11 view centered on the controlled villager and uses stable
+sprite keys such as `terrain.grass`, `thing.agent`, and `fog.unknown`.
+
+The `observation` bytes are retained for low-level policies that want the
+existing Tribal Cog per-agent observation tensor encoded as contiguous raw
+`uint8` bytes.
 
 The final message has `"type": "final"` and the same shape as an observation.
 

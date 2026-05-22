@@ -31,6 +31,228 @@ PLAYER_SLOT_COUNT = TEAM_COUNT * AGENTS_PER_TEAM
 NPC_AGENT_COUNT = 6
 TOTAL_AGENT_COUNT = PLAYER_SLOT_COUNT + NPC_AGENT_COUNT
 
+TERRAIN_LABELS = [
+    "empty",
+    "water",
+    "bridge",
+    "fertile",
+    "road",
+    "grass",
+    "dune",
+    "sand",
+    "snow",
+    "mountain",
+    "ramp_up_n",
+    "ramp_up_s",
+    "ramp_up_w",
+    "ramp_up_e",
+    "ramp_down_n",
+    "ramp_down_s",
+    "ramp_down_w",
+    "ramp_down_e",
+]
+THING_LABELS = [
+    "agent",
+    "wall",
+    "door",
+    "tree",
+    "wheat",
+    "fish",
+    "relic",
+    "stone",
+    "gold",
+    "bush",
+    "cactus",
+    "stalagmite",
+    "magma",
+    "altar",
+    "spawner",
+    "tumor",
+    "cow",
+    "bear",
+    "wolf",
+    "corpse",
+    "skeleton",
+    "clay_oven",
+    "weaving_loom",
+    "outpost",
+    "guard_tower",
+    "barrel",
+    "mill",
+    "granary",
+    "lumber_camp",
+    "quarry",
+    "mining_camp",
+    "stump",
+    "lantern",
+    "town_center",
+    "house",
+    "barracks",
+    "archery_range",
+    "stable",
+    "siege_workshop",
+    "mangonel_workshop",
+    "trebuchet_workshop",
+    "blacksmith",
+    "market",
+    "dock",
+    "monastery",
+    "university",
+    "castle",
+    "wonder",
+    "goblin_hive",
+    "goblin_hut",
+    "goblin_totem",
+    "stubble",
+    "cliff_edge_n",
+    "cliff_edge_e",
+    "cliff_edge_s",
+    "cliff_edge_w",
+    "cliff_corner_in_ne",
+    "cliff_corner_in_se",
+    "cliff_corner_in_sw",
+    "cliff_corner_in_nw",
+    "cliff_corner_out_ne",
+    "cliff_corner_out_se",
+    "cliff_corner_out_sw",
+    "cliff_corner_out_nw",
+    "waterfall_n",
+    "waterfall_e",
+    "waterfall_s",
+    "waterfall_w",
+]
+UNIT_CLASS_LABELS = [
+    "villager",
+    "man_at_arms",
+    "archer",
+    "scout",
+    "knight",
+    "monk",
+    "battering_ram",
+    "mangonel",
+    "trebuchet",
+    "goblin",
+    "boat",
+    "trade_cog",
+    "samurai",
+    "longbowman",
+    "cataphract",
+    "woad_raider",
+    "teutonic_knight",
+    "huskarl",
+    "mameluke",
+    "janissary",
+    "king",
+    "long_swordsman",
+    "champion",
+    "light_cavalry",
+    "hussar",
+    "crossbowman",
+    "arbalester",
+    "galley",
+    "fire_ship",
+    "fishing_ship",
+    "transport_ship",
+    "demo_ship",
+    "cannon_galleon",
+    "scorpion",
+    "cavalier",
+    "paladin",
+    "camel",
+    "heavy_camel",
+    "imperial_camel",
+    "skirmisher",
+    "elite_skirmisher",
+    "cavalry_archer",
+    "heavy_cavalry_archer",
+    "hand_cannoneer",
+]
+ACTION_NAMES = [
+    "noop",
+    "move",
+    "attack",
+    "use",
+    "swap",
+    "put",
+    "plant_lantern",
+    "plant_resource",
+    "build",
+    "orient",
+    "set_rally_point",
+]
+ORIENTATION_LABELS = [
+    "north",
+    "south",
+    "west",
+    "east",
+    "north_west",
+    "north_east",
+    "south_west",
+    "south_east",
+]
+TERRAIN_LAYER_START = 0
+THING_LAYER_START = len(TERRAIN_LABELS)
+TEAM_LAYER = THING_LAYER_START + len(THING_LABELS)
+ORIENTATION_LAYER = TEAM_LAYER + 1
+UNIT_CLASS_LAYER = TEAM_LAYER + 2
+IDLE_LAYER = TEAM_LAYER + 3
+TINT_LAYER = TEAM_LAYER + 4
+OBSCURED_LAYER = TEAM_LAYER + 14
+
+TERRAIN_GLYPHS = {
+    "water": "~",
+    "bridge": "=",
+    "fertile": ",",
+    "road": ":",
+    "grass": ".",
+    "dune": "^",
+    "sand": ".",
+    "snow": "*",
+    "mountain": "^",
+}
+THING_GLYPHS = {
+    "agent": "@",
+    "tree": "T",
+    "wheat": "w",
+    "fish": "f",
+    "relic": "r",
+    "stone": "s",
+    "gold": "g",
+    "bush": "b",
+    "cactus": "c",
+    "tumor": "x",
+    "cow": "C",
+    "bear": "B",
+    "wolf": "W",
+    "skeleton": "S",
+    "town_center": "H",
+    "house": "h",
+    "wall": "#",
+    "door": "+",
+    "lantern": "l",
+}
+TERRAIN_COLORS = {
+    "water": "#3276a8",
+    "bridge": "#8f7a52",
+    "fertile": "#6a8f3f",
+    "road": "#7a715d",
+    "grass": "#4f8146",
+    "dune": "#b69b55",
+    "sand": "#c8ad74",
+    "snow": "#d8e7e8",
+    "mountain": "#777b80",
+}
+TEAM_COLORS = [
+    "#e3655b",
+    "#d59643",
+    "#d4c742",
+    "#75b84a",
+    "#42a868",
+    "#45a9c7",
+    "#6f8be8",
+    "#b46ce0",
+]
+
 
 @dataclass(frozen=True)
 class CoworldConfig:
@@ -146,6 +368,92 @@ def decode_action(message: dict[str, Any]) -> int:
     return action
 
 
+def _first_active_layer(obs: np.ndarray, labels: list[str], start: int, x: int, y: int) -> str | None:
+    for offset, label in enumerate(labels):
+        if int(obs[start + offset, x, y]) > 0:
+            return label
+    return None
+
+
+def _indexed_label(labels: list[str], value: int) -> str | None:
+    index = value - 1
+    if 0 <= index < len(labels):
+        return labels[index]
+    return None
+
+
+def _cell_sprite(terrain: str, thing: str | None, obscured: bool) -> str:
+    if obscured:
+        return "fog.unknown"
+    if thing:
+        return f"thing.{thing}"
+    return f"terrain.{terrain}"
+
+
+def _cell_glyph(terrain: str, thing: str | None, obscured: bool) -> str:
+    if obscured:
+        return "?"
+    if thing:
+        return THING_GLYPHS.get(thing, thing[:1].upper())
+    return TERRAIN_GLYPHS.get(terrain, ".")
+
+
+def _cell_color(terrain: str, team_id: int | None, obscured: bool) -> str:
+    if obscured:
+        return "#1b2021"
+    if team_id is not None and 0 <= team_id < len(TEAM_COLORS):
+        return TEAM_COLORS[team_id]
+    return TERRAIN_COLORS.get(terrain, "#4b534c")
+
+
+def sprite_view_from_observation(obs: np.ndarray) -> dict[str, Any]:
+    width = int(obs.shape[1])
+    height = int(obs.shape[2])
+    cells: list[list[dict[str, Any]]] = []
+    for y in range(height):
+        row: list[dict[str, Any]] = []
+        for x in range(width):
+            terrain = _first_active_layer(obs, TERRAIN_LABELS, TERRAIN_LAYER_START, x, y) or "empty"
+            thing = _first_active_layer(obs, THING_LABELS, THING_LAYER_START, x, y)
+            team_value = int(obs[TEAM_LAYER, x, y])
+            orientation_value = int(obs[ORIENTATION_LAYER, x, y])
+            unit_class_value = int(obs[UNIT_CLASS_LAYER, x, y])
+            obscured = bool(int(obs[OBSCURED_LAYER, x, y]))
+            team_id = team_value - 1 if team_value > 0 else None
+            cell: dict[str, Any] = {
+                "x": x,
+                "y": y,
+                "terrain": terrain,
+                "thing": thing,
+                "sprite": _cell_sprite(terrain, thing, obscured),
+                "glyph": _cell_glyph(terrain, thing, obscured),
+                "color": _cell_color(terrain, team_id, obscured),
+                "team_id": team_id,
+                "unit_class": _indexed_label(UNIT_CLASS_LABELS, unit_class_value),
+                "orientation": _indexed_label(ORIENTATION_LABELS, orientation_value),
+                "idle": bool(int(obs[IDLE_LAYER, x, y])),
+                "tint": int(obs[TINT_LAYER, x, y]),
+                "obscured": obscured,
+            }
+            row.append(cell)
+        cells.append(row)
+    return {
+        "protocol": "tribalcog-sprite-v1",
+        "width": width,
+        "height": height,
+        "radius": width // 2,
+        "center": {"x": width // 2, "y": height // 2},
+        "cells": cells,
+        "legend": {
+            "terrain": TERRAIN_LABELS,
+            "thing": THING_LABELS,
+            "unit_class": UNIT_CLASS_LABELS,
+            "action": ACTION_NAMES,
+            "orientation": ORIENTATION_LABELS,
+        },
+    }
+
+
 def _local_replay_path(replay_uri: str) -> Path:
     parsed = urlparse(replay_uri)
     if parsed.scheme == "file":
@@ -211,6 +519,9 @@ class TribalCogCoworld:
             "score": self.scores[slot],
             "team_score": self.team_scores[slot_to_team(slot)],
             "action_space": ACTION_SPACE_SIZE,
+            "action_names": ACTION_NAMES,
+            "orientation_names": ORIENTATION_LABELS,
+            "sprite_view": sprite_view_from_observation(obs),
             "observation": {
                 "dtype": "uint8",
                 "shape": list(obs.shape),
@@ -416,7 +727,8 @@ async def global_viewer(websocket: WebSocket) -> None:
     await websocket.accept()
     state.global_viewers.add(websocket)
     try:
-        await websocket.send_json(state.snapshot(include_frame=False))
+        include_frame = websocket.query_params.get("frame") == "1"
+        await websocket.send_json(state.snapshot(include_frame=include_frame))
         async for _ in websocket.iter_json():
             pass
     finally:

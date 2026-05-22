@@ -36,7 +36,7 @@
     const playersEl = document.getElementById("players");
     const statusEl = document.getElementById("status");
     const teamsEl = document.getElementById("teams");
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/global`);
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/global?frame=1`);
 
     ws.onmessage = (event) => {
       const state = JSON.parse(event.data);

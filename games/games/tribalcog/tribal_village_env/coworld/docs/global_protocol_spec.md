@@ -6,6 +6,12 @@ Global viewers connect to:
 WEBSOCKET /global
 ```
 
+Browser clients may request an initial full-map frame with:
+
+```text
+WEBSOCKET /global?frame=1
+```
+
 Replay viewers connect to:
 
 ```text
@@ -42,7 +48,8 @@ The game server sends state snapshots:
 ```
 
 The `frame` field is sent every `render_every_steps` and at the end of the
-episode. Its bytes are raw RGB pixels.
+episode. `/global?frame=1` also includes a frame in the first snapshot. Its
+bytes are raw RGB pixels produced by the Nim renderer through the Python FFI.
 
 ## Replay messages
 

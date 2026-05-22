@@ -6,7 +6,8 @@ the standard Coworld runtime routes on port 8080.
 
 ## Local Coworld server
 
-Create a config file with 1000 tokens. For example:
+Create a config file with one token for a local human-player smoke test. Hosted
+leagues can inject up to 1000 tokens, one per controllable villager.
 
 ```bash
 python3 - <<'PY'
@@ -14,7 +15,7 @@ import json
 from pathlib import Path
 
 Path("/tmp/tribalcog-config.json").write_text(json.dumps({
-    "tokens": [f"token-{idx}" for idx in range(1000)],
+    "tokens": ["token-0"],
     "max_steps": 100,
     "seed": 0,
     "step_seconds": 0.05,
@@ -47,19 +48,22 @@ python -m tribal_village_env.coworld.player
 ```
 
 Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic noop player or leave the
-default random policy.
+default random policy. Set `TRIBALCOG_PLAYER_MODE=sprite` to use the semantic
+11x11 `tribalcog-sprite-v1` view and move toward visible resources or threats.
 
 ## Certification
 
-From a Metta checkout with Coworld installed, validate the manifest with:
+From a Metta checkout with Coworld installed, the checked-in hosted manifest can
+be validated with:
 
 ```bash
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-The full hosted league shape has 1000 player slots, so certifying the checked-in
-manifest launches 1000 reference player containers. For local development,
-certify the same runtime with a temporary one-slot manifest:
+That full manifest is fixed at 1000 slots because current Coworld manifest
+validation requires `tokens.minItems == tokens.maxItems` and
+`certification.players` must match that count. For routine local certification,
+generate a one-slot manifest from the checked-in manifest:
 
 ```bash
 jq '(.game.config_schema.properties.tokens.minItems = 1) |
@@ -73,8 +77,8 @@ jq '(.game.config_schema.properties.tokens.minItems = 1) |
 uv run --package coworld coworld certify /tmp/tribalcog-cert-manifest.json --timeout-seconds 60
 ```
 
-This keeps the hosted manifest honest while avoiding 1000 local player
-connections for routine smoke checks.
+This exercises the same runtime and reference player without connecting every
+hosted player slot.
 
 ## Replay
 
