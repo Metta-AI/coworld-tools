@@ -33,11 +33,11 @@ const session = {
   players: tokens.map((token, slot) => ({
     slot,
     token,
-    url: `http://127.0.0.1:${PORT}/clients/player?slot=${slot}&token=${encodeURIComponent(token)}`,
+    url: `http://127.0.0.1:${PORT}/client/player?slot=${slot}&token=${encodeURIComponent(token)}`,
     wsUrl: `ws://127.0.0.1:${PORT}/player?slot=${slot}&token=${encodeURIComponent(token)}`,
   })),
-  globalUrl: `http://127.0.0.1:${PORT}/clients/global`,
-  adminUrl: `http://127.0.0.1:${PORT}/clients/admin`,
+  globalUrl: `http://127.0.0.1:${PORT}/client/global`,
+  adminUrl: `http://127.0.0.1:${PORT}/client/admin`,
   replayPath,
 };
 await writeFile(configPath, JSON.stringify(config, null, 2));
@@ -55,8 +55,8 @@ const botSlots = botSlotsFor(options.bots, playerCount, options.humanSlot);
 const children = startBots(botSlots, options.botMode, session.players);
 
 console.log(`Liar Liar, Cut the Wire! running at http://127.0.0.1:${PORT}`);
-console.log(`Global: http://127.0.0.1:${PORT}/clients/global`);
-console.log(`Admin:  http://127.0.0.1:${PORT}/clients/admin`);
+console.log(`Global: http://127.0.0.1:${PORT}/client/global`);
+console.log(`Admin:  http://127.0.0.1:${PORT}/client/admin`);
 if (botSlots.size > 0) console.log(`Bots:   ${[...botSlots].map((slot) => `P${slot + 1}`).join(', ')} (${options.botMode})`);
 const humanSlots = session.players.map((player) => player.slot).filter((slot) => !botSlots.has(slot));
 for (const slot of humanSlots) {
@@ -119,7 +119,7 @@ function startBots(botSlots, mode, players) {
       env: {
         ...process.env,
         BOT_MODE: mode,
-        COGAMES_ENGINE_WS_URL: players[slot].wsUrl,
+        COWORLD_PLAYER_WS_URL: players[slot].wsUrl,
       },
     });
     children.push(child);

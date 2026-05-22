@@ -8,10 +8,10 @@ const uiState = {
 };
 
 const path = location.pathname;
-if (path.includes('/clients/player')) playerClient();
-else if (path.includes('/clients/global')) globalClient('/global');
-else if (path.includes('/clients/admin')) adminClient();
-else if (path.includes('/clients/replay')) replayClient();
+if (path.includes('/client/player')) playerClient();
+else if (path.includes('/client/global')) globalClient('/global');
+else if (path.includes('/client/admin')) adminClient();
+else if (path.includes('/client/replay')) replayClient();
 
 function playerClient() {
   const ws = openSocket('/player' + location.search);

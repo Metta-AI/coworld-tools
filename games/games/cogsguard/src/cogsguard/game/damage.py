@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant
+from cogsguard.core import CogsguardMissionVariant
 from mettagrid.config.filter import isNot
 from mettagrid.config.handler_config import Handler, actorHas, allOf, updateActor
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class DamageVariant(CoGameMissionVariant):
+class DamageVariant(CogsguardMissionVariant):
     """Add HP resource with passive drain.
 
     Agents start with initial HP that drains each tick.

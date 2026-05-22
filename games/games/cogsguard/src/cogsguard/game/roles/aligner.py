@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from cogames.core import Deps
+from cogsguard.core import Deps
 from cogsguard.game.roles.role import RoleVariant
 from cogsguard.game.teams.junction import TeamJunctionVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 
 
 class AlignerVariant(RoleVariant):

@@ -11,7 +11,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.clips.ship import (
     CvCShipConfig,
     clips_ship_map_names_in_map_config,
@@ -21,7 +21,7 @@ from cogsguard.game.junction import JunctionVariant
 from cogsguard.game.multi_team import MultiTeamVariant
 from cogsguard.game.teams import TeamConfig
 from cogsguard.game.teams.team import TeamVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import (
     AnyFilter,
@@ -365,7 +365,7 @@ class ClipsConfig(TeamConfig):
         return stations
 
 
-class ClipsVariant(CoGameMissionVariant):
+class ClipsVariant(CogsguardMissionVariant):
     """Add clips: a non-player faction that spreads via events and pressures cogs."""
 
     name: str = "clips"
@@ -408,7 +408,7 @@ class ClipsVariant(CoGameMissionVariant):
         env.game.events.update(clips_events)
 
 
-class AdaptiveClipsVariant(CoGameMissionVariant):
+class AdaptiveClipsVariant(CogsguardMissionVariant):
     """Turn on adaptive clips events: balanced vs burst lanes from map-wide team counts."""
 
     name: str = "adaptive_clips"
@@ -433,7 +433,7 @@ class AdaptiveClipsVariant(CoGameMissionVariant):
         clips.adaptive_dominant_targets_per_lane = self.dominant_targets_per_lane
 
 
-class GreedyClipsVariant(CoGameMissionVariant):
+class GreedyClipsVariant(CogsguardMissionVariant):
     """Target the nearest valid junction to each clips ship."""
 
     name: str = "greedy_clips"
@@ -450,7 +450,7 @@ class GreedyClipsVariant(CoGameMissionVariant):
         clips.scramble_radius = JUNCTION_ALIGN_DISTANCE
 
 
-class AngryClipsVariant(CoGameMissionVariant):
+class AngryClipsVariant(CogsguardMissionVariant):
     """Target frontier junctions nearest to the enemy hub."""
 
     name: str = "angry_clips"
@@ -478,7 +478,7 @@ class AngryClipsVariant(CoGameMissionVariant):
         clips.scramble_interval = self.scramble_interval
 
 
-class NoClipsVariant(CoGameMissionVariant):
+class NoClipsVariant(CogsguardMissionVariant):
     """Set the resolved clips ship count to zero."""
 
     name: str = "no_clips"

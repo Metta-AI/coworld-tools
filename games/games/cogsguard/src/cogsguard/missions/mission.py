@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing_extensions import Self
 
-from cogames.core import CoGameMission
+from cogsguard.core import CogsguardMission
 from cogsguard.missions.terrain import find_machina_arena
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.mettagrid_config import AgentConfig, GameConfig, MettaGridConfig, WallConfig
@@ -10,7 +10,7 @@ from mettagrid.config.obs_config import GlobalObsConfig, ObsConfig
 from mettagrid.config.render_config import RenderConfig
 
 
-class CvCMission(CoGameMission):
+class CvCMission(CogsguardMission):
     """Mission configuration for CvC game mode."""
 
     default_variant: str | None = "machina_1"

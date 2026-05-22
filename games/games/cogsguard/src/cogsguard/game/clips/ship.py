@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from cogames.core import CvCStationConfig
+from cogsguard.core import CvCStationConfig
 from cogsguard.missions.terrain import MachinaArenaConfig
 from mettagrid.config.mettagrid_config import GridObjectConfig
 from mettagrid.map_builder.ascii import AsciiMapBuilderConfig

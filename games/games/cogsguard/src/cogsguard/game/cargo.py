@@ -7,16 +7,16 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.elements import ElementsVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig
 
 if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class CargoLimitVariant(CoGameMissionVariant):
+class CargoLimitVariant(CogsguardMissionVariant):
     """Add a cargo inventory limit to all agents so they can carry elements."""
 
     name: str = "cargo_limit"

@@ -5,8 +5,8 @@ from collections.abc import Mapping, Sequence
 from statistics import mean, stdev
 from typing import Literal
 
-from cogames.cli.policy import parse_policy_spec
 from cogsguard.evals.cognitive_substrate import CATEGORY_MISSIONS, EVAL_MISSIONS
+from cogsguard.policy_specs import parse_policy_spec
 from mettagrid.runner.rollout import run_episode_local
 from mettagrid.runner.types import PureSingleEpisodeResult
 

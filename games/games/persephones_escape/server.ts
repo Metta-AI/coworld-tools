@@ -2,9 +2,9 @@
  * Persephone's Escape server.
  *
  * Modes:
- *   freeplay    Local browser/dev mode. Players join /player?name=...
- *   tournament Coworld mode. Players join /player?slot=N&token=...
- *   replay     Coworld replay mode. Serves /replay from COGAME_LOAD_REPLAY_PATH.
+ *   freeplay    Local browser/dev mode. Players connect to /player?name=...
+ *   tournament Coworld mode. Players connect to /player?slot=N&token=...
+ *   replay     Coworld replay mode. Serves /client/replay with replay URIs passed to /replay?uri=...
  */
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
@@ -17,7 +17,7 @@ import { Phase, Team, type InputState, type GameConfig } from "./game/types.js";
 import { GAME_NAME, TARGET_FPS, playerSpriteName, DEFAULT_GAME_CONFIG, playerCountFromConfig } from "./game/constants.js";
 import { decodeInputMask, emptyInput, isInputPacket, isChatPacket, blobToMask, blobToChat } from "./game/protocol.js";
 import { Sim } from "./game/sim.js";
-import { resolveConfigName, loadConfigFile } from "./game/config_presets.js";
+import { resolveConfigName, loadConfigFile, loadConfigObject } from "./game/config_presets.js";
 import { render } from "./rendering/renderer.js";
 import { buildGlobalFrame } from "./rendering/globalViewer.js";
 import { ReplayRecorder, loadReplay } from "./replay.js";
@@ -51,16 +51,15 @@ interface RuntimeOptions {
   config: GameConfig;
   configSource: string;
   tokens: string[];
-  resultsPath: string | null;
-  saveReplayPath: string | null;
-  loadReplayPath: string | null;
+  resultsUri: string | null;
+  saveReplayUri: string | null;
 }
 
 const PENDING = 0x7fffffff;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function main() {
-  const opts = resolveRuntimeOptions();
+async function main() {
+  const opts = await resolveRuntimeOptions();
   if (opts.mode === "replay") {
     runReplayServer(opts);
     return;
@@ -68,8 +67,8 @@ function main() {
   runGameServer(opts);
 }
 
-function resolveRuntimeOptions(): RuntimeOptions {
-  let host = env.COGAME_CONFIG_PATH || env.COGAME_LOAD_REPLAY_PATH ? "0.0.0.0" : "localhost";
+async function resolveRuntimeOptions(): Promise<RuntimeOptions> {
+  let host = env.COGAME_CONFIG_URI || env.COGAME_REPLAY_SERVER === "1" ? "0.0.0.0" : "localhost";
   let port = 8080;
   let replayPath: string | null = null;
   let seed = 0xb1770;
@@ -90,8 +89,10 @@ function resolveRuntimeOptions(): RuntimeOptions {
     else if (i === 3 && !arg.startsWith("-")) port = parseInt(arg, 10);
   }
 
-  if (env.COGAME_LOAD_REPLAY_PATH) mode = "replay";
-  else if (env.COGAME_CONFIG_PATH) mode = "tournament";
+  if (env.COGAME_HOST) host = env.COGAME_HOST;
+  if (env.COGAME_PORT) port = parseInt(env.COGAME_PORT, 10);
+  if (env.COGAME_REPLAY_SERVER === "1") mode = "replay";
+  else if (env.COGAME_CONFIG_URI) mode = "tournament";
   mode ??= "freeplay";
 
   if (configName && configFile) {
@@ -102,14 +103,14 @@ function resolveRuntimeOptions(): RuntimeOptions {
   let config: GameConfig;
   let configSource: string;
   let tokens: string[] = [];
-  if (env.COGAME_CONFIG_PATH) {
-    const raw = readJsonObject(env.COGAME_CONFIG_PATH);
-    config = loadConfigFile(env.COGAME_CONFIG_PATH);
-    tokens = readTokens(raw, env.COGAME_CONFIG_PATH);
+  if (env.COGAME_CONFIG_URI) {
+    const raw = await readJsonObject(env.COGAME_CONFIG_URI);
+    config = loadConfigObject(raw, env.COGAME_CONFIG_URI);
+    tokens = readTokens(raw, env.COGAME_CONFIG_URI);
     seed = readOptionalInteger(raw.seed, seed, "seed");
-    configSource = env.COGAME_CONFIG_PATH;
+    configSource = env.COGAME_CONFIG_URI;
     if (raw.mode !== "tournament") {
-      throw new Error(`Tournament config must include "mode": "tournament" in ${env.COGAME_CONFIG_PATH}`);
+      throw new Error(`Tournament config must include "mode": "tournament" in ${env.COGAME_CONFIG_URI}`);
     }
   } else if (configFile) {
     config = loadConfigFile(configFile);
@@ -127,7 +128,7 @@ function resolveRuntimeOptions(): RuntimeOptions {
     if (tokens.length !== expected) {
       throw new Error(`Tournament config tokens length (${tokens.length}) must match player count (${expected})`);
     }
-    replayPath = env.COGAME_SAVE_REPLAY_PATH ?? replayPath;
+    replayPath = localReplayPath(env.COGAME_SAVE_REPLAY_URI ?? replayPath);
   }
 
   return {
@@ -139,9 +140,8 @@ function resolveRuntimeOptions(): RuntimeOptions {
     config,
     configSource,
     tokens,
-    resultsPath: env.COGAME_RESULTS_PATH ?? null,
-    saveReplayPath: env.COGAME_SAVE_REPLAY_PATH ?? null,
-    loadReplayPath: env.COGAME_LOAD_REPLAY_PATH ?? null,
+    resultsUri: env.COGAME_RESULTS_URI ?? null,
+    saveReplayUri: env.COGAME_SAVE_REPLAY_URI ?? null,
   };
 }
 
@@ -260,12 +260,11 @@ function runGameServer(opts: RuntimeOptions) {
       writeGameLogs(sim);
       if (opts.mode === "tournament" && !finalizing) {
         finalizing = true;
-        finalizeTournament(opts, sim, recorder);
-        setTimeout(() => {
+        void finalizeTournament(opts, sim, recorder).then(() => setTimeout(() => {
           httpServer.close(() => exit(0));
           for (const ws of globalViewers) ws.close();
           for (const slot of slots) slot.ws?.close();
-        }, 250);
+        }, 250));
       }
     }
 
@@ -390,9 +389,7 @@ function handlePlayerMessage(data: Buffer, client: ClientState | SlotState, sim:
 }
 
 function runReplayServer(opts: RuntimeOptions) {
-  if (!opts.loadReplayPath) throw new Error("Replay mode requires COGAME_LOAD_REPLAY_PATH");
   killExistingPortListener(opts.port);
-  const replayData = loadReplay(opts.loadReplayPath);
   const httpServer = createServer((req, res) => handleHttp(req, res, opts));
   const replayWss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
@@ -402,9 +399,13 @@ function runReplayServer(opts: RuntimeOptions) {
     else socket.destroy();
   });
 
-  replayWss.on("connection", (ws) => {
+  replayWss.on("connection", (ws, req) => {
+    const replayUri = new URL(req.url ?? "/", `http://${req.headers.host}`).searchParams.get("uri");
+    if (!replayUri) throw new Error("Replay websocket requires uri query parameter");
+    void loadReplayUri(replayUri).then((replayData) => {
     ws.send(JSON.stringify({ type: "replay", ...replayData, hashes: replayData.hashes.map(h => ({ tick: h.tick, hash: h.hash.toString() })) }));
     ws.on("message", (data) => ws.send(JSON.stringify({ type: "control", command: data.toString() })));
+    });
   });
 
   httpServer.listen(opts.port, opts.host, () => {
@@ -416,11 +417,11 @@ function handleHttp(req: IncomingMessage, res: ServerResponse, opts: RuntimeOpti
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   if (url.pathname === "/healthz") {
     sendJson(res, 200, { ok: true, mode: opts.mode });
-  } else if (url.pathname === "/player") {
+  } else if (url.pathname === "/client/player") {
     sendHtml(res, "player.html");
-  } else if (url.pathname === "/global" || url.pathname === "/global_client.html") {
+  } else if (url.pathname === "/client/global") {
     sendHtml(res, "global_client.html");
-  } else if (url.pathname === "/replay") {
+  } else if (url.pathname === "/client/replay") {
     sendHtml(res, "replay.html");
   } else if (url.pathname === "/snappyjs.min.js") {
     sendScript(res, "snappyjs.min.js");
@@ -429,13 +430,15 @@ function handleHttp(req: IncomingMessage, res: ServerResponse, opts: RuntimeOpti
   }
 }
 
-function finalizeTournament(opts: RuntimeOptions, sim: Sim, recorder: ReplayRecorder | null) {
+async function finalizeTournament(opts: RuntimeOptions, sim: Sim, recorder: ReplayRecorder | null): Promise<void> {
   recorder?.close();
-  if (opts.resultsPath) {
-    writeFileSync(opts.resultsPath, JSON.stringify(buildResults(sim), null, 2));
+  if (opts.resultsUri) {
+    await writeJson(opts.resultsUri, buildResults(sim), env.COGAME_RESULTS_METHOD ?? "POST");
   }
-  if (opts.saveReplayPath && !existsSync(opts.saveReplayPath)) {
-    writeFileSync(opts.saveReplayPath, JSON.stringify({ seed: opts.seed, config: opts.config, results: buildResults(sim) }, null, 2));
+  if (opts.saveReplayUri && opts.replayPath && existsSync(opts.replayPath)) {
+    await writeData(opts.saveReplayUri, readFileSync(opts.replayPath), env.COGAME_SAVE_REPLAY_METHOD ?? "POST", "application/octet-stream");
+  } else if (opts.saveReplayUri) {
+    await writeJson(opts.saveReplayUri, { seed: opts.seed, config: opts.config, results: buildResults(sim) }, env.COGAME_SAVE_REPLAY_METHOD ?? "POST");
   }
 }
 
@@ -468,12 +471,59 @@ function writeGameLogs(sim: Sim) {
   console.log(`Game logs written to ${dir}/`);
 }
 
-function readJsonObject(path: string): Record<string, unknown> {
-  const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+async function readData(uri: string): Promise<Buffer> {
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    const response = await fetch(uri);
+    if (!response.ok) throw new Error(`GET ${uri} failed: ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  }
+  return readFileSync(localPath(uri));
+}
+
+async function readJsonObject(uri: string): Promise<Record<string, unknown>> {
+  const parsed = JSON.parse((await readData(uri)).toString("utf-8")) as unknown;
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`Expected JSON object in ${path}`);
+    throw new Error(`Expected JSON object in ${uri}`);
   }
   return parsed as Record<string, unknown>;
+}
+
+async function writeData(uri: string, data: Buffer | string, method: string, contentType: string): Promise<void> {
+  const body = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    const response = await fetch(uri, { method, headers: { "content-type": contentType }, body: body as unknown as BodyInit });
+    if (!response.ok) throw new Error(`${method} ${uri} failed: ${response.status}`);
+    return;
+  }
+  const path = localPath(uri);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body);
+}
+
+async function writeJson(uri: string, value: Record<string, unknown>, method: string): Promise<void> {
+  await writeData(uri, JSON.stringify(value, null, 2), method, "application/json");
+}
+
+async function loadReplayUri(uri: string) {
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    const path = `/tmp/persephones_escape_replay_${Date.now()}.bin`;
+    writeFileSync(path, await readData(uri));
+    return loadReplay(path);
+  }
+  return loadReplay(localPath(uri));
+}
+
+function localReplayPath(uri: string | null): string | null {
+  if (uri === null) return null;
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    return `/tmp/persephones_escape_replay_${Date.now()}.bin`;
+  }
+  return localPath(uri);
+}
+
+function localPath(uri: string): string {
+  if (uri.startsWith("file://")) return fileURLToPath(uri);
+  return uri;
 }
 
 function readTokens(raw: Record<string, unknown>, path: string): string[] {
@@ -545,13 +595,13 @@ function sanitizeName(name: string): string {
 }
 
 function sendHtml(res: ServerResponse, file: string) {
-  const path = join(__dirname, "clients", file);
+  const path = join(__dirname, "client", file);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(readFileSync(path, "utf-8"));
 }
 
 function sendScript(res: ServerResponse, file: string) {
-  const path = join(__dirname, "clients", file);
+  const path = join(__dirname, "client", file);
   res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
   res.end(readFileSync(path, "utf-8"));
 }

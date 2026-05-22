@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cogsguard"
-description = "CogsGuard game for CoGames"
+description = "CogsGuard game runtime for Coworld"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 classifiers = [
@@ -13,8 +13,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "cogames",
-  "mettagrid",
+  "mettagrid @ git+https://github.com/Metta-AI/metta.git#subdirectory=packages/mettagrid",
   "pydantic>=2.11.5",
   "typing-extensions>=4.12.0",
 ]

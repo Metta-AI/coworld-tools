@@ -12,14 +12,14 @@ This guide explains how the procedural map system is wired together and how to e
   - Variant helpers (`MapSeedVariant`, `CompoundVariant`, `MachinaArenaVariant`)
 - `mettagrid/mapgen/scenes/building_distributions.py`
   - `UniformExtractorScene` and `DistributionConfig` for building placement
-- `cogames/core.py`
-  - Base `CoGameMission`, `CoGameMissionVariant` types
+- `cogsguard/core.py`
+  - Base `CogsguardMission`, `CogsguardMissionVariant` types
 - `cogs_vs_clips/mission.py`
   - `CvCMission` (the concrete mission class for Cogs vs Clips)
 - `cogs_vs_clips/variants.py`
   - Catalog of variants
-- `cogames/cli/mission.py`
-  - CLI glue (`cogames play`, `cogames missions`, `cogames train`) and variant composition
+- `cogsguard/core.py`
+  - Local mission lookup and variant composition
 
 Everything ultimately produces a `MapBuilderConfig` that feeds into a `MettaGridConfig`. Missions and variants
 coordinate map building, agent setup, and post-processing such as hub rewrites.
@@ -57,7 +57,7 @@ Important details:
 #### Example: site-level builder
 
 ```python
-from cogames.games.cogs_vs_clips.terrain import MachinaArenaConfig
+from cogsguard.missions.terrain import MachinaArenaConfig
 from mettagrid.mapgen.mapgen import MapGen
 from mettagrid.mapgen.scenes.compound import CompoundConfig
 
@@ -147,7 +147,7 @@ Each site defines `min_cogs`/`max_cogs`. CLI calls (`--cogs`) override the defau
 
 #### Variants
 
-Variants inherit from `CoGameMissionVariant` and override either `modify_mission(self, mission)`,
+Variants inherit from `CogsguardMissionVariant` and override either `modify_mission(self, mission)`,
 `modify_env(self, mission, env)`, or both.
 
 Common patterns:
@@ -155,7 +155,7 @@ Common patterns:
 - Modify terrain config via typed variant helpers:
 
   ```python
-  from cogames.games.cogs_vs_clips.terrain import MachinaArenaVariant, MachinaArenaConfig
+  from cogsguard.missions.terrain import MachinaArenaVariant, MachinaArenaConfig
 
   class CityVariant(MachinaArenaVariant):
       name: str = "city"
@@ -172,10 +172,10 @@ Common patterns:
 - Adjust hub bundles via `CompoundVariant`:
 
   ```python
-  from cogames.games.cogs_vs_clips.terrain import CompoundVariant
+  from cogsguard.game.terrain import BaseCompoundVariant
   from mettagrid.mapgen.scenes.compound import CompoundConfig
 
-  class ExtractorCrossVariant(CompoundVariant):
+  class ExtractorCrossVariant(BaseCompoundVariant):
       name: str = "extractor_cross"
       description: str = "Extractors on cross arms."
 
@@ -187,11 +187,11 @@ Common patterns:
 - Adjust env properties directly:
 
   ```python
-  from cogames.core import CoGameMissionVariant
-  from cogames.games.cogs_vs_clips.mission import CvCMission
+  from cogsguard.core import CogsguardMissionVariant
+  from cogsguard.missions.mission import CvCMission
   from mettagrid.config.mettagrid_config import MettaGridConfig
 
-  class MyVariant(CoGameMissionVariant):
+  class MyVariant(CogsguardMissionVariant):
       name: str = "my"
 
       def modify_env(self, mission: CvCMission, env: MettaGridConfig) -> None:
@@ -199,7 +199,7 @@ Common patterns:
           ...
   ```
 
-CLI variants are composed in order, so `cogames play -m machina_1 -v city -v extractor_cross` applies `city`, then
+Runtime variants are composed in order, so applying `city` before `extractor_cross` applies `city`, then
 `extractor_cross`.
 
 ---
@@ -220,7 +220,7 @@ CLI variants are composed in order, so `cogames play -m machina_1 -v city -v ext
 Example programmatic override using the `MapSeedVariant` helper:
 
 ```python
-from cogames.games.cogs_vs_clips.terrain import MapSeedVariant
+from cogsguard.missions.terrain import MapSeedVariant
 
 base_mission = my_mission
 seeded_mission = base_mission.with_variants([MapSeedVariant(seed=1234)])
@@ -234,12 +234,12 @@ env_cfg = seeded_mission.make_env()
 ### Building New Missions
 
 1. **Define or reuse a `MapGen.Config`** for the desired map builder.
-2. **Define the desired behavior in a variant** (inheriting from `CoGameMissionVariant` or a typed helper like
+2. **Define the desired behavior in a variant** (inheriting from `CogsguardMissionVariant` or a typed helper like
    `MachinaArenaVariant`).
 3. **Create a `CvCMission` object**:
 
 ```python
-from cogames.games.cogs_vs_clips.mission import CvCMission
+from cogsguard.missions.mission import CvCMission
 
 mission = CvCMission(
     name="my_mission",
@@ -251,32 +251,7 @@ mission = CvCMission(
 )
 ```
 
-4. **Add the mission object to `MISSIONS`** so the CLI picks it up.
-
----
-
-### CLI Reference
-
-- List missions/variants:
-
-  ```bash
-  cogames missions
-  ```
-
-- Play with variants and overrides:
-
-  ```bash
-  cogames play --mission machina_1 \
-               --variant city \
-               --cogs 8 \
-               --policy random
-  ```
-
-- Reproduce a procedural layout:
-  ```bash
-  cogames play -m machina_1 --variant city --map-seed 24601 --seed 24601
-  ```
-  (Use `--map-seed` for layout determinism; include `--seed` to reproduce simulator/policy RNG.)
+4. **Add the mission object to the CogsGuard game registry** so Coworld and local runners can discover it.
 
 ---
 

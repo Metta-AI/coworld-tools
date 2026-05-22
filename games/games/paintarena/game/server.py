@@ -17,13 +17,13 @@ from fastapi.responses import HTMLResponse
 
 from coworld.examples.paintarena.shared.log_shipper import get_logger
 
-CLIENTS_DIR = Path(__file__).parent / "clients"
+CLIENT_DIR = Path(__file__).parent / "client"
 logger = get_logger("paintarena.game")
 
 # urllib's default User-Agent ("Python-urllib/3.x") is blocked by some CDN
 # WAFs (Cloudflare's "Bad bot" rule, error 1010), so we set an explicit one
 # whenever we drive an HTTP request. Any non-default UA suffices.
-HTTP_USER_AGENT = "cogame-paintarena/0.1"
+HTTP_USER_AGENT = "coworld-paintarena/0.1"
 
 
 def read_data(uri: str) -> bytes:
@@ -132,24 +132,24 @@ def healthz() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/clients/global")
+@app.get("/client/global")
 def global_client() -> HTMLResponse:
-    return HTMLResponse((CLIENTS_DIR / "global.html").read_text())
+    return HTMLResponse((CLIENT_DIR / "global.html").read_text())
 
 
-@app.get("/clients/admin")
+@app.get("/client/admin")
 def admin_client() -> HTMLResponse:
-    return HTMLResponse((CLIENTS_DIR / "admin.html").read_text())
+    return HTMLResponse((CLIENT_DIR / "admin.html").read_text())
 
 
-@app.get("/clients/replay")
+@app.get("/client/replay")
 def replay_client() -> HTMLResponse:
-    return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())
+    return HTMLResponse((CLIENT_DIR / "replay.html").read_text())
 
 
-@app.get("/clients/player")
+@app.get("/client/player")
 def player_client() -> HTMLResponse:
-    return HTMLResponse((CLIENTS_DIR / "player.html").read_text())
+    return HTMLResponse((CLIENT_DIR / "player.html").read_text())
 
 
 @app.websocket("/global")

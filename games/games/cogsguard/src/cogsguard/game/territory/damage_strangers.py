@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.damage import DamageVariant
 from cogsguard.game.territory.territory import TerritoryVariant
 from mettagrid.config.filter import isNot, sharedTagPrefix
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 DAMAGE_RATE = -1
 
 
-class DamageStrangersVariant(CoGameMissionVariant):
+class DamageStrangersVariant(CogsguardMissionVariant):
     """Territory damages HP of non-team agents each tick they remain inside."""
 
     name: str = "damage_strangers"

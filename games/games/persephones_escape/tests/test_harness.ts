@@ -133,13 +133,13 @@ function killExistingPortListener(port: number): void {
 }
 
 function sendHtml(res: ServerResponse, file: string): void {
-  const path = join(__dirname, "..", "clients", file);
+  const path = join(__dirname, "..", "client", file);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(readFileSync(path, "utf-8"));
 }
 
 function sendScript(res: ServerResponse, file: string): void {
-  const path = join(__dirname, "..", "clients", file);
+  const path = join(__dirname, "..", "client", file);
   res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
   res.end(readFileSync(path, "utf-8"));
 }
@@ -151,7 +151,7 @@ function sendText(res: ServerResponse, status: number, value: string): void {
 
 function handleHttp(req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  if (url.pathname === "/global" || url.pathname === "/global_client.html") {
+  if (url.pathname === "/client/global") {
     sendHtml(res, "global_client.html");
   } else if (url.pathname === "/snappyjs.min.js") {
     sendScript(res, "snappyjs.min.js");

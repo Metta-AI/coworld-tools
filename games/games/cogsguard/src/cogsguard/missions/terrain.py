@@ -6,7 +6,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 
 if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
@@ -69,7 +69,7 @@ __all__ = [
 T = TypeVar("T")
 
 
-class EnvNodeVariant(CoGameMissionVariant, ABC, Generic[T]):
+class EnvNodeVariant(CogsguardMissionVariant, ABC, Generic[T]):
     @abstractmethod
     def extract_node(self, env: MettaGridConfig) -> T: ...
 
@@ -141,7 +141,7 @@ class SequentialMachinaArenaVariant(EnvNodeVariant[SequentialBiomeArenaConfig]):
 CompoundLocation = Literal["center", "nw", "ne", "sw", "se"]
 
 
-class MachinaTerrainVariant(CoGameMissionVariant):
+class MachinaTerrainVariant(CogsguardMissionVariant):
     """Configure map size and compound placements for a machina arena.
 
     Default: single compound in the center (standard machina1).

@@ -3,8 +3,8 @@
   "game": {
     "name": "cogs_vs_clips",
     "version": "0.2.9",
-    "description": "Cogs vs Clips packaged as a Coworld Cogame backed by Cogsguard and MettaGrid.",
-    "owner": "cogames@softmax.com",
+    "description": "Cogs vs Clips packaged as a Coworld backed by CogsGuard and MettaGrid.",
+    "owner": "coworld@softmax.com",
     "runnable": {
       "type": "game",
       "image": "ghcr.io/metta-ai/coworld-cogs-vs-clips-game:latest",
@@ -94,15 +94,12 @@
   },
   "player": [
     {
-      "id": "starter-policy-player",
-      "name": "Starter Policy Player",
+      "id": "reference-player",
+      "name": "Reference Player",
       "type": "player",
-      "image": "ghcr.io/metta-ai/coworld-mettagrid-policy-player:latest",
-      "run": ["python", "/app/coworld_policy_player.py"],
-      "env": {
-        "COGAMES_POLICY_URI": "metta://policy/cogames.policy.starter_agent.StarterPolicy"
-      },
-      "description": "Cogs vs Clips MettaGrid policy player running the starter policy over coworld.player.v1."
+      "image": "ghcr.io/metta-ai/coworld-cogs-vs-clips-reference-player:latest",
+      "run": ["python", "/app/coworld_reference_player.py"],
+      "description": "Cogs vs Clips Coworld reference player over coworld.player.v1."
     }
   ],
   "variants": [
@@ -127,28 +124,28 @@
     },
     "players": [
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       },
       {
-        "player_id": "starter-policy-player"
+        "player_id": "reference-player"
       }
     ]
   }

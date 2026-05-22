@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.clips import ClipsVariant
 from cogsguard.game.damage import DamageVariant
 from cogsguard.game.days import DaysVariant
@@ -35,7 +35,7 @@ from cogsguard.train.reward_variants import (
     _apply_scout,
     _apply_scrambler,
 )
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.mapgen.mapgen import MapGen, MapGenConfig
 from mettagrid.mapgen.scenes.compound import CompoundConfig
 
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 # TODO: unchecked variant
-class CvCTutorialVariant(CoGameMissionVariant):
+class CvCTutorialVariant(CogsguardMissionVariant):
     """Machina1 variant without clips — for focused role tutorials."""
 
     name: str = "tutorial"
@@ -87,7 +87,7 @@ class CvCTutorialVariant(CoGameMissionVariant):
 
 
 # TODO: unchecked variant
-class AlignerRewardsVariant(CoGameMissionVariant):
+class AlignerRewardsVariant(CogsguardMissionVariant):
     name: str = "aligner"
     description: str = "Learn aligner role - collect hearts, and align neutral junctions (no clips)."
 
@@ -100,7 +100,7 @@ class AlignerRewardsVariant(CoGameMissionVariant):
 
 
 # TODO: unchecked variant
-class MinerRewardsVariant(CoGameMissionVariant):
+class MinerRewardsVariant(CogsguardMissionVariant):
     name: str = "miner"
     description: str = "Learn miner role - resource extraction and deposits (no clips)."
 
@@ -113,7 +113,7 @@ class MinerRewardsVariant(CoGameMissionVariant):
 
 
 # TODO: unchecked variant
-class ScoutRewardsVariant(CoGameMissionVariant):
+class ScoutRewardsVariant(CogsguardMissionVariant):
     name: str = "scout"
     description: str = "Learn scout role - exploration and visiting stale cells (no clips)."
 
@@ -125,7 +125,7 @@ class ScoutRewardsVariant(CoGameMissionVariant):
             agent_cfg.rewards = rewards
 
 
-class OverrunVariant(CoGameMissionVariant):
+class OverrunVariant(CogsguardMissionVariant):
     name: str = "overrun"
     description: str = "All junctions start clips-aligned. No further clips spread."
 
@@ -150,7 +150,7 @@ class OverrunVariant(CoGameMissionVariant):
 
 
 # TODO: unchecked variant
-class ScramblerRewardsVariant(CoGameMissionVariant):
+class ScramblerRewardsVariant(CogsguardMissionVariant):
     name: str = "scrambler"
     description: str = "Learn scrambler role - acquire scrambler gear and scramble enemy junctions."
 

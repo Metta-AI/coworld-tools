@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant
+from cogsguard.core import CogsguardMissionVariant
 from cogsguard.game.cargo import CargoLimitVariant
 from cogsguard.game.clear_vibes import ClearVibesVariant
 from cogsguard.game.clips import (
@@ -105,7 +105,7 @@ __all__ = [
 ]
 
 
-def _get_tutorial_variants() -> list[CoGameMissionVariant]:
+def _get_tutorial_variants() -> list[CogsguardMissionVariant]:
     # Lazy import to break circular dependency:
     # game/__init__ -> missions.tutorial -> missions.machina_1 -> game.cargo -> game/__init__
     from cogsguard.missions.tutorial import (  # noqa: PLC0415
@@ -125,7 +125,7 @@ def _get_tutorial_variants() -> list[CoGameMissionVariant]:
     ]
 
 
-VARIANTS: list[CoGameMissionVariant] = [
+VARIANTS: list[CogsguardMissionVariant] = [
     AlignerVariant(),
     CargoLimitVariant(),
     CavesVariant(),
@@ -174,5 +174,5 @@ VARIANTS: list[CoGameMissionVariant] = [
 ]
 
 
-def _get_all_variants() -> list[CoGameMissionVariant]:
+def _get_all_variants() -> list[CogsguardMissionVariant]:
     return list(VARIANTS) + _get_tutorial_variants()

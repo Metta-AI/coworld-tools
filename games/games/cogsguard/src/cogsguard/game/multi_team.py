@@ -7,10 +7,10 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.teams import TeamVariant
 from cogsguard.missions.terrain import find_machina_arena
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import MettaGridConfig
 from mettagrid.map_builder.map_builder import MapBuilderConfig
 from mettagrid.mapgen.mapgen import MapGen
@@ -28,7 +28,7 @@ def _set_spawn_count(builder: MapBuilderConfig, spawn_count: int) -> None:
         arena.spawn_count = spawn_count
 
 
-class MultiTeamVariant(CoGameMissionVariant):
+class MultiTeamVariant(CogsguardMissionVariant):
     """Split the map into multiple team instances, each with their own hub and resources."""
 
     name: str = "multi_team"

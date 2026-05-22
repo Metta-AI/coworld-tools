@@ -9,7 +9,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.cargo import CargoLimitVariant
 from cogsguard.game.clips.clips import ClipsVariant
 from cogsguard.game.clips.ship import clips_ship_map_names_in_map_config
@@ -38,7 +38,7 @@ from cogsguard.missions.terrain import (
     MachinaArenaConfig,
     SequentialMachinaArena,
 )
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.game_value import SumGameValue, num_tagged, val
 from mettagrid.config.handler_config import Handler, allOf
 from mettagrid.config.mettagrid_config import MettaGridConfig
@@ -89,7 +89,7 @@ GEAR_COSTS: dict[str, dict[str, int]] = {
 }
 
 
-class CvCMachina1Variant(CoGameMissionVariant):
+class CvCMachina1Variant(CogsguardMissionVariant):
     """Cross-configures machina1 sub-variants (gear costs, junction costs, damage, rewards)."""
 
     name: str = "machina_1"

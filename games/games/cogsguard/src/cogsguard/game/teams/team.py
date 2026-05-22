@@ -7,8 +7,8 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.core import CogsguardMissionVariant
+from cogsguard.variants import ResolvedDeps
 from mettagrid.base_config import Config
 from mettagrid.config.filter import hasTag
 from mettagrid.config.mettagrid_config import AgentConfig, MettaGridConfig
@@ -36,7 +36,7 @@ class TeamConfig(Config):
         return query("type:hub", hasTag(self.team_tag()))
 
 
-class TeamVariant(CoGameMissionVariant):
+class TeamVariant(CogsguardMissionVariant):
     """Set up teams and assign agents.
 
     When used as a dependency (default config), initializes the default cogs team.

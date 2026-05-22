@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.damage import DamageVariant
 from cogsguard.game.energy import EnergyVariant
 from cogsguard.game.territory.territory import TerritoryVariant
@@ -20,7 +20,7 @@ ENERGY_HEAL_RATE = 100
 HP_HEAL_RATE = 100
 
 
-class HealTeamVariant(CoGameMissionVariant):
+class HealTeamVariant(CogsguardMissionVariant):
     """Territory heals team members' energy and HP each tick they remain inside."""
 
     name: str = "heal_team"

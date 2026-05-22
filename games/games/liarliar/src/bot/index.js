@@ -2,8 +2,8 @@ import { scriptedDecisions } from './brain.js';
 import { llmDecisions, llmTelemetry } from './llm.js';
 
 const mode = process.env.BOT_MODE ?? 'scripted';
-const url = process.env.COGAMES_ENGINE_WS_URL;
-if (!url) throw new Error('COGAMES_ENGINE_WS_URL is required');
+const url = process.env.COWORLD_PLAYER_WS_URL;
+if (!url) throw new Error('COWORLD_PLAYER_WS_URL is required');
 const slot = slotFromUrl(url);
 const label = slot === null ? 'bot' : `P${slot + 1}`;
 const llmInfo = llmTelemetry();

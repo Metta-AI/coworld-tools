@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.clips.clips import ClipsVariant
 from cogsguard.game.clips.ship import clips_ship_map_names_in_map_config
 from cogsguard.game.junction import JunctionVariant
@@ -41,7 +41,7 @@ def net_materialized_query(team: TeamConfig) -> MaterializedQuery:
     )
 
 
-class TerritoryVariant(CoGameMissionVariant):
+class TerritoryVariant(CogsguardMissionVariant):
     """Add team territory with junction-based influence, network queries, and alignment stats."""
 
     name: str = "territory"

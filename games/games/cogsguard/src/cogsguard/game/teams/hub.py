@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, CvCStationConfig, Deps
+from cogsguard.core import CogsguardMissionVariant, CvCStationConfig, Deps
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.heart import HeartVariant
 from cogsguard.game.teams.team import TeamConfig, TeamVariant
@@ -88,7 +88,7 @@ class CvCHubConfig(CvCStationConfig):
         )
 
 
-class TeamHubVariant(CoGameMissionVariant):
+class TeamHubVariant(CogsguardMissionVariant):
     """Add a hub station for each team in the mission."""
 
     name: str = "team_hub"

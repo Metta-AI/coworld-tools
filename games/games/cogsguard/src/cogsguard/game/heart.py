@@ -7,16 +7,16 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.damage import DamageVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig
 
 if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class HeartVariant(CoGameMissionVariant):
+class HeartVariant(CogsguardMissionVariant):
     """Add heart resource and inventory limit to agents."""
 
     name: str = "heart"

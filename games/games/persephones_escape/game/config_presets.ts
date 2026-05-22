@@ -269,6 +269,11 @@ export function loadConfigFile(path: string): GameConfig {
   }
 
   const obj = json as Record<string, unknown>;
+  return loadConfigObject(obj, path);
+}
+
+export function loadConfigObject(obj: Record<string, unknown>, source: string): GameConfig {
+  const path = source;
 
   // -- roles (required) -----------------------------------------------------
   if (!Array.isArray(obj.roles) || obj.roles.length === 0) {

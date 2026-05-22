@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cogames.game import CoGame, register_game
+from cogsguard.core import CogsguardGame, register_game
 from cogsguard.evals.cognitive_substrate_evals import (
     EVAL_MISSIONS as COGNITIVE_SUBSTRATE_EVAL_MISSIONS,
 )
@@ -20,8 +20,8 @@ from cogsguard.missions.mission import CvCMission
 from cogsguard.missions.tutorial import make_tutorial_mission
 
 
-class CvCGame(CoGame):
-    """Cogs vs Clips game. Subclasses CoGame with CvC missions and variants."""
+class CvCGame(CogsguardGame):
+    """Cogs vs Clips game with CvC missions and variants."""
 
     def __init__(self) -> None:
         eval_missions: list[CvCMission] = []

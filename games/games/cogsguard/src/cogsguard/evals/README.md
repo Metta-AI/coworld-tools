@@ -1,6 +1,6 @@
-# CoGames Evaluation Missions
+# CogsGuard Evaluation Missions
 
-This directory contains evaluation missions for testing CoGames agents:
+This directory contains evaluation missions for testing CogsGuard agents:
 
 1. **Diagnostic Missions** - Fixed-map missions testing specific skills in controlled environments
 2. **CvC Eval Missions** - Fixed-map missions from curated evaluation arenas
@@ -10,7 +10,7 @@ This directory contains evaluation missions for testing CoGames agents:
 
 ## Diagnostic Missions
 
-**Location:** `diagnostic_evals.py` **Access:** `cogames play --mission evals.diagnostic_*` **Map Type:** Fixed ASCII
+**Location:** `diagnostic_evals.py` **Map Type:** Fixed ASCII
 maps (deterministic layouts)
 
 Diagnostic missions test specific skills in isolation with controlled, repeatable environments.
@@ -36,24 +36,9 @@ Diagnostic missions test specific skills in isolation with controlled, repeatabl
 Most diagnostic missions have `_hard` variants with increased difficulty and longer time limits (e.g.,
 `diagnostic_chest_navigation1_hard`, `diagnostic_charge_up_hard`, `diagnostic_memory_hard`).
 
-### Playing Diagnostic Missions
-
-```bash
-# Basic diagnostic
-uv run cogames play --mission evals.diagnostic_chest_navigation1 --cogs 1
-
-# Hard variant
-uv run cogames play --mission evals.diagnostic_charge_up_hard --cogs 1
-
-# With policy
-uv run cogames play --mission evals.diagnostic_chest_deposit_search -p baseline --cogs 1
-```
-
----
-
 ## CvC Eval Missions
 
-**Location:** `cvc_evals.py` **Access:** `cogames play --mission cvc_evals.<name>` **Map Type:** Fixed ASCII maps
+**Location:** `cvc_evals.py` **Map Type:** Fixed ASCII maps
 (curated layouts)
 
 CvC eval missions use hand-crafted maps designed to test specific scenarios at various scales.
@@ -74,7 +59,7 @@ CvC eval missions use hand-crafted maps designed to test specific scenarios at v
 
 ## Integrated Eval Missions
 
-**Location:** `integrated_evals.py` **Access:** `cogames play --mission hello_world.<name>` **Map Type:** Procedural
+**Location:** `integrated_evals.py` **Map Type:** Procedural
 generation (MachinaArena)
 
 ### Available Integrated Missions
@@ -86,12 +71,6 @@ generation (MachinaArena)
 **Variants Applied:**
 
 - DarkSide (reduced energy regen)
-
-```bash
-uv run cogames play --mission hello_world.energy_starved --cogs 2
-```
-
----
 
 ## Design Philosophy
 

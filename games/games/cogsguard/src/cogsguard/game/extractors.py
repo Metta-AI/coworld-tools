@@ -5,11 +5,11 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, CvCStationConfig, Deps
+from cogsguard.core import CogsguardMissionVariant, CvCStationConfig, Deps
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.terrain import BuildingsVariant
 from cogsguard.missions.terrain import find_machina_arena
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.base_config import Config
 from mettagrid.config.handler_config import (
     Handler,
@@ -55,7 +55,7 @@ class ExtractionHandlerConfig(Config):
     amount: int
 
 
-class ExtractorsVariant(CoGameMissionVariant):
+class ExtractorsVariant(CogsguardMissionVariant):
     """Add resource extractors to the environment."""
 
     name: str = "extractors"

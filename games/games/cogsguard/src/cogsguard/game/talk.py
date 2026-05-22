@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.vibes import VibesVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig, TalkConfig
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class TalkVariant(CoGameMissionVariant):
+class TalkVariant(CogsguardMissionVariant):
     """Enable speech-bubble talk as the talk flavor of vibes."""
 
     name: str = "talk"

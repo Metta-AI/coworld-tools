@@ -1,6 +1,6 @@
 import pytest
 
-from cogames.cli.mission import find_mission
+from cogsguard.core import find_mission
 from cogsguard.game.damage import DamageVariant
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.energy import EnergyVariant

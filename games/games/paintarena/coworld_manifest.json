@@ -3,8 +3,8 @@
   "game": {
     "name": "paintarena",
     "version": "0.1.5",
-    "description": "Continuous tick-based territory painting Cogame used to certify the Coworld contract.",
-    "owner": "cogames@softmax.com",
+    "description": "Continuous tick-based territory painting game used to certify the Coworld contract.",
+    "owner": "coworld@softmax.com",
     "runnable": {
       "type": "game",
       "image": "coworld-paintarena:latest",

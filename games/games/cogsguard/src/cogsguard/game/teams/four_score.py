@@ -6,13 +6,13 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.clips.clips import NoClipsVariant
 from cogsguard.game.extractors import ExtractorsVariant
 from cogsguard.game.teams.team import TeamConfig, TeamVariant
 from cogsguard.missions.mission import CvCMission
 from cogsguard.missions.terrain import CompoundLocation, MachinaTerrainVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.game_value import SumGameValue, num_tagged, val, weighted_sum
 from mettagrid.config.handler_config import Handler, allOf
 from mettagrid.config.mettagrid_config import MettaGridConfig
@@ -23,7 +23,7 @@ TEAM_COLORS = ["red", "blue", "green", "yellow"]
 CORNER_LOCS: list[CompoundLocation] = ["nw", "ne", "sw", "se"]
 
 
-class FourScoreVariant(CoGameMissionVariant):
+class FourScoreVariant(CogsguardMissionVariant):
     """Set up 1-4 teams with corner compounds."""
 
     name: str = "four_score"

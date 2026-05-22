@@ -26,12 +26,12 @@ from mettagrid.runner.live_episode import LiveMettaGridEpisode, TickMode
 from mettagrid.simulator.replay_log_writer import EpisodeReplay
 from mettagrid.util.grid_object_formatter import format_grid_object
 
-CLIENTS_DIR = Path(__file__).parent / "clients"
+CLIENT_DIR = Path(__file__).parent / "client"
 METTASCOPE_DIST_DIR = Path(os.environ.get("METTASCOPE_DIST_DIR", Path(__file__).parent / "mettascope"))
 GLOBAL_PROTOCOL = "mettagrid.mettascope.live.v1"
 START_GRACE_SECONDS = 0.5
 POLICY_ACTION_TIMEOUT_SECONDS = 0.1
-POLICY_NAMES_ENV_VAR = "COGAMES_POLICY_NAMES"
+POLICY_NAMES_ENV_VAR = "COWORLD_POLICY_NAMES"
 POLICY_NAMES_ADAPTER = TypeAdapter(list[str])
 
 
@@ -249,7 +249,7 @@ class CogsVsClipsGame:
         return snapshot
 
     def takeover_url(self, slot: int) -> str:
-        return f"/clients/player?{urlencode({'slot': slot, 'token': self.tokens[slot], 'takeover': 1})}"
+        return f"/client/player?{urlencode({'slot': slot, 'token': self.tokens[slot], 'takeover': 1})}"
 
     def global_status(self) -> dict[str, Any]:
         return {
@@ -337,21 +337,21 @@ def create_app(
     def healthz() -> dict[str, bool]:
         return {"ok": True}
 
-    @app.get("/clients/global")
+    @app.get("/client/global")
     def global_client() -> HTMLResponse:
-        return HTMLResponse((CLIENTS_DIR / "global.html").read_text())
+        return HTMLResponse((CLIENT_DIR / "global.html").read_text())
 
-    @app.get("/clients/admin")
+    @app.get("/client/admin")
     def admin_client() -> HTMLResponse:
-        return HTMLResponse((CLIENTS_DIR / "admin.html").read_text())
+        return HTMLResponse((CLIENT_DIR / "admin.html").read_text())
 
-    @app.get("/clients/replay")
+    @app.get("/client/replay")
     def replay_client() -> HTMLResponse:
-        return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())
+        return HTMLResponse((CLIENT_DIR / "replay.html").read_text())
 
-    @app.get("/clients/player")
+    @app.get("/client/player")
     def player_client() -> HTMLResponse:
-        return HTMLResponse((CLIENTS_DIR / "player.html").read_text())
+        return HTMLResponse((CLIENT_DIR / "player.html").read_text())
 
     @app.websocket("/global")
     async def global_viewer(websocket: WebSocket) -> None:
@@ -466,7 +466,7 @@ def create_replay_app() -> FastAPI:
     def healthz() -> dict[str, bool]:
         return {"ok": True}
 
-    @app.get("/clients/replay")
+    @app.get("/client/replay")
     def replay_client(request: Request, uri: str) -> RedirectResponse:
         replay_url = str(request.url_for("replay_data")) + "?" + urlencode({"uri": uri})
         return RedirectResponse(METTASCOPE_REPLAY_URL_PREFIX + quote(replay_url, safe=""))
