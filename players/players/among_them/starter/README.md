@@ -36,7 +36,7 @@ This player ships as a self-contained Coworld player container:
 
 - Speaks the [`bitscreen_v1`](https://github.com/Metta-AI/bitworld/blob/master/docs/bitscreen_v1.md)
   binary wire protocol directly from the Nim binary.
-- Reads `COGAMES_ENGINE_WS_URL` from the environment at startup
+- Reads `COWORLD_PLAYER_WS_URL` from the environment at startup
   (`ivotewell.nim` line ~4547). The Coworld runner sets that variable for
   every player container, so the binary's address/port CLI flags are not
   needed in production.
