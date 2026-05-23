@@ -7,14 +7,14 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant
+from cogsguard.core import CogsguardMissionVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig
 
 if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class ElementsVariant(CoGameMissionVariant):
+class ElementsVariant(CogsguardMissionVariant):
     """Register element resources in the game config."""
 
     name: str = "elements"

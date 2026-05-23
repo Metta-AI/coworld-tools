@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.extractors import ExtractorsVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.filter.periodic_filter import PeriodicFilter
 from mettagrid.config.game_value import GameValueRatio, QueryCountValue, val
 from mettagrid.config.handler_config import Handler, allOf, query
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class EndlessVariant(CoGameMissionVariant):
+class EndlessVariant(CogsguardMissionVariant):
     """Infinite game: no step limit, extractors persist and periodically refill."""
 
     name: str = "endless"

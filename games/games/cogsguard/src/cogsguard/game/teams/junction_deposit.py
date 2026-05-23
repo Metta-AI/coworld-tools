@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.teams.junction import TeamJunctionVariant
 from cogsguard.game.teams.team import TeamVariant
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class JunctionDepositVariant(CoGameMissionVariant):
+class JunctionDepositVariant(CogsguardMissionVariant):
     """Allow depositing elements at aligned junctions into the matching team hub."""
 
     name: str = "junction_deposit"

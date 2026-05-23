@@ -10,9 +10,9 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.solar import SolarVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.base_config import Config
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.mettagrid_config import MettaGridConfig
@@ -31,7 +31,7 @@ class DayConfig(Config):
     night_solar: int = Field(default=1)
 
 
-class DaysVariant(CoGameMissionVariant):
+class DaysVariant(CogsguardMissionVariant):
     """Day/night cycle that oscillates solar regen between day and night levels."""
 
     name: str = "days"

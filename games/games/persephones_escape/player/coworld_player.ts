@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import { PACKET_INPUT } from "../game/constants.js";
 
-const url = process.env.COGAMES_ENGINE_WS_URL;
-if (!url) throw new Error("COGAMES_ENGINE_WS_URL is required");
+const url = process.env.COWORLD_PLAYER_WS_URL;
+if (!url) throw new Error("COWORLD_PLAYER_WS_URL is required");
 
 const ws = new WebSocket(url, { perMessageDeflate: false });
 const idle = Buffer.from([PACKET_INPUT, 0]);

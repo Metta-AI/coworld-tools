@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.gear import GearVariant
 from cogsguard.game.teams.hub import CvCHubConfig, TeamHubVariant
 from cogsguard.game.teams.team import TeamVariant
@@ -37,7 +37,7 @@ DEFAULT_TEAM_GEAR_SYMBOLS = {
 }
 
 
-class TeamGearStationsVariant(CoGameMissionVariant):
+class TeamGearStationsVariant(CogsguardMissionVariant):
     """Create per-team gear stations that charge costs from the team hub."""
 
     name: str = "team_gear_stations"

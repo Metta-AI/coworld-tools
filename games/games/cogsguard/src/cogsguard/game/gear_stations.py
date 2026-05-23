@@ -7,10 +7,10 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.gear import GearVariant
 from cogsguard.game.terrain import BuildingsVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.handler_config import (
     ClearInventoryMutation,
     EntityTarget,
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class GearStationsVariant(CoGameMissionVariant):
+class GearStationsVariant(CogsguardMissionVariant):
     """Create universal gear stations that charge the agent directly."""
 
     name: str = "gear_stations"
@@ -60,7 +60,7 @@ class GearStationsVariant(CoGameMissionVariant):
             )
 
 
-class WildGearStationsVariant(CoGameMissionVariant):
+class WildGearStationsVariant(CogsguardMissionVariant):
     """Scatter gear stations across the map as buildings."""
 
     name: str = "wild_gear_stations"

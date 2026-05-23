@@ -5,16 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.terrain import BuildingsVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import GridObjectConfig, MettaGridConfig
 
 if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class JunctionVariant(CoGameMissionVariant):
+class JunctionVariant(CogsguardMissionVariant):
     """Add bare junction objects to the environment."""
 
     name: str = "junction"

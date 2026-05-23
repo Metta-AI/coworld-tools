@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.roles import ROLE_NAMES, assign_role_vibes, validate_role_name
 from cogsguard.game.vibes import VibesVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 # TODO: unchecked variant
-class ForcedRoleVibesVariant(CoGameMissionVariant):
+class ForcedRoleVibesVariant(CogsguardMissionVariant):
     name: str = "forced_role_vibes"
     description: str = "Force each agent's initial vibe by role using team-local agent order."
 

@@ -14,7 +14,7 @@ for (const player of session.players.filter(shouldRunBot)) {
     env: {
       ...process.env,
       BOT_MODE: modeArg,
-      COGAMES_ENGINE_WS_URL: player.wsUrl,
+      COWORLD_PLAYER_WS_URL: player.wsUrl,
     },
   });
   children.push(child);

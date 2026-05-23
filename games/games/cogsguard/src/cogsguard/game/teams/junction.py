@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.junction import JunctionVariant
 from cogsguard.game.teams.hub import TeamHubVariant
 from cogsguard.game.teams.team import TeamVariant
@@ -34,7 +34,7 @@ def _neg(d: dict[str, int]) -> dict[str, int]:
     return {k: -v for k, v in d.items()}
 
 
-class TeamJunctionVariant(CoGameMissionVariant):
+class TeamJunctionVariant(CogsguardMissionVariant):
     """Makes junctions alignable by teams: adds align/scramble handlers and tag-remove hooks."""
 
     name: str = "team_junction"

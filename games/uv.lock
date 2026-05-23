@@ -503,7 +503,6 @@ provides-extras = ["llm", "dev"]
 name = "cogsguard"
 source = { editable = "games/cogsguard" }
 dependencies = [
-    { name = "cogames" },
     { name = "mettagrid" },
     { name = "pydantic" },
     { name = "typing-extensions" },
@@ -517,7 +516,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cogames" },
     { name = "mettagrid" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pytest", marker = "extra == 'test'" },

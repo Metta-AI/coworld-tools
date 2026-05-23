@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.gear import GearVariant
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 
 
-class RoleVariant(CoGameMissionVariant):
+class RoleVariant(CogsguardMissionVariant):
     """Base for role variants. Registers a gear item and optionally destroys it on death."""
 
     @property

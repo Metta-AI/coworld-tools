@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
-from cogames.core import CoGameMissionVariant
+from cogsguard.core import CogsguardMissionVariant
 from cogsguard.game import VARIANTS
 from cogsguard.game.clips import ClipsConfig, ClipsVariant
 from cogsguard.game.days import DayConfig, DaysVariant
@@ -15,7 +15,7 @@ from cogsguard.train.reward_variants import AVAILABLE_REWARD_VARIANTS
 @dataclass(frozen=True)
 class EventProfile:
     name: str
-    variants: tuple[CoGameMissionVariant, ...] = field(default_factory=tuple)
+    variants: tuple[CogsguardMissionVariant, ...] = field(default_factory=tuple)
 
 
 CVC_FIXED_MAPS: list[str] = [
@@ -71,7 +71,7 @@ CVC_EVENT_PROFILES: list[EventProfile] = [
     ),
 ]
 
-VariantSpec = str | dict[str, Any] | CoGameMissionVariant
+VariantSpec = str | dict[str, Any] | CogsguardMissionVariant
 
 
 def normalize_variant_names(
@@ -94,16 +94,16 @@ def _is_parametrized_reward_variant(name: str) -> bool:
 
 def split_variants(
     variants: str | Sequence[VariantSpec] | None,
-) -> tuple[list[CoGameMissionVariant], list[str]]:
+) -> tuple[list[CogsguardMissionVariant], list[str]]:
     names = normalize_variant_names(variants)
     all_variants = {variant.name: variant for variant in VARIANTS}
     reward_variants = set(AVAILABLE_REWARD_VARIANTS)
 
-    resolved: list[CoGameMissionVariant] = []
+    resolved: list[CogsguardMissionVariant] = []
     resolved_rewards: list[str] = []
     unknown: list[str] = []
     for name in names:
-        if isinstance(name, CoGameMissionVariant):
+        if isinstance(name, CogsguardMissionVariant):
             resolved.append(name.model_copy(deep=True))
             continue
         if isinstance(name, dict):
@@ -144,6 +144,6 @@ def resolve_event_profiles(event_profiles: Sequence[EventProfile] | None) -> lis
 
 
 def filter_compatible_variants(
-    mission: CvCMission, variants: Sequence[CoGameMissionVariant]
-) -> list[CoGameMissionVariant]:
+    mission: CvCMission, variants: Sequence[CogsguardMissionVariant]
+) -> list[CogsguardMissionVariant]:
     return [variant for variant in variants if variant.compat(mission)]

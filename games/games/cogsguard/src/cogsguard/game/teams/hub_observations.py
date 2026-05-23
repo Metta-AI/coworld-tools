@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import override
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.game.elements import ElementsVariant
 from cogsguard.game.teams.hub import TeamHubVariant
 from mettagrid.config.filter import sharedTagPrefix
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from cogsguard.missions.mission import CvCMission
 
 
-class HubObservationsVariant(CoGameMissionVariant):
+class HubObservationsVariant(CogsguardMissionVariant):
     """Add per-team hub resource amounts to each agent's global observations."""
 
     name: str = "hub_observations"

@@ -1,4 +1,4 @@
-"""Curriculum helpers for cycling through CoGames maps."""
+"""Curriculum helpers for cycling through CogsGuard maps."""
 
 from collections import deque
 from typing import Callable

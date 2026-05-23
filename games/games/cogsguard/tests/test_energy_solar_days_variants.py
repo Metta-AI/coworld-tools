@@ -5,7 +5,7 @@ from __future__ import annotations
 from cogsguard.game.energy import EnergyVariant
 from cogsguard.missions.machina_1 import make_machina1_mission
 from cogsguard.missions.mission import CvCMission
-from cogames.variants import VariantRegistry
+from cogsguard.variants import VariantRegistry
 from mettagrid.config.handler_config import AllOf, FirstMatch, Handler
 
 _CVC_VARIANT_MODULES = ("cogsguard.",)

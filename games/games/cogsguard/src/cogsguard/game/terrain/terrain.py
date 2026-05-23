@@ -7,9 +7,9 @@ from typing_extensions import override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from cogsguard.core import CogsguardMissionVariant, Deps
 from cogsguard.missions.terrain import MachinaArenaVariant, find_machina_arena
-from cogames.variants import ResolvedDeps
+from cogsguard.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import MettaGridConfig
 from mettagrid.map_builder.map_builder import MapBuilderConfig
 from mettagrid.mapgen.mapgen import MapGen
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from mettagrid.map_builder.map_builder import AnyMapBuilderConfig
 
 
-class BuildingsVariant(CoGameMissionVariant):
+class BuildingsVariant(CogsguardMissionVariant):
     """Configure which buildings to place on the map and their weights."""
 
     name: str = "buildings"
@@ -54,7 +54,7 @@ def _apply_buildings(builder: AnyMapBuilderConfig, buildings: dict[str, float]) 
     arena.building_weights = weights
 
 
-class Small50Variant(CoGameMissionVariant):
+class Small50Variant(CogsguardMissionVariant):
     name: str = "small_50"
     description: str = "Set map size to 50x50 for quick runs."
 
