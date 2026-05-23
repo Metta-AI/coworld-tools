@@ -32,7 +32,8 @@ uv run --package cogame-euchre pytest games/euchre/tests
 ```
 
 JavaScript, TypeScript, Nim, and container-first Coworld games keep their local toolchains inside their game
-directories.
+directories. Python packages that are consumed as Coworld build-context sources, such as CogsGuard for Cogs vs Clips,
+also keep their package metadata local instead of sharing the root workspace lock with older imported packages.
 
 ## Migration Notes
 
