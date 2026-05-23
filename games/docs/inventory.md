@@ -8,7 +8,7 @@ snapshots into this repo; it did not delete, archive, close, or mark any origina
 | Path | Source | Runtime | Notes |
 | --- | --- | --- | --- |
 | `games/amongcogs` | `Metta-AI/cogame-amongcogs` | Python / MettaGrid / CoGames | Among-Us-inspired MettaGrid game with custom assets and policies. |
-| `games/cogsguard` | `Metta-AI/cogame-cogsguard` | Python / MettaGrid / CoGames | Cogs vs Clips / CogsGuard game package and eval missions. |
+| `games/cogsguard` | `Metta-AI/cogame-cogsguard` | Python / MettaGrid / Coworld source | Cogs vs Clips / CogsGuard game package and eval missions, built into the Coworld image from source. |
 | `games/diplomacog` | `Metta-AI/cogame-diplomacog` | Python / MettaGrid / CoGames | Station-based diplomacy game; overlaps with the older in-metta `metta/games/diplomacy` surface. |
 | `games/hungercog` | `Metta-AI/cogame-hungercog` | Python / MettaGrid / CoGames | Survival/resource game with train and play recipe entrypoints. |
 | `games/overcogged` | `Metta-AI/cogame-overcogged` | Python / MettaGrid / CoGames | Overcooked-style cooperative kitchen game. |
