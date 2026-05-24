@@ -2,7 +2,7 @@
 
 Game-agnostic template reporters — scaffolding and base implementations meant to make it easy to start a new reporter for a Coworld.
 
-> **Status: still on hold.** [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/) are implemented end-to-end, so the game-agnostic shape `summarizer_template` will encode is visible from two real consumers. The next step is `reporter_sdk` extraction; this template gets extracted from the two concrete reporters *after* the SDK absorbs the reusable primitives (so the template imports from the SDK rather than inlining). Both extractions are also gated on the two concrete reporters migrating to the canonical Coworld reporter contract (`COGAME_EPISODE_BUNDLE_URI` in, `COGAME_REPORT_URI` out, in-zip `manifest.json` instead of `render.txt`). See the "Build strategy" section of the [root README](../../README.md) for the rationale.
+> **Status: still on hold.** [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/) are implemented end-to-end and both run on the canonical Coworld reporter contract (`COGAME_EPISODE_BUNDLE_URI` in, `COGAME_REPORT_URI` out, in-zip `manifest.json`). The next step is `reporter_sdk` extraction; this template gets extracted from the two concrete reporters *after* the SDK absorbs the reusable primitives (so the template imports from the SDK rather than inlining). See the "Build strategy" section of the [root README](../../README.md) for the rationale.
 
 ## Purpose
 

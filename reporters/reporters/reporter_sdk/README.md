@@ -4,7 +4,7 @@ Shared, pip-installable Python package providing the primitives every Coworld re
 
 > **Status: still intentionally on hold.** The package exists and is installable but exposes no real surface yet. The two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/) — both inline the primitives that will live here. The SDK's API will be *extracted* from those two reporters once their shared canonical shape is stable; see the "Build strategy" section of the [root README](../../README.md) for the rationale. The skeleton exists now so the import path is reserved and the package is wired up for an editable install whenever it becomes useful.
 >
-> The two reporters are currently pre-canonical (input via multiple per-artifact env vars; render manifest as `render.txt`). The SDK extraction is gated on those two reporters first migrating to the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an in-zip `manifest.json`; otherwise the SDK would crystallize the pre-canonical contract.
+> Both reporters now run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` contract with an in-zip `manifest.json`. The SDK extraction is the natural next step: the inline `BundleReader`, `write_deterministic_zip`, `EVENT_LOG_SCHEMA`, and `write_events_parquet` already live in both reporters in nearly-identical form, ready to be lifted into one shared module.
 
 ## Purpose
 

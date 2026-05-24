@@ -4,7 +4,7 @@ Per-episode summarizer reporter for the Among Them Coworld. Reads the episode bu
 
 > **Status:** phases 1–5 + a design-correction commit landed on the `among-them-summarizer-phase-1` branch. Phases 6 (determinism + zip-contract tests), 7 (Dockerfile + smoke), and 8 (this README, in expanded form) remain. Validated end-to-end against two real `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games.
 >
-> **Implementation status (2026-05-23):** the running code follows a pre-canonical draft of the reporter contract (multiple input env vars; a top-level `render.txt` file in the output zip). The README below describes the **canonical** Coworld contract this reporter will be migrated to alongside metta's reference reporters. See [`../../../docs/REPORTER_DESIGN.md` § Migration state](../../../docs/REPORTER_DESIGN.md#5-migration-state) for the migration plan and the gap.
+> **Implementation status (2026-05-23):** the running code now matches the canonical Coworld reporter contract (single `COGAME_EPISODE_BUNDLE_URI` in, single `COGAME_REPORT_URI` out, in-zip `manifest.json` flagging `render` and `event_log`, `int64` event-log columns). Episode-level metadata reaches the reporter via the bundle's optional `metadata` token; absent it, the reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`. The bundle's `replay` token carries binary `.bitreplay` bytes (an Among-Them-specific deviation from the canonical convention of JSON-formatted `replay.json`).
 
 ## Output zip contents
 

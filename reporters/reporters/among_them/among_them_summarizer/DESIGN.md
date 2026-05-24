@@ -1,15 +1,12 @@
 # among_them_summarizer — Design
 
-> **Status:** implemented (phases 1–5 + design-correction commit landed). Current code follows a pre-canonical
-> draft of the Coworld reporter contract (multiple per-artifact input env vars; a top-level `render.txt` text
-> file as the in-zip render manifest). The design below describes the **canonical** Coworld reporter contract
-> this reporter will be migrated to — single `COGAME_EPISODE_BUNDLE_URI` input, single `COGAME_REPORT_URI`
-> output, in-zip `manifest.json` flagging `render` and `event_log`. See
+> **Status:** implemented (phases 1–5 + design-correction commit + canonical-contract migration landed).
+> Current code matches the canonical Coworld reporter contract: single `COGAME_EPISODE_BUNDLE_URI` input,
+> single `COGAME_REPORT_URI` output, in-zip `manifest.json` flagging `render` and `event_log`, `int64`
+> event-log columns. See
 > [`../../../docs/REPORTER_DESIGN.md`](../../../docs/REPORTER_DESIGN.md) and the metta role doc
 > [`packages/coworld/src/coworld/docs/roles/reporter.md`](../../../../metta/packages/coworld/src/coworld/docs/roles/reporter.md)
-> for the canonical contract; the
-> [`../../../docs/REPORTER_DESIGN.md` § Migration state](../../../docs/REPORTER_DESIGN.md#5-migration-state)
-> section tracks the pre-canonical → canonical gap.
+> for the canonical contract this reporter implements.
 >
 > Mirrors the shape of
 > [`paint_arena_summarizer`](../../paint_arena/paint_arena_summarizer/DESIGN.md),

@@ -5,7 +5,7 @@
 >
 > **Canonical contract version:** the `contract defined, runtime pending` shape described in metta's `docs/roles/reporter.md` and `EPISODE_BUNDLE_README.md` (last revised in metta on 2026-05-22). When this doc and the metta role doc disagree, **metta is authoritative.**
 >
-> **Implementation status (this repo, 2026-05-23):** the two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer/`](../reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](../reporters/among_them/among_them_summarizer/) — were originally built against an internal pre-canonical draft (per-artifact input env vars; top-level `render.txt` in the output zip). The current implementations have **not yet been migrated** to the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an internal `manifest.json` flagging `render` and `event_log`. Migration is tracked as deferred work (see [§5](#5-migration-state) below); the metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` are in the same pre-migration state and will be migrated together.
+> **Implementation status (this repo, 2026-05-23):** the two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer/`](../reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](../reporters/among_them/among_them_summarizer/) — have been migrated to the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an in-zip `manifest.json` flagging `render` and `event_log`. The bundle inner manifest is read by an inline `BundleReader` (a future-`reporter_sdk` extraction candidate). Episode-level metadata reaches each reporter via the bundle's optional `metadata` token; absent it the reporter falls back to defaults and uses the inner manifest's `ereq_id` as `episode_id`. The metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` remain in the pre-canonical state and will be migrated in a paired upstream PR.
 
 ---
 
@@ -117,20 +117,21 @@ If a future "run every declared reporter automatically on episode completion" pa
 
 ## 5. Migration state
 
-The two reporters in this repo (and the two upstream reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/`) were written against an earlier internal draft that diverged from the canonical contract on three load-bearing points:
+Both reporters in this repo have been migrated from the earlier internal draft (per-artifact input env vars; top-level `render.txt` in the output zip) to the canonical contract:
 
-| Concern | Pre-canonical (current code) | Canonical (metta `docs/roles/reporter.md`) |
+| Concern | Pre-canonical (legacy) | Canonical (this repo today) |
 | --- | --- | --- |
 | **Input** | Multiple env vars: `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_REPORTER_ID` | Single env var: `COGAME_EPISODE_BUNDLE_URI` (a zip with an inner `manifest.json`) |
 | **Output env var** | `COGAME_REPORT_OUTPUT_URI` | `COGAME_REPORT_URI` |
 | **Output zip render manifest** | A top-level `render.txt` text file listing renderable paths in order | A top-level `manifest.json` with `reporter_id`, `render` (one `.md`/`.html`), `event_log` (one `.parquet`) |
+| **Event-log `player` column** | `int16` | `int64` |
 | **Trigger** | Per-episode, auto-fired from the episode runner | On-demand, fired by a CLI / button / pipeline |
 
-The migration plan: bring the reporters' input layer over to the `coworld.bundle` library; replace `render.txt` with `manifest.json` (with `render` and `event_log` paths); rename the output env var; drop the runner integration assumptions. The actual artifact files inside the output zip (`summary.html`, `stats.json`, `events.parquet`, etc.) carry over essentially unchanged — the change is in how they're *flagged*, not in what they *are*.
+The artifact files inside the output zip (`summary.html`, `stats.json`, `events.parquet`, etc.) carry over essentially unchanged — the change is in how they're *flagged*, not in what they *are*. Each reporter carries an inline `BundleReader` that opens the bundle zip and reads tokens via the inner manifest's `files` map; once a second concrete reporter exists in canonical form, the `BundleReader` is the next item on the `reporter_sdk` extraction list.
 
-Implementations in this repo will be migrated alongside metta's reference reporters; the two should land together so the contract has a stable working example end-to-end.
+Episode-level metadata (`variant_id`, `duration_seconds`, per-slot `policy_name`) is not formally part of the canonical inner manifest. In practice it reaches the reporter via an optional `metadata` bundle token; when absent, each reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`.
 
-Until migration completes, the per-reporter READMEs describe the canonical contract shape; the running code follows the pre-canonical shape. This is the same gap that exists in metta between its docs and the example reporters.
+The metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` are still in the pre-canonical state and will be migrated in a paired upstream PR so the contract has a stable working example end-to-end on both sides.
 
 ---
 

@@ -6,7 +6,7 @@ This is the canonical per-role repository for `Metta-AI/reporters`, one of the s
 
 > **Canonical contract:** [`packages/coworld/src/coworld/docs/roles/reporter.md`](../metta/packages/coworld/src/coworld/docs/roles/reporter.md) in metta. Local restatement: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Navigation guide into the rest of metta: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md).
 >
-> **Implementation status (2026-05-23):** two concrete reporters under [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/) are functionally complete but were built against an internal pre-canonical draft (per-artifact input env vars; top-level `render.txt` rendering manifest in the output zip). **Neither has been migrated yet to the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an internal `manifest.json`.** Migration is tracked alongside the matching work on metta's reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/`; the two should land together. The per-reporter READMEs describe the canonical shape; the running code still follows the pre-canonical shape.
+> **Implementation status (2026-05-23):** two concrete reporters under [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/) are functionally complete and now both run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` contract with an in-zip `manifest.json` flagging `render` and `event_log`. The matching metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` are still on the pre-canonical shape and will be migrated in a paired upstream PR.
 
 ## What is a Coworld reporter?
 
@@ -154,10 +154,10 @@ For everything else — manifest declaration shape, the bundle's internal `manif
 
 | Component | Coworld | Kind | Status |
 | --- | --- | --- | --- |
-| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented (pre-canonical)** — first concrete reporter; tests passing. Built against the pre-canonical draft (multiple input env vars; `render.txt` instead of `manifest.json`). Migration to canonical shape pending alongside metta's reference reporter migration. |
-| `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in the two concrete reporters once their shared canonical shape is settled. |
-| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived once the SDK is extracted and the canonical-contract migration lands. |
-| `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented (pre-canonical, phases 1–5 + design correction)** — second concrete reporter; full binary `.bitreplay` parser, input-stream analytics, HTML scoreboard; tests passing. Phases 6 (determinism tests) / 7 (Dockerfile + smoke) / 8 (README expansion) deferred. Same pre-canonical contract gap as the PaintArena summarizer. See [`reporters/among_them/among_them_summarizer/DESIGN.md`](reporters/among_them/among_them_summarizer/DESIGN.md). |
+| `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented (canonical)** — first concrete reporter; tests passing. Runs on the canonical contract: single `COGAME_EPISODE_BUNDLE_URI` input, single `COGAME_REPORT_URI` output, in-zip `manifest.json` flagging `render` and `event_log`. |
+| `reporter_sdk` | (shared) | Library | Package skeleton in place; ready to absorb the primitives now inlined in the two concrete reporters (`BundleReader`, deterministic zip writer, event-log schema, manifest writer). |
+| `templates/summarizer_template` | (template) | Reporter scaffold | On hold; ready to be derived once the SDK is extracted. |
+| `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented (canonical, phases 1–5 + design correction + canonical-contract migration)** — second concrete reporter; full binary `.bitreplay` parser, input-stream analytics, HTML scoreboard; tests passing. Phases 6 (determinism tests) / 7 (Dockerfile + smoke) / 8 (README expansion) deferred. See [`reporters/among_them/among_them_summarizer/DESIGN.md`](reporters/among_them/among_them_summarizer/DESIGN.md). |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation. |
 | `cogs_vs_clips/cogs_vs_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation. |
 
@@ -169,7 +169,7 @@ The order is:
 
 1. **Build `paint_arena/paint_arena_summarizer` end-to-end**, with the deterministic zip writer, env-supplied URI I/O, the shared event-log schema, and contract-aligned types all inline in the reporter. **Done.** See [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/).
 2. **Build `among_them/among_them_summarizer` end-to-end**, also inline rather than against an extracted SDK, so that the SDK extraction has *two* real consumers driving its API. **Done (phases 1–5 + design correction); phases 6–8 deferred.** See [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/).
-3. **Migrate both reporters to the canonical contract.** The two were originally built against an internal draft that diverged from the now-canonical metta contract on input env vars, output env var, and the in-zip render manifest (see status note at the top of this file). The migration changes how outputs are *flagged*, not what the actual artifact files contain. **Pending**, tracked alongside the matching work on metta's reference reporters.
+3. **Migrate both reporters to the canonical contract.** The two were originally built against an internal draft that diverged from the now-canonical metta contract on input env vars, output env var, and the in-zip render manifest. The migration changed how outputs are *flagged*, not what the actual artifact files contain. **Done.** Both reporters now read a single `COGAME_EPISODE_BUNDLE_URI`, write to `COGAME_REPORT_URI`, and emit a top-level `manifest.json` carrying `reporter_id` / `render` / `event_log`. Each carries an inline `BundleReader` modeled on metta's `EPISODE_BUNDLE_README.md` — the next item on the SDK extraction list.
 4. **Extract `reporter_sdk`** from the (post-migration) inline primitives in the two concrete reporters. The SDK API is whatever turns out to actually be useful, not what we guessed in advance.
 5. **Extract `templates/summarizer_template`** from `paint_arena_summarizer` by stripping the PaintArena-specific bits, importing from the extracted SDK.
 
@@ -185,7 +185,7 @@ The reporters in this repo target Coworlds defined in the broader [`metta`](../m
 - `~/coding/metta/packages/coworld/src/coworld/EPISODE_BUNDLE_README.md` — episode-bundle contract.
 - `~/coding/metta/packages/coworld/src/coworld/MANIFEST_README.md` — manifest field reference.
 - `~/coding/metta/packages/coworld/src/coworld/GAME_RUNTIME_README.md` — game-container runtime contract.
-- `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` — PaintArena reference Coworld (including reference reporters under `reporter/`; both pre-canonical, pending migration).
+- `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` — PaintArena reference Coworld (including reference reporters under `reporter/`; both still pre-canonical, pending an upstream migration paired with this repo's).
 - `~/coding/metta/packages/coworld/src/coworld/policies/amongthemstarter/` — Among Them starter policy template.
 - `~/coding/metta/docs/specs/0045-coworld-role-repos.md` — per-role-repo structure spec; `CATALOG.yaml`, `users/`, `tools/`.
 

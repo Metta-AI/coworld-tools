@@ -2,7 +2,7 @@
 
 Per-episode summarizer reporter for the PaintArena Coworld. Reads the episode bundle (results, replay, config); writes a single output zip containing a self-contained HTML summary, a JSON stats file, a per-tick Parquet event log, and an in-zip `manifest.json` flagging the HTML as `render` and the Parquet as `event_log` per the canonical Coworld reporter contract. First concrete reporter in the repo — its inline primitives (HTTP I/O, deterministic-zip writer, shared event-log schema) are the source material for the upcoming [`reporter_sdk`](../../reporter_sdk/) extraction. See [`DESIGN.md`](DESIGN.md) for the locked-in design.
 
-> **Implementation status (2026-05-23):** the running code follows a pre-canonical draft of the reporter contract (multiple input env vars; a top-level `render.txt` file inside the output zip). The README below describes the **canonical** Coworld contract this reporter will be migrated to alongside metta's reference reporters. See [`../../../docs/REPORTER_DESIGN.md` § Migration state](../../../docs/REPORTER_DESIGN.md#5-migration-state) for the migration plan and the gap.
+> **Implementation status (2026-05-23):** the running code now matches the canonical Coworld reporter contract (single `COGAME_EPISODE_BUNDLE_URI` in, single `COGAME_REPORT_URI` out, in-zip `manifest.json` flagging `render` and `event_log`, `int64` event-log columns). Episode-level metadata reaches the reporter via the bundle's optional `metadata` token; absent it, the reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`.
 
 ## Output zip contents
 

@@ -11,8 +11,9 @@ Phase 2 of among_them_summarizer adds:
   fields).
 - events.parquet with three keys: game_config, player_summary, game_result.
 
-The full zip now has four entries: summary.html (rendered), stats.json,
-events.parquet, render.txt. render.txt lists summary.html.
+The full zip now has four entries: manifest.json (canonical render manifest),
+summary.html (rendered), stats.json, events.parquet. The in-zip manifest.json
+flags summary.html as `render` and events.parquet as `event_log`.
 """
 
 from __future__ import annotations
@@ -200,7 +201,7 @@ def test_slot_stats_policy_name_fallback() -> None:
     assert slots[1].policy_name == "Slot 1"  # final fallback
 
 
-# ---------- zip-shape + render.txt ----------
+# ---------- zip-shape + manifest.json ----------
 
 
 def test_build_zip_bytes_has_four_entries() -> None:
