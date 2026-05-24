@@ -158,7 +158,7 @@ def _stable_json(obj: Any) -> str:
 EVENT_LOG_SCHEMA = pa.schema(
     [
         pa.field("ts", pa.int64()),
-        pa.field("player", pa.int16()),
+        pa.field("player", pa.int64()),
         pa.field("key", pa.string()),
         pa.field("value", pa.string()),
     ]
@@ -177,7 +177,7 @@ def write_events_parquet(rows: list[dict[str, Any]]) -> bytes:
         table = pa.table(
             {
                 "ts": pa.array([r["ts"] for r in rows], type=pa.int64()),
-                "player": pa.array([r["player"] for r in rows], type=pa.int16()),
+                "player": pa.array([r["player"] for r in rows], type=pa.int64()),
                 "key": pa.array([r["key"] for r in rows], type=pa.string()),
                 "value": pa.array([r["value"] for r in rows], type=pa.string()),
             },
