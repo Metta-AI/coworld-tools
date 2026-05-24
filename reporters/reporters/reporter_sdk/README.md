@@ -27,7 +27,7 @@ The SDK is a library, not a framework — it provides primitives reporters call,
 ```
 reporter_sdk/
 ├── README.md             # this file
-├── pyproject.toml        # pip-installable, hatchling backend, requires Python >=3.13
+├── pyproject.toml        # pip-installable, hatchling backend, requires Python >=3.11
 ├── reporter_sdk/         # the importable package
 │   ├── __init__.py       # re-exports the full public surface
 │   ├── bundle.py         # BundleReader, BundleInnerManifest
