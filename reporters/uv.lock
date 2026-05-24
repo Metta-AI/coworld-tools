@@ -298,7 +298,7 @@ wheels = [
 
 [[package]]
 name = "reporter-sdk"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "reporters/reporter_sdk" }
 dependencies = [
     { name = "pyarrow" },
