@@ -1,0 +1,54 @@
+{
+  "episode_id": "ep_abc123",
+  "variant_id": "default",
+  "started_at": "2026-05-18T10:23:45Z",
+  "ended_at": "2026-05-18T10:30:38Z",
+  "duration_seconds": 412.5,
+  "players": [
+    {
+      "slot": 0,
+      "policy_version_id": "polver_0",
+      "policy_name": "policy-v0"
+    },
+    {
+      "slot": 1,
+      "policy_version_id": "polver_1",
+      "policy_name": "policy-v1"
+    },
+    {
+      "slot": 2,
+      "policy_version_id": "polver_2",
+      "policy_name": "policy-v2"
+    },
+    {
+      "slot": 3,
+      "policy_version_id": "polver_3",
+      "policy_name": "policy-v3"
+    },
+    {
+      "slot": 4,
+      "policy_version_id": "polver_4",
+      "policy_name": "policy-v4"
+    },
+    {
+      "slot": 5,
+      "policy_version_id": "polver_5",
+      "policy_name": "policy-v5"
+    },
+    {
+      "slot": 6,
+      "policy_version_id": "polver_6",
+      "policy_name": "policy-v6"
+    },
+    {
+      "slot": 7,
+      "policy_version_id": "polver_7",
+      "policy_name": "policy-v7"
+    }
+  ],
+  "league_id": null,
+  "division_id": null,
+  "round_id": null,
+  "pool_id": null,
+  "tags": {}
+}

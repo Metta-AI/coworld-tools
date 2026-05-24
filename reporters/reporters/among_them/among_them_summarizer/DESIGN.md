@@ -770,9 +770,11 @@ starts.
 > the explicit slot ↔ connection-order mapping (`SlotStats.join_order`,
 > `AmongThemStats.slot_to_join_order`, `join` event payload's
 > `player_index`). Validated end-to-end against two real
-> `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games.
-> Phases 6 (determinism + zip-contract tests), 7 (Dockerfile +
-> smoke), and 8 (README) remain.
+> `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games, plus a
+> containerized smoke against a synthetic 8-player bundle. The
+> canonical-contract migration and phase 7 (Dockerfile, `build.sh`,
+> `smoke.sh`, smoke fixtures) have landed. Phases 6 (additional
+> determinism + zip-contract test pass) and 8 (expanded README) remain.
 
 ### Phase 1 — Skeleton: I/O contract round-trip
 

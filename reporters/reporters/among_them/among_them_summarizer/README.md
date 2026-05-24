@@ -2,7 +2,7 @@
 
 Per-episode summarizer reporter for the Among Them Coworld. Reads the episode bundle (results, replay, optional config); writes a single output zip containing a self-contained HTML summary, a JSON stats file, a per-event Parquet event log, and an in-zip `manifest.json` flagging the HTML as `render` and the Parquet as `event_log` per the canonical Coworld reporter contract. Second concrete reporter in the repo — its inline primitives (HTTP I/O, deterministic-zip writer, shared event-log schema) are the source material for the upcoming [`reporter_sdk`](../../reporter_sdk/) extraction alongside [`paint_arena_summarizer`](../../paint_arena/paint_arena_summarizer/). See [`DESIGN.md`](DESIGN.md) for the locked-in design and phase plan.
 
-> **Status:** phases 1–5 + a design-correction commit landed on the `among-them-summarizer-phase-1` branch. Phases 6 (determinism + zip-contract tests), 7 (Dockerfile + smoke), and 8 (this README, in expanded form) remain. Validated end-to-end against two real `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games.
+> **Status:** phases 1–5 + a design-correction commit + the canonical-contract migration + phase 7 (Dockerfile, `build.sh`, `smoke.sh`, smoke fixtures) landed. Phases 6 (additional determinism + zip-contract test pass) and 8 (this README, in expanded form) remain. Validated end-to-end against two real `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games, plus a containerized smoke against a synthetic 8-player bundle.
 >
 > **Implementation status (2026-05-23):** the running code now matches the canonical Coworld reporter contract (single `COGAME_EPISODE_BUNDLE_URI` in, single `COGAME_REPORT_URI` out, in-zip `manifest.json` flagging `render` and `event_log`, `int64` event-log columns). Episode-level metadata reaches the reporter via the bundle's optional `metadata` token; absent it, the reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`. The bundle's `replay` token carries binary `.bitreplay` bytes (an Among-Them-specific deviation from the canonical convention of JSON-formatted `replay.json`).
 
@@ -116,10 +116,20 @@ Then pack a single-episode bundle by hand (zip the `.bitreplay` as `replay.json`
 ## Building the image
 
 ```bash
-./build.sh                              # (deferred to phase 7; placeholder for now)
+./build.sh                              # builds among-them-summarizer:latest for linux/amd64
+PLATFORM=linux/arm64 ./build.sh         # local-only experimentation on Apple Silicon
+IMAGE=among-them-summarizer:dev ./build.sh
 ```
 
-The Dockerfile + `build.sh` land in phase 7 of the [`DESIGN.md`](DESIGN.md) implementation plan. The build context will be `reporters/` (matching PaintArena's pattern) so both the SDK and the reporter source are reachable from one `COPY` plane; the platform target is `linux/amd64` (what `coworld upload` requires for hosted episodes).
+The build context is `reporters/` (matching PaintArena's pattern) so both the shared `reporter_sdk/` and the reporter source are reachable from one `COPY` plane. The platform target defaults to `linux/amd64` (what `coworld upload` requires for hosted episodes); override `PLATFORM` for local experimentation.
+
+## Smoke test
+
+```bash
+./smoke.sh
+```
+
+Builds the image, packs the checked-in synthetic fixtures (`smoke/fixtures/`) into a canonical episode bundle, runs the container, and asserts the output zip matches the canonical contract end-to-end (four expected entries, in-zip `manifest.json` flags, pinned mtimes, HTML self-containment, stats sanity, parquet presence). The synthetic `.bitreplay` is regenerated from the test fixture helpers by `smoke/make_fixtures.py` — re-run that script if `tests/fixtures.py` evolves and the smoke fixtures should track it.
 
 ## Tests
 
@@ -135,7 +145,7 @@ Currently **88 tests** across `test_skeleton.py`, `test_phase2.py`, `test_phase3
 - **Phase 4 (input analytics).** Edge detection (held key = 1 press, release-and-repress = 2, simultaneous bits = 1 per bit), all 7 buttons parametrized, slot mapping survives mid-game leaves, bucket aggregation per (slot, 10s window), `stats.activity` block populated, `input_press` + `activity_bucket` keys in parquet, empty-input-stream graceful degradation.
 - **Phase 5 (HTML polish).** Well-formedness via stdlib `html.parser`, self-containment (no `<script>`, no `<link>`), 16-entry palette aligned with `PLAYER_COLOR_NAMES`, one swatch per scoreboard row, swatch hex matches palette, sparkline SVG count equals slot count, rect count per sparkline equals dense bucket count, post-leave buckets marked `bar-absent`, footer carries episode id.
 
-The phase-6 determinism + zip-contract test pass (per the plan) and phase-7 smoke-test harness will add more.
+The phase-6 determinism + zip-contract test pass (per the plan) will add more; phase 7 (containerized smoke) is live via `./smoke.sh`.
 
 ## SDK extraction candidates (inline today)
 
