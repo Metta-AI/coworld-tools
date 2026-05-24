@@ -4,12 +4,21 @@ version = "0.1.0"
 description = "Workspace anchor for the reporters repo. The shared, pip-installable Python package for reporter authors lives at reporters/reporter_sdk/; concrete reporter implementations live under reporters/<coworld>/."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "reporter-sdk",
+]
 
 [dependency-groups]
 dev = [
     "pyarrow>=24.0.0",
     "pydantic>=2.13.4",
     "pytest>=9.0.3",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
 ]
+
+[tool.uv.sources]
+reporter-sdk = { workspace = true }
+
+[tool.uv.workspace]
+members = ["reporters/reporter_sdk"]

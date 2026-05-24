@@ -1,0 +1,3 @@
+# The template depends only on the shared SDK (which itself pins pydantic,
+# pyarrow, and requests). A concrete reporter derived from this template
+# can add its own game-specific deps here.

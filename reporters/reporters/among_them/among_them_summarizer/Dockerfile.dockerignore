@@ -1,3 +1,33 @@
-__pycache__/
-*.pyc
-.pytest_cache/
+# Per-Dockerfile ignore for among_them_summarizer.
+#
+# The build context is reporters/ (so the Dockerfile can COPY the shared
+# reporter_sdk/ from a single context), but this image only needs the SDK
+# plus this reporter's runtime entrypoint. Everything else under reporters/
+# -- other coworlds' trees, tests, designs, build scripts, smoke fixtures,
+# editor metadata -- must stay out of the build context so the image stays
+# small and reporters can't accidentally take an undeclared dependency on
+# sibling reporters' source.
+#
+# Style: exclude everything, then re-include only what Dockerfile COPYs.
+# Docker 25+ honors this <Dockerfile>.dockerignore in preference to a
+# reporters/.dockerignore at the context root, which is what lets each
+# reporter scope its own allowlist.
+
+**
+
+# Shared SDK (skeleton today; reserved import path for the upcoming
+# extraction). Re-include the whole tree.
+!reporter_sdk/**
+
+# This reporter's runtime source. Notably absent: Dockerfile itself,
+# build.sh, smoke.sh, smoke/, tests/, DESIGN.md, README.md.
+!among_them/among_them_summarizer/requirements.txt
+!among_them/among_them_summarizer/among_them_summarizer.py
+
+# Re-exclude junk that may live inside the re-included trees.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/*.egg-info
+**/.DS_Store

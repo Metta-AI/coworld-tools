@@ -1,0 +1,68 @@
+# CATALOG.yaml — canonical index of reporter implementations in this repo.
+#
+# Schema source of truth: docs/specs/0045-coworld-role-repos.md in metta
+# (§"CATALOG.yaml schema"). Required fields per entry: name, image, source,
+# source_url, status, target, owner, description. Optional: family, since.
+#
+# Status enum (spec 0045): active, starter, experimental, archived.
+# This repo does not use "scaffold" as a status — placeholder
+# implementations (0-byte source files; directory exists but no logic)
+# are tagged `experimental`, which is the closest spec-0045 fit.
+# Their descriptions call out the scaffold state explicitly.
+#
+# Image tags: ghcr.io/metta-ai/reporters-<name>:latest follows the
+# convention established by .github/workflows/build-default-reporter-image.yml
+# (the first reporter image-publishing workflow in this repo). Only the
+# default reporter has publish CI today; the paint-arena-summarizer and
+# among-them-summarizer image tags below are placeholders that will become
+# real when their build-image workflows land. The `source` paths are
+# always accurate regardless of image-publish state.
+#
+# Validator: tools/validate_catalog.py (run on every PR via
+# .github/workflows/validate-catalog.yml).
+
+entries:
+  - name: paint-arena-summarizer
+    image: ghcr.io/metta-ai/reporters-paint-arena-summarizer:latest
+    source: reporters/paint_arena/paint_arena_summarizer
+    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/paint_arena/paint_arena_summarizer
+    status: active
+    target: paint_arena
+    owner: jboggs
+    description: Per-episode HTML scoreboard and proximity-event Parquet for PaintArena; canonical Coworld contract, SDK-consuming.
+
+  - name: among-them-summarizer
+    image: ghcr.io/metta-ai/reporters-among-them-summarizer:latest
+    source: reporters/among_them/among_them_summarizer
+    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/among_them/among_them_summarizer
+    status: active
+    target: among_them
+    owner: jboggs
+    description: Per-episode HTML summary plus event-stream Parquet for Among Them; binary bitreplay parser, input-stream analytics, SDK-consuming.
+
+  - name: softmax-default-reporter
+    image: ghcr.io/metta-ai/reporters-default:latest
+    source: reporters/default
+    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/default
+    status: active
+    target: "*"
+    owner: jboggs
+    description: Placeholder reporter for Coworlds without a game-specific reporter; writes a one-paragraph summary.md derived from results.json's scores field, no event log.
+
+  - name: among-them-highlight-reel
+    image: ghcr.io/metta-ai/reporters-among-them-highlight-reel:latest
+    source: reporters/among_them/among_them_highlight_reel
+    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/among_them/among_them_highlight_reel
+    status: experimental
+    target: among_them
+    owner: jboggs
+    description: Scaffold; no implementation. Planned highlight-reel reporter for Among Them. Source directory exists but every file is empty.
+
+  - name: cogs-vs-clips-summarizer
+    image: ghcr.io/metta-ai/reporters-cogs-vs-clips-summarizer:latest
+    source: reporters/cogs_vs_clips/cogs_vs_clips_summarizer
+    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/cogs_vs_clips/cogs_vs_clips_summarizer
+    status: experimental
+    target: cogs_vs_clips
+    owner: jboggs
+    description: Scaffold; no implementation. Planned per-episode summarizer for Cogs vs Clips. Source directory exists but every file is empty.
