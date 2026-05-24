@@ -2,9 +2,7 @@
 
 Shared, pip-installable Python package providing the primitives every Coworld reporter in this repo programs against.
 
-> **Status: still intentionally on hold.** The package exists and is installable but exposes no real surface yet. The two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/) — both inline the primitives that will live here. The SDK's API will be *extracted* from those two reporters once their shared canonical shape is stable; see the "Build strategy" section of the [root README](../../README.md) for the rationale. The skeleton exists now so the import path is reserved and the package is wired up for an editable install whenever it becomes useful.
->
-> Both reporters now run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` contract with an in-zip `manifest.json`. The SDK extraction is the natural next step: the inline `BundleReader`, `write_deterministic_zip`, `EVENT_LOG_SCHEMA`, and `write_events_parquet` already live in both reporters in nearly-identical form, ready to be lifted into one shared module.
+> **Status: implemented.** Extracted from the two concrete reporters ([`reporters/paint_arena/paint_arena_summarizer`](../paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer`](../among_them/among_them_summarizer/)) after both migrated to the canonical Coworld reporter contract. Both reporters now import their bundle reader, deterministic zip writer, event-log schema and writer, env-var URI helpers, retrying URI I/O, and validating output-manifest writer from this package. The SDK exposes a small, deliberate surface; everything game-specific stays in the per-Coworld reporter.
 
 ## Purpose
 
@@ -28,13 +26,40 @@ The SDK is a library, not a framework — it provides primitives reporters call,
 
 ```
 reporter_sdk/
-├── README.md            # this file
-├── pyproject.toml       # pip-installable, hatchling backend, requires Python >=3.13
-└── reporter_sdk/        # the importable package
-    └── __init__.py
+├── README.md             # this file
+├── pyproject.toml        # pip-installable, hatchling backend, requires Python >=3.13
+├── reporter_sdk/         # the importable package
+│   ├── __init__.py       # re-exports the full public surface
+│   ├── bundle.py         # BundleReader, BundleInnerManifest
+│   ├── event_log.py      # EVENT_LOG_SCHEMA, write_events_parquet
+│   ├── io.py             # ReporterInputs, load_reporter_inputs, read_uri, write_uri, read_json
+│   ├── output_manifest.py# OutputManifest, build_report_zip, RENDERABLE_EXTENSIONS, EVENT_LOG_EXTENSIONS
+│   └── zip_writer.py     # write_deterministic_zip, stable_json, MTIME_SENTINEL
+└── tests/                # per-submodule unit tests
 ```
 
-Flat (non-`src/`) layout for consistency with the rest of the repo. Public API is whatever `reporter_sdk/__init__.py` re-exports; submodules will be added per feature as concrete needs surface.
+Flat (non-`src/`) layout for consistency with the rest of the repo. The public API is whatever `reporter_sdk/__init__.py` re-exports — consumers should reach for symbols via `from reporter_sdk import X` rather than the submodule paths so the layout can evolve without breaking callers.
+
+## Public API
+
+Imported as `from reporter_sdk import X`:
+
+| Symbol | Kind | Purpose |
+| --- | --- | --- |
+| `BundleReader` | class | Open an episode bundle zip from `file://` / `https://`, parse the inner `manifest.json`, expose typed accessors keyed by token name (`results`, `replay`, `metadata`, ...). |
+| `BundleInnerManifest` | pydantic model | The shape of the bundle's inner `manifest.json`: `ereq_id`, `status`, `include`, `files`. `extra="allow"` for forward-compat. |
+| `OutputManifest` | pydantic model | The shape of the reporter's own in-zip `manifest.json`: `reporter_id`, optional `render`, optional `event_log`. |
+| `build_report_zip(manifest, entries)` | function | Validate `manifest` against `entries` and produce a deterministic zip with `manifest.json` prepended. `render` must point at an in-zip `.md`/`.html`; `event_log` must point at an in-zip `.parquet`. |
+| `write_deterministic_zip(entries)` | function | Lower-level deterministic zip writer (used by `build_report_zip` and by reporters that need full control). Pins `date_time=(1980,1,1,0,0,0)` on every entry. |
+| `MTIME_SENTINEL` | constant | `(1980, 1, 1, 0, 0, 0)`. |
+| `stable_json(obj)` | function | `json.dumps` with `sort_keys=True, separators=(",", ":")`; use for any JSON embedded inside another container (event-log `value` strings, manifest payloads). |
+| `EVENT_LOG_SCHEMA` | pyarrow.Schema | `(ts: int64, player: int64, key: string, value: string)`. |
+| `write_events_parquet(rows)` | function | Encode event-log rows to Parquet bytes using `EVENT_LOG_SCHEMA`. Empty list → well-formed zero-row table. |
+| `ReporterInputs` | pydantic model | `episode_bundle_uri`, `report_uri`. |
+| `load_reporter_inputs()` | function | Read both from the canonical env vars (`COGAME_EPISODE_BUNDLE_URI`, `COGAME_REPORT_URI`). Raises `KeyError` if either is missing. |
+| `read_uri(uri)` / `write_uri(uri, payload, content_type)` | functions | Dispatched over `file://` and `http(s)://`. HTTP retries on 429/5xx with exponential backoff (5 attempts, capped at 8s). |
+| `read_json(uri)` | function | `read_uri` + JSON decode. |
+| `RENDERABLE_EXTENSIONS` / `EVENT_LOG_EXTENSIONS` | frozensets | The accepted extensions for `OutputManifest.render` / `OutputManifest.event_log`. |
 
 ## Install
 
@@ -61,61 +86,75 @@ CMD ["python", "-m", "reporter.<entrypoint>"]
 
 Reporters build against repo-HEAD SDK by default. If a reporter ever needs to pin to an older SDK, bump the SDK version, tag the commit, and have that reporter install from a built wheel instead — the package is structured to support this without rework.
 
-## Extraction candidates (still inline in the two reporters)
+## Out of scope
 
-These primitives are duplicated between `paint_arena_summarizer.py` and `among_them_summarizer.py`; they're the shopping list for the upcoming extraction pass. Names are indicative — the canonical-contract migration of the two reporters will reshape some of them.
+Anything game-specific stays in the per-Coworld reporter:
 
-- **Bundle reader** — opens the bundle zip pointed at by `COGAME_EPISODE_BUNDLE_URI`, reads its inner `manifest.json`, exposes typed accessors for the standard bundle tokens (`results`, `replay`, `config`, `game_logs`, `player_logs`, `error_info`). Replaces today's collection of per-artifact URI env-var readers.
-- **Output `manifest.json` writer** — emits the in-zip `manifest.json` flagging `reporter_id`, `render`, and `event_log`. Validates that `render` resolves to an existing `.md` or `.html` entry and `event_log` resolves to an existing Parquet entry.
-- **`write_deterministic_zip(entries)`** — `zipfile.ZipFile` helper with pinned `date_time=(1980, 1, 1, 0, 0, 0)` for byte-identical reruns over identical inputs.
-- **I/O helpers** — `read_uri(uri) -> bytes`, `write_uri(uri, payload, content_type)`, `read_json(uri)` — scheme-dispatched over `file://`, `http(s)://`, and presigned S3 with retries on 429/5xx (5 attempts, exponential backoff). Aligned with metta's `runner/io.py`.
-- **`EVENT_LOG_SCHEMA`** — the canonical `(ts: int64, player: int64, key: string, value: string)` Parquet schema — plus a `write_events_parquet(rows)` writer.
-- **`_stable_json(obj)`** — `json.dumps(obj, sort_keys=True, separators=(",", ":"))` for byte-identical Parquet payloads embedded as `value` strings in event-log rows.
+- Results / replay parsing (PaintArena's `PaintArenaResults`, Among Them's `parse_bitreplay`, etc.).
+- Summary-HTML rendering and CSS.
+- Event projection from game state into the canonical `(ts, player, key, value)` rows.
 
-Each reporter labels its own inline primitives in `DESIGN.md` ("Inline primitives" section) so the extraction pass has a clear inventory.
+Among Them's binary `.bitreplay` decoder is the canonical example of "not an SDK candidate" — see [`reporters/among_them/among_them_summarizer/DESIGN.md`](../among_them/among_them_summarizer/DESIGN.md) (Inline primitives section).
 
-## Usage (post-extraction sketch)
+## Usage
 
 ```python
-# Indicative — actual API will be added during extraction.
+import json
+
 from reporter_sdk import (
     BundleReader,
-    ReportZipWriter,
-    EVENT_LOG_SCHEMA,
+    OutputManifest,
+    build_report_zip,
+    load_reporter_inputs,
+    stable_json,
     write_events_parquet,
-    read_env_uris,
+    write_uri,
 )
 
-bundle_uri, report_uri = read_env_uris()  # COGAME_EPISODE_BUNDLE_URI, COGAME_REPORT_URI
+REPORTER_ID = "paint-arena-summarizer"
 
-with BundleReader(bundle_uri) as bundle:
+inputs = load_reporter_inputs()  # reads COGAME_EPISODE_BUNDLE_URI / COGAME_REPORT_URI
+
+with BundleReader(inputs.episode_bundle_uri) as bundle:
+    inner = bundle.inner_manifest()
+    if inner.status != "success":
+        raise RuntimeError(f"bundle status={inner.status!r}; cannot operate on failed episode")
     results = bundle.read_json("results")
     replay = bundle.read_json("replay")
-    config = bundle.read_json_optional("config")
+    metadata = bundle.read_json_optional("metadata") or {}
 
-    # ... build per-Coworld stats / HTML / event rows ...
+# ... build per-Coworld stats / HTML / event rows ...
+summary_html_bytes = render_summary(results, replay)
+stats_json_bytes = (json.dumps(stats, indent=2) + "\n").encode("utf-8")
+events_parquet_bytes = write_events_parquet([
+    {"ts": 1, "player": 0, "key": "k", "value": stable_json({"x": 1})},
+])
 
-    summary_html_bytes = render_summary(results, replay)
-    stats_json_bytes = serialize_stats(results)
-    events_parquet_bytes = write_events_parquet(event_rows)
-
-writer = ReportZipWriter(reporter_id="paint-arena-summarizer", deterministic=True)
-writer.add("summary.html", summary_html_bytes)
-writer.add("stats.json", stats_json_bytes)
-writer.add("proximity.parquet", events_parquet_bytes)
-writer.set_render("summary.html")
-writer.set_event_log("proximity.parquet")
-writer.write(report_uri)
+payload = build_report_zip(
+    OutputManifest(
+        reporter_id=REPORTER_ID,
+        render="summary.html",
+        event_log="events.parquet",
+    ),
+    [
+        ("summary.html", summary_html_bytes),
+        ("stats.json", stats_json_bytes),
+        ("events.parquet", events_parquet_bytes),
+    ],
+)
+write_uri(inputs.report_uri, payload, content_type="application/zip")
 ```
+
+See [`reporters/paint_arena/paint_arena_summarizer/paint_arena_summarizer.py`](../paint_arena/paint_arena_summarizer/paint_arena_summarizer.py) and [`reporters/among_them/among_them_summarizer/among_them_summarizer.py`](../among_them/among_them_summarizer/among_them_summarizer.py) for full working examples.
 
 Treat the canonical contract — [`packages/coworld/src/coworld/docs/roles/reporter.md`](../../../metta/packages/coworld/src/coworld/docs/roles/reporter.md) in metta — as the source of truth; the SDK is the implementation of that contract. If the SDK and the metta doc disagree, the metta doc wins and the SDK is wrong.
 
 ## Versioning
 
-`0.0.0` until the extraction pass produces the first real public API. From there, SemVer:
+`0.1.0` — first release with a real public API, extracted from the two concrete reporters. SemVer from here:
 
 - **0.x.y** — pre-1.0, breaking changes allowed at minor bumps. Coordinate via the commit that introduces the break.
-- **1.0.0** — first release once both PaintArena and Among Them reporters import a stable surface against the canonical contract.
+- **1.0.0** — first release once the API is stable across both in-repo reporters and the metta-side reference reporters that consume the SDK across a repo boundary.
 
 Because reporters build against repo-HEAD by default, breaking changes require updating every consumer in the same commit. Treat that as the forcing function for keeping the API small and considered.
 

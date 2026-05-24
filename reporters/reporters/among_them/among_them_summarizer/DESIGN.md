@@ -10,12 +10,14 @@
 >
 > Mirrors the shape of
 > [`paint_arena_summarizer`](../../paint_arena/paint_arena_summarizer/DESIGN.md),
-> the first concrete reporter in the repo — the SDK-extraction candidates
-> (bundle reader, `read_uri`/`write_uri`, `write_deterministic_zip`, in-zip
-> `manifest.json` writer, `EVENT_LOG_SCHEMA`, `write_events_parquet`) are
-> still inline in both reporters and will be lifted into `reporter_sdk` once
-> the canonical-contract migration lands. This is reporter #2; pain points
-> discovered here feed back into the eventual SDK.
+> the first concrete reporter in the repo. **`reporter_sdk` has now been
+> extracted from both reporters**; the bundle reader, URI I/O,
+> `write_deterministic_zip`, the validating in-zip `manifest.json` writer
+> (`OutputManifest` + `build_report_zip`), `EVENT_LOG_SCHEMA`, and
+> `write_events_parquet` are imported from `reporter_sdk`. The "Inline
+> primitives" section below is preserved as the historical extraction
+> inventory; only `parse_bitreplay` and the surrounding binary-replay
+> decoders remain inline (Among-Them-specific, not an SDK candidate).
 
 ## Purpose
 

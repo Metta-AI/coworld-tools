@@ -1,10 +1,14 @@
 [project]
 name = "reporter-sdk"
-version = "0.0.0"
+version = "0.1.0"
 description = "Shared primitives and helpers for coworld reporter implementations (envelope construction, env-supplied URI I/O, contract-aligned types). Imported by templates and concrete reporters in this repo."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pyarrow>=18,<25",
+    "pydantic>=2,<3",
+    "requests>=2.32,<3",
+]
 
 [build-system]
 requires = ["hatchling"]

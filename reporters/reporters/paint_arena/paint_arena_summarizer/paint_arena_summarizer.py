@@ -15,202 +15,68 @@ See DESIGN.md for the full specification. Grid dimensions and frames come
 from the game-owned replay; PaintArena's replay format is defined by its
 game server in coworld.
 
-The inline primitives in this file (BundleReader, ReporterInputs,
-read_uri/write_uri, write_deterministic_zip, EVENT_LOG_SCHEMA) are SDK
-extraction candidates -- once `reporter_sdk` lands, they'll be lifted out
-and this file will import them instead.
+Shared primitives (`BundleReader`, `ReporterInputs`, `read_uri` /
+`write_uri`, `write_deterministic_zip`, `EVENT_LOG_SCHEMA`, the output
+`manifest.json` writer) live in the shared `reporter_sdk` package and
+are re-exported below so test code referencing this module's attributes
+continues to work.
 """
 
 from __future__ import annotations
 
-import io
+# `time` and `requests` are intentionally imported (and used by the SDK
+# at module-singleton level) so test code can `monkeypatch.setattr(par.time,
+# "sleep", ...)` and `monkeypatch.setattr(par.requests, "request", ...)`
+# without reaching into the SDK module.
 import json
-import os
 import sys
-import time
-import urllib.parse
-import zipfile
+import time  # noqa: F401  (re-exported for monkeypatching)
 from collections import defaultdict
 from html import escape as html_escape
-from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-import requests
+import requests  # noqa: F401  (re-exported for monkeypatching)
 from pydantic import BaseModel, Field, NonNegativeInt
+
+from reporter_sdk import (
+    EVENT_LOG_SCHEMA,
+    BundleInnerManifest,
+    BundleReader,
+    OutputManifest,
+    ReporterInputs,
+    build_report_zip,
+    load_reporter_inputs,
+    read_json,
+    read_uri,
+    stable_json,
+    write_deterministic_zip,
+    write_events_parquet,
+    write_uri,
+)
+# Re-exported for the test suite, which references `par._HTTP_MAX_ATTEMPTS`.
+from reporter_sdk.io import _HTTP_MAX_ATTEMPTS  # noqa: F401
+
+# Public re-exports — tests import these as attributes of this module.
+__all__ = [
+    "EVENT_LOG_SCHEMA",
+    "BundleInnerManifest",
+    "BundleReader",
+    "OutputManifest",
+    "ReporterInputs",
+    "build_report_zip",
+    "load_reporter_inputs",
+    "read_json",
+    "read_uri",
+    "stable_json",
+    "write_deterministic_zip",
+    "write_events_parquet",
+    "write_uri",
+]
 
 # The reporter's self-identifying id, stamped into the output zip's
 # `manifest.json` `reporter_id` field. Conventionally matches the runnable's
 # `id` in `manifest.reporter[]`.
 REPORTER_ID = "paint-arena-summarizer"
-
-
-# ---------- inline primitives (SDK extraction candidates) ----------
-
-
-class ReporterInputs(BaseModel):
-    episode_bundle_uri: str
-    report_uri: str
-
-
-def load_reporter_inputs() -> ReporterInputs:
-    return ReporterInputs(
-        episode_bundle_uri=os.environ["COGAME_EPISODE_BUNDLE_URI"],
-        report_uri=os.environ["COGAME_REPORT_URI"],
-    )
-
-
-_HTTP_RETRY_STATUSES = {429, 500, 502, 503, 504}
-_HTTP_MAX_ATTEMPTS = 5
-
-
-def _file_path_from_uri(uri: str) -> Path:
-    parsed = urllib.parse.urlparse(uri)
-    return Path(urllib.parse.unquote(parsed.path))
-
-
-def read_uri(uri: str) -> bytes:
-    scheme = urllib.parse.urlparse(uri).scheme.lower()
-    if scheme == "file":
-        return _file_path_from_uri(uri).read_bytes()
-    if scheme in ("http", "https"):
-        return _http_request_with_retry("GET", uri).content
-    raise ValueError(f"unsupported URI scheme {scheme!r} for read: {uri}")
-
-
-def write_uri(uri: str, payload: bytes, content_type: str) -> None:
-    scheme = urllib.parse.urlparse(uri).scheme.lower()
-    if scheme == "file":
-        path = _file_path_from_uri(uri)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
-        return
-    if scheme in ("http", "https"):
-        _http_request_with_retry("PUT", uri, data=payload, headers={"Content-Type": content_type})
-        return
-    raise ValueError(f"unsupported URI scheme {scheme!r} for write: {uri}")
-
-
-def _http_request_with_retry(
-    method: str,
-    uri: str,
-    *,
-    data: bytes | None = None,
-    headers: dict[str, str] | None = None,
-) -> requests.Response:
-    delay = 0.5
-    for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
-        resp = requests.request(method, uri, data=data, headers=headers, timeout=30)
-        if resp.status_code < 400:
-            return resp
-        if resp.status_code not in _HTTP_RETRY_STATUSES or attempt == _HTTP_MAX_ATTEMPTS:
-            resp.raise_for_status()
-        time.sleep(delay)
-        delay = min(delay * 2, 8.0)
-    raise RuntimeError("unreachable")  # loop above either returns or raises
-
-
-def read_json(uri: str) -> Any:
-    return json.loads(read_uri(uri).decode("utf-8"))
-
-
-class BundleInnerManifest(BaseModel):
-    """The `manifest.json` at the root of every episode bundle zip.
-
-    Schema mirrors metta's `EPISODE_BUNDLE_README.md`: `ereq_id`, `status`,
-    `include` (tokens actually delivered after access-control filtering),
-    `files` (token -> path-in-zip for single-file tokens; dict for multi-file
-    tokens like `game_logs`). `extra="allow"` so forward-extension fields
-    (e.g. an `episode_id`/`variant_id` carrier the metta bundler may add)
-    don't trip validation.
-    """
-
-    ereq_id: str
-    status: str = "success"
-    include: list[str] = Field(default_factory=list)
-    files: dict[str, Any] = Field(default_factory=dict)
-
-    model_config = {"extra": "allow"}
-
-
-class BundleReader:
-    """Opens an episode bundle zip from a URI, parses its inner
-    `manifest.json`, and exposes typed accessors for its named tokens.
-
-    Tokens map to entries inside the zip via `manifest.json::files`.
-    `read_bytes`/`read_json` require the token; `*_optional` variants
-    return `None` when the token isn't in `manifest.include` (so callers
-    can transparently handle access-controlled bundles where a token may
-    have been filtered out).
-    """
-
-    def __init__(self, bundle_uri: str) -> None:
-        self._bytes = read_uri(bundle_uri)
-        self._zf = zipfile.ZipFile(io.BytesIO(self._bytes))
-        raw = json.loads(self._zf.read("manifest.json"))
-        self._manifest = BundleInnerManifest.model_validate(raw)
-
-    def inner_manifest(self) -> BundleInnerManifest:
-        return self._manifest
-
-    def _token_path(self, token: str) -> str:
-        path = self._manifest.files.get(token)
-        if path is None:
-            raise KeyError(f"bundle has no entry for token {token!r}")
-        if not isinstance(path, str):
-            raise TypeError(
-                f"token {token!r} maps to a multi-file entry ({type(path).__name__}); "
-                "this reader only handles single-file tokens"
-            )
-        return path
-
-    def read_bytes(self, token: str) -> bytes:
-        return self._zf.read(self._token_path(token))
-
-    def read_bytes_optional(self, token: str) -> bytes | None:
-        if token not in self._manifest.include:
-            return None
-        return self.read_bytes(token)
-
-    def read_json(self, token: str) -> Any:
-        return json.loads(self.read_bytes(token))
-
-    def read_json_optional(self, token: str) -> Any | None:
-        raw = self.read_bytes_optional(token)
-        return None if raw is None else json.loads(raw)
-
-    def close(self) -> None:
-        self._zf.close()
-
-    def __enter__(self) -> "BundleReader":
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
-
-
-# Pinned zip-entry mtime for byte-identical determinism. Anything other
-# than a fixed value would make reruns over identical inputs differ in the
-# zip's local-file headers.
-_DETERMINISTIC_ZIP_MTIME = (1980, 1, 1, 0, 0, 0)
-
-
-def write_deterministic_zip(entries: list[tuple[str, bytes]]) -> bytes:
-    """Build a zip with pinned mtimes for byte-identical reruns.
-
-    Entry order is preserved as given. Each entry's date_time is pinned to
-    _DETERMINISTIC_ZIP_MTIME so two invocations over identical inputs produce
-    byte-identical output. Determinism is preferred but not required by the
-    canonical reporter contract; this reporter opts in.
-    """
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for name, payload in entries:
-            info = zipfile.ZipInfo(filename=name, date_time=_DETERMINISTIC_ZIP_MTIME)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, payload)
-    return buf.getvalue()
 
 
 # ---------- PaintArena-specific input/output types ----------
@@ -503,25 +369,7 @@ def build_stats(
     )
 
 
-# ---------- parquet writer ----------
-
-# Shared event-log schema used across reporters. One row per fact; `value` is
-# a JSON document so the schema doesn't need to change as new event kinds are
-# added. `player = -1` denotes a global fact (e.g. a pair-event or a
-# tile-level fact that doesn't belong to one slot).
-EVENT_LOG_SCHEMA = pa.schema(
-    [
-        pa.field("ts", pa.int64()),
-        pa.field("player", pa.int64()),
-        pa.field("key", pa.string()),
-        pa.field("value", pa.string()),
-    ]
-)
-
-
-def _stable_json(obj: Any) -> str:
-    """JSON encoding with sort_keys for byte-identical reruns."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+# ---------- event-log projection ----------
 
 
 def build_event_log_rows(
@@ -539,7 +387,7 @@ def build_event_log_rows(
                 "ts": int(ev["tick"]),
                 "player": -1,
                 "key": "proximity",
-                "value": _stable_json(
+                "value": stable_json(
                     {
                         "slot_a": ev["slot_a"],
                         "slot_b": ev["slot_b"],
@@ -558,7 +406,7 @@ def build_event_log_rows(
                 "ts": int(h.tick_end),
                 "player": -1,
                 "key": "back_and_forth",
-                "value": _stable_json(
+                "value": stable_json(
                     {
                         "x": h.x,
                         "y": h.y,
@@ -571,43 +419,6 @@ def build_event_log_rows(
             }
         )
     return rows
-
-
-def write_events_parquet(rows: list[dict[str, Any]]) -> bytes:
-    """Encode event-log rows to Parquet bytes using EVENT_LOG_SCHEMA.
-
-    Determinism note: pyarrow stamps a `created_by` field in the file footer
-    that includes the pyarrow version string. The Docker image pins
-    `pyarrow` in requirements.txt, so two runs of the *same image* over
-    identical inputs produce byte-identical parquet bytes. Two runs across
-    *different* pyarrow versions would differ in that footer field. The
-    D12 byte-identical guarantee is interpreted at the level of one image
-    invocation, so this is acceptable.
-    """
-    if rows:
-        table = pa.table(
-            {
-                "ts": pa.array([r["ts"] for r in rows], type=pa.int64()),
-                "player": pa.array([r["player"] for r in rows], type=pa.int64()),
-                "key": pa.array([r["key"] for r in rows], type=pa.string()),
-                "value": pa.array([r["value"] for r in rows], type=pa.string()),
-            },
-            schema=EVENT_LOG_SCHEMA,
-        )
-    else:
-        # Empty episode (no frames, or only frames with <2 agents): still emit
-        # a well-formed parquet with the schema and zero rows. Downstream
-        # consumers can read it without special-casing absence.
-        table = EVENT_LOG_SCHEMA.empty_table()
-    buf = io.BytesIO()
-    pq.write_table(
-        table,
-        buf,
-        compression="snappy",
-        # Pin a single row group so the row-group boundaries don't drift.
-        row_group_size=max(len(rows), 1),
-    )
-    return buf.getvalue()
 
 
 # ---------- HTML renderer ----------
@@ -1024,21 +835,18 @@ def build_zip_bytes(
     summary_html = render_summary_html(stats, replay).encode("utf-8")
     stats_json = (json.dumps(stats.model_dump(), indent=2) + "\n").encode("utf-8")
     proximity_parquet = write_events_parquet(event_rows)
-    manifest_json = _stable_json(
-        {
-            "reporter_id": REPORTER_ID,
-            "render": "summary.html",
-            "event_log": "proximity.parquet",
-        }
-    ).encode("utf-8")
 
-    return write_deterministic_zip(
+    return build_report_zip(
+        OutputManifest(
+            reporter_id=REPORTER_ID,
+            render="summary.html",
+            event_log="proximity.parquet",
+        ),
         [
-            ("manifest.json", manifest_json),
             ("summary.html", summary_html),
             ("stats.json", stats_json),
             ("proximity.parquet", proximity_parquet),
-        ]
+        ],
     )
 
 

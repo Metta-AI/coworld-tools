@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.13"
 
+[manifest]
+members = [
+    "reporter-sdk",
+    "reporters-workspace",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -255,9 +261,29 @@ wheels = [
 ]
 
 [[package]]
+name = "reporter-sdk"
+version = "0.1.0"
+source = { editable = "reporters/reporter_sdk" }
+dependencies = [
+    { name = "pyarrow" },
+    { name = "pydantic" },
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyarrow", specifier = ">=18,<25" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "requests", specifier = ">=2.32,<3" },
+]
+
+[[package]]
 name = "reporters-workspace"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "reporter-sdk" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -268,6 +294,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "reporter-sdk", editable = "reporters/reporter_sdk" }]
 
 [package.metadata.requires-dev]
 dev = [
