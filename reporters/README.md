@@ -40,6 +40,7 @@ reporters/
 │   ├── reporter_sdk/                          # pip-installable shared library (zip writer, bundle reader, event-log schema, types)
 │   ├── templates/
 │   │   └── summarizer_template/               # starting point for new summarizer-style reporters
+│   ├── default/                               # softmax/default-reporter — placeholder for Coworlds without a game-specific reporter
 │   ├── among_them/
 │   │   ├── among_them_summarizer/
 │   │   └── among_them_highlight_reel/
@@ -158,6 +159,7 @@ For everything else — manifest declaration shape, the bundle's internal `manif
 | `reporter_sdk` | (shared) | Library | **Implemented** — `BundleReader`, `OutputManifest` + `build_report_zip`, deterministic zip writer, shared event-log schema and writer, env-var URI helpers, retrying `read_uri`/`write_uri`. Imported by both concrete reporters. |
 | `templates/summarizer_template` | (template) | Reporter scaffold | **Implemented** — extracted from the post-SDK `paint_arena_summarizer`. Runs end-to-end against a synthetic bundle and emits a valid-shape (stub-content) output zip via [`reporter_sdk`](reporters/reporter_sdk/); scaffolding for new `<coworld>_summarizer` reporters, not registered in any Coworld manifest. |
 | `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented (canonical, SDK-consuming, phases 1–5 + design correction + canonical-contract migration + phase 7)** — second concrete reporter; full binary `.bitreplay` parser, input-stream analytics, HTML scoreboard, containerized smoke; tests passing. Imports its shared primitives from [`reporter_sdk`](reporters/reporter_sdk/). Phases 6 (additional determinism + zip-contract test pass) and 8 (expanded README) remain. See [`reporters/among_them/among_them_summarizer/DESIGN.md`](reporters/among_them/among_them_summarizer/DESIGN.md). |
+| `default/default_reporter` | (any) | Reporter | **Implemented (canonical, SDK-consuming)** — the Softmax-published placeholder reporter. Renders a per-slot score summary from `results.json::scores`; no event log. Published to `ghcr.io/metta-ai/reporters-default:latest` via [`.github/workflows/build-default-reporter-image.yml`](.github/workflows/build-default-reporter-image.yml); referenced by Coworld manifests that have not shipped a game-specific reporter (satisfies the schema's `min_length=1` on `manifest.reporter[]`). See [`reporters/default/README.md`](reporters/default/README.md). |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation. |
 | `cogs_vs_clips/cogs_vs_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation. |
 

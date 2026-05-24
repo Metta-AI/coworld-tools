@@ -1,0 +1,3 @@
+# The default reporter depends only on the shared SDK (which pins
+# pydantic, pyarrow, and requests). Kept as a separate file so a future
+# change that adds a runtime dep does not have to touch the Dockerfile.
