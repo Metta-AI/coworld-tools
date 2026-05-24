@@ -1,19 +1,17 @@
 # among_them_summarizer
 
-Per-episode summarizer reporter for the Among Them Coworld. Reads the episode bundle (results, replay, optional config); writes a single output zip containing a self-contained HTML summary, a JSON stats file, a per-event Parquet event log, and an in-zip `manifest.json` flagging the HTML as `render` and the Parquet as `event_log` per the canonical Coworld reporter contract. Second concrete reporter in the repo — its inline primitives (HTTP I/O, deterministic-zip writer, shared event-log schema) are the source material for the upcoming [`reporter_sdk`](../../reporter_sdk/) extraction alongside [`paint_arena_summarizer`](../../paint_arena/paint_arena_summarizer/). See [`DESIGN.md`](DESIGN.md) for the locked-in design and phase plan.
+Per-episode summarizer reporter for the Among Them Coworld. Reads the episode bundle (results, binary `.bitreplay`, optional config); writes a single output zip containing a self-contained HTML summary, a JSON stats file, a per-event Parquet event log, and an in-zip `manifest.json` flagging the HTML as `render` and the Parquet as `event_log` per the canonical Coworld reporter contract. Second concrete reporter in the repo — its inline primitives (HTTP I/O, deterministic-zip writer, shared event-log schema) were extracted alongside [`paint_arena_summarizer`](../../paint_arena/paint_arena_summarizer/) into [`reporter_sdk`](../../reporter_sdk/). See [`DESIGN.md`](DESIGN.md) for the locked-in design.
 
-> **Status:** phases 1–5 + a design-correction commit + the canonical-contract migration + phase 7 (Dockerfile, `build.sh`, `smoke.sh`, smoke fixtures) landed. Phases 6 (additional determinism + zip-contract test pass) and 8 (this README, in expanded form) remain. Validated end-to-end against two real `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games, plus a containerized smoke against a synthetic 8-player bundle.
->
-> **Implementation status (2026-05-23):** the running code now matches the canonical Coworld reporter contract (single `COGAME_EPISODE_BUNDLE_URI` in, single `COGAME_REPORT_URI` out, in-zip `manifest.json` flagging `render` and `event_log`, `int64` event-log columns). Episode-level metadata reaches the reporter via the bundle's optional `metadata` token; absent it, the reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`. The bundle's `replay` token carries binary `.bitreplay` bytes (an Among-Them-specific deviation from the canonical convention of JSON-formatted `replay.json`).
+> **Implementation status (2026-05-23):** the running code matches the canonical Coworld reporter contract (single `COGAME_EPISODE_BUNDLE_URI` in, single `COGAME_REPORT_URI` out, in-zip `manifest.json` flagging `render` and `event_log`, `int64` event-log columns). Episode-level metadata reaches the reporter via the bundle's optional `metadata` token; absent it, the reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`. The bundle's `replay` token carries binary `.bitreplay` bytes (an Among-Them-specific deviation from the canonical JSON-formatted `replay.json` convention; the SDK's `BundleReader` reads bytes either way). All eight design phases — including phase 6 (determinism + zip-contract assertions) and phase 8 (this README) — have landed.
 
 ## Output zip contents
 
 ```
 report.zip
 ├── manifest.json       # {reporter_id, render: "summary.html", event_log: "events.parquet"}
-├── summary.html        # render target (flagged by manifest.json `render`)
-├── stats.json          # auxiliary (referenced from HTML footer)
-└── events.parquet      # event log (flagged by manifest.json `event_log`)
+├── summary.html        # rendered inline (flagged by manifest.json `render`)
+├── stats.json          # auxiliary download (referenced from HTML footer)
+└── events.parquet      # canonical event log (flagged by manifest.json `event_log`)
 ```
 
 | Entry | Role | Contents |
@@ -46,23 +44,12 @@ What the reporter reads out of the bundle:
 
 | Bundle entry | Use |
 | --- | --- |
-| `results.json` | `scores`, `names`, `win`, `tasks`, `kills`, `imposter`, `crew`, `vote_players`, `vote_skip`, `vote_timeout` (per Among Them's `results_schema`). |
-| `replay.json` (the `.bitreplay` payload) | Binary `.bitreplay` v3 (BITWORLD magic + format-version 3 + game name + game version + timestamp + configJson + record stream of tick-hash / input / join / leave records). Parsed inline by `parse_bitreplay` in `among_them_summarizer.py`. |
+| `results.json` | `scores`, `names`, `win`, `tasks`, `kills`, `imposter`, `crew`, `vote_players`, `vote_skip`, `vote_timeout` (per Among Them's `results_schema`). The reporter's primary source of structured per-player facts. |
+| `replay.json` (the `.bitreplay` payload) | Binary `.bitreplay` v3 (`BITWORLD` magic + format-version 3 + game name + game version + timestamp + configJson + record stream of tick-hash / input / join / leave records). Parsed inline by `parse_bitreplay` in `among_them_summarizer.py`. |
 | `config.json` (optional) | Variant config for stamping into the HTML header strip when present. |
-| Bundle inner `manifest.json` | `ereq_id` for stamping into log lines and into the reporter's own `manifest.json` provenance. |
-| `error_info.json` (only present on failed episodes) | Reporter exits non-zero — it cannot operate on a failed episode. |
+| Bundle inner `manifest.json` | `ereq_id` (used for log lines and as the `episode_id` fallback when no `metadata` token is supplied) plus the standard bundle metadata. |
 
-Episode-level metadata fields the reporter populates in `stats.json` (`episode_id`, `variant_id`, `duration_seconds`, per-slot `policy_name`) come from the bundle's `manifest.json` plus the embedded `replay.json` / `results.json`.
-
-## Slot ↔ connection-order mapping
-
-The binary replay's `ReplayJoinRecord` carries both a **slot** field (the tournament/results-JSON slot index, may be `-1` for auto-assign) and a **player_index** field (the position in `sim.players` at join time — i.e. the connection-order index). These usually agree but can differ. The reporter exposes the mapping three ways:
-
-- Per-row, on each slot: `stats.json::slots[i].join_order` — the connection-order index that joined into slot `i`, or `null` if no join record exists.
-- Flat top-level: `stats.json::slot_to_join_order` — an array of length N (slot count) with the same values, indexed by slot.
-- In the event log: each `join` row in `events.parquet` carries both `slot` and `player_index` in its JSON payload.
-
-Downstream ingesters that need to correlate the results JSON's slot-indexed arrays with the order players connected to the game pick whichever view is convenient.
+The episode bundle's contract is documented in [`EPISODE_BUNDLE_README.md`](../../../../metta/packages/coworld/src/coworld/EPISODE_BUNDLE_README.md) in metta. Episode-metadata fields the reporter populates in `stats.json` (`episode_id`, `variant_id`, `duration_seconds`, per-slot `policy_name`) come from the bundle's `manifest.json` plus the embedded `replay.json` / `results.json`.
 
 ## Failure modes
 
@@ -76,7 +63,7 @@ Downstream ingesters that need to correlate the results JSON's slot-indexed arra
 | Bundle's inner `manifest.json` reports `status: "failed"` and required artifacts absent | Exit 1; reporter cannot operate on a failed episode |
 | Replay magic mismatch or version != 3 | `ValueError`; exit 1; no zip written |
 | Replay truncated mid-record | `ValueError` propagates; exit 1 |
-| Unknown record type byte | `ValueError`; exit 1 |
+| Unknown record-type byte | `ValueError`; exit 1 |
 | Results JSON missing required `scores` field | Pydantic `ValidationError`; exit 1 |
 | `COGAME_EPISODE_BUNDLE_URI` missing/unreachable, or `COGAME_REPORT_URI` unwritable | Bubble up exception; exit 1 |
 
@@ -113,6 +100,16 @@ nim r tools/quick_run.nim among_them \
 
 Then pack a single-episode bundle by hand (zip the `.bitreplay` as `replay.json` plus the `scores.json` as `results.json` and a `manifest.json` listing the entries), or use metta's bundling helpers if you have a real `ereq_id`.
 
+## Slot ↔ connection-order mapping
+
+The binary replay's `ReplayJoinRecord` carries both a **slot** field (the tournament/results-JSON slot index, may be `-1` for auto-assign) and a **player_index** field (the position in `sim.players` at join time — i.e. the connection-order index). These usually agree but can differ. The reporter exposes the mapping three ways:
+
+- Per-row, on each slot: `stats.json::slots[i].join_order` — the connection-order index that joined into slot `i`, or `null` if no join record exists.
+- Flat top-level: `stats.json::slot_to_join_order` — an array of length N (slot count) with the same values, indexed by slot.
+- In the event log: each `join` row in `events.parquet` carries both `slot` and `player_index` in its JSON payload.
+
+Downstream ingesters that need to correlate the results JSON's slot-indexed arrays with the order players connected to the game pick whichever view is convenient.
+
 ## Building the image
 
 ```bash
@@ -121,15 +118,11 @@ PLATFORM=linux/arm64 ./build.sh         # local-only experimentation on Apple Si
 IMAGE=among-them-summarizer:dev ./build.sh
 ```
 
-The build context is `reporters/` (matching PaintArena's pattern) so both the shared `reporter_sdk/` and the reporter source are reachable from one `COPY` plane. The platform target defaults to `linux/amd64` (what `coworld upload` requires for hosted episodes); override `PLATFORM` for local experimentation.
+`build.sh` defaults to `--platform linux/amd64` because `coworld upload` requires amd64 (hosted episodes run on amd64) and would reject a host-arch build from Apple Silicon. On non-amd64 hosts the build and any subsequent `docker run` happen under emulation, which is slower but keeps the locally tested image byte-identical to the uploadable image.
 
-## Smoke test
+The Docker build context is `reporters/` (the directory containing `reporter_sdk/` and per-Coworld trees), so the Dockerfile can `COPY` both the shared SDK and the reporter source from one context.
 
-```bash
-./smoke.sh
-```
-
-Builds the image, packs the checked-in synthetic fixtures (`smoke/fixtures/`) into a canonical episode bundle, runs the container, and asserts the output zip matches the canonical contract end-to-end (four expected entries, in-zip `manifest.json` flags, pinned mtimes, HTML self-containment, stats sanity, parquet presence). The synthetic `.bitreplay` is regenerated from the test fixture helpers by `smoke/make_fixtures.py` — re-run that script if `tests/fixtures.py` evolves and the smoke fixtures should track it.
+Each reporter ships its own `Dockerfile.dockerignore` (allowlist style) so the build context contains only the SDK plus that reporter's runtime source.
 
 ## Tests
 
@@ -137,25 +130,33 @@ Builds the image, packs the checked-in synthetic fixtures (`smoke/fixtures/`) in
 uv run pytest reporters/among_them/among_them_summarizer/tests/ -v
 ```
 
-Currently **88 tests** across `test_skeleton.py`, `test_phase2.py`, `test_phase3.py`, `test_phase4.py`, `test_phase5.py`. Coverage by phase:
+Covers env-var loading at the I/O contract boundary; verdict derivation (Imposter / Crewmate / Draw); per-slot stats generalized over 4 / 8 / 16 slots; policy-name fallback (bundle metadata → `results.names` → `Slot N`); the `.bitreplay` v3 parser (header magic / version / game-name rejection paths, all four record types in mixed order, multi-byte UTF-8 names, truncated / unknown record rejection); `tick_from_ms` boundaries; join → `in_game_name` / `joined_tick` / `join_order` wiring; leave → disconnect classification (> 5 s before end); color-from-config vs positional palette fallback; token never written to any output; input edge detection (held key = 1 press, release-and-repress = 2, simultaneous bits = 1 per bit, all 7 buttons); bucket aggregation per (slot, 10 s window); HTML self-containment (no `<script>`, no `<link>`); 16-entry palette aligned with `PLAYER_COLOR_NAMES`; sparkline SVG count / rect count / present-vs-absent dimming. The phase-6 determinism + zip-contract pass asserts byte-identical reruns over identical inputs, in-zip `manifest.json` consistency (`render` extension on the renderable allowlist; `render` and `event_log` paths exist in the zip; `event_log` is Parquet), pinned mtimes, and stable Parquet metadata across runs.
 
-- **Phase 1 (skeleton).** Env-var loading at the I/O contract boundary.
-- **Phase 2 (aggregates).** Verdict derivation (Imposter / Crewmate / Draw), per-slot stats generalized over 4/8/16 slots, policy-name fallback (bundle metadata → results.names → `Slot N`), `.bitreplay` header parser (magic / version / game-name rejection paths, truncation), zip shape (canonical entries including in-zip `manifest.json`, pinned mtimes), HTML self-containment, byte-identical reruns, `events.parquet` schema with `game_config` / `player_summary` / `game_result` keys.
-- **Phase 3 (full replay parser).** All four record types in mixed order, multi-byte UTF-8 names, truncated/unknown record rejection, `tick_from_ms` boundaries, last_tick from hash records, join → `in_game_name`/`joined_tick` wiring, leave → disconnect classification (>5s before end), color-from-config vs positional palette fallback, token never written to any output (defensive byte-not-in check), `join` + `leave` events in parquet, slot ↔ connection-order mapping (`SlotStats.join_order`, `stats.slot_to_join_order`, `join` event's `player_index`).
-- **Phase 4 (input analytics).** Edge detection (held key = 1 press, release-and-repress = 2, simultaneous bits = 1 per bit), all 7 buttons parametrized, slot mapping survives mid-game leaves, bucket aggregation per (slot, 10s window), `stats.activity` block populated, `input_press` + `activity_bucket` keys in parquet, empty-input-stream graceful degradation.
-- **Phase 5 (HTML polish).** Well-formedness via stdlib `html.parser`, self-containment (no `<script>`, no `<link>`), 16-entry palette aligned with `PLAYER_COLOR_NAMES`, one swatch per scoreboard row, swatch hex matches palette, sparkline SVG count equals slot count, rect count per sparkline equals dense bucket count, post-leave buckets marked `bar-absent`, footer carries episode id.
+### Containerized smoke test
 
-The phase-6 determinism + zip-contract test pass (per the plan) will add more; phase 7 (containerized smoke) is live via `./smoke.sh`.
+```bash
+./smoke.sh                  # builds + runs the image against smoke/fixtures/
+IMAGE=among-them-summarizer:dev ./smoke.sh
+```
+
+Builds the image, packs the checked-in synthetic fixtures (`smoke/fixtures/`) into a canonical episode bundle, runs the container against a `mktemp -d` output directory, and asserts the canonical zip contract end-to-end (four expected entries; in-zip `manifest.json` flags `render: summary.html` and `event_log: events.parquet`; both target paths exist in the zip; `render` has a renderable extension; `event_log` is Parquet), pinned mtimes, HTML self-containment, and that `events.parquet` is non-empty for a real bundle. The synthetic `.bitreplay` is regenerated from the test fixture helpers by `smoke/make_fixtures.py` — re-run that script if `tests/fixtures.py` evolves and the smoke fixtures should track it.
 
 ## SDK extraction candidates (inline today)
 
-These primitives are verbatim copies of `paint_arena_summarizer.py`'s inline primitives and slated for promotion to [`reporter_sdk`](../../reporter_sdk/) once the canonical-contract migration lands:
+The Among-Them-specific primitives are inline in `among_them_summarizer.py` and stay that way; the cross-reporter primitives have already been extracted into [`reporter_sdk`](../../reporter_sdk/) and are imported from there:
 
-- **Bundle reader** — opens the bundle zip from `COGAME_EPISODE_BUNDLE_URI`, parses its inner `manifest.json`, exposes typed accessors for the standard bundle tokens.
-- `read_uri` / `write_uri` / `read_json` (scheme-dispatched `file://` and `http(s)://` with HTTP retry).
-- `write_deterministic_zip(entries)` — pinned-mtime helper for byte-identical reruns.
-- In-zip `manifest.json` writer — validates `render` resolves to a `.md`/`.html` entry and `event_log` resolves to a Parquet entry.
-- `EVENT_LOG_SCHEMA` + `write_events_parquet(rows)` — canonical `(ts, player, key, value)` schema and pyarrow writer.
-- `_stable_json(obj)` — sort-keys + compact-separator JSON encoder for deterministic payloads.
+- Bundle reader — opens the bundle zip from `COGAME_EPISODE_BUNDLE_URI`, parses its inner `manifest.json`, exposes typed accessors for the standard bundle tokens. **In the SDK.**
+- `read_uri` / `write_uri` / `read_json` (scheme-dispatched `file://` and `http(s)://` with HTTP retry). **In the SDK.**
+- `write_deterministic_zip(entries)` — pinned-mtime helper for byte-identical reruns. **In the SDK.**
+- In-zip `manifest.json` writer — validates that `render` points at an existing `.md` / `.html` entry and `event_log` points at an existing Parquet entry. **In the SDK** as `OutputManifest` + `build_report_zip`.
+- `EVENT_LOG_SCHEMA` + `write_events_parquet(rows)` — canonical `(ts, player, key, value)` schema and pyarrow writer. **In the SDK.**
+- `stable_json(obj)` — sort-keys + compact-separator JSON encoder for deterministic payloads. **In the SDK.**
 
-The Among-Them-specific parts (`parse_bitreplay`, `extract_input_presses`, `bucket_presses`, `build_slot_stats`, `build_stats`, `render_summary_html`, the `PLAYER_COLOR_NAMES` / `AMONG_THEM_COLORS` palette, the `BUTTONS` table, the HTML CSS, the choice of which auxiliary files to include and which to flag as `render` / `event_log`) stay in this file — replay-shape coupling is Coworld-specific by design and intentionally not promotion material, and the in-zip file layout is the reporter author's decision.
+The following parts stay inline — they are Coworld-specific and not promotion material:
+
+- `parse_bitreplay` and the surrounding binary-replay decoders (`_parse_bitreplay_header`, `_read_u8` / `_read_u16` / `_read_u32` / `_read_u64` / `_read_str`, the record-type dispatch). The replay format is **game-owned** by the canonical Coworld contract; the v3 BITWORLD parser is only useful for Among Them, and is explicitly **not** an SDK candidate. It stays in `among_them_summarizer.py` the same way PaintArena's frame-parsing stays in `paint_arena_summarizer.py`.
+- `extract_input_presses` and `bucket_presses` — Among-Them-specific edge detection over the 7-bit input bitmask from `common/protocol.nim`.
+- `derive_verdict`, `build_slot_stats`, `build_stats`, `build_event_rows` — the shape of the stats blob and the event-log payloads is reporter-specific.
+- `render_summary_html` and the `_HTML_CSS` constant — HTML structure is the reporter author's decision; nothing here is shared across reporters.
+- The `PLAYER_COLOR_NAMES` / `AMONG_THEM_COLORS` 16-color palette — mirrors `among_them/sim.nim`'s table and is game-specific.
+- The `BUTTONS` table — mirrors `common/protocol.nim` and is game-specific.

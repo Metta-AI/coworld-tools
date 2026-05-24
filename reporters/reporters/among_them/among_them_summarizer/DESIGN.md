@@ -1,6 +1,6 @@
 # among_them_summarizer — Design
 
-> **Status:** implemented (phases 1–5 + design-correction commit + canonical-contract migration landed).
+> **Status:** implemented (all eight phases landed — phases 1–5 + design-correction commit + canonical-contract migration + phase 7 (container + smoke) + phase 6 (determinism + zip-contract assertions) + phase 8 (README polish)).
 > Current code matches the canonical Coworld reporter contract: single `COGAME_EPISODE_BUNDLE_URI` input,
 > single `COGAME_REPORT_URI` output, in-zip `manifest.json` flagging `render` and `event_log`, `int64`
 > event-log columns. See
@@ -765,9 +765,9 @@ the aggregate-driven scoreboard**: phase 2 produces a useful HTML
 summary using results-JSON only, before the binary format work
 starts.
 
-> **Current status (2026-05-20):** phases 1–5 are landed on the
-> `among-them-summarizer-phase-1` branch (not yet on `main`), plus
-> one design-correction commit that removed the `likely_dead` and
+> **Current status (2026-05-23):** all eight phases landed. Phases 1–5
+> shipped under their original `among-them-summarizer-phase-N` branches,
+> plus one design-correction commit that removed the `likely_dead` and
 > meetings inferences described in §Frictions #4 and #5 and added
 > the explicit slot ↔ connection-order mapping (`SlotStats.join_order`,
 > `AmongThemStats.slot_to_join_order`, `join` event payload's
@@ -775,8 +775,12 @@ starts.
 > `.bitreplay` captures from `nottoodumb`-vs-`nottoodumb` games, plus a
 > containerized smoke against a synthetic 8-player bundle. The
 > canonical-contract migration and phase 7 (Dockerfile, `build.sh`,
-> `smoke.sh`, smoke fixtures) have landed. Phases 6 (additional
-> determinism + zip-contract test pass) and 8 (expanded README) remain.
+> `smoke.sh`, smoke fixtures) landed in the canonical-contract migration
+> stack. Phase 6 (determinism + zip-contract assertions in
+> `tests/test_phase6.py`) and phase 8 (README polish to match
+> `paint_arena_summarizer/README.md`'s shape) are the final reporter
+> work in this repo — they completed the in-repo portion of the Coworld
+> schema migration's reporter slice (Workstream 1).
 
 ### Phase 1 — Skeleton: I/O contract round-trip
 
