@@ -217,5 +217,6 @@ New reporters should start from the canonical Coworld role contract:
 - Prefer pure functions of the bundle. If a reporter needs richer external context, document the dependency in the reporter README and manifest entry.
 - Match the per-reporter README structure — what artifacts the zip contains, which files `manifest.json` flags, any non-obvious dependencies. [`reporters/paint_arena/paint_arena_summarizer/README.md`](reporters/paint_arena/paint_arena_summarizer/README.md) is the reference shape.
 - Add a `CATALOG.yaml` entry for the reporter when it ships — without one, tooling cannot find it.
+- **Add a `.github/workflows/build-<name>-image.yml` workflow that publishes the image to GHCR.** Every finished (non-scaffold) reporter in this repo must have a sibling workflow that pushes to `ghcr.io/metta-ai/reporters-<name>:latest` on push to `main`. Use `.github/workflows/build-default-reporter-image.yml` (or `build-paint-arena-summarizer-image.yml`) as the template — same structure, just swap the image name, the path filter, and the Dockerfile path. Without this workflow, the `image` field in the reporter's `CATALOG.yaml` entry is a forward-looking placeholder pointing at a tag that does not exist in the registry.
 
 For end-to-end author guidance, follow [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md) and the metta role doc it points at.
