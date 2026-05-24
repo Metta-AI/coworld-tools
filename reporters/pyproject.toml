@@ -13,6 +13,7 @@ dev = [
     "pyarrow>=24.0.0",
     "pydantic>=2.13.4",
     "pytest>=9.0.3",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
 ]
 

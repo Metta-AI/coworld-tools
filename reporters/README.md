@@ -50,7 +50,7 @@ reporters/
 │       └── cogs_vs_clips_summarizer/
 ├── users/                                     # contributor experiment subtree (spec 0045)
 │   └── <handle>/<project>/                    # contributor reporters live here pre-promotion
-└── tools/                                     # optional, reporter-specific tools (spec 0045)
+└── tools/                                     # reporter-specific tools (spec 0045); includes validate_catalog.py
 ```
 
 `CATALOG.yaml`, `users/`, and `tools/` are required (or required-when-used) elements of the per-role-repo layout per spec 0045. The `users/<handle>/<project>/` subtree is the recommended starting point for contributor experiments — researchers and external collaborators can develop reporter implementations here without merging into the canonical `reporters/` tree, and promote successful work into the canonical tree via a separate contribution.
@@ -72,30 +72,42 @@ The repo-root `pyproject.toml` is a workspace anchor for `uv` / `.venv` setup; i
 
 ## CATALOG.yaml
 
-`CATALOG.yaml` at the repo root is the canonical list of implementations in this repo. The schema is defined in [spec 0045 § `CATALOG.yaml` schema](../metta/docs/specs/0045-coworld-role-repos.md). Required fields per entry: `name`, `image`, `source`, `source_url`, `status`, `target`, `owner`, `description`. Optional: `family`, `since`.
+[`CATALOG.yaml`](CATALOG.yaml) at the repo root is the canonical list of implementations in this repo. The schema is defined in [spec 0045 § `CATALOG.yaml` schema](../metta/docs/specs/0045-coworld-role-repos.md). Required fields per entry: `name`, `image`, `source`, `source_url`, `status`, `target`, `owner`, `description`. Optional: `family`, `since`. The `status` enum is `active`, `starter`, `experimental`, `archived` (per spec 0045). This repo uses `experimental` for placeholder/scaffold entries — see the header comment in [`CATALOG.yaml`](CATALOG.yaml) for the convention.
 
 **Authoritative:** a reporter exists in this repo if and only if it has an entry in `CATALOG.yaml`. Source on disk without a catalog entry is incomplete; a catalog entry without source is broken.
 
-Example shape (illustrative):
+### Validation
+
+The catalog is validated on every PR and every push to `main` by [`.github/workflows/validate-catalog.yml`](.github/workflows/validate-catalog.yml), which runs the validator at [`tools/validate_catalog.py`](tools/validate_catalog.py). To check locally:
+
+```bash
+python tools/validate_catalog.py             # validate CATALOG.yaml at repo root
+python tools/validate_catalog.py --self-test # exercise the validator's catch paths
+pytest tools/tests/                          # full unit-test suite for the validator
+```
+
+The validator confirms every required field is present and non-empty, every `status` is in the spec-0045 enum, every entry's `source` path exists on disk, and no two entries share a `name`. It does **not** check that `image` tags actually resolve to a published image — that's a separate concern owned by each reporter's image-publishing CI.
+
+### Adding a new entry
+
+When you ship a new reporter:
+
+1. Add an entry to `CATALOG.yaml` with all required fields. Use `target: "*"` for game-agnostic reporters; otherwise the world id (e.g. `paint_arena`, `among_them`, `cogs_vs_clips`).
+2. Confirm the `source` path matches the reporter's directory on disk and the `source_url` points to its tree on `main`.
+3. Run `python tools/validate_catalog.py` locally — CI will re-run it on the PR.
+
+Example shape (illustrative; see [`CATALOG.yaml`](CATALOG.yaml) for the live entries):
 
 ```yaml
 entries:
   - name: paint-arena-summarizer
-    image: softmax/reporters-paint-arena-summarizer:latest
+    image: ghcr.io/metta-ai/reporters-paint-arena-summarizer:latest
     source: reporters/paint_arena/paint_arena_summarizer
     source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/paint_arena/paint_arena_summarizer
     status: active
     target: paint_arena
     owner: jboggs
     description: Per-episode HTML summary + proximity event log for PaintArena.
-  - name: among-them-summarizer
-    image: softmax/reporters-among-them-summarizer:latest
-    source: reporters/among_them/among_them_summarizer
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/among_them/among_them_summarizer
-    status: active
-    target: among_them
-    owner: jboggs
-    description: Per-episode HTML scoreboard + event-stream Parquet for Among Them.
 ```
 
 ## v1 reporter runtime (canonical)
