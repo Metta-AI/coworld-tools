@@ -1,21 +1,24 @@
 """PaintArena summarizer reporter.
 
-Pure function of (results JSON, episode metadata JSON, replay JSON) that
-produces a zip containing a self-contained HTML summary, a JSON stats blob,
-and a Parquet event log, per the D12 zip + `render.txt` contract. The HTML
-embeds final scores, a final-grid SVG heatmap, and a curated set of
-"back-and-forth" highlights derived from the replay's per-frame tile-owner
-deltas. The Parquet uses a shared (ts, player, key, value) event-log schema
-and lists every tick where any pair of slots was in close proximity.
+Pure function of the episode bundle (results JSON + replay JSON + optional
+metadata, behind one COGAME_EPISODE_BUNDLE_URI). Produces a zip containing
+a self-contained HTML summary, a JSON stats blob, and a Parquet event log,
+per the canonical Coworld reporter contract: a top-level `manifest.json`
+inside the zip flags `render` (the HTML) and `event_log` (the Parquet) for
+downstream consumers. The HTML embeds final scores, a final-grid SVG
+heatmap, and a curated set of "back-and-forth" highlights derived from the
+replay's per-frame tile-owner deltas. The Parquet uses the shared
+(ts, player, key, value) event-log schema and lists every tick where any
+pair of slots was in close proximity.
 
 See DESIGN.md for the full specification. Grid dimensions and frames come
-from the game-owned replay (D11); PaintArena's replay format is defined by
-its game server in coworld.
+from the game-owned replay; PaintArena's replay format is defined by its
+game server in coworld.
 
-The inline primitives in this file (ReporterInputs, read_uri/write_uri,
-write_deterministic_zip) are SDK extraction candidates -- once a second
-reporter exists, they'll be lifted into reporter_sdk and this file will
-import them instead.
+The inline primitives in this file (BundleReader, ReporterInputs,
+read_uri/write_uri, write_deterministic_zip, EVENT_LOG_SCHEMA) are SDK
+extraction candidates -- once `reporter_sdk` lands, they'll be lifted out
+and this file will import them instead.
 """
 
 from __future__ import annotations
@@ -37,24 +40,24 @@ import pyarrow.parquet as pq
 import requests
 from pydantic import BaseModel, Field, NonNegativeInt
 
+# The reporter's self-identifying id, stamped into the output zip's
+# `manifest.json` `reporter_id` field. Conventionally matches the runnable's
+# `id` in `manifest.reporter[]`.
+REPORTER_ID = "paint-arena-summarizer"
+
+
 # ---------- inline primitives (SDK extraction candidates) ----------
 
 
 class ReporterInputs(BaseModel):
-    results_uri: str
-    replay_uri: str
-    episode_metadata_uri: str
-    report_output_uri: str
-    reporter_id: str
+    episode_bundle_uri: str
+    report_uri: str
 
 
 def load_reporter_inputs() -> ReporterInputs:
     return ReporterInputs(
-        results_uri=os.environ["COGAME_RESULTS_URI"],
-        replay_uri=os.environ["COGAME_REPLAY_URI"],
-        episode_metadata_uri=os.environ["COGAME_EPISODE_METADATA_URI"],
-        report_output_uri=os.environ["COGAME_REPORT_OUTPUT_URI"],
-        reporter_id=os.environ["COGAME_REPORTER_ID"],
+        episode_bundle_uri=os.environ["COGAME_EPISODE_BUNDLE_URI"],
+        report_uri=os.environ["COGAME_REPORT_URI"],
     )
 
 
@@ -112,18 +115,94 @@ def read_json(uri: str) -> Any:
     return json.loads(read_uri(uri).decode("utf-8"))
 
 
-# Pinned zip-entry mtime for byte-identical determinism (D12). Anything other
+class BundleInnerManifest(BaseModel):
+    """The `manifest.json` at the root of every episode bundle zip.
+
+    Schema mirrors metta's `EPISODE_BUNDLE_README.md`: `ereq_id`, `status`,
+    `include` (tokens actually delivered after access-control filtering),
+    `files` (token -> path-in-zip for single-file tokens; dict for multi-file
+    tokens like `game_logs`). `extra="allow"` so forward-extension fields
+    (e.g. an `episode_id`/`variant_id` carrier the metta bundler may add)
+    don't trip validation.
+    """
+
+    ereq_id: str
+    status: str = "success"
+    include: list[str] = Field(default_factory=list)
+    files: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"extra": "allow"}
+
+
+class BundleReader:
+    """Opens an episode bundle zip from a URI, parses its inner
+    `manifest.json`, and exposes typed accessors for its named tokens.
+
+    Tokens map to entries inside the zip via `manifest.json::files`.
+    `read_bytes`/`read_json` require the token; `*_optional` variants
+    return `None` when the token isn't in `manifest.include` (so callers
+    can transparently handle access-controlled bundles where a token may
+    have been filtered out).
+    """
+
+    def __init__(self, bundle_uri: str) -> None:
+        self._bytes = read_uri(bundle_uri)
+        self._zf = zipfile.ZipFile(io.BytesIO(self._bytes))
+        raw = json.loads(self._zf.read("manifest.json"))
+        self._manifest = BundleInnerManifest.model_validate(raw)
+
+    def inner_manifest(self) -> BundleInnerManifest:
+        return self._manifest
+
+    def _token_path(self, token: str) -> str:
+        path = self._manifest.files.get(token)
+        if path is None:
+            raise KeyError(f"bundle has no entry for token {token!r}")
+        if not isinstance(path, str):
+            raise TypeError(
+                f"token {token!r} maps to a multi-file entry ({type(path).__name__}); "
+                "this reader only handles single-file tokens"
+            )
+        return path
+
+    def read_bytes(self, token: str) -> bytes:
+        return self._zf.read(self._token_path(token))
+
+    def read_bytes_optional(self, token: str) -> bytes | None:
+        if token not in self._manifest.include:
+            return None
+        return self.read_bytes(token)
+
+    def read_json(self, token: str) -> Any:
+        return json.loads(self.read_bytes(token))
+
+    def read_json_optional(self, token: str) -> Any | None:
+        raw = self.read_bytes_optional(token)
+        return None if raw is None else json.loads(raw)
+
+    def close(self) -> None:
+        self._zf.close()
+
+    def __enter__(self) -> "BundleReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+# Pinned zip-entry mtime for byte-identical determinism. Anything other
 # than a fixed value would make reruns over identical inputs differ in the
 # zip's local-file headers.
 _DETERMINISTIC_ZIP_MTIME = (1980, 1, 1, 0, 0, 0)
 
 
 def write_deterministic_zip(entries: list[tuple[str, bytes]]) -> bytes:
-    """Build a zip with pinned mtimes for byte-identical reruns (D12).
+    """Build a zip with pinned mtimes for byte-identical reruns.
 
     Entry order is preserved as given. Each entry's date_time is pinned to
     _DETERMINISTIC_ZIP_MTIME so two invocations over identical inputs produce
-    byte-identical output.
+    byte-identical output. Determinism is preferred but not required by the
+    canonical reporter contract; this reporter opts in.
     """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -149,8 +228,14 @@ class PlayerMetadata(BaseModel):
 
 
 class EpisodeMetadata(BaseModel):
+    """Episode-level metadata used to populate `stats.json` and the HTML
+    header. The canonical reporter contract (metta `docs/roles/reporter.md`)
+    does not formally carry these fields in the bundle's inner `manifest.json`;
+    in practice they reach the reporter via the bundle's optional `metadata`
+    token. When that token is absent, every field falls back to a default."""
+
     episode_id: str | None = None
-    variant_id: str
+    variant_id: str = "unknown"
     duration_seconds: float | None = None
     players: list[PlayerMetadata] = []
 
@@ -918,9 +1003,10 @@ def build_zip_bytes(
     metadata: EpisodeMetadata,
     replay: PaintArenaReplay,
 ) -> bytes:
-    """Build the D12 output zip: summary.html (rendered), stats.json
-    (download), proximity.parquet (download), render.txt (single line:
-    `summary.html`)."""
+    """Build the canonical output zip: a top-level `manifest.json` (flagging
+    `summary.html` as `render` and `proximity.parquet` as `event_log`), the
+    HTML render target, the auxiliary `stats.json`, and the event-log
+    Parquet."""
     proximity_rows = build_proximity_rows(replay.frames, width=replay.config.width)
     tile_flips = extract_tile_flips(replay.frames, width=replay.config.width)
     highlights = detect_back_and_forth_highlights(tile_flips)
@@ -938,14 +1024,20 @@ def build_zip_bytes(
     summary_html = render_summary_html(stats, replay).encode("utf-8")
     stats_json = (json.dumps(stats.model_dump(), indent=2) + "\n").encode("utf-8")
     proximity_parquet = write_events_parquet(event_rows)
-    render_txt = b"summary.html\n"
+    manifest_json = _stable_json(
+        {
+            "reporter_id": REPORTER_ID,
+            "render": "summary.html",
+            "event_log": "proximity.parquet",
+        }
+    ).encode("utf-8")
 
     return write_deterministic_zip(
         [
+            ("manifest.json", manifest_json),
             ("summary.html", summary_html),
             ("stats.json", stats_json),
             ("proximity.parquet", proximity_parquet),
-            ("render.txt", render_txt),
         ]
     )
 
@@ -954,12 +1046,25 @@ def build_zip_bytes(
 
 
 def run(inputs: ReporterInputs) -> None:
-    results = PaintArenaResults.model_validate(read_json(inputs.results_uri))
-    metadata = EpisodeMetadata.model_validate(read_json(inputs.episode_metadata_uri))
-    replay = PaintArenaReplay.model_validate(read_json(inputs.replay_uri))
+    with BundleReader(inputs.episode_bundle_uri) as bundle:
+        inner = bundle.inner_manifest()
+        if inner.status != "success":
+            raise RuntimeError(
+                f"bundle status={inner.status!r}; reporter cannot operate on "
+                "a failed episode"
+            )
+        results = PaintArenaResults.model_validate(bundle.read_json("results"))
+        replay = PaintArenaReplay.model_validate(bundle.read_json("replay"))
+        metadata_raw: dict[str, Any] = bundle.read_json_optional("metadata") or {}
+    metadata_raw.setdefault("episode_id", inner.ereq_id)
+    metadata = EpisodeMetadata.model_validate(metadata_raw)
     payload = build_zip_bytes(results=results, metadata=metadata, replay=replay)
-    write_uri(inputs.report_output_uri, payload, content_type="application/zip")
-    print(f"[{inputs.reporter_id}] wrote zip to {inputs.report_output_uri}", file=sys.stderr, flush=True)
+    write_uri(inputs.report_uri, payload, content_type="application/zip")
+    print(
+        f"[{REPORTER_ID}] wrote zip to {inputs.report_uri}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

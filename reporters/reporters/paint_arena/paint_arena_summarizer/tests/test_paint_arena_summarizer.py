@@ -4,11 +4,14 @@ Covers pure-function zip construction (build_zip_bytes, build_stats), the
 frame-derived parquet and highlight pipeline, the HTML renderer, and end-to-
 end run() invocations against file:// URIs.
 
-Output contract is REPORTER_DESIGN.md D12 (zip + render.txt):
-- A single zip is written to COGAME_REPORT_OUTPUT_URI.
-- Top-level entries: summary.html, stats.json, proximity.parquet, render.txt.
-- render.txt lists summary.html (the only renderable file); the parquet and
-  stats.json are download-only and not listed.
+Output contract is the canonical Coworld reporter contract:
+- The reporter reads a single COGAME_EPISODE_BUNDLE_URI (a zip with an inner
+  manifest.json mapping tokens to file paths) and writes a single zip to
+  COGAME_REPORT_URI.
+- Top-level entries in the output zip: manifest.json, summary.html,
+  stats.json, proximity.parquet.
+- The in-zip manifest.json flags `render: "summary.html"` and
+  `event_log: "proximity.parquet"`; both target paths exist in the zip.
 - Every zip entry has a pinned mtime of (1980, 1, 1, 0, 0, 0) so identical
   inputs produce byte-identical zips. (The parquet's own determinism is
   bounded by the pinned pyarrow version in requirements.txt.)
@@ -33,9 +36,14 @@ from tests import fixtures
 # ---------- helpers ----------
 
 
-_RENDERABLE_EXTS = {".md", ".txt", ".html", ".htm"}
+_RENDERABLE_EXTS = {".md", ".html"}
 _PINNED_MTIME = (1980, 1, 1, 0, 0, 0)
-_EXPECTED_ENTRIES = {"summary.html", "stats.json", "proximity.parquet", "render.txt"}
+_EXPECTED_ENTRIES = {
+    "manifest.json",
+    "summary.html",
+    "stats.json",
+    "proximity.parquet",
+}
 
 
 def _models(
@@ -66,10 +74,9 @@ def _extract(payload: bytes) -> dict[str, bytes]:
         return {info.filename: zf.read(info.filename) for info in zf.infolist()}
 
 
-def _render_lines(payload: bytes) -> list[str]:
+def _manifest_dict(payload: bytes) -> dict[str, Any]:
     files = _extract(payload)
-    text = files["render.txt"].decode("utf-8")
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    return json.loads(files["manifest.json"])
 
 
 def _read_parquet(blob: bytes) -> list[dict[str, Any]]:
@@ -87,27 +94,32 @@ def test_happy_path_zip_entries() -> None:
     assert set(files.keys()) == _EXPECTED_ENTRIES
 
 
-def test_render_txt_contents_lists_html_only() -> None:
-    """render.txt is a single line `summary.html\\n`; the parquet and JSON
-    are download-only."""
+def test_manifest_flags_summary_html_as_render() -> None:
+    """The in-zip manifest.json flags `summary.html` as the render target."""
     payload = _build_zip()
-    files = _extract(payload)
-    assert files["render.txt"] == b"summary.html\n"
-    assert _render_lines(payload) == ["summary.html"]
+    manifest = _manifest_dict(payload)
+    assert manifest["render"] == "summary.html"
+    assert manifest["reporter_id"] == "paint-arena-summarizer"
 
 
-def test_render_txt_consistency_with_d12_rules() -> None:
-    """Every render.txt entry must exist in the zip, have a renderable
-    extension, not list itself, and have no duplicates (D12 invalid_output
-    triggers)."""
+def test_manifest_flags_proximity_parquet_as_event_log() -> None:
+    """The in-zip manifest.json flags `proximity.parquet` as the event log."""
+    payload = _build_zip()
+    manifest = _manifest_dict(payload)
+    assert manifest["event_log"] == "proximity.parquet"
+
+
+def test_manifest_targets_exist_in_zip_with_renderable_extension() -> None:
+    """`render` resolves to an in-zip `.md`/`.html`; `event_log` resolves to
+    an in-zip Parquet."""
     payload = _build_zip()
     files = _extract(payload)
-    lines = _render_lines(payload)
-    assert "render.txt" not in lines
-    assert len(lines) == len(set(lines))
-    for line in lines:
-        assert line in files, f"render.txt entry {line!r} missing from zip"
-        assert Path(line).suffix.lower() in _RENDERABLE_EXTS
+    manifest = _manifest_dict(payload)
+    assert manifest["render"] in files
+    assert manifest["event_log"] in files
+    assert Path(manifest["render"]).suffix.lower() in _RENDERABLE_EXTS
+    # Sanity-check the event_log opens as a Parquet table.
+    pq.read_table(io.BytesIO(files[manifest["event_log"]]))
 
 
 def test_zip_entries_have_pinned_mtime() -> None:
@@ -367,28 +379,29 @@ def test_parquet_highlight_rows_carry_contested_tile() -> None:
 # ---------- end-to-end via file:// URIs ----------
 
 
-def _write_json(path: Path, obj: Any) -> str:
-    path.write_text(json.dumps(obj))
-    return path.as_uri()
-
-
 def _setup_inputs(
     tmp_path: Path,
     *,
     results: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     replay: dict[str, Any] | None = None,
+    include_metadata: bool = True,
+    bundle_status: str = "success",
 ) -> tuple[dict[str, str], Path]:
-    results_uri = _write_json(tmp_path / "results.json", results or fixtures.make_results_happy())
-    metadata_uri = _write_json(tmp_path / "metadata.json", metadata or fixtures.make_metadata())
-    replay_uri = _write_json(tmp_path / "replay.json", replay or fixtures.make_replay())
+    bundle_path = tmp_path / "bundle.zip"
+    bundle_path.write_bytes(
+        fixtures.make_bundle_zip(
+            status=bundle_status,
+            results=results,
+            replay=replay,
+            metadata=metadata,
+            include_metadata=include_metadata,
+        )
+    )
     out_path = tmp_path / "report.zip"
     env = {
-        "COGAME_RESULTS_URI": results_uri,
-        "COGAME_REPLAY_URI": replay_uri,
-        "COGAME_EPISODE_METADATA_URI": metadata_uri,
-        "COGAME_REPORT_OUTPUT_URI": out_path.as_uri(),
-        "COGAME_REPORTER_ID": "paint-arena-summarizer",
+        "COGAME_EPISODE_BUNDLE_URI": bundle_path.as_uri(),
+        "COGAME_REPORT_URI": out_path.as_uri(),
     }
     return env, out_path
 
@@ -443,12 +456,29 @@ def test_run_malformed_results_raises(
     assert not out_path.exists()
 
 
-def test_run_unparseable_results_raises(
+def test_run_falls_back_to_defaults_when_metadata_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    env, out_path = _setup_inputs(tmp_path)
-    (tmp_path / "results.json").write_text("{not valid json")
-    with pytest.raises(json.JSONDecodeError):
+    """The bundle's `metadata` token is optional. When absent, the reporter
+    populates `episode_id` from the inner manifest's `ereq_id` and lets
+    `variant_id` / `duration_seconds` / `policy_name` fall back to defaults."""
+    env, out_path = _setup_inputs(tmp_path, include_metadata=False)
+    _invoke_run(monkeypatch, env)
+    stats = json.loads(_extract(out_path.read_bytes())["stats.json"])
+    assert stats["episode_id"] == "ereq_test_001"
+    assert stats["variant_id"] == "unknown"
+    assert stats["duration_seconds"] is None
+    # No metadata.players -> policy_name falls back to "Slot N".
+    assert stats["slots"][0]["policy_name"] == "Slot 0"
+
+
+def test_run_failed_bundle_status_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bundle whose inner manifest reports `status: "failed"` must surface
+    a non-zero exit; the reporter cannot operate on a failed episode."""
+    env, out_path = _setup_inputs(tmp_path, bundle_status="failed")
+    with pytest.raises(RuntimeError, match="failed"):
         _invoke_run(monkeypatch, env)
     assert not out_path.exists()
 
@@ -457,11 +487,8 @@ def test_load_reporter_inputs_missing_env_var_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for k in (
-        "COGAME_RESULTS_URI",
-        "COGAME_REPLAY_URI",
-        "COGAME_EPISODE_METADATA_URI",
-        "COGAME_REPORT_OUTPUT_URI",
-        "COGAME_REPORTER_ID",
+        "COGAME_EPISODE_BUNDLE_URI",
+        "COGAME_REPORT_URI",
     ):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(KeyError):

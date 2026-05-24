@@ -1,10 +1,16 @@
 """Synthetic PaintArena episode fixtures used across the test suite.
 
 Each helper returns a deep-copyable dict; tests are free to mutate the result.
+`make_bundle_zip(...)` packs the loose dicts into a canonical episode bundle
+(per metta `EPISODE_BUNDLE_README.md`) so end-to-end tests can drive the
+reporter through `COGAME_EPISODE_BUNDLE_URI`.
 """
 
 from __future__ import annotations
 
+import io
+import json
+import zipfile
 from copy import deepcopy
 from typing import Any
 
@@ -212,3 +218,54 @@ def make_results_missing_field() -> dict[str, Any]:
         "scores": [47.0, 38.0],
         "painted_tiles": [47, 38],
     }
+
+
+# ---------- bundle assembly ----------
+
+
+def make_bundle_zip(
+    *,
+    ereq_id: str = "ereq_test_001",
+    status: str = "success",
+    results: dict[str, Any] | None = None,
+    replay: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    include_metadata: bool = True,
+) -> bytes:
+    """Pack a synthetic PaintArena episode bundle (zip) per metta's
+    `EPISODE_BUNDLE_README.md`. The bundle's inner `manifest.json` lists
+    every supplied token under `include` and maps each to a path inside the
+    zip via `files`.
+
+    The optional `metadata` token (when `include_metadata=True`) carries the
+    episode-level fields the canonical bundle inner manifest does not — the
+    reporter falls back to defaults when this token is absent.
+    """
+    results_data = results if results is not None else make_results_happy()
+    replay_data = replay if replay is not None else make_replay()
+    metadata_data = metadata if metadata is not None else make_metadata()
+
+    include: list[str] = ["results", "replay"]
+    files: dict[str, str] = {"results": "results.json", "replay": "replay.json"}
+    entries: list[tuple[str, bytes]] = [
+        ("results.json", json.dumps(results_data).encode("utf-8")),
+        ("replay.json", json.dumps(replay_data).encode("utf-8")),
+    ]
+    if include_metadata:
+        include.append("metadata")
+        files["metadata"] = "metadata.json"
+        entries.append(("metadata.json", json.dumps(metadata_data).encode("utf-8")))
+
+    manifest = {
+        "ereq_id": ereq_id,
+        "status": status,
+        "include": include,
+        "files": files,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        for name, payload in entries:
+            zf.writestr(name, payload)
+    return buf.getvalue()
