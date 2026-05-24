@@ -31,9 +31,14 @@ import among_them_summarizer as ats
 import fixtures  # see conftest.py — tests/ is added to sys.path
 
 
-_RENDERABLE_EXTS = {".md", ".txt", ".html", ".htm"}
+_RENDERABLE_EXTS = {".md", ".html"}
 _PINNED_MTIME = (1980, 1, 1, 0, 0, 0)
-_EXPECTED_ENTRIES = {"summary.html", "stats.json", "events.parquet", "render.txt"}
+_EXPECTED_ENTRIES = {
+    "manifest.json",
+    "summary.html",
+    "stats.json",
+    "events.parquet",
+}
 
 
 # ---------- helpers ----------
@@ -204,23 +209,35 @@ def test_build_zip_bytes_has_four_entries() -> None:
         assert set(zf.namelist()) == _EXPECTED_ENTRIES
 
 
-def test_render_txt_lists_summary_html_only() -> None:
+def test_manifest_flags_summary_html_as_render() -> None:
+    """The in-zip manifest.json flags `summary.html` as the render target."""
     payload = _build_zip()
     with _open_zip(payload) as zf:
-        render_txt = zf.read("render.txt").decode("utf-8")
-    assert render_txt == "summary.html\n"
+        manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["reporter_id"] == "among-them-summarizer"
+    assert manifest["render"] == "summary.html"
 
 
-def test_render_txt_entries_have_renderable_extensions() -> None:
+def test_manifest_flags_events_parquet_as_event_log() -> None:
+    """The in-zip manifest.json flags `events.parquet` as the event log."""
     payload = _build_zip()
     with _open_zip(payload) as zf:
-        render_txt = zf.read("render.txt").decode("utf-8")
-    for line in render_txt.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        ext = Path(line).suffix
-        assert ext in _RENDERABLE_EXTS, f"{line!r} has non-renderable extension {ext!r}"
+        manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["event_log"] == "events.parquet"
+
+
+def test_manifest_targets_exist_in_zip_with_renderable_extension() -> None:
+    """`render` resolves to an in-zip `.md`/`.html`; `event_log` resolves to
+    an in-zip Parquet."""
+    payload = _build_zip()
+    with _open_zip(payload) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+        names = set(zf.namelist())
+        # event_log opens as a Parquet table.
+        pq.read_table(io.BytesIO(zf.read(manifest["event_log"])))
+    assert manifest["render"] in names
+    assert manifest["event_log"] in names
+    assert Path(manifest["render"]).suffix in _RENDERABLE_EXTS
 
 
 def test_zip_entries_have_pinned_mtime() -> None:
@@ -314,24 +331,60 @@ def test_events_parquet_game_result_payload() -> None:
 # ---------- end-to-end run() ----------
 
 
+def _write_bundle(tmp_path: Path, **kwargs: Any) -> Path:
+    bundle_path = tmp_path / "bundle.zip"
+    bundle_path.write_bytes(fixtures.make_bundle_zip(**kwargs))
+    return bundle_path
+
+
 def test_run_end_to_end(tmp_path: Path) -> None:
-    results_path = tmp_path / "results.json"
-    metadata_path = tmp_path / "metadata.json"
-    replay_path = tmp_path / "replay.bitreplay"
+    bundle_path = _write_bundle(tmp_path)
     output_path = tmp_path / "report.zip"
-    results_path.write_text(json.dumps(fixtures.make_results_crewmate_win()))
-    metadata_path.write_text(json.dumps(fixtures.make_metadata()))
-    replay_path.write_bytes(fixtures.make_replay_bytes())
     inputs = ats.ReporterInputs(
-        results_uri=results_path.as_uri(),
-        replay_uri=replay_path.as_uri(),
-        episode_metadata_uri=metadata_path.as_uri(),
-        report_output_uri=output_path.as_uri(),
-        reporter_id="among-them-summarizer",
+        episode_bundle_uri=bundle_path.as_uri(),
+        report_uri=output_path.as_uri(),
     )
     ats.run(inputs)
     with zipfile.ZipFile(output_path) as zf:
         assert set(zf.namelist()) == _EXPECTED_ENTRIES
+
+
+def test_run_falls_back_to_defaults_when_metadata_absent(tmp_path: Path) -> None:
+    """The bundle's `metadata` token is optional. When absent, the reporter
+    populates `episode_id` from the inner manifest's `ereq_id` and lets
+    `variant_id` / `duration_seconds` / `policy_name` fall back to defaults."""
+    bundle_path = _write_bundle(tmp_path, include_metadata=False)
+    output_path = tmp_path / "report.zip"
+    ats.run(
+        ats.ReporterInputs(
+            episode_bundle_uri=bundle_path.as_uri(),
+            report_uri=output_path.as_uri(),
+        )
+    )
+    with zipfile.ZipFile(output_path) as zf:
+        stats = json.loads(zf.read("stats.json"))
+    assert stats["episode_id"] == "ereq_test_001"
+    assert stats["variant_id"] == "unknown"
+    assert stats["duration_seconds"] is None
+    # No metadata.players -> policy_name falls back to `results.names[i]`
+    # (the in-game player address from results.json), then to "Slot N". The
+    # default crewmate-win fixture sets `names=["player-0", ...]`.
+    assert stats["slots"][0]["policy_name"] == "player-0"
+
+
+def test_run_failed_bundle_status_raises(tmp_path: Path) -> None:
+    """A bundle whose inner manifest reports `status: "failed"` must surface
+    a non-zero exit; the reporter cannot operate on a failed episode."""
+    bundle_path = _write_bundle(tmp_path, status="failed")
+    output_path = tmp_path / "report.zip"
+    with pytest.raises(RuntimeError, match="failed"):
+        ats.run(
+            ats.ReporterInputs(
+                episode_bundle_uri=bundle_path.as_uri(),
+                report_uri=output_path.as_uri(),
+            )
+        )
+    assert not output_path.exists()
 
 
 def test_results_validation_rejects_missing_required() -> None:
@@ -349,21 +402,14 @@ def test_run_is_byte_identical_on_rerun(tmp_path: Path) -> None:
 
     def _do_run(out_dir: Path) -> Path:
         out_dir.mkdir(parents=True, exist_ok=True)
-        results_path = out_dir / "results.json"
-        metadata_path = out_dir / "metadata.json"
-        replay_path = out_dir / "replay.bitreplay"
+        bundle_path = _write_bundle(out_dir)
         output_path = out_dir / "report.zip"
-        results_path.write_text(json.dumps(fixtures.make_results_crewmate_win()))
-        metadata_path.write_text(json.dumps(fixtures.make_metadata()))
-        replay_path.write_bytes(fixtures.make_replay_bytes())
-        inputs = ats.ReporterInputs(
-            results_uri=results_path.as_uri(),
-            replay_uri=replay_path.as_uri(),
-            episode_metadata_uri=metadata_path.as_uri(),
-            report_output_uri=output_path.as_uri(),
-            reporter_id="among-them-summarizer",
+        ats.run(
+            ats.ReporterInputs(
+                episode_bundle_uri=bundle_path.as_uri(),
+                report_uri=output_path.as_uri(),
+            )
         )
-        ats.run(inputs)
         return output_path
 
     a = _do_run(tmp_path / "a").read_bytes()

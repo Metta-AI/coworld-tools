@@ -7,29 +7,27 @@ output-shape tests live in test_phase2.py and later.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+import pytest
 
 import among_them_summarizer as ats
 
 
 def test_reporter_inputs_load_from_env(monkeypatch, tmp_path: Path) -> None:
-    """load_reporter_inputs() reads the documented COGAME_* env vars."""
-    results_path = tmp_path / "results.json"
-    metadata_path = tmp_path / "metadata.json"
-    replay_path = tmp_path / "replay.bitreplay"
+    """load_reporter_inputs() reads the canonical COGAME_* env vars."""
+    bundle_path = tmp_path / "bundle.zip"
     output_path = tmp_path / "report.zip"
-    results_path.write_text(json.dumps({}))
-    metadata_path.write_text(json.dumps({}))
-    replay_path.write_bytes(b"")
-    monkeypatch.setenv("COGAME_RESULTS_URI", results_path.as_uri())
-    monkeypatch.setenv("COGAME_REPLAY_URI", replay_path.as_uri())
-    monkeypatch.setenv("COGAME_EPISODE_METADATA_URI", metadata_path.as_uri())
-    monkeypatch.setenv("COGAME_REPORT_OUTPUT_URI", output_path.as_uri())
-    monkeypatch.setenv("COGAME_REPORTER_ID", "among-them-summarizer")
+    bundle_path.write_bytes(b"")  # not opened by load_reporter_inputs
+    monkeypatch.setenv("COGAME_EPISODE_BUNDLE_URI", bundle_path.as_uri())
+    monkeypatch.setenv("COGAME_REPORT_URI", output_path.as_uri())
     loaded = ats.load_reporter_inputs()
-    assert loaded.results_uri == results_path.as_uri()
-    assert loaded.replay_uri == replay_path.as_uri()
-    assert loaded.episode_metadata_uri == metadata_path.as_uri()
-    assert loaded.report_output_uri == output_path.as_uri()
-    assert loaded.reporter_id == "among-them-summarizer"
+    assert loaded.episode_bundle_uri == bundle_path.as_uri()
+    assert loaded.report_uri == output_path.as_uri()
+
+
+def test_load_reporter_inputs_missing_env_var_raises(monkeypatch) -> None:
+    for k in ("COGAME_EPISODE_BUNDLE_URI", "COGAME_REPORT_URI"):
+        monkeypatch.delenv(k, raising=False)
+    with pytest.raises(KeyError):
+        ats.load_reporter_inputs()

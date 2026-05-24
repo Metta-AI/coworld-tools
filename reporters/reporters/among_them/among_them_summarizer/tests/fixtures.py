@@ -6,14 +6,21 @@ valid `.bitreplay` header (magic + version + game-name + version +
 timestamp + configJson). Phase 3 will extend `make_replay_bytes` to
 also emit join / leave / input / hash records.
 
+`make_bundle_zip(...)` packs the loose dicts plus the binary replay
+into a canonical episode bundle (per metta `EPISODE_BUNDLE_README.md`)
+so end-to-end tests can drive the reporter through
+`COGAME_EPISODE_BUNDLE_URI`.
+
 Each helper returns a deep-copyable / mutable value; tests are free to
 mutate the result.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import struct
+import zipfile
 from copy import deepcopy
 from typing import Any
 
@@ -254,6 +261,59 @@ def make_results_meetings(
 
 
 # ---------- episode metadata ----------
+
+
+def make_bundle_zip(
+    *,
+    ereq_id: str = "ereq_test_001",
+    status: str = "success",
+    results: dict[str, Any] | None = None,
+    replay_bytes: bytes | None = None,
+    metadata: dict[str, Any] | None = None,
+    include_metadata: bool = True,
+) -> bytes:
+    """Pack a synthetic Among Them episode bundle (zip) per metta's
+    `EPISODE_BUNDLE_README.md`. The bundle's inner `manifest.json` lists
+    every supplied token under `include` and maps each to a path inside the
+    zip via `files`.
+
+    The `replay` token's bytes are the binary `.bitreplay` payload — the
+    canonical bundle convention uses the entry path `replay.json` regardless
+    of the actual on-the-wire format (this is an Among-Them-specific
+    deviation; the reporter's bundle reader reads bytes either way).
+
+    The optional `metadata` token (when `include_metadata=True`) carries the
+    episode-level fields the canonical bundle inner manifest does not — the
+    reporter falls back to defaults when this token is absent.
+    """
+    results_data = results if results is not None else make_results_crewmate_win()
+    replay_blob = replay_bytes if replay_bytes is not None else make_replay_bytes()
+    metadata_data = metadata if metadata is not None else make_metadata()
+
+    include: list[str] = ["results", "replay"]
+    files: dict[str, str] = {"results": "results.json", "replay": "replay.json"}
+    entries: list[tuple[str, bytes]] = [
+        ("results.json", json.dumps(results_data).encode("utf-8")),
+        ("replay.json", replay_blob),
+    ]
+    if include_metadata:
+        include.append("metadata")
+        files["metadata"] = "metadata.json"
+        entries.append(("metadata.json", json.dumps(metadata_data).encode("utf-8")))
+
+    manifest = {
+        "ereq_id": ereq_id,
+        "status": status,
+        "include": include,
+        "files": files,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        for name, payload in entries:
+            zf.writestr(name, payload)
+    return buf.getvalue()
 
 
 def make_metadata(

@@ -19,17 +19,17 @@ Observatory's iframe+CSP sandbox without external fetches.
 The output zip contains:
 
     report.zip
-    ├── summary.html        # rendered inline (listed in render.txt)
-    ├── stats.json          # download-only; full per-slot detail
-    ├── events.parquet      # download-only; shared (ts, player, key, value) schema
-    └── render.txt          # single line: "summary.html\\n"
+    ├── manifest.json       # canonical: {reporter_id, render, event_log}
+    ├── summary.html        # render target (flagged by manifest.json `render`)
+    ├── stats.json          # auxiliary; full per-slot detail
+    └── events.parquet      # event log; shared (ts, player, key, value) schema
 
 See DESIGN.md for the full phase plan and decisions.
 
-The inline primitives in this file (`ReporterInputs`, `read_uri` /
-`write_uri`, `write_deterministic_zip`, the parquet writer) are
-SDK-extraction candidates — once the second reporter exists in stable
-form, the upcoming `reporter_sdk` extraction pass will lift them.
+The inline primitives in this file (`BundleReader`, `ReporterInputs`,
+`read_uri` / `write_uri`, `write_deterministic_zip`, the parquet writer)
+are SDK-extraction candidates — once `reporter_sdk` lands, they'll be
+lifted out and this file will import them instead.
 """
 
 from __future__ import annotations
@@ -51,24 +51,24 @@ import pyarrow.parquet as pq
 import requests
 from pydantic import BaseModel, Field
 
+# The reporter's self-identifying id, stamped into the output zip's
+# `manifest.json` `reporter_id` field. Conventionally matches the runnable's
+# `id` in `manifest.reporter[]`.
+REPORTER_ID = "among-them-summarizer"
+
+
 # ---------- inline primitives (SDK extraction candidates) ----------
 
 
 class ReporterInputs(BaseModel):
-    results_uri: str
-    replay_uri: str
-    episode_metadata_uri: str
-    report_output_uri: str
-    reporter_id: str
+    episode_bundle_uri: str
+    report_uri: str
 
 
 def load_reporter_inputs() -> ReporterInputs:
     return ReporterInputs(
-        results_uri=os.environ["COGAME_RESULTS_URI"],
-        replay_uri=os.environ["COGAME_REPLAY_URI"],
-        episode_metadata_uri=os.environ["COGAME_EPISODE_METADATA_URI"],
-        report_output_uri=os.environ["COGAME_REPORT_OUTPUT_URI"],
-        reporter_id=os.environ["COGAME_REPORTER_ID"],
+        episode_bundle_uri=os.environ["COGAME_EPISODE_BUNDLE_URI"],
+        report_uri=os.environ["COGAME_REPORT_URI"],
     )
 
 
@@ -131,12 +131,93 @@ def read_json(uri: str) -> Any:
     return json.loads(read_uri(uri).decode("utf-8"))
 
 
-# Pinned zip-entry mtime for byte-identical determinism (D12).
+class BundleInnerManifest(BaseModel):
+    """The `manifest.json` at the root of every episode bundle zip.
+
+    Schema mirrors metta's `EPISODE_BUNDLE_README.md`: `ereq_id`, `status`,
+    `include` (tokens actually delivered after access-control filtering),
+    `files` (token -> path-in-zip for single-file tokens; dict for multi-file
+    tokens like `game_logs`). `extra="allow"` so forward-extension fields
+    (e.g. an `episode_id`/`variant_id` carrier the metta bundler may add)
+    don't trip validation.
+    """
+
+    ereq_id: str
+    status: str = "success"
+    include: list[str] = Field(default_factory=list)
+    files: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"extra": "allow"}
+
+
+class BundleReader:
+    """Opens an episode bundle zip from a URI, parses its inner
+    `manifest.json`, and exposes typed accessors for its named tokens.
+
+    Tokens map to entries inside the zip via `manifest.json::files`.
+    `read_bytes`/`read_json` require the token; `*_optional` variants
+    return `None` when the token isn't in `manifest.include` (so callers
+    can transparently handle access-controlled bundles where a token may
+    have been filtered out). Among Them reads the `replay` token via
+    `read_bytes` because the entry's bytes are the binary `.bitreplay`
+    payload, not JSON.
+    """
+
+    def __init__(self, bundle_uri: str) -> None:
+        self._bytes = read_uri(bundle_uri)
+        self._zf = zipfile.ZipFile(io.BytesIO(self._bytes))
+        raw = json.loads(self._zf.read("manifest.json"))
+        self._manifest = BundleInnerManifest.model_validate(raw)
+
+    def inner_manifest(self) -> BundleInnerManifest:
+        return self._manifest
+
+    def _token_path(self, token: str) -> str:
+        path = self._manifest.files.get(token)
+        if path is None:
+            raise KeyError(f"bundle has no entry for token {token!r}")
+        if not isinstance(path, str):
+            raise TypeError(
+                f"token {token!r} maps to a multi-file entry ({type(path).__name__}); "
+                "this reader only handles single-file tokens"
+            )
+        return path
+
+    def read_bytes(self, token: str) -> bytes:
+        return self._zf.read(self._token_path(token))
+
+    def read_bytes_optional(self, token: str) -> bytes | None:
+        if token not in self._manifest.include:
+            return None
+        return self.read_bytes(token)
+
+    def read_json(self, token: str) -> Any:
+        return json.loads(self.read_bytes(token))
+
+    def read_json_optional(self, token: str) -> Any | None:
+        raw = self.read_bytes_optional(token)
+        return None if raw is None else json.loads(raw)
+
+    def close(self) -> None:
+        self._zf.close()
+
+    def __enter__(self) -> "BundleReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+# Pinned zip-entry mtime for byte-identical determinism.
 _DETERMINISTIC_ZIP_MTIME = (1980, 1, 1, 0, 0, 0)
 
 
 def write_deterministic_zip(entries: list[tuple[str, bytes]]) -> bytes:
-    """Build a zip with pinned mtimes for byte-identical reruns (D12)."""
+    """Build a zip with pinned mtimes for byte-identical reruns.
+
+    Determinism is preferred but not required by the canonical reporter
+    contract; this reporter opts in.
+    """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, payload in entries:
@@ -321,8 +402,14 @@ class PlayerMetadata(BaseModel):
 
 
 class EpisodeMetadata(BaseModel):
+    """Episode-level metadata used to populate `stats.json` and the HTML
+    header. The canonical reporter contract (metta `docs/roles/reporter.md`)
+    does not formally carry these fields in the bundle's inner `manifest.json`;
+    in practice they reach the reporter via the bundle's optional `metadata`
+    token. When that token is absent, every field falls back to a default."""
+
     episode_id: str | None = None
-    variant_id: str
+    variant_id: str = "unknown"
     duration_seconds: float | None = None
     started_at: str | None = None
     ended_at: str | None = None
@@ -1614,30 +1701,28 @@ def build_zip_bytes(
     metadata: EpisodeMetadata,
     replay_bytes: bytes,
 ) -> bytes:
-    """Build the phase-3 output zip:
-
-        summary.html  (rendered)
-        stats.json    (download-only)
-        events.parquet (download-only)
-        render.txt    (lists summary.html)
-
-    Phase 3 parses the full `.bitreplay` (header + records) and wires
-    per-slot join/leave fields, episode `total_ticks`, and the
-    `join` / `leave` keys in events.parquet. Phase 4 will add the
-    `input_press` and `activity_bucket` keys.
-    """
+    """Build the canonical output zip: a top-level `manifest.json` (flagging
+    `summary.html` as `render` and `events.parquet` as `event_log`), the
+    HTML render target, the auxiliary `stats.json`, and the event-log
+    Parquet."""
     replay = parse_bitreplay(replay_bytes)
     stats = build_stats(results, metadata, replay)
     summary_html = render_summary_html(stats).encode("utf-8")
     stats_json = (json.dumps(stats.model_dump(), indent=2) + "\n").encode("utf-8")
     events_parquet = write_events_parquet(build_event_rows(stats, replay))
-    render_txt = b"summary.html\n"
+    manifest_json = _stable_json(
+        {
+            "reporter_id": REPORTER_ID,
+            "render": "summary.html",
+            "event_log": "events.parquet",
+        }
+    ).encode("utf-8")
     return write_deterministic_zip(
         [
+            ("manifest.json", manifest_json),
             ("summary.html", summary_html),
             ("stats.json", stats_json),
             ("events.parquet", events_parquet),
-            ("render.txt", render_txt),
         ]
     )
 
@@ -1646,15 +1731,28 @@ def build_zip_bytes(
 
 
 def run(inputs: ReporterInputs) -> None:
-    results = AmongThemResults.model_validate(read_json(inputs.results_uri))
-    metadata = EpisodeMetadata.model_validate(read_json(inputs.episode_metadata_uri))
-    replay_bytes = read_uri(inputs.replay_uri)
+    with BundleReader(inputs.episode_bundle_uri) as bundle:
+        inner = bundle.inner_manifest()
+        if inner.status != "success":
+            raise RuntimeError(
+                f"bundle status={inner.status!r}; reporter cannot operate on "
+                "a failed episode"
+            )
+        results = AmongThemResults.model_validate(bundle.read_json("results"))
+        # Among Them's "replay" token bytes are the binary `.bitreplay`
+        # payload, not JSON (canonical convention is replay.json -- this is
+        # an Among-Them-specific deviation; the BundleReader doesn't care
+        # about content type, just bytes).
+        replay_bytes = bundle.read_bytes("replay")
+        metadata_raw: dict[str, Any] = bundle.read_json_optional("metadata") or {}
+    metadata_raw.setdefault("episode_id", inner.ereq_id)
+    metadata = EpisodeMetadata.model_validate(metadata_raw)
     payload = build_zip_bytes(
         results=results, metadata=metadata, replay_bytes=replay_bytes
     )
-    write_uri(inputs.report_output_uri, payload, content_type="application/zip")
+    write_uri(inputs.report_uri, payload, content_type="application/zip")
     print(
-        f"[{inputs.reporter_id}] wrote zip to {inputs.report_output_uri}",
+        f"[{REPORTER_ID}] wrote zip to {inputs.report_uri}",
         file=sys.stderr,
         flush=True,
     )
