@@ -35,13 +35,16 @@ COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
 python -m tribal_village_env.coworld.server
 ```
 
-Open `/clients/global` for the live map. It connects to `/global?frame=1` and
-renders the normal Nim renderer's RGB frame stream from the Python FFI. A
-player connects to `/clients/player?slot=<slot>&token=<token>` and controls one
-villager through the 11x11 `tribalcog-sprite-v1` local view exposed by
-`/player`. The player client renders the same PNG sprite assets served from
-`/assets/...` into a single 2D canvas tile per observation cell, with semantic
-glyphs kept only as a fallback.
+Open `/clients/global` for the live map. It connects to `/global` and renders
+the `tribalcog-global-sprite-v1` terrain/object stream using the same PNG
+assets served from `/assets/...` as the player view. Open
+`/clients/global?slot=0&token=token-0` to watch the global map while that
+browser tab also controls slot 0 through `/player`.
+
+A player can also connect to `/clients/player?slot=<slot>&token=<token>` and
+control one villager through the 11x11 `tribalcog-sprite-v1` local view exposed
+by `/player`. Both browser paths render sprite assets into one 2D canvas tile
+per observation/map cell, with semantic glyphs kept only as a fallback.
 
 ## Native WASM client
 

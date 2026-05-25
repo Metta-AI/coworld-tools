@@ -228,6 +228,79 @@ proc tribal_village_get_map_width(): int32 {.exportc, dynlib.} =
 proc tribal_village_get_map_height(): int32 {.exportc, dynlib.} =
   MapHeight.int32
 
+const GlobalSpriteCellFields = 13
+
+proc tribal_village_get_global_sprite_cell_fields(): int32 {.exportc, dynlib.} =
+  GlobalSpriteCellFields.int32
+
+proc globalSpriteTeam(thing: Thing): int16 =
+  if thing.isNil:
+    return -1'i16
+  if thing.kind == Agent:
+    let team = getTeamId(thing)
+    if team >= 0 and team < MapRoomObjectsTeams:
+      return team.int16
+  if thing.kind == Lantern and thing.lanternHealthy:
+    let team = thing.teamId
+    if team >= 0 and team < MapRoomObjectsTeams:
+      return team.int16
+  -1'i16
+
+proc writeGlobalSpriteThing(
+  out_buffer: ptr UncheckedArray[int16],
+  base: int,
+  thing: Thing
+) =
+  if thing.isNil:
+    out_buffer[base] = -1'i16
+    out_buffer[base + 1] = -1'i16
+    out_buffer[base + 2] = -1'i16
+    out_buffer[base + 3] = -1'i16
+    out_buffer[base + 4] = -1'i16
+    return
+
+  out_buffer[base] = ord(thing.kind).int16
+  out_buffer[base + 1] = globalSpriteTeam(thing)
+  out_buffer[base + 2] = ord(thing.orientation).int16
+  out_buffer[base + 3] =
+    if thing.kind == Agent: ord(thing.unitClass).int16 else: -1'i16
+  out_buffer[base + 4] =
+    if thing.kind == Agent: thing.agentId.int16 else: -1'i16
+
+proc tribal_village_write_global_sprite_cells(
+  env: pointer,
+  out_buffer: ptr UncheckedArray[int16],
+  out_len: int32
+): int32 {.exportc, dynlib.} =
+  ## Write a compact full-map sprite grid for Coworld global viewers.
+  ## Cell fields:
+  ##   0 terrain ordinal
+  ##   1..5 background thing kind/team/orientation/unit_class/agent_id
+  ##   6..10 blocking thing kind/team/orientation/unit_class/agent_id
+  ##   11 action tint code
+  ##   12 elevation
+  discard env
+  let required = MapWidth * MapHeight * GlobalSpriteCellFields
+  if out_buffer.isNil:
+    return required.int32
+  if out_len < required.int32:
+    return -required.int32
+  if globalEnv.isNil:
+    return 0
+
+  try:
+    for y in 0 ..< MapHeight:
+      for x in 0 ..< MapWidth:
+        let base = (y * MapWidth + x) * GlobalSpriteCellFields
+        out_buffer[base] = ord(globalEnv.terrain[x][y]).int16
+        writeGlobalSpriteThing(out_buffer, base + 1, globalEnv.backgroundGrid[x][y])
+        writeGlobalSpriteThing(out_buffer, base + 6, globalEnv.grid[x][y])
+        out_buffer[base + 11] = globalEnv.actionTintCode[x][y].int16
+        out_buffer[base + 12] = globalEnv.elevation[x][y].int16
+    return required.int32
+  except CatchableError:
+    return 0
+
 # Render full map as HxWx3 RGB (uint8)
 proc toByte(value: float32): uint8 =
   let iv = max(0, min(255, int(value * 255.0)))

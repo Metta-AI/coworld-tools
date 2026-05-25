@@ -121,5 +121,18 @@ The action must be an integer in `[0, 307]`. The server also accepts
 `{"action": {"verb": 0, "argument": 17}}`; the action ID is
 `verb * 28 + argument`.
 
+HTML sprite clients may instead send the BitWorld-style sprite player input
+packet as binary websocket data:
+
+```text
+0x84 <buttons-u8>
+```
+
+Button bits are `0x01` up, `0x02` down, `0x04` left, `0x08` right,
+`0x10` select, `0x20` A, and `0x40` B. Direction bits map to Tribal Cog's
+eight direction arguments. With only a direction held, the server sends
+`move`; with A it sends `attack`, with B it sends `use`, and with select it
+sends `orient`.
+
 Invalid, missing, late, or out-of-range actions become action `0` noop for that
 tick. A duplicate active connection for the same slot is rejected.

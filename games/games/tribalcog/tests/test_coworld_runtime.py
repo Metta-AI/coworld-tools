@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import zlib
 from pathlib import Path
@@ -10,6 +11,18 @@ import numpy as np
 from tribal_village_env.coworld.player import choose_sprite_action, player_ws_url
 from tribal_village_env.coworld.server import (
     AGENTS_PER_TEAM,
+    GLOBAL_CELL_BACKGROUND_AGENT_ID,
+    GLOBAL_CELL_BACKGROUND_KIND,
+    GLOBAL_CELL_BACKGROUND_ORIENTATION,
+    GLOBAL_CELL_BACKGROUND_TEAM,
+    GLOBAL_CELL_BACKGROUND_UNIT_CLASS,
+    GLOBAL_CELL_FIELD_COUNT,
+    GLOBAL_CELL_TERRAIN,
+    GLOBAL_CELL_THING_AGENT_ID,
+    GLOBAL_CELL_THING_KIND,
+    GLOBAL_CELL_THING_ORIENTATION,
+    GLOBAL_CELL_THING_TEAM,
+    GLOBAL_CELL_THING_UNIT_CLASS,
     OBSCURED_LAYER,
     ORIENTATION_LAYER,
     PLAYER_SLOT_COUNT,
@@ -20,6 +33,9 @@ from tribal_village_env.coworld.server import (
     CoworldConfig,
     asset_media_type,
     decode_action,
+    decode_binary_action,
+    decode_player_buttons,
+    global_sprite_view_from_cells,
     load_replay_data,
     resolve_sprite_asset_path,
     resolve_wasm_asset_path,
@@ -76,6 +92,18 @@ def test_decode_action_accepts_integer_and_verb_argument() -> None:
     assert decode_action({}) == 0
 
 
+def test_decode_sprite_player_input_buttons() -> None:
+    assert decode_player_buttons(0x01) == 1 * 28 + 0
+    assert decode_player_buttons(0x08) == 1 * 28 + 3
+    assert decode_player_buttons(0x01 | 0x04) == 1 * 28 + 4
+    assert decode_player_buttons(0x20 | 0x08) == 2 * 28 + 3
+    assert decode_player_buttons(0x40 | 0x02) == 3 * 28 + 1
+    assert decode_player_buttons(0x10 | 0x01) == 9 * 28 + 0
+    assert decode_player_buttons(0) == 0
+    assert decode_binary_action(bytes([0x84, 0x08])) == 1 * 28 + 3
+    assert decode_binary_action(bytes([0x81, 0x08])) == 0
+
+
 def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     obs = np.zeros((101, 11, 11), dtype=np.uint8)
     obs[TERRAIN_LAYER_START + 5, 5, 5] = 1
@@ -106,6 +134,36 @@ def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     assert center["unit_class"] == "villager"
     assert view["cells"][0][0]["sprite"] == "fog.unknown"
     assert view["cells"][0][0]["sprite_asset"] is None
+
+
+def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
+    cells = np.full((2, 3, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
+    cells[:, :, GLOBAL_CELL_TERRAIN] = 0
+    cells[1, 2, GLOBAL_CELL_TERRAIN] = 6
+    cells[1, 2, GLOBAL_CELL_BACKGROUND_KIND] = 3
+    cells[1, 2, GLOBAL_CELL_BACKGROUND_TEAM] = -1
+    cells[1, 2, GLOBAL_CELL_BACKGROUND_ORIENTATION] = 0
+    cells[1, 2, GLOBAL_CELL_BACKGROUND_UNIT_CLASS] = -1
+    cells[1, 2, GLOBAL_CELL_BACKGROUND_AGENT_ID] = -1
+    cells[1, 2, GLOBAL_CELL_THING_KIND] = 0
+    cells[1, 2, GLOBAL_CELL_THING_TEAM] = 0
+    cells[1, 2, GLOBAL_CELL_THING_ORIENTATION] = 0
+    cells[1, 2, GLOBAL_CELL_THING_UNIT_CLASS] = 0
+    cells[1, 2, GLOBAL_CELL_THING_AGENT_ID] = 7
+
+    view = global_sprite_view_from_cells(cells)
+
+    assert view["protocol"] == "tribalcog-global-sprite-v1"
+    assert view["width"] == 3
+    assert view["height"] == 2
+    assert base64.b64decode(view["terrain"]["data"]) == bytes([0, 0, 0, 0, 0, 6])
+    assert view["terrain"]["sprites"][6]["asset"] == "/assets/grass.png"
+    assert view["object_count"] == 2
+    assert view["objects"][0]["thing"] == "tree"
+    assert view["objects"][0]["asset"] == "/assets/tree.png"
+    assert view["objects"][1]["thing"] == "agent"
+    assert view["objects"][1]["agent_id"] == 7
+    assert view["objects"][1]["asset"] == "/assets/oriented/gatherer.n.png"
 
 
 def test_sprite_player_policy_moves_toward_visible_resource() -> None:

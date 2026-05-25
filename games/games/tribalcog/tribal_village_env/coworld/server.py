@@ -71,6 +71,28 @@ TERRAIN_LABELS = [
     "ramp_down_w",
     "ramp_down_e",
 ]
+GLOBAL_TERRAIN_LABELS = [
+    "empty",
+    "water",
+    "shallow_water",
+    "bridge",
+    "fertile",
+    "road",
+    "grass",
+    "dune",
+    "sand",
+    "snow",
+    "mud",
+    "mountain",
+    "ramp_up_n",
+    "ramp_up_s",
+    "ramp_up_w",
+    "ramp_up_e",
+    "ramp_down_n",
+    "ramp_down_s",
+    "ramp_down_w",
+    "ramp_down_e",
+]
 THING_LABELS = [
     "agent",
     "wall",
@@ -120,6 +142,78 @@ THING_LABELS = [
     "university",
     "castle",
     "wonder",
+    "goblin_hive",
+    "goblin_hut",
+    "goblin_totem",
+    "stubble",
+    "cliff_edge_n",
+    "cliff_edge_e",
+    "cliff_edge_s",
+    "cliff_edge_w",
+    "cliff_corner_in_ne",
+    "cliff_corner_in_se",
+    "cliff_corner_in_sw",
+    "cliff_corner_in_nw",
+    "cliff_corner_out_ne",
+    "cliff_corner_out_se",
+    "cliff_corner_out_sw",
+    "cliff_corner_out_nw",
+    "waterfall_n",
+    "waterfall_e",
+    "waterfall_s",
+    "waterfall_w",
+]
+GLOBAL_THING_LABELS = [
+    "agent",
+    "wall",
+    "door",
+    "tree",
+    "wheat",
+    "fish",
+    "relic",
+    "stone",
+    "gold",
+    "bush",
+    "cactus",
+    "stalagmite",
+    "magma",
+    "altar",
+    "spawner",
+    "tumor",
+    "cow",
+    "bear",
+    "wolf",
+    "corpse",
+    "skeleton",
+    "clay_oven",
+    "weaving_loom",
+    "outpost",
+    "guard_tower",
+    "barrel",
+    "mill",
+    "granary",
+    "lumber_camp",
+    "quarry",
+    "mining_camp",
+    "stump",
+    "lantern",
+    "town_center",
+    "house",
+    "barracks",
+    "archery_range",
+    "stable",
+    "siege_workshop",
+    "mangonel_workshop",
+    "trebuchet_workshop",
+    "blacksmith",
+    "market",
+    "dock",
+    "monastery",
+    "temple",
+    "university",
+    "castle",
+    "wonder",
+    "control_point",
     "goblin_hive",
     "goblin_hut",
     "goblin_totem",
@@ -202,9 +296,11 @@ THING_RENDER_ORDER = [
     "market",
     "dock",
     "monastery",
+    "temple",
     "university",
     "castle",
     "wonder",
+    "control_point",
     "goblin_hive",
     "goblin_hut",
     "goblin_totem",
@@ -289,6 +385,28 @@ UNIT_CLASS_LAYER = TEAM_LAYER + 2
 IDLE_LAYER = TEAM_LAYER + 3
 TINT_LAYER = TEAM_LAYER + 4
 OBSCURED_LAYER = TEAM_LAYER + 14
+GLOBAL_CELL_TERRAIN = 0
+GLOBAL_CELL_BACKGROUND_KIND = 1
+GLOBAL_CELL_BACKGROUND_TEAM = 2
+GLOBAL_CELL_BACKGROUND_ORIENTATION = 3
+GLOBAL_CELL_BACKGROUND_UNIT_CLASS = 4
+GLOBAL_CELL_BACKGROUND_AGENT_ID = 5
+GLOBAL_CELL_THING_KIND = 6
+GLOBAL_CELL_THING_TEAM = 7
+GLOBAL_CELL_THING_ORIENTATION = 8
+GLOBAL_CELL_THING_UNIT_CLASS = 9
+GLOBAL_CELL_THING_AGENT_ID = 10
+GLOBAL_CELL_TINT = 11
+GLOBAL_CELL_ELEVATION = 12
+GLOBAL_CELL_FIELD_COUNT = 13
+SPRITE_PLAYER_INPUT_MESSAGE = 0x84
+BUTTON_UP = 0x01
+BUTTON_DOWN = 0x02
+BUTTON_LEFT = 0x04
+BUTTON_RIGHT = 0x08
+BUTTON_SELECT = 0x10
+BUTTON_A = 0x20
+BUTTON_B = 0x40
 
 TERRAIN_GLYPHS = {
     "water": "~",
@@ -321,9 +439,12 @@ THING_GLYPHS = {
     "wall": "#",
     "door": "+",
     "lantern": "l",
+    "temple": "t",
+    "control_point": "p",
 }
 TERRAIN_COLORS = {
     "water": "#3276a8",
+    "shallow_water": "#4f9ab9",
     "bridge": "#8f7a52",
     "fertile": "#6a8f3f",
     "road": "#7a715d",
@@ -331,6 +452,7 @@ TERRAIN_COLORS = {
     "dune": "#b69b55",
     "sand": "#c8ad74",
     "snow": "#d8e7e8",
+    "mud": "#685947",
     "mountain": "#777b80",
 }
 TEAM_COLORS = [
@@ -356,6 +478,7 @@ ORIENTATION_ASSET_SUFFIXES = {
 TERRAIN_ASSET_KEYS = {
     "empty": "floor",
     "water": "water",
+    "shallow_water": "water",
     "bridge": "bridge",
     "fertile": "fertile",
     "road": "road",
@@ -363,6 +486,7 @@ TERRAIN_ASSET_KEYS = {
     "dune": "dune",
     "sand": "sand",
     "snow": "snow",
+    "mud": "mud",
     "mountain": "dune",
     "ramp_up_n": "oriented/ramp_up_n",
     "ramp_up_s": "oriented/ramp_up_s",
@@ -607,6 +731,43 @@ def decode_action(message: dict[str, Any]) -> int:
     return action
 
 
+def _direction_argument(dx: int, dy: int) -> int | None:
+    return {
+        (0, -1): 0,
+        (0, 1): 1,
+        (-1, 0): 2,
+        (1, 0): 3,
+        (-1, -1): 4,
+        (1, -1): 5,
+        (-1, 1): 6,
+        (1, 1): 7,
+    }.get((dx, dy))
+
+
+def decode_player_buttons(buttons: int) -> int:
+    buttons = int(buttons) & 0x7F
+    dx = int(bool(buttons & BUTTON_RIGHT)) - int(bool(buttons & BUTTON_LEFT))
+    dy = int(bool(buttons & BUTTON_DOWN)) - int(bool(buttons & BUTTON_UP))
+    direction = _direction_argument(dx, dy)
+    if direction is None:
+        return 0
+    if buttons & BUTTON_A:
+        verb = 2
+    elif buttons & BUTTON_B:
+        verb = 3
+    elif buttons & BUTTON_SELECT:
+        verb = 9
+    else:
+        verb = 1
+    return verb * 28 + direction
+
+
+def decode_binary_action(message: bytes) -> int:
+    if len(message) >= 2 and message[0] == SPRITE_PLAYER_INPUT_MESSAGE:
+        return decode_player_buttons(message[1])
+    return 0
+
+
 def _first_active_layer(obs: np.ndarray, labels: list[str], start: int, x: int, y: int) -> str | None:
     for offset, label in enumerate(labels):
         if int(obs[start + offset, x, y]) > 0:
@@ -786,6 +947,135 @@ def sprite_view_from_observation(obs: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _ordinal_label(labels: list[str], value: int) -> str | None:
+    if 0 <= value < len(labels):
+        return labels[value]
+    return None
+
+
+def _global_terrain_sprites() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": terrain_id,
+            "label": label,
+            "asset": _asset_url(_terrain_asset_key(label)),
+            "color": TERRAIN_COLORS.get(label, "#4b534c"),
+        }
+        for terrain_id, label in enumerate(GLOBAL_TERRAIN_LABELS)
+    ]
+
+
+def _global_thing_object(
+    layer: str,
+    x: int,
+    y: int,
+    cell: np.ndarray,
+    *,
+    kind_index: int,
+    team_index: int,
+    orientation_index: int,
+    unit_class_index: int,
+    agent_id_index: int,
+) -> dict[str, Any] | None:
+    kind_value = int(cell[kind_index])
+    thing = _ordinal_label(GLOBAL_THING_LABELS, kind_value)
+    if thing is None:
+        return None
+
+    team_value = int(cell[team_index])
+    team_id = team_value if 0 <= team_value < TEAM_COUNT else None
+    orientation = _ordinal_label(ORIENTATION_LABELS, int(cell[orientation_index]))
+    unit_class = _ordinal_label(UNIT_CLASS_LABELS, int(cell[unit_class_index]))
+    agent_id_value = int(cell[agent_id_index])
+    agent_id = agent_id_value if agent_id_value >= 0 else None
+    asset = _asset_url(_thing_asset_key(thing, unit_class, orientation))
+    z = THING_RENDER_RANK.get(thing, len(THING_RENDER_RANK))
+    if layer == "foreground":
+        z += len(THING_RENDER_RANK)
+    return {
+        "id": f"{layer}:{x}:{y}",
+        "layer": layer,
+        "x": x,
+        "y": y,
+        "z": z,
+        "thing": thing,
+        "team_id": team_id,
+        "agent_id": agent_id,
+        "unit_class": unit_class,
+        "orientation": orientation,
+        "asset": asset,
+        "glyph": THING_GLYPHS.get(thing, thing[:1].upper()),
+        "color": _cell_color("empty", team_id, False),
+    }
+
+
+def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
+    if cells.ndim != 3 or cells.shape[2] < GLOBAL_CELL_FIELD_COUNT:
+        raise ValueError("global sprite cells must be an HxWx13 int16 array")
+
+    height = int(cells.shape[0])
+    width = int(cells.shape[1])
+    terrain = np.clip(cells[:, :, GLOBAL_CELL_TERRAIN], 0, 255).astype(
+        np.uint8,
+        copy=False,
+    )
+    objects: list[dict[str, Any]] = []
+    for y in range(height):
+        for x in range(width):
+            cell = cells[y, x]
+            background = _global_thing_object(
+                "background",
+                x,
+                y,
+                cell,
+                kind_index=GLOBAL_CELL_BACKGROUND_KIND,
+                team_index=GLOBAL_CELL_BACKGROUND_TEAM,
+                orientation_index=GLOBAL_CELL_BACKGROUND_ORIENTATION,
+                unit_class_index=GLOBAL_CELL_BACKGROUND_UNIT_CLASS,
+                agent_id_index=GLOBAL_CELL_BACKGROUND_AGENT_ID,
+            )
+            if background is not None:
+                objects.append(background)
+            foreground = _global_thing_object(
+                "foreground",
+                x,
+                y,
+                cell,
+                kind_index=GLOBAL_CELL_THING_KIND,
+                team_index=GLOBAL_CELL_THING_TEAM,
+                orientation_index=GLOBAL_CELL_THING_ORIENTATION,
+                unit_class_index=GLOBAL_CELL_THING_UNIT_CLASS,
+                agent_id_index=GLOBAL_CELL_THING_AGENT_ID,
+            )
+            if foreground is not None:
+                objects.append(foreground)
+
+    objects.sort(key=lambda obj: (obj["z"], obj["y"], obj["x"], obj["id"]))
+    return {
+        "protocol": "tribalcog-global-sprite-v1",
+        "width": width,
+        "height": height,
+        "tile_size": 24,
+        "terrain": {
+            "encoding": "u8-base64",
+            "labels": GLOBAL_TERRAIN_LABELS,
+            "sprites": _global_terrain_sprites(),
+            "data": base64.b64encode(np.ascontiguousarray(terrain).tobytes()).decode(
+                "ascii"
+            ),
+        },
+        "objects": objects,
+        "object_count": len(objects),
+        "legend": {
+            "terrain": GLOBAL_TERRAIN_LABELS,
+            "thing": GLOBAL_THING_LABELS,
+            "unit_class": UNIT_CLASS_LABELS,
+            "action": ACTION_NAMES,
+            "orientation": ORIENTATION_LABELS,
+        },
+    }
+
+
 def _local_replay_path(replay_uri: str) -> Path:
     parsed = urlparse(replay_uri)
     if parsed.scheme == "file":
@@ -816,7 +1106,7 @@ class TribalCogCoworld:
         self.env.reset(seed=config.seed)
 
         self.players: dict[int, WebSocket] = {}
-        self.global_viewers: set[WebSocket] = set()
+        self.global_viewers: dict[WebSocket, bool] = {}
         self.player_slot_count = len(config.tokens)
         self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
         self.last_rewards = [0.0 for _ in range(self.player_slot_count)]
@@ -862,7 +1152,13 @@ class TribalCogCoworld:
             },
         }
 
-    def snapshot(self, *, include_frame: bool = True) -> dict[str, Any]:
+    def global_sprite_view(self) -> dict[str, Any] | None:
+        cells = self.env.global_sprite_cells()
+        if cells is None:
+            return None
+        return global_sprite_view_from_cells(cells)
+
+    def snapshot(self, *, include_frame: bool = False) -> dict[str, Any]:
         snapshot: dict[str, Any] = {
             "type": "state",
             "step": self.env.step_count,
@@ -879,6 +1175,9 @@ class TribalCogCoworld:
             ],
             "step_seconds": self.config.step_seconds,
         }
+        global_view = self.global_sprite_view()
+        if global_view is not None:
+            snapshot["global_view"] = global_view
         if include_frame and (
             self.env.step_count % self.config.render_every_steps == 0 or self.done
         ):
@@ -922,7 +1221,8 @@ class TribalCogCoworld:
             for slot, player in list(self.players.items())
         ]
         global_tasks = [
-            viewer.send_json(self.snapshot()) for viewer in list(self.global_viewers)
+            viewer.send_json(self.snapshot(include_frame=include_frame))
+            for viewer, include_frame in list(self.global_viewers.items())
         ]
         if player_tasks or global_tasks:
             await asyncio.gather(*player_tasks, *global_tasks, return_exceptions=True)
@@ -971,7 +1271,9 @@ class TribalCogCoworld:
                 await player.send_json(self.player_observation(slot, final=True))
         for viewer in list(self.global_viewers):
             with suppress(Exception):
-                await viewer.send_json(self.snapshot())
+                await viewer.send_json(
+                    self.snapshot(include_frame=self.global_viewers[viewer])
+                )
         if server is not None:
             server.should_exit = True
 
@@ -1088,14 +1390,14 @@ def sprite_asset(asset_path: str) -> FileResponse:
 async def global_viewer(websocket: WebSocket) -> None:
     state = _runtime()
     await websocket.accept()
-    state.global_viewers.add(websocket)
+    include_frame = websocket.query_params.get("frame") == "1"
+    state.global_viewers[websocket] = include_frame
     try:
-        include_frame = websocket.query_params.get("frame") == "1"
         await websocket.send_json(state.snapshot(include_frame=include_frame))
         async for _ in websocket.iter_json():
             pass
     finally:
-        state.global_viewers.discard(websocket)
+        state.global_viewers.pop(websocket, None)
 
 
 @app.websocket("/replay")
@@ -1144,9 +1446,21 @@ async def player(websocket: WebSocket) -> None:
         await state.maybe_start()
 
     try:
-        async for message in websocket.iter_json():
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            action = 0
+            if message.get("text") is not None:
+                try:
+                    payload = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    payload = {}
+                action = decode_action(payload) if isinstance(payload, dict) else 0
+            elif message.get("bytes") is not None:
+                action = decode_binary_action(message["bytes"])
             async with state.lock:
-                state.actions[slot] = decode_action(message)
+                state.actions[slot] = action
     except WebSocketDisconnect:
         pass
     finally:

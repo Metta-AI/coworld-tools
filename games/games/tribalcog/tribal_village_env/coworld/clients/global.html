@@ -5,72 +5,500 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tribal Cog Coworld</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #101314; color: #edf2ef; }
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0f1312; color: #eef2ee; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
-    main { min-width: 0; display: grid; place-items: center; background: #171b1c; padding: 16px; }
-    aside { border-left: 1px solid #2f3739; padding: 16px; background: #111617; overflow: auto; }
-    canvas { width: min(100%, 1200px); height: auto; image-rendering: pixelated; background: #080a0a; border: 1px solid #2f3739; }
-    h1 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
-    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #253032; font-size: 14px; }
+    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 320px; background: #121716; }
+    main { position: relative; min-width: 0; min-height: 100vh; overflow: hidden; background: #0a0d0c; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; image-rendering: pixelated; image-rendering: crisp-edges; }
+    canvas.dragging { cursor: grabbing; }
+    aside { border-left: 1px solid #293330; padding: 16px; background: #101615; overflow: auto; }
+    h1 { margin: 0 0 14px; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #24302d; font-size: 14px; }
+    .stat span { color: #aab7b1; }
+    .stat strong { min-width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
+    .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 4px; }
+    button { min-height: 34px; border: 1px solid #40504c; background: #1c2523; color: #eef2ee; font: inherit; }
+    button:hover { border-color: #81908b; }
+    button:active { transform: translateY(1px); }
     .teams { display: grid; gap: 6px; margin-top: 14px; }
-    .team { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 8px; font-size: 13px; }
-    .bar { height: 8px; background: #263033; overflow: hidden; }
-    .bar span { display: block; height: 100%; background: #80d39b; }
-    @media (max-width: 800px) { body { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #2f3739; } }
+    .team { display: grid; grid-template-columns: 64px 1fr 58px; align-items: center; gap: 8px; font-size: 13px; }
+    .bar { height: 8px; background: #26312e; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: #82d59b; }
+    .badge { position: absolute; left: 14px; top: 14px; padding: 6px 9px; border: 1px solid rgba(238, 242, 238, 0.2); background: rgba(9, 13, 12, 0.82); color: #d8e1dc; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
+    @media (max-width: 840px) {
+      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+      main { min-height: 68vh; }
+      aside { border-left: 0; border-top: 1px solid #293330; }
+    }
   </style>
 </head>
 <body>
-  <main><canvas id="view" width="1" height="1"></canvas></main>
+  <main>
+    <canvas id="view"></canvas>
+    <div class="badge" id="viewport">0 x 0</div>
+  </main>
   <aside>
     <h1>Tribal Cog</h1>
     <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
     <div class="stat"><span>Players</span><strong id="players">0 / 1000</strong></div>
     <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
+    <div class="stat"><span>Control</span><strong id="control">spectator</strong></div>
+    <div class="stat"><span>Sprites</span><strong id="sprites">0</strong></div>
+    <div class="tools">
+      <button id="zoomOut" type="button">-</button>
+      <button id="home" type="button">Home</button>
+      <button id="zoomIn" type="button">+</button>
+    </div>
     <div class="teams" id="teams"></div>
   </aside>
   <script>
     const canvas = document.getElementById("view");
     const ctx = canvas.getContext("2d");
+    const viewportEl = document.getElementById("viewport");
     const stepEl = document.getElementById("step");
     const playersEl = document.getElementById("players");
     const statusEl = document.getElementById("status");
+    const controlEl = document.getElementById("control");
+    const spritesEl = document.getElementById("sprites");
     const teamsEl = document.getElementById("teams");
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/global?frame=1`);
+    const params = new URLSearchParams(location.search);
+    const slotParam = params.get("slot");
+    const tokenParam = params.get("token");
+    const controlledSlot = slotParam !== null && tokenParam !== null ? Number(slotParam) : null;
+    const controlled = Number.isInteger(controlledSlot);
+    const terrainColors = {
+      empty: "#3f4a3b",
+      water: "#3276a8",
+      shallow_water: "#4f9ab9",
+      bridge: "#8f7a52",
+      fertile: "#6a8f3f",
+      road: "#7a715d",
+      grass: "#4f8146",
+      dune: "#b69b55",
+      sand: "#c8ad74",
+      snow: "#d8e7e8",
+      mud: "#685947",
+      mountain: "#777b80",
+    };
+    const spriteCache = new Map();
+    const pressedKeys = new Set();
+    const keyMasks = {
+      w: 0x01,
+      arrowup: 0x01,
+      s: 0x02,
+      arrowdown: 0x02,
+      a: 0x04,
+      arrowleft: 0x04,
+      d: 0x08,
+      arrowright: 0x08,
+      q: 0x05,
+      e: 0x09,
+      z: 0x06,
+      c: 0x0A,
+      space: 0x20,
+      shift: 0x20,
+      f: 0x40,
+      alt: 0x10,
+    };
+    let world = null;
+    let latestState = null;
+    let tileSize = clamp(Number(params.get("tile")) || 24, 6, 96);
+    let offsetX = 0;
+    let offsetY = 0;
+    let didInitialCenter = false;
+    let followControlled = controlled;
+    let dragging = false;
+    let dragX = 0;
+    let dragY = 0;
+    let playerWs = null;
+    let heldButtons = 0;
+    let lastSentButtons = -1;
 
-    ws.onmessage = (event) => {
-      const state = JSON.parse(event.data);
+    ctx.imageSmoothingEnabled = false;
+    connectGlobal();
+    if (controlled) connectPlayer();
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    document.getElementById("zoomOut").onclick = () => zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
+    document.getElementById("zoomIn").onclick = () => zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    document.getElementById("home").onclick = () => {
+      followControlled = controlled;
+      centerViewport();
+      draw();
+    };
+
+    canvas.addEventListener("mousedown", (event) => {
+      dragging = true;
+      followControlled = false;
+      dragX = event.clientX;
+      dragY = event.clientY;
+      canvas.classList.add("dragging");
+    });
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      canvas.classList.remove("dragging");
+    });
+    window.addEventListener("mousemove", (event) => {
+      if (dragging) {
+        offsetX += event.clientX - dragX;
+        offsetY += event.clientY - dragY;
+        dragX = event.clientX;
+        dragY = event.clientY;
+        draw();
+        return;
+      }
+      updateTitle(event);
+    });
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      followControlled = false;
+      const nextSize = tileSize * (event.deltaY > 0 ? 0.88 : 1.14);
+      const rect = canvas.getBoundingClientRect();
+      zoomAt(event.clientX - rect.left, event.clientY - rect.top, nextSize);
+    }, { passive: false });
+
+    document.addEventListener("keydown", (event) => {
+      if (handleControlKey(event, true)) {
+        event.preventDefault();
+        return;
+      }
+      if (!controlled && handlePanKey(event)) event.preventDefault();
+    });
+    document.addEventListener("keyup", (event) => {
+      if (handleControlKey(event, false)) event.preventDefault();
+    });
+    setInterval(sendHeldButtons, 45);
+
+    function connectGlobal() {
+      const ws = new WebSocket(websocketUrl("/global"));
+      ws.onmessage = (event) => {
+        latestState = JSON.parse(event.data);
+        updateStats(latestState);
+        if (latestState.global_view) {
+          loadWorld(latestState.global_view);
+        }
+      };
+      ws.onclose = () => { statusEl.textContent = "closed"; };
+    }
+
+    function connectPlayer() {
+      const query = new URLSearchParams({ slot: slotParam, token: tokenParam });
+      playerWs = new WebSocket(websocketUrl("/player", query));
+      playerWs.binaryType = "arraybuffer";
+      playerWs.onopen = () => {
+        controlEl.textContent = `slot ${controlledSlot}`;
+        sendHeldButtons(true);
+      };
+      playerWs.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        controlEl.textContent = message.done ? "done" : `slot ${message.slot}`;
+      };
+      playerWs.onclose = () => { controlEl.textContent = "closed"; };
+    }
+
+    function websocketUrl(path, query = new URLSearchParams()) {
+      const url = new URL(path, location.origin);
+      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      query.forEach((value, key) => url.searchParams.set(key, value));
+      return url.toString();
+    }
+
+    function updateStats(state) {
       stepEl.textContent = `${state.step} / ${state.max_steps}`;
       playersEl.textContent = `${state.connected_players} / ${state.total_player_slots}`;
       statusEl.textContent = state.done ? "done" : state.started ? "running" : "waiting";
       renderTeams(state);
-      if (state.frame) renderFrame(state.frame);
-    };
-    ws.onclose = () => { statusEl.textContent = "closed"; };
+    }
 
-    function renderFrame(frame) {
-      canvas.width = frame.width;
-      canvas.height = frame.height;
-      const bytes = Uint8Array.from(atob(frame.data), c => c.charCodeAt(0));
-      const image = ctx.createImageData(frame.width, frame.height);
-      for (let src = 0, dst = 0; src < bytes.length; src += 3, dst += 4) {
-        image.data[dst] = bytes[src];
-        image.data[dst + 1] = bytes[src + 1];
-        image.data[dst + 2] = bytes[src + 2];
-        image.data[dst + 3] = 255;
+    function loadWorld(view) {
+      world = {
+        view,
+        terrain: decodeTerrain(view.terrain),
+        terrainSprites: view.terrain.sprites || [],
+        objects: view.objects || [],
+      };
+      spritesEl.textContent = String(world.objects.length);
+      if (!didInitialCenter) {
+        centerViewport();
+        didInitialCenter = true;
+      } else if (followControlled) {
+        centerControlledObject();
       }
-      ctx.putImageData(image, 0, 0);
+      draw();
+    }
+
+    function decodeTerrain(terrain) {
+      const raw = atob(terrain.data || "");
+      const bytes = new Uint8Array(raw.length);
+      for (let index = 0; index < raw.length; index++) {
+        bytes[index] = raw.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      draw();
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, viewWidth(), viewHeight());
+      if (!world) return;
+      drawTerrain();
+      drawObjects();
+      drawViewportBadge();
+    }
+
+    function drawTerrain() {
+      const view = world.view;
+      const startX = clamp(Math.floor((-offsetX) / tileSize) - 1, 0, view.width - 1);
+      const startY = clamp(Math.floor((-offsetY) / tileSize) - 1, 0, view.height - 1);
+      const endX = clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, view.width);
+      const endY = clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, view.height);
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const terrainId = world.terrain[y * view.width + x] || 0;
+          const sprite = world.terrainSprites[terrainId] || {};
+          const px = offsetX + x * tileSize;
+          const py = offsetY + y * tileSize;
+          drawTerrainCell(sprite, px, py);
+        }
+      }
+      if (tileSize >= 14) drawGrid(startX, startY, endX, endY);
+    }
+
+    function drawTerrainCell(sprite, x, y) {
+      ctx.fillStyle = sprite.color || terrainColors[sprite.label] || "#4b534c";
+      ctx.fillRect(x, y, tileSize, tileSize);
+      drawCover(sprite.asset, x, y, tileSize, tileSize);
+    }
+
+    function drawGrid(startX, startY, endX, endY) {
+      ctx.strokeStyle = "rgba(7, 10, 9, 0.42)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = startX; x <= endX; x++) {
+        const px = Math.round(offsetX + x * tileSize) + 0.5;
+        ctx.moveTo(px, offsetY + startY * tileSize);
+        ctx.lineTo(px, offsetY + endY * tileSize);
+      }
+      for (let y = startY; y <= endY; y++) {
+        const py = Math.round(offsetY + y * tileSize) + 0.5;
+        ctx.moveTo(offsetX + startX * tileSize, py);
+        ctx.lineTo(offsetX + endX * tileSize, py);
+      }
+      ctx.stroke();
+    }
+
+    function drawObjects() {
+      for (const object of world.objects) {
+        const x = offsetX + object.x * tileSize;
+        const y = offsetY + object.y * tileSize;
+        if (x > viewWidth() || y > viewHeight() || x + tileSize < 0 || y + tileSize < 0) continue;
+        if (object.team_id !== null && object.team_id !== undefined) {
+          drawTeamHalo(x, y, tileSize, object.color || "#ffffff");
+        }
+        const inset = object.layer === "background" ? 0.05 : 0.08;
+        const drawn = drawContain(
+          object.asset,
+          x + tileSize * inset,
+          y + tileSize * inset,
+          tileSize * (1 - inset * 2),
+          tileSize * (1 - inset * 2),
+        );
+        if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize);
+        if (object.agent_id === controlledSlot) drawControlledRing(x, y, tileSize);
+      }
+    }
+
+    function drawCover(src, x, y, width, height) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      ctx.drawImage(image, x, y, width, height);
+      return true;
+    }
+
+    function drawContain(src, x, y, width, height) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      const ratio = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const drawWidth = image.naturalWidth * ratio;
+      const drawHeight = image.naturalHeight * ratio;
+      ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+      return true;
+    }
+
+    function cachedImage(src) {
+      if (!src) return null;
+      let entry = spriteCache.get(src);
+      if (!entry) {
+        const image = new Image();
+        entry = { image, loaded: false, failed: false };
+        image.onload = () => { entry.loaded = true; draw(); };
+        image.onerror = () => { entry.failed = true; draw(); };
+        image.src = src;
+        spriteCache.set(src, entry);
+      }
+      if (entry.failed || !entry.loaded) return null;
+      return entry.image;
+    }
+
+    function drawTeamHalo(x, y, size, color) {
+      const gradient = ctx.createRadialGradient(
+        x + size / 2, y + size * 0.62, size * 0.12,
+        x + size / 2, y + size * 0.62, size * 0.52,
+      );
+      gradient.addColorStop(0, color);
+      gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = 0.62;
+      ctx.fillRect(x, y, size, size);
+      ctx.globalAlpha = 1;
+    }
+
+    function drawControlledRing(x, y, size) {
+      ctx.strokeStyle = "#f4f7df";
+      ctx.lineWidth = Math.max(2, Math.floor(size * 0.08));
+      ctx.strokeRect(x + 2, y + 2, size - 4, size - 4);
+      ctx.strokeStyle = "rgba(7, 10, 8, 0.8)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 5, y + 5, size - 10, size - 10);
+    }
+
+    function drawGlyph(glyph, x, y, size) {
+      ctx.fillStyle = "#eef4ed";
+      ctx.font = `700 ${Math.max(10, Math.floor(size * 0.34))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph, x + size / 2, y + size / 2);
+    }
+
+    function drawViewportBadge() {
+      const centerX = Math.floor((viewWidth() / 2 - offsetX) / tileSize);
+      const centerY = Math.floor((viewHeight() / 2 - offsetY) / tileSize);
+      viewportEl.textContent = `${centerX}, ${centerY} @ ${tileSize.toFixed(1)}`;
     }
 
     function renderTeams(state) {
-      const maxScore = Math.max(1, ...state.team_scores.map(Math.abs));
+      const scores = state.team_scores || [];
+      const maxScore = Math.max(1, ...scores.map(score => Math.abs(score)));
       teamsEl.innerHTML = "";
-      state.team_scores.forEach((score, index) => {
+      scores.forEach((score, index) => {
         const row = document.createElement("div");
         row.className = "team";
-        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${Math.min(100, Math.abs(score) / maxScore * 100)}%"></span></div><strong>${score.toFixed(1)}</strong>`;
+        const width = Math.min(100, Math.abs(score) / maxScore * 100);
+        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${width}%"></span></div><strong>${Number(score).toFixed(1)}</strong>`;
         teamsEl.appendChild(row);
       });
+    }
+
+    function centerViewport() {
+      if (!world) return;
+      if (!centerControlledObject()) {
+        centerOn(world.view.width / 2, world.view.height / 2);
+      }
+    }
+
+    function centerControlledObject() {
+      if (!controlled || !world) return false;
+      const object = world.objects.find(candidate => candidate.agent_id === controlledSlot);
+      if (!object) return false;
+      centerOn(object.x + 0.5, object.y + 0.5);
+      return true;
+    }
+
+    function centerOn(worldX, worldY) {
+      offsetX = viewWidth() / 2 - worldX * tileSize;
+      offsetY = viewHeight() / 2 - worldY * tileSize;
+    }
+
+    function zoomAt(screenX, screenY, nextSize) {
+      const oldSize = tileSize;
+      tileSize = clamp(nextSize, 6, 96);
+      const worldX = (screenX - offsetX) / oldSize;
+      const worldY = (screenY - offsetY) / oldSize;
+      offsetX = screenX - worldX * tileSize;
+      offsetY = screenY - worldY * tileSize;
+      draw();
+    }
+
+    function updateTitle(event) {
+      if (!world) return;
+      const rect = canvas.getBoundingClientRect();
+      const worldX = Math.floor((event.clientX - rect.left - offsetX) / tileSize);
+      const worldY = Math.floor((event.clientY - rect.top - offsetY) / tileSize);
+      if (worldX < 0 || worldY < 0 || worldX >= world.view.width || worldY >= world.view.height) return;
+      const object = [...world.objects].reverse().find(candidate => candidate.x === worldX && candidate.y === worldY);
+      const terrainId = world.terrain[worldY * world.view.width + worldX] || 0;
+      const terrain = world.terrainSprites[terrainId] || {};
+      canvas.title = [
+        `${worldX},${worldY}`,
+        terrain.label,
+        object && object.thing,
+        object && object.unit_class,
+      ].filter(Boolean).join(" ");
+    }
+
+    function handleControlKey(event, down) {
+      if (!controlled) return false;
+      const key = normalizedKey(event);
+      if (!(key in keyMasks)) return false;
+      if (down) pressedKeys.add(key);
+      else pressedKeys.delete(key);
+      recomputeHeldButtons();
+      return true;
+    }
+
+    function handlePanKey(event) {
+      const amount = Math.max(32, tileSize * 4);
+      if (event.key === "ArrowUp") offsetY += amount;
+      else if (event.key === "ArrowDown") offsetY -= amount;
+      else if (event.key === "ArrowLeft") offsetX += amount;
+      else if (event.key === "ArrowRight") offsetX -= amount;
+      else return false;
+      followControlled = false;
+      draw();
+      return true;
+    }
+
+    function normalizedKey(event) {
+      if (event.code === "Space") return "space";
+      return event.key.toLowerCase();
+    }
+
+    function recomputeHeldButtons() {
+      let nextButtons = 0;
+      pressedKeys.forEach(key => { nextButtons |= keyMasks[key] || 0; });
+      if (nextButtons !== heldButtons) {
+        heldButtons = nextButtons;
+        sendHeldButtons(true);
+      }
+    }
+
+    function sendHeldButtons(force = false) {
+      if (!playerWs || playerWs.readyState !== WebSocket.OPEN) return;
+      if (!force && heldButtons === lastSentButtons) return;
+      playerWs.send(new Uint8Array([0x84, heldButtons]));
+      lastSentButtons = heldButtons;
+    }
+
+    function viewWidth() {
+      return canvas.clientWidth || 1;
+    }
+
+    function viewHeight() {
+      return canvas.clientHeight || 1;
+    }
+
+    function clamp(value, minValue, maxValue) {
+      return Math.max(minValue, Math.min(maxValue, value));
     }
   </script>
 </body>

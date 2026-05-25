@@ -244,6 +244,34 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             return ""
         return cbuf.value.decode("utf-8", errors="replace")
 
+    def global_sprite_cells(self) -> np.ndarray | None:
+        """Return a compact full-map sprite grid from Nim, if available."""
+        if self.map_width is None or self.map_height is None:
+            return None
+        field_count = int(
+            self._optional_ffi(
+                "tribal_village_get_global_sprite_cell_fields",
+                default=0,
+            )
+            or 0
+        )
+        if field_count <= 0:
+            return None
+
+        cells = np.empty(
+            (int(self.map_height), int(self.map_width), field_count),
+            dtype=np.int16,
+        )
+        written = self._optional_env_ffi(
+            "tribal_village_write_global_sprite_cells",
+            cells.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int32(cells.size),
+            default=0,
+        )
+        if int(written or 0) <= 0:
+            return None
+        return cells
+
     def _setup_ctypes_interface(self):
         """Setup ctypes for direct buffer functions."""
         config_ptr = ctypes.POINTER(NimConfig)
@@ -286,6 +314,13 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             # optional
             ("tribal_village_get_map_width", [], ctypes.c_int32, True),
             ("tribal_village_get_map_height", [], ctypes.c_int32, True),
+            ("tribal_village_get_global_sprite_cell_fields", [], ctypes.c_int32, True),
+            (
+                "tribal_village_write_global_sprite_cells",
+                [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
             (
                 "tribal_village_render_rgb",
                 [
