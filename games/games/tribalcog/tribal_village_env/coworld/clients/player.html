@@ -8,13 +8,10 @@
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #111514; color: #edf2ef; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 300px; background: #151a19; }
-    main { min-width: 0; display: grid; place-items: center; padding: 18px; }
+    main { min-width: 0; display: grid; place-items: center; padding: 18px; background: #0c1110; }
     aside { border-left: 1px solid #2f3836; padding: 16px; background: #101514; overflow: auto; }
     h1 { margin: 0 0 14px; font-size: 18px; font-weight: 700; }
-    .view { width: min(90vmin, 760px); aspect-ratio: 1; display: grid; gap: 2px; background: #0a0d0c; border: 1px solid #2f3836; padding: 2px; }
-    .cell { min-width: 0; min-height: 0; border: 0; display: grid; place-items: center; color: #0a0d0c; font: 700 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; }
-    .cell.center { outline: 2px solid #f1f4e8; outline-offset: -2px; }
-    .cell.obscured { color: #65706d; background: #1b2021 !important; }
+    .view { width: min(90vmin, 760px); aspect-ratio: 1; display: block; background: #060807; border: 1px solid #38443f; box-shadow: 0 18px 70px rgba(0, 0, 0, 0.32); cursor: crosshair; }
     .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #25302e; font-size: 14px; }
     .stat span { color: #aab7b1; }
     .stat strong { text-align: right; }
@@ -29,7 +26,7 @@
   </style>
 </head>
 <body>
-  <main><div class="view" id="view"></div></main>
+  <main><canvas class="view" id="view" width="1056" height="1056"></canvas></main>
   <aside>
     <h1>Tribal Cog Player</h1>
     <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
@@ -77,8 +74,24 @@
     const modeEl = document.getElementById("mode");
     const verbEl = document.getElementById("verb");
     const viewEl = document.getElementById("view");
+    const ctx = viewEl.getContext("2d");
+    const tilePixels = 96;
+    const spriteCache = new Map();
+    const terrainColors = {
+      empty: "#3f4a3b",
+      water: "#3276a8",
+      bridge: "#8f7a52",
+      fertile: "#6a8f3f",
+      road: "#7a715d",
+      grass: "#4f8146",
+      dune: "#b69b55",
+      sand: "#c8ad74",
+      snow: "#d8e7e8",
+      mountain: "#777b80",
+    };
     let actionSpace = 308;
     let selectedDirection = 0;
+    let latestView = null;
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/player?slot=${encodeURIComponent(slot)}&token=${encodeURIComponent(token)}`);
 
     ws.onmessage = (event) => {
@@ -104,6 +117,25 @@
     });
     document.getElementById("noop").onclick = () => sendRaw(0);
     document.getElementById("send").onclick = () => sendDirectional(selectedDirection);
+    viewEl.addEventListener("click", (event) => {
+      const cell = eventCell(event);
+      if (!cell || !latestView) return;
+      const dx = Math.sign(cell.x - latestView.center.x);
+      const dy = Math.sign(cell.y - latestView.center.y);
+      const direction = directionArgument(dx, dy);
+      if (direction === null) sendRaw(0);
+      else sendDirectional(direction);
+    });
+    viewEl.addEventListener("mousemove", (event) => {
+      const cell = eventCell(event);
+      if (!cell) return;
+      viewEl.title = [
+        cell.sprite,
+        cell.unit_class,
+        cell.orientation,
+        cell.sprite_asset,
+      ].filter(Boolean).join(" ");
+    });
     document.addEventListener("keydown", (event) => {
       const keyMap = { w: 0, s: 1, a: 2, d: 3, q: 4, e: 5, z: 6, c: 7, x: -1 };
       if (!(event.key in keyMap)) return;
@@ -124,27 +156,122 @@
     }
 
     function renderView(view) {
-      viewEl.style.gridTemplateColumns = `repeat(${view.width}, minmax(0, 1fr))`;
-      viewEl.replaceChildren();
+      latestView = view;
+      const width = view.width * tilePixels;
+      const height = view.height * tilePixels;
+      if (viewEl.width !== width) viewEl.width = width;
+      if (viewEl.height !== height) viewEl.height = height;
+      drawView();
+    }
+
+    function drawView() {
+      if (!latestView) return;
+      const view = latestView;
       const centerX = view.center.x;
       const centerY = view.center.y;
-      view.cells.flat().forEach((cell) => {
-        const button = document.createElement("button");
-        button.className = "cell";
-        if (cell.x === centerX && cell.y === centerY) button.classList.add("center");
-        if (cell.obscured) button.classList.add("obscured");
-        button.style.background = cell.color || "#4b534c";
-        button.textContent = cell.glyph || ".";
-        button.title = [cell.sprite, cell.unit_class, cell.orientation].filter(Boolean).join(" ");
-        button.onclick = () => {
-          const dx = Math.sign(cell.x - centerX);
-          const dy = Math.sign(cell.y - centerY);
-          const direction = directionArgument(dx, dy);
-          if (direction === null) sendRaw(0);
-          else sendDirectional(direction);
-        };
-        viewEl.appendChild(button);
-      });
+      ctx.clearRect(0, 0, viewEl.width, viewEl.height);
+      for (const row of view.cells) {
+        for (const cell of row) {
+          drawCell(cell, cell.x * tilePixels, cell.y * tilePixels, tilePixels);
+        }
+      }
+      drawCenter(centerX * tilePixels, centerY * tilePixels, tilePixels);
+    }
+
+    function drawCell(cell, x, y, size) {
+      ctx.fillStyle = terrainColors[cell.terrain] || "#4b534c";
+      ctx.fillRect(x, y, size, size);
+      let drawn = drawCover(cell.terrain_asset, x, y, size, size);
+      if (cell.team_id !== null && cell.team_id !== undefined && !cell.obscured) {
+        drawTeamHalo(x, y, size, cell.color || "#ffffff");
+      }
+      const assets = cell.thing_assets && cell.thing_assets.length > 0
+        ? cell.thing_assets
+        : (cell.thing_asset ? [cell.thing_asset] : []);
+      for (const asset of assets) {
+        drawn = drawContain(asset, x + size * 0.08, y + size * 0.08, size * 0.84, size * 0.84) || drawn;
+      }
+      if (cell.obscured) {
+        ctx.fillStyle = "rgba(8, 12, 13, 0.78)";
+        ctx.fillRect(x, y, size, size);
+        drawGlyph("?", x, y, size, "#65706d");
+      } else if (!drawn) {
+        drawGlyph(cell.glyph || ".", x, y, size, "#eef4ed");
+      }
+      ctx.strokeStyle = "rgba(6, 8, 7, 0.9)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+    }
+
+    function drawCover(src, x, y, width, height) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      ctx.drawImage(image, x, y, width, height);
+      return true;
+    }
+
+    function drawContain(src, x, y, width, height) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      const ratio = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const drawWidth = image.naturalWidth * ratio;
+      const drawHeight = image.naturalHeight * ratio;
+      ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+      return true;
+    }
+
+    function cachedImage(src) {
+      if (!src) return null;
+      let entry = spriteCache.get(src);
+      if (!entry) {
+        const image = new Image();
+        entry = { image, loaded: false, failed: false };
+        image.onload = () => { entry.loaded = true; drawView(); };
+        image.onerror = () => { entry.failed = true; drawView(); };
+        image.src = src;
+        spriteCache.set(src, entry);
+      }
+      if (entry.failed || !entry.loaded) return null;
+      return entry.image;
+    }
+
+    function drawTeamHalo(x, y, size, color) {
+      const gradient = ctx.createRadialGradient(
+        x + size / 2, y + size * 0.62, size * 0.12,
+        x + size / 2, y + size * 0.62, size * 0.52,
+      );
+      gradient.addColorStop(0, color);
+      gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(x, y, size, size);
+      ctx.globalAlpha = 1;
+    }
+
+    function drawGlyph(glyph, x, y, size, color) {
+      ctx.fillStyle = color;
+      ctx.font = `700 ${Math.max(14, Math.floor(size * 0.3))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph, x + size / 2, y + size / 2);
+    }
+
+    function drawCenter(x, y, size) {
+      ctx.strokeStyle = "#f1f4e8";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x + 4, y + 4, size - 8, size - 8);
+      ctx.strokeStyle = "rgba(10, 13, 12, 0.65)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 8, y + 8, size - 16, size - 16);
+    }
+
+    function eventCell(event) {
+      if (!latestView) return null;
+      const rect = viewEl.getBoundingClientRect();
+      const cellX = Math.floor(((event.clientX - rect.left) / rect.width) * latestView.width);
+      const cellY = Math.floor(((event.clientY - rect.top) / rect.height) * latestView.height);
+      if (cellX < 0 || cellY < 0 || cellX >= latestView.width || cellY >= latestView.height) return null;
+      return latestView.cells[cellY][cellX];
     }
 
     function directionArgument(dx, dy) {

@@ -65,7 +65,15 @@ The server sends one JSON observation message per tick:
         "y": 5,
         "terrain": "grass",
         "thing": "agent",
+        "things": ["tree", "agent"],
         "sprite": "thing.agent",
+        "terrain_asset": "/assets/grass.png",
+        "thing_asset": "/assets/oriented/gatherer.n.png",
+        "thing_assets": [
+          "/assets/tree.png",
+          "/assets/oriented/gatherer.n.png"
+        ],
+        "sprite_asset": "/assets/oriented/gatherer.n.png",
         "glyph": "@",
         "color": "#e3655b",
         "team_id": 0,
@@ -88,7 +96,12 @@ The server sends one JSON observation message per tick:
 
 `sprite_view` is the preferred browser and lightweight policy contract. It is
 a semantic 11x11 view centered on the controlled villager and uses stable
-sprite keys such as `terrain.grass`, `thing.agent`, and `fog.unknown`.
+sprite keys such as `terrain.grass`, `thing.agent`, and `fog.unknown`. Visible
+cells also include served PNG URLs: `terrain_asset` for the floor layer,
+`thing_assets` for the ordered occupant/resource/unit layers, `thing_asset` for
+the topmost layer, and `sprite_asset` for the primary drawable. Browser clients
+should render those URLs from `/assets/...`, splat them into one 2D tile in
+order, and fall back to `glyph` when an asset is absent or the cell is obscured.
 
 The `observation` bytes are retained for low-level policies that want the
 existing Tribal Cog per-agent observation tensor encoded as contiguous raw

@@ -9,10 +9,14 @@ from typing import Any
 import websockets
 
 
+def player_ws_url() -> str:
+    return os.environ.get("COWORLD_PLAYER_WS_URL") or os.environ["COGAMES_ENGINE_WS_URL"]
+
+
 async def main() -> None:
-    url = os.environ["COGAMES_ENGINE_WS_URL"]
+    url = player_ws_url()
     rng = random.Random(int(os.environ.get("TRIBALCOG_PLAYER_SEED", "0")))
-    mode = os.environ.get("TRIBALCOG_PLAYER_MODE", "random")
+    mode = os.environ.get("TRIBALCOG_PLAYER_MODE", "sprite")
     async with websockets.connect(url, max_size=None) as websocket:
         async for raw_message in websocket:
             message = json.loads(raw_message)

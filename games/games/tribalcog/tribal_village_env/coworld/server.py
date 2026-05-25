@@ -20,10 +20,12 @@ from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 
+from tribal_village_env.build import get_runtime_project_root
 from tribal_village_env.environment import ACTION_SPACE_SIZE, TribalVillageEnv
 
 CLIENTS_DIR = Path(__file__).parent / "clients"
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = get_runtime_project_root()
+ASSETS_DIR = PROJECT_ROOT / "data"
 WASM_DIR = PROJECT_ROOT / "build" / "web"
 WASM_SHELL = PROJECT_ROOT / "scripts" / "shell_minimal.html"
 WASM_REQUIRED_ASSETS = (
@@ -37,6 +39,9 @@ WASM_MEDIA_TYPES = {
     ".html": "text/html",
     ".js": "application/javascript",
     ".wasm": "application/wasm",
+}
+ASSET_MEDIA_TYPES = {
+    ".png": "image/png",
 }
 HTTP_USER_AGENT = "tribalcog-coworld/0.1"
 
@@ -136,6 +141,77 @@ THING_LABELS = [
     "waterfall_s",
     "waterfall_w",
 ]
+THING_RENDER_ORDER = [
+    "cliff_edge_n",
+    "cliff_edge_e",
+    "cliff_edge_s",
+    "cliff_edge_w",
+    "cliff_corner_in_ne",
+    "cliff_corner_in_se",
+    "cliff_corner_in_sw",
+    "cliff_corner_in_nw",
+    "cliff_corner_out_ne",
+    "cliff_corner_out_se",
+    "cliff_corner_out_sw",
+    "cliff_corner_out_nw",
+    "waterfall_n",
+    "waterfall_e",
+    "waterfall_s",
+    "waterfall_w",
+    "tree",
+    "wheat",
+    "fish",
+    "relic",
+    "stone",
+    "gold",
+    "bush",
+    "cactus",
+    "stalagmite",
+    "stump",
+    "stubble",
+    "corpse",
+    "skeleton",
+    "cow",
+    "bear",
+    "wolf",
+    "wall",
+    "door",
+    "altar",
+    "spawner",
+    "tumor",
+    "clay_oven",
+    "weaving_loom",
+    "outpost",
+    "guard_tower",
+    "barrel",
+    "mill",
+    "granary",
+    "lumber_camp",
+    "quarry",
+    "mining_camp",
+    "lantern",
+    "town_center",
+    "house",
+    "barracks",
+    "archery_range",
+    "stable",
+    "siege_workshop",
+    "mangonel_workshop",
+    "trebuchet_workshop",
+    "blacksmith",
+    "market",
+    "dock",
+    "monastery",
+    "university",
+    "castle",
+    "wonder",
+    "goblin_hive",
+    "goblin_hut",
+    "goblin_totem",
+    "magma",
+    "agent",
+]
+THING_RENDER_RANK = {label: idx for idx, label in enumerate(THING_RENDER_ORDER)}
 UNIT_CLASS_LABELS = [
     "villager",
     "man_at_arms",
@@ -267,10 +343,95 @@ TEAM_COLORS = [
     "#6f8be8",
     "#b46ce0",
 ]
+ORIENTATION_ASSET_SUFFIXES = {
+    "north": "n",
+    "south": "s",
+    "west": "w",
+    "east": "e",
+    "north_west": "nw",
+    "north_east": "ne",
+    "south_west": "sw",
+    "south_east": "se",
+}
+TERRAIN_ASSET_KEYS = {
+    "empty": "floor",
+    "water": "water",
+    "bridge": "bridge",
+    "fertile": "fertile",
+    "road": "road",
+    "grass": "grass",
+    "dune": "dune",
+    "sand": "sand",
+    "snow": "snow",
+    "mountain": "dune",
+    "ramp_up_n": "oriented/ramp_up_n",
+    "ramp_up_s": "oriented/ramp_up_s",
+    "ramp_up_w": "oriented/ramp_up_w",
+    "ramp_up_e": "oriented/ramp_up_e",
+    "ramp_down_n": "oriented/ramp_down_n",
+    "ramp_down_s": "oriented/ramp_down_s",
+    "ramp_down_w": "oriented/ramp_down_w",
+    "ramp_down_e": "oriented/ramp_down_e",
+}
+THING_ASSET_KEYS = {
+    "wall": "oriented/wall",
+    "relic": "goblet",
+    "cliff_edge_n": "cliff_edge_ew_s",
+    "cliff_edge_e": "cliff_edge_ns_w",
+    "cliff_edge_s": "cliff_edge_ew",
+    "cliff_edge_w": "cliff_edge_ns",
+    "cliff_corner_in_ne": "oriented/cliff_corner_in_ne",
+    "cliff_corner_in_se": "oriented/cliff_corner_in_se",
+    "cliff_corner_in_sw": "oriented/cliff_corner_in_sw",
+    "cliff_corner_in_nw": "oriented/cliff_corner_in_nw",
+    "cliff_corner_out_ne": "oriented/cliff_corner_out_ne",
+    "cliff_corner_out_se": "oriented/cliff_corner_out_se",
+    "cliff_corner_out_sw": "oriented/cliff_corner_out_sw",
+    "cliff_corner_out_nw": "oriented/cliff_corner_out_nw",
+}
+ORIENTED_THING_ASSET_BASES = {
+    "cow": "oriented/cow",
+    "bear": "oriented/bear",
+    "wolf": "oriented/wolf",
+    "tumor": "oriented/tumor",
+}
+UNIT_ASSET_BASES = {
+    "villager": "oriented/gatherer",
+    "trebuchet": "oriented/trebuchet_packed",
+}
+UNIT_ASSET_FALLBACK_BASES = {
+    "long_swordsman": "oriented/man_at_arms",
+    "champion": "oriented/man_at_arms",
+    "light_cavalry": "oriented/scout",
+    "hussar": "oriented/scout",
+    "crossbowman": "oriented/archer",
+    "arbalester": "oriented/archer",
+    "galley": "oriented/boat",
+    "fire_ship": "oriented/boat",
+    "fishing_ship": "oriented/boat",
+    "transport_ship": "oriented/boat",
+    "demo_ship": "oriented/boat",
+    "cannon_galleon": "oriented/boat",
+    "scorpion": "oriented/mangonel",
+    "cavalier": "oriented/knight",
+    "paladin": "oriented/knight",
+    "camel": "oriented/scout",
+    "heavy_camel": "oriented/scout",
+    "imperial_camel": "oriented/scout",
+    "skirmisher": "oriented/archer",
+    "elite_skirmisher": "oriented/archer",
+    "cavalry_archer": "oriented/archer",
+    "heavy_cavalry_archer": "oriented/archer",
+    "hand_cannoneer": "oriented/janissary",
+}
 
 
 def wasm_media_type(path: Path) -> str:
     return WASM_MEDIA_TYPES.get(path.suffix, "application/octet-stream")
+
+
+def asset_media_type(path: Path) -> str:
+    return ASSET_MEDIA_TYPES.get(path.suffix, "application/octet-stream")
 
 
 def resolve_wasm_asset_path(root: Path, asset_path: str) -> Path:
@@ -283,6 +444,21 @@ def resolve_wasm_asset_path(root: Path, asset_path: str) -> Path:
         candidate.relative_to(resolved_root)
     except ValueError as exc:
         raise ValueError(f"Invalid WASM asset path: {asset_path}") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(candidate)
+    return candidate
+
+
+def resolve_sprite_asset_path(root: Path, asset_path: str) -> Path:
+    if Path(asset_path).suffix.lower() not in ASSET_MEDIA_TYPES:
+        raise FileNotFoundError(asset_path)
+
+    resolved_root = root.resolve()
+    candidate = (resolved_root / asset_path).resolve()
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"Invalid sprite asset path: {asset_path}") from exc
     if not candidate.is_file():
         raise FileNotFoundError(candidate)
     return candidate
@@ -438,6 +614,14 @@ def _first_active_layer(obs: np.ndarray, labels: list[str], start: int, x: int, 
     return None
 
 
+def _active_layers(obs: np.ndarray, labels: list[str], start: int, x: int, y: int) -> list[str]:
+    return [
+        label
+        for offset, label in enumerate(labels)
+        if int(obs[start + offset, x, y]) > 0
+    ]
+
+
 def _indexed_label(labels: list[str], value: int) -> str | None:
     index = value - 1
     if 0 <= index < len(labels):
@@ -469,6 +653,67 @@ def _cell_color(terrain: str, team_id: int | None, obscured: bool) -> str:
     return TERRAIN_COLORS.get(terrain, "#4b534c")
 
 
+def _sprite_key_exists(key: str) -> bool:
+    return (ASSETS_DIR / f"{key}.png").is_file()
+
+
+def _asset_url(key: str | None) -> str | None:
+    if key is None or not _sprite_key_exists(key):
+        return None
+    return f"/assets/{key}.png"
+
+
+def _oriented_asset_key(base_key: str, orientation: str | None) -> str | None:
+    suffixes: list[str] = []
+    if orientation is not None:
+        suffix = ORIENTATION_ASSET_SUFFIXES.get(orientation)
+        if suffix is not None:
+            suffixes.append(suffix)
+    suffixes.append("s")
+
+    for suffix in suffixes:
+        key = f"{base_key}.{suffix}"
+        if _sprite_key_exists(key):
+            return key
+    return base_key if _sprite_key_exists(base_key) else None
+
+
+def _unit_asset_key(unit_class: str | None, orientation: str | None) -> str | None:
+    if unit_class is None:
+        unit_class = "villager"
+    bases = [
+        UNIT_ASSET_BASES.get(unit_class, f"oriented/{unit_class}"),
+        UNIT_ASSET_FALLBACK_BASES.get(unit_class),
+    ]
+    for base_key in bases:
+        if base_key is None:
+            continue
+        asset_key = _oriented_asset_key(base_key, orientation)
+        if asset_key is not None:
+            return asset_key
+    return _oriented_asset_key("oriented/gatherer", orientation)
+
+
+def _thing_asset_key(
+    thing: str | None,
+    unit_class: str | None,
+    orientation: str | None,
+) -> str | None:
+    if thing is None:
+        return None
+    if thing == "agent":
+        return _unit_asset_key(unit_class, orientation)
+    if thing in ORIENTED_THING_ASSET_BASES:
+        return _oriented_asset_key(ORIENTED_THING_ASSET_BASES[thing], orientation)
+    key = THING_ASSET_KEYS.get(thing, thing)
+    return key if _sprite_key_exists(key) else None
+
+
+def _terrain_asset_key(terrain: str) -> str | None:
+    key = TERRAIN_ASSET_KEYS.get(terrain, terrain)
+    return key if _sprite_key_exists(key) else None
+
+
 def sprite_view_from_observation(obs: np.ndarray) -> dict[str, Any]:
     width = int(obs.shape[1])
     height = int(obs.shape[2])
@@ -483,17 +728,41 @@ def sprite_view_from_observation(obs: np.ndarray) -> dict[str, Any]:
             unit_class_value = int(obs[UNIT_CLASS_LAYER, x, y])
             obscured = bool(int(obs[OBSCURED_LAYER, x, y]))
             team_id = team_value - 1 if team_value > 0 else None
+            unit_class = _indexed_label(UNIT_CLASS_LABELS, unit_class_value)
+            orientation = _indexed_label(ORIENTATION_LABELS, orientation_value)
+            things = sorted(
+                _active_layers(obs, THING_LABELS, THING_LAYER_START, x, y),
+                key=lambda label: THING_RENDER_RANK.get(label, len(THING_RENDER_RANK)),
+            )
+            if things:
+                thing = things[-1]
+            thing_assets = [
+                asset
+                for asset in (
+                    _asset_url(_thing_asset_key(label, unit_class, orientation))
+                    for label in things
+                )
+                if asset is not None
+            ]
+            terrain_asset = None if obscured else _asset_url(_terrain_asset_key(terrain))
+            thing_assets = [] if obscured else thing_assets
+            thing_asset = thing_assets[-1] if thing_assets else None
             cell: dict[str, Any] = {
                 "x": x,
                 "y": y,
                 "terrain": terrain,
                 "thing": thing,
+                "things": [] if obscured else things,
                 "sprite": _cell_sprite(terrain, thing, obscured),
+                "terrain_asset": terrain_asset,
+                "thing_asset": thing_asset,
+                "thing_assets": thing_assets,
+                "sprite_asset": thing_asset or terrain_asset,
                 "glyph": _cell_glyph(terrain, thing, obscured),
                 "color": _cell_color(terrain, team_id, obscured),
                 "team_id": team_id,
-                "unit_class": _indexed_label(UNIT_CLASS_LABELS, unit_class_value),
-                "orientation": _indexed_label(ORIENTATION_LABELS, orientation_value),
+                "unit_class": unit_class,
+                "orientation": orientation,
                 "idle": bool(int(obs[IDLE_LAYER, x, y])),
                 "tint": int(obs[TINT_LAYER, x, y]),
                 "obscured": obscured,
@@ -804,6 +1073,15 @@ def wasm_asset(asset_path: str) -> FileResponse:
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404) from exc
     return FileResponse(path, media_type=wasm_media_type(path))
+
+
+@app.get("/assets/{asset_path:path}")
+def sprite_asset(asset_path: str) -> FileResponse:
+    try:
+        path = resolve_sprite_asset_path(ASSETS_DIR, asset_path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404) from exc
+    return FileResponse(path, media_type=asset_media_type(path))
 
 
 @app.websocket("/global")

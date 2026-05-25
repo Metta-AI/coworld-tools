@@ -164,7 +164,7 @@
         "-m",
         "tribal_village_env.coworld.player"
       ],
-      "description": "Lightweight reference player that sends random legal Tribal Cog actions over the Coworld player protocol."
+      "description": "Lightweight reference player that uses the 11x11 Tribal Cog sprite-view protocol and falls back to random legal actions when no target is visible."
     }
   ],
   "variants": [

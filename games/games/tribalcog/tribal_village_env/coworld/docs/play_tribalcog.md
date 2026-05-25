@@ -39,7 +39,9 @@ Open `/clients/global` for the live map. It connects to `/global?frame=1` and
 renders the normal Nim renderer's RGB frame stream from the Python FFI. A
 player connects to `/clients/player?slot=<slot>&token=<token>` and controls one
 villager through the 11x11 `tribalcog-sprite-v1` local view exposed by
-`/player`.
+`/player`. The player client renders the same PNG sprite assets served from
+`/assets/...` into a single 2D canvas tile per observation cell, with semantic
+glyphs kept only as a fallback.
 
 ## Native WASM client
 
@@ -57,16 +59,18 @@ spectator and player-control routes.
 
 ## Reference player
 
-The bundled reference player reads `COGAMES_ENGINE_WS_URL`:
+The bundled reference player reads the Coworld-standard `COWORLD_PLAYER_WS_URL`
+and falls back to `COGAMES_ENGINE_WS_URL` for older local harnesses:
 
 ```bash
-COGAMES_ENGINE_WS_URL=ws://localhost:8080/player?slot=0\&token=token-0 \
+COWORLD_PLAYER_WS_URL=ws://localhost:8080/player?slot=0\&token=token-0 \
 python -m tribal_village_env.coworld.player
 ```
 
-Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic noop player or leave the
-default random policy. Set `TRIBALCOG_PLAYER_MODE=sprite` to use the semantic
-11x11 `tribalcog-sprite-v1` view and move toward visible resources or threats.
+The default mode is `TRIBALCOG_PLAYER_MODE=sprite`, which uses the semantic
+11x11 `tribalcog-sprite-v1` view and moves toward visible resources or threats.
+Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic noop player or
+`TRIBALCOG_PLAYER_MODE=random` for random legal actions.
 
 ## Certification
 

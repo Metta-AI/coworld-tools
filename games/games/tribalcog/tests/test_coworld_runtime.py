@@ -7,18 +7,21 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from tribal_village_env.coworld.player import choose_sprite_action
+from tribal_village_env.coworld.player import choose_sprite_action, player_ws_url
 from tribal_village_env.coworld.server import (
     AGENTS_PER_TEAM,
     OBSCURED_LAYER,
+    ORIENTATION_LAYER,
     PLAYER_SLOT_COUNT,
     TEAM_LAYER,
     TERRAIN_LAYER_START,
     THING_LAYER_START,
     UNIT_CLASS_LAYER,
     CoworldConfig,
+    asset_media_type,
     decode_action,
     load_replay_data,
+    resolve_sprite_asset_path,
     resolve_wasm_asset_path,
     slot_team_index,
     slot_to_team,
@@ -77,8 +80,10 @@ def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     obs = np.zeros((101, 11, 11), dtype=np.uint8)
     obs[TERRAIN_LAYER_START + 5, 5, 5] = 1
     obs[THING_LAYER_START, 5, 5] = 1
+    obs[THING_LAYER_START + 3, 5, 5] = 1
     obs[TEAM_LAYER, 5, 5] = 1
     obs[UNIT_CLASS_LAYER, 5, 5] = 1
+    obs[ORIENTATION_LAYER, 5, 5] = 1
     obs[OBSCURED_LAYER, 0, 0] = 1
 
     view = sprite_view_from_observation(obs)
@@ -88,9 +93,19 @@ def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     assert view["center"] == {"x": 5, "y": 5}
     center = view["cells"][5][5]
     assert center["sprite"] == "thing.agent"
+    assert center["thing"] == "agent"
+    assert center["things"] == ["tree", "agent"]
+    assert center["terrain_asset"] == "/assets/grass.png"
+    assert center["thing_asset"] == "/assets/oriented/gatherer.n.png"
+    assert center["thing_assets"] == [
+        "/assets/tree.png",
+        "/assets/oriented/gatherer.n.png",
+    ]
+    assert center["sprite_asset"] == "/assets/oriented/gatherer.n.png"
     assert center["team_id"] == 0
     assert center["unit_class"] == "villager"
     assert view["cells"][0][0]["sprite"] == "fog.unknown"
+    assert view["cells"][0][0]["sprite_asset"] is None
 
 
 def test_sprite_player_policy_moves_toward_visible_resource() -> None:
@@ -141,8 +156,39 @@ def test_wasm_asset_resolution_stays_inside_build_dir(tmp_path: Path) -> None:
         resolve_wasm_asset_path(build_dir, "../tribal_village.js")
 
 
+def test_sprite_asset_resolution_stays_inside_data_dir(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    asset = data_dir / "grass.png"
+    asset.write_bytes(b"not-really-a-png")
+
+    assert resolve_sprite_asset_path(data_dir, "grass.png") == asset.resolve()
+
+    with pytest.raises(FileNotFoundError):
+        resolve_sprite_asset_path(data_dir, "missing.png")
+    with pytest.raises(FileNotFoundError):
+        resolve_sprite_asset_path(data_dir, "Inter-Regular.ttf")
+    with pytest.raises(ValueError):
+        resolve_sprite_asset_path(data_dir, "../grass.png")
+
+
 def test_wasm_asset_media_types() -> None:
     assert wasm_media_type(Path("tribal_village.html")) == "text/html"
     assert wasm_media_type(Path("tribal_village.js")) == "application/javascript"
     assert wasm_media_type(Path("tribal_village.wasm")) == "application/wasm"
     assert wasm_media_type(Path("tribal_village.data")) == "application/octet-stream"
+
+
+def test_sprite_asset_media_types() -> None:
+    assert asset_media_type(Path("grass.png")) == "image/png"
+    assert asset_media_type(Path("grass.bin")) == "application/octet-stream"
+
+
+def test_reference_player_prefers_coworld_player_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COGAMES_ENGINE_WS_URL", "ws://old-player")
+    monkeypatch.setenv("COWORLD_PLAYER_WS_URL", "ws://coworld-player")
+
+    assert player_ws_url() == "ws://coworld-player"
+
+    monkeypatch.delenv("COWORLD_PLAYER_WS_URL")
+    assert player_ws_url() == "ws://old-player"
