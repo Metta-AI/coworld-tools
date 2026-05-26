@@ -63,6 +63,7 @@ from ..actors import (
 from ..data import load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
+from ..tasks import scan_radar_dots
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
@@ -226,6 +227,19 @@ def _check_ghosts(percept: ActorPercept, expected: list[dict]) -> CheckResult:
     )
 
 
+def _check_radar_dots(frame: np.ndarray, expected: list[dict]) -> CheckResult:
+    """Run ``scan_radar_dots`` against ``frame`` and compare against the
+    oracle's ``radar_dots`` entry."""
+    actual = [{"x": d.x, "y": d.y} for d in scan_radar_dots(frame)]
+    if actual == expected:
+        return CheckResult(label="radar_dots", ok=True)
+    return CheckResult(
+        label="radar_dots",
+        ok=False,
+        detail=f"got {len(actual)} ({actual!r}), expected {len(expected)} ({expected!r})",
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -262,7 +276,7 @@ def check_fixture(bin_path: Path) -> FixtureResult:
         result.checks.append(_check_crewmates(percept, sidecar["crewmates"]))
         result.checks.append(_check_bodies(percept, sidecar["bodies"]))
         result.checks.append(_check_ghosts(percept, sidecar["ghosts"]))
-        # radar_dots checked in S3.3 alongside the tasks.py radar-dot port.
+        result.checks.append(_check_radar_dots(frame, sidecar["radar_dots"]))
     return result
 
 
