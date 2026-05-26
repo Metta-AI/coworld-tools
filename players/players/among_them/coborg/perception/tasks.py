@@ -118,8 +118,10 @@ def scan_radar_dots(frame: np.ndarray) -> list[RadarDotMatch]:
        sort is needed (the upstream Nim version sorts defensively after
        a row-major iteration that's already sorted; we get the same
        guarantee directly from numpy).
-    3. Greedy dedup: keep a dot iff no already-kept dot is within
-       Chebyshev distance 1 on both axes.
+    3. Greedy dedup via a boolean occupancy mask: each kept dot stamps
+       its ``3x3`` Chebyshev-1 neighbourhood as blocked, and a candidate
+       falls iff its position is already blocked. Same algorithm as the
+       upstream nested loop, fewer per-candidate attribute accesses.
     """
     if frame.shape != (SCREEN_HEIGHT, SCREEN_WIDTH):
         raise ValueError(
@@ -129,14 +131,14 @@ def scan_radar_dots(frame: np.ndarray) -> list[RadarDotMatch]:
 
     hits = (frame == RADAR_TASK_COLOR) & _PERIPHERY_MASK
     ys, xs = np.where(hits)
-
+    blocked = np.zeros_like(hits)
     kept: list[RadarDotMatch] = []
     for y, x in zip(ys.tolist(), xs.tolist()):
-        for d in kept:
-            if abs(y - d.y) <= 1 and abs(x - d.x) <= 1:
-                break
-        else:
-            kept.append(RadarDotMatch(x=int(x), y=int(y)))
+        if blocked[y, x]:
+            continue
+        kept.append(RadarDotMatch(x=int(x), y=int(y)))
+        y0, x0 = max(0, y - 1), max(0, x - 1)
+        blocked[y0 : y + 2, x0 : x + 2] = True
     return kept
 
 

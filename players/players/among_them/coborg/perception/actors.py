@@ -199,17 +199,27 @@ class ActorPercept:
 def _dedup_anchors(anchors: list[tuple[int, int, bool]], radius: int) -> list[tuple[int, int, bool]]:
     """Greedy raster-order dedup. Sorts by ``(y, x)``, then keeps an
     anchor iff no already-kept anchor is within Chebyshev ``radius`` on
-    both axes. Mirrors ``actors.nim::dedupAnchors``."""
+    both axes. Mirrors ``actors.nim::dedupAnchors``.
+
+    Implementation: stamp a (SCREEN_HEIGHT, SCREEN_WIDTH) boolean
+    occupancy mask as anchors are kept; each kept anchor blocks the
+    ``(2*radius + 1)``-square neighborhood around itself. A candidate
+    anchor falls iff its position is already blocked. Replaces the
+    earlier O(n^2) nested Python loop with O(n * (2r+1)^2) numpy slice
+    writes — same algorithm, fewer attribute accesses per candidate.
+    """
     if len(anchors) <= 1:
         return list(anchors)
     sorted_anchors = sorted(anchors, key=lambda a: (a[0], a[1]))
+    blocked = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH), dtype=bool)
     kept: list[tuple[int, int, bool]] = []
     for y, x, flip in sorted_anchors:
-        for ky, kx, _ in kept:
-            if abs(y - ky) <= radius and abs(x - kx) <= radius:
-                break
-        else:
-            kept.append((y, x, flip))
+        if blocked[y, x]:
+            continue
+        kept.append((y, x, flip))
+        y0 = max(0, y - radius)
+        x0 = max(0, x - radius)
+        blocked[y0 : y + radius + 1, x0 : x + radius + 1] = True
     return kept
 
 
