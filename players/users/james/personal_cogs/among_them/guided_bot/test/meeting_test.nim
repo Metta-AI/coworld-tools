@@ -599,20 +599,6 @@ proc testCrewAutoVoteSkipsWithoutEvidence() =
   expect(not intent.pressA,
          "auto-vote navigates before confirming when cursor is not on target")
 
-proc testCrewAutoVoteWaitsBeforeDelay() =
-  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
-  belief.self.role = RoleCrewmate
-  belief.memory.perPlayer[2].timesNearBody = 1
-  var scratch = makeScratch(belief)
-  belief.tick = 100 + MeetingAutoVoteDelayTicks - 1
-
-  let intent = meetingMode.decide(belief, meetingParams(), scratch)
-
-  expectEq(scratch.meetVoteTarget, -1,
-           "crew auto-vote waits until the configured no-LLM delay")
-  expect(not intent.pressA, "pre-delay auto-vote does not confirm")
-  expectEq(intent.cursor, CursorNone, "pre-delay auto-vote does not navigate")
-
 proc testCrewAutoVoteTargetsEvidence() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
   belief.self.role = RoleCrewmate
@@ -626,20 +612,6 @@ proc testCrewAutoVoteTargetsEvidence() =
            "crew auto-vote targets strongest memory evidence")
   expect(not intent.pressA,
          "auto-vote navigates before confirming the evidence target")
-
-proc testCrewAutoVoteFollowsSingleVisibleVote() =
-  var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
-  belief.self.role = RoleCrewmate
-  belief.social.votesCast[0] = 2
-  var scratch = makeScratch(belief)
-  belief.tick = 100 + MeetingAutoVoteDelayTicks
-
-  let intent = meetingMode.decide(belief, meetingParams(), scratch)
-
-  expectEq(scratch.meetVoteTarget, 2,
-           "crew auto-vote treats one visible vote dot as fallback evidence")
-  expect(not intent.pressA,
-         "auto-vote navigates before confirming the visible-vote target")
 
 proc testImposterAutoVoteSkipsWithoutPlausibleSuspicion() =
   var belief = makeVotingBelief(cursor = 1, selfSlot = 1)
@@ -743,9 +715,7 @@ proc main() =
   testImposterObserverDoesNotRecordVentWitnessEvidence()
   testSoloTrustAppearsInMeetingEvidenceLedger()
   testCrewAutoVoteSkipsWithoutEvidence()
-  testCrewAutoVoteWaitsBeforeDelay()
   testCrewAutoVoteTargetsEvidence()
-  testCrewAutoVoteFollowsSingleVisibleVote()
   testImposterAutoVoteSkipsWithoutPlausibleSuspicion()
   testImposterAutoVoteTargetsPlausibleSuspicion()
   testCrewAutoVoteConfirmsEvidenceTarget()

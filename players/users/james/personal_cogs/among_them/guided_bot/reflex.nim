@@ -1,15 +1,14 @@
 ## Reflex evaluation — forced mode switches that fire without waiting
 ## for the LLM. See DESIGN.md §5.8.
 ##
-## Reflexes are edge/memory-triggered (fire on transitions or newly
-## recognized objects, not persistent state) and subject to a per-reflex
-## cooldown to prevent thrashing.
+## Reflexes are edge-triggered (fire on transitions, not persistent
+## state) and subject to a per-reflex cooldown to prevent thrashing.
 ## They are evaluated in the update-belief stage so the target mode's
 ## `decide()` runs on the same tick as the triggering event.
 ##
 ## The initial reflex set (DESIGN.md §5.8):
-##   1. task_completing (crew, alive) + unknown visible body → reporting
-##   2. hunting + unknown visible body (didn't kill) → fleeing
+##   1. task_completing (crew, alive) + body_newly_in_view → reporting
+##   2. hunting + body_newly_in_view (didn't kill) → fleeing
 ##   3. pretending + lone_crew_in_kill_range → hunting
 ##   4. any mode + voting_screen_appeared → meeting
 
@@ -130,7 +129,8 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
     reflexState.prevPhase = belief.self.phase
     return
 
-  let unknownBody = firstUnknownVisibleBody(belief, reflexState)
+  # Edge detection: did a new body appear this frame?
+  let newBodySeen = belief.percep.visibleBodies.len > reflexState.prevBodyCount
 
   # --- Reflex 1: task_completing (crew, alive) + body → reporting ---
   if mode == ModeTaskCompleting and
@@ -138,16 +138,19 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
      belief.self.alive and
      not belief.self.isGhost and
      belief.directive.params.tcAbandonOnNearbyBody and
-     unknownBody.found and
+     newBodySeen and
      tick - reflexState.lastBodyReportTick > ReflexCooldownTicks:
-    reflexState.rememberVisibleBodies(belief)
+    # Compute body world position for the reporting mode's target.
+    let body = belief.percep.visibleBodies[0]
+    let bodyWX = visibleCrewmateWorldX(belief.percep.cameraX, body.x)
+    let bodyWY = visibleCrewmateWorldY(belief.percep.cameraY, body.y)
     reflexState.lastBodyReportTick = tick
     result.fired = true
     result.reflexName = "body_newly_in_view_report"
     result.newDirective = Directive(
       mode: ModeReporting,
       params: ModeParams(mode: ModeReporting,
-                         repBodyLocation: unknownBody.pos),
+                         repBodyLocation: Point(x: bodyWX, y: bodyWY)),
       source: SourceReflex,
       issuedAtTick: tick,
       ttlTicks: 480,  # ~20s timeout.
@@ -169,6 +172,7 @@ proc evaluateReflexes*(belief: Belief, reflexState: var ReflexState,
      huntingAlreadyHandlingBody:
     reflexState.rememberVisibleBodies(belief)
 
+  let unknownBody = firstUnknownVisibleBody(belief, reflexState)
   if mode == ModeHunting and
      belief.self.role == RoleImposter and
      belief.self.alive and

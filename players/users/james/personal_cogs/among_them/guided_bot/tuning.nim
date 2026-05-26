@@ -23,10 +23,10 @@ const
   MeetingFallbackTicksLeft*   = 100  ## If no vote confirmed with <N ticks left, force no-LLM target.
   MeetingChatLineGapTicks*    = 12   ## Min ticks between chat packets (rate-limit self).
   MeetingDurationEstimateTicks* = 600 ## Conservative estimate of meeting duration (~25s at 24Hz).
-  MeetingAutoVoteDelayTicks*  = 96   ## Auto-vote no-LLM target after 4s with no LLM action.
+  MeetingAutoVoteDelayTicks*  = 360  ## Auto-vote no-LLM target after 15s with no LLM action.
   MeetingCursorHoldTicks*     = 3    ## Ticks to hold a cursor pulse before releasing.
   MeetingLlmActionPeriodTicks* = 48   ## During meetings, ask for the next LLM action more often than gameplay.
-  MeetingCrewEvidenceThreshold* = 3   ## Minimum fallback suspicion score before crew votes a player.
+  MeetingCrewEvidenceThreshold* = 5   ## Minimum fallback suspicion score before crew votes a player.
   MeetingBodyEvidenceRadius*  = 48   ## World-px radius for "seen near a body" memory evidence.
   MeetingBodyEvidenceMaxStrength* = 8 ## Per-sighting score at body-contact distance.
   MeetingBodyEvidenceCooldownTicks* = 72 ## Cooldown before counting the same near-body evidence again.
@@ -76,9 +76,6 @@ const
   TaskCommitTicks*            = 48   ## Hysteresis: keep target for at least N ticks (~2s).
   TaskReEvalPeriodTicks*      = 24   ## After hysteresis, reconsider locked Navigate targets at most this often (~1s).
   TaskSwitchDistanceRatio*    = 0.5  ## Same-tier switch only when candidate distance is below this fraction of current distance.
-  CrewPostTaskCompleteCount*  = 8    ## Assigned crew task count; after this, stop weak geometry fallback wandering.
-  CrewButtonEvidenceThreshold* = 8   ## Suspicion score needed to call an emergency after own tasks are done.
-  CrewButtonRange*            = 20   ## World-px distance for pressing the cafeteria emergency button.
 
   # --- Idle-mode wander -----------------------------------------------
   IdleWanderPeriod*           = 36   ## Ticks per direction change in idle wander (~1.5s at 24Hz).

@@ -486,18 +486,6 @@ proc recordFailedKillSuspect*(belief: var Belief, color: int):
   if result.count >= FailedKillImposterConfirmStrikes:
     result.promoted = rememberKnownImposterColor(belief, color)
 
-proc recordConfirmedKill*(belief: var Belief, color: int): bool =
-  ## Mark a confirmed kill target dead even if the body sprite has not been
-  ## detected yet. Returns true only when the alive flag changed.
-  if color < 0 or color >= PlayerColorCount:
-    return false
-  if belief.self.colorIndex >= 0 and color == belief.self.colorIndex:
-    return false
-  if not belief.memory.perPlayer[color].alive:
-    return false
-  belief.memory.perPlayer[color].alive = false
-  true
-
 proc mergeTaskPercept*(belief: var Belief, taskPercept: TaskPercept) =
   ## Merge phase-1.4 task/radar scan results into the long-lived belief.
   ## Called from `bot.decideNextMask` after the task/radar scan completes.

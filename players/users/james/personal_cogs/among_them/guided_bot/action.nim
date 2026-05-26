@@ -28,7 +28,6 @@ export navigation.initActionState
 const
   KillStrikeRange = 20   ## World-pixel distance for kill-strike ButtonA.
   ReportRange = 20       ## World-pixel distance for report ButtonA.
-  DirectionButtons = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
 
 # ---------------------------------------------------------------------------
 # Momentum-aware steering controller
@@ -36,13 +35,7 @@ const
 
 proc hasMovement(mask: uint8): bool {.inline.} =
   ## True if any direction button is set in the mask.
-  (mask and DirectionButtons) != 0
-
-proc verticalBits(mask: uint8): uint8 {.inline.} =
-  mask and (ButtonUp or ButtonDown)
-
-proc horizontalBits(mask: uint8): uint8 {.inline.} =
-  mask and (ButtonLeft or ButtonRight)
+  (mask and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0
 
 proc updateMotionState*(state: var ActionState, selfX, selfY: int,
                         localized: bool) =
@@ -154,17 +147,15 @@ proc preciseSteerButtons(selfX, selfY, targetX, targetY: int,
            preciseAxisMask(dy, velY, ButtonUp, ButtonDown)
 
 proc applyJiggle(state: var ActionState, mask: uint8): uint8 =
-  ## Add stuck recovery while preserving the intended movement direction.
+  ## Add perpendicular correction while keeping intent direction held.
   ## Only applies when stuck detection has triggered a jiggle window.
   result = mask
   if state.jiggleTicks <= 0 or not mask.hasMovement():
     return
   dec state.jiggleTicks
   let
-    verticalMask = mask.verticalBits()
-    horizontalMask = mask.horizontalBits()
-    vertical = verticalMask != 0
-    horizontal = horizontalMask != 0
+    vertical = (mask and (ButtonUp or ButtonDown)) != 0
+    horizontal = (mask and (ButtonLeft or ButtonRight)) != 0
   if vertical and not horizontal:
     if state.jiggleSide == 0:
       result = result or ButtonLeft
@@ -175,12 +166,6 @@ proc applyJiggle(state: var ActionState, mask: uint8): uint8 =
       result = result or ButtonUp
     else:
       result = result or ButtonDown
-  elif vertical and horizontal:
-    let preserved = mask and (not DirectionButtons)
-    if state.jiggleSide == 0:
-      result = preserved or verticalMask
-    else:
-      result = preserved or horizontalMask
   elif state.jiggleSide == 0:
     result = result or ButtonLeft
   else:

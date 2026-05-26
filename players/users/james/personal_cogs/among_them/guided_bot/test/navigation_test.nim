@@ -14,8 +14,6 @@ import ../perception/geometry
 
 var failures = 0
 
-const DirectionButtons = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
-
 proc expect(cond: bool, label: string) =
   if not cond:
     stderr.writeLine "FAIL: ", label
@@ -25,13 +23,6 @@ proc expectEq[T](got, want: T, label: string) =
   if got != want:
     stderr.writeLine &"FAIL: {label}: got {got}, want {want}"
     inc failures
-
-proc movementBits(mask: uint8): uint8 =
-  mask and DirectionButtons
-
-proc hasOpposingDirections(mask: uint8): bool =
-  ((mask and ButtonLeft) != 0 and (mask and ButtonRight) != 0) or
-    ((mask and ButtonUp) != 0 and (mask and ButtonDown) != 0)
 
 proc testGraphLoadsPaths() =
   let graph = navGraph()[]
@@ -180,44 +171,6 @@ proc testApplyIntentUsesNavPath() =
          state.lastSelfY == belief.percep.selfY,
          "applyIntent: last self position updated")
 
-proc testDiagonalJiggleSplitsAxes() =
-  var belief = initBelief()
-  belief.tick = 1
-  belief.self.role = RoleCrewmate
-  belief.self.phase = PhaseGameplay
-  belief.percep.localized = true
-  belief.percep.selfX = 100
-  belief.percep.selfY = 100
-  belief.directive.mode = ModeTaskCompleting
-
-  var intent = initActionIntent()
-  intent.steerValid = true
-  intent.steerTo = Point(x: 94, y: 94)
-  intent.discipline = DisciplineNormal
-
-  var baselineState = initActionState()
-  let baselineMask = applyIntent(baselineState, belief, intent)
-  expectEq(baselineMask.movementBits(), ButtonUp or ButtonLeft,
-           "jiggle: fixture emits diagonal up-left before stuck recovery")
-
-  var verticalState = initActionState()
-  verticalState.jiggleTicks = 1
-  verticalState.jiggleSide = 0
-  let verticalMask = applyIntent(verticalState, belief, intent)
-  expectEq(verticalMask.movementBits(), ButtonUp,
-           "jiggle: side 0 keeps only the vertical component of a diagonal")
-  expect(not verticalMask.hasOpposingDirections(),
-         "jiggle: side 0 does not emit opposing direction buttons")
-
-  var horizontalState = initActionState()
-  horizontalState.jiggleTicks = 1
-  horizontalState.jiggleSide = 1
-  let horizontalMask = applyIntent(horizontalState, belief, intent)
-  expectEq(horizontalMask.movementBits(), ButtonLeft,
-           "jiggle: side 1 keeps only the horizontal component of a diagonal")
-  expect(not horizontalMask.hasOpposingDirections(),
-         "jiggle: side 1 does not emit opposing direction buttons")
-
 proc main() =
   echo "=== navigation_test ==="
   echo "1. Graph and baked path loading:"
@@ -232,8 +185,6 @@ proc main() =
   testReverseLookahead()
   echo "6. applyIntent navigation wiring:"
   testApplyIntentUsesNavPath()
-  echo "7. diagonal stuck recovery:"
-  testDiagonalJiggleSplitsAxes()
 
   if failures > 0:
     stderr.writeLine &"\n{failures} FAILURE(S)"

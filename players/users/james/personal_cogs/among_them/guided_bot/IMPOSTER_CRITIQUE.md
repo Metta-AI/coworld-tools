@@ -66,11 +66,11 @@ Bot 6 visited only 7 unique locations, concentrated in North/East Cafeteria (hig
 
 ## Medium-Priority Issues
 
-### 4. Confirmed-kill target tracking
+### 4. No killed-player tracking
 
 Bot 6 killed color 5 twice (t=3995 and t=5219). Either the server allows ghost-killing (wasting a cooldown cycle) or color identification was wrong for one kill. Either way, the imposter should maintain a `killedColors` set and avoid re-targeting.
 
-**Status:** Partially addressed in the envelope-level memory model. On `kill_confirmed`, `bot.nim` now marks the target color dead via `recordConfirmedKill`; `isCrewTarget` already rejects dead players. This avoids adding a second killed-colors store while covering the same re-targeting failure when body detection lags or misses.
+**Fix:** Add `huntKilledColors: seq[int]` to scratch. On `kill_confirmed`, append target color. In `isCrewTarget`, reject colors in this set.
 
 ### 5. Alibi phase doesn't gather intel
 

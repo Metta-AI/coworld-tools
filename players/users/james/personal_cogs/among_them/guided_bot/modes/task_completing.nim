@@ -76,90 +76,6 @@ proc isInsideTaskRect(selfX, selfY: int, ts: TaskStation): bool =
   selfX >= ts.x and selfX < ts.x + ts.w and
   selfY >= ts.y and selfY < ts.y + ts.h
 
-proc completedTaskCount(belief: Belief): int =
-  for slot in belief.tasks.slots:
-    if slot.state == TaskCompleted:
-      inc result
-
-proc hasLiveTaskEvidence(belief: Belief): bool =
-  if belief.percep.visibleTaskIcons.len > 0 or belief.percep.radarDots.len > 0:
-    return true
-  for slot in belief.tasks.slots:
-    if slot.state == TaskConfirmed or slot.state == TaskCheckout:
-      return true
-  false
-
-proc bodyEvidenceScore(ps: PlayerSummary): int =
-  if ps.nearBodyEvidenceScore > 0:
-    ps.nearBodyEvidenceScore
-  else:
-    ps.timesNearBody * MeetingBodyEvidenceMaxStrength
-
-proc crewButtonEvidenceScore(ps: PlayerSummary): int =
-  if not ps.alive:
-    return 0
-  if ps.role == RoleImposter:
-    result += 100
-  result += ps.timesWitnessedKill * 20
-  result += ps.timesWitnessedVent * 50
-  result += ps.nearVentEvidenceScore
-  result += ps.bodyEvidenceScore
-
-proc bestCrewButtonEvidence(belief: Belief): int =
-  for color in 0 ..< PlayerColorCount:
-    if color == belief.self.colorIndex:
-      continue
-    result = max(result, belief.memory.perPlayer[color].crewButtonEvidenceScore)
-
-proc buttonPoint(): Point =
-  let button = referenceData.map.button
-  Point(x: button.x + button.w div 2, y: button.y + button.h div 2)
-
-proc closestVisibleCrewmate(belief: Belief): tuple[found: bool, point: Point] =
-  let selfX = belief.percep.selfX
-  let selfY = belief.percep.selfY
-  var bestDist = high(int)
-  result = (false, Point(x: 0, y: 0))
-  for cm in belief.percep.visibleCrewmates:
-    if cm.colorIndex >= 0 and cm.colorIndex == belief.self.colorIndex:
-      continue
-    let wx = visibleCrewmateWorldX(belief.percep.cameraX, cm.x)
-    let wy = visibleCrewmateWorldY(belief.percep.cameraY, cm.y)
-    let d = heuristic(selfX, selfY, wx, wy)
-    if d < bestDist:
-      bestDist = d
-      result = (true, Point(x: wx, y: wy))
-
-proc shouldUsePostTaskCrewBehavior(belief: Belief): bool =
-  belief.self.role == RoleCrewmate and
-    belief.self.alive and
-    not belief.self.isGhost and
-    belief.completedTaskCount >= CrewPostTaskCompleteCount and
-    not belief.hasLiveTaskEvidence
-
-proc postTaskCrewIntent(belief: Belief): ActionIntent =
-  let evidence = belief.bestCrewButtonEvidence
-  var target = buttonPoint()
-  var pressA = false
-
-  if evidence >= CrewButtonEvidenceThreshold:
-    let dist = heuristic(belief.percep.selfX, belief.percep.selfY,
-                         target.x, target.y)
-    pressA = dist <= CrewButtonRange
-  else:
-    let shadow = closestVisibleCrewmate(belief)
-    if shadow.found:
-      target = shadow.point
-
-  ActionIntent(
-    steerTo: target,
-    steerValid: true,
-    pressA: pressA,
-    pressB: false,
-    cursor: CursorNone,
-    chat: "",
-    discipline: DisciplineNormal)
-
 # ---------------------------------------------------------------------------
 # Target selection (3-tier, per TASK_COMPLETING_DESIGN.md §6)
 # ---------------------------------------------------------------------------
@@ -351,11 +267,6 @@ proc decide*(belief: Belief, params: ModeParams,
       targetIdx = -1
       scratch.tcLockedTaskIndex = -1
       scratch.tcPhase = TpNavigate
-
-  if belief.shouldUsePostTaskCrewBehavior:
-    scratch.tcLockedTaskIndex = -1
-    scratch.tcPhase = TpNavigate
-    return postTaskCrewIntent(belief)
 
   # Commit hysteresis: keep current target for at least TaskCommitTicks
   # after locking. Prevents target oscillation from small position changes.
@@ -605,11 +516,6 @@ proc summarizeForLlm*(belief: Belief, params: ModeParams,
   result["locked_task_index"] = newJInt(scratch.tcLockedTaskIndex)
   result["locked_tier"] = newJString(taskTierStr(scratch.tcLockedTier))
   result["selection_tier"] = newJString(taskTierStr(scratch.tcSelectionTier))
-  result["completed_task_count"] = newJInt(belief.completedTaskCount)
-  result["live_task_evidence"] = newJBool(belief.hasLiveTaskEvidence)
-  result["post_task_crew_behavior"] =
-    newJBool(belief.shouldUsePostTaskCrewBehavior)
-  result["best_button_evidence"] = newJInt(belief.bestCrewButtonEvidence)
   if scratch.tcLockedTaskIndex >= 0 and
      scratch.tcLockedTaskIndex < referenceData.map.tasks.len:
     let ts = referenceData.map.tasks[scratch.tcLockedTaskIndex]
