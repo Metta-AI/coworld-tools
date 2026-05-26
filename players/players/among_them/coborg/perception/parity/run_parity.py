@@ -70,7 +70,7 @@ from ..localize import (
     vote_camera_candidates,
 )
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
-from ..tasks import scan_radar_dots
+from ..tasks import scan_radar_dots, scan_task_icons
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
@@ -344,11 +344,12 @@ def _check_patch_vote_top_candidates(
 
 
 def _check_localize_first_frame(
-    frame: np.ndarray, ignore_mask: np.ndarray, expected: dict
+    state, expected: dict
 ) -> CheckResult:
-    """Run ``update_location`` from a fresh state and compare the
-    camera-related fields against the oracle."""
-    state = update_location(None, frame, ignore_mask, tick=0)
+    """Compare a pre-computed :class:`LocalizerState` against the oracle's
+    camera-related fields. ``state`` is the result of one
+    ``update_location`` call; the caller computed it so the same state
+    can be threaded into the task-icon check that follows."""
     actual = {
         "camera_x": state.camera_x,
         "camera_y": state.camera_y,
@@ -364,6 +365,29 @@ def _check_localize_first_frame(
         label="localize_first_frame",
         ok=False,
         detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
+def _check_task_icons(
+    atlas: np.ndarray, frame: np.ndarray, state, expected: list[dict]
+) -> CheckResult:
+    """Compare the task-icon scan output. The upstream oracle skips the
+    scan when ``state.localized`` is False (camera offset isn't valid),
+    so the Python check mirrors that gating: empty list when unlocalised,
+    otherwise the full ``scan_task_icons`` output."""
+    if not state.localized:
+        actual = []
+    else:
+        actual = [
+            {"x": m.x, "y": m.y}
+            for m in scan_task_icons(atlas, frame, state.camera_x, state.camera_y)
+        ]
+    if actual == expected:
+        return CheckResult(label="task_icons", ok=True)
+    return CheckResult(
+        label="task_icons",
+        ok=False,
+        detail=f"got {len(actual)} {actual!r}, expected {len(expected)} {expected!r}",
     )
 
 
@@ -414,7 +438,8 @@ def check_fixture(bin_path: Path) -> FixtureResult:
             )
     if schema_version >= 4:
         # The localize kernels consume the phase-1.0 ignore mask. Build
-        # it once here and feed all four v4 checks.
+        # it once here; also reuse the resulting LocalizerState for the
+        # task-icon check below.
         ignore_mask = build_phase_1_0_ignore_mask(frame)
         result.checks.append(
             _check_score_camera_probes(frame, ignore_mask, sidecar["score_camera_probes"])
@@ -427,11 +452,14 @@ def check_fixture(bin_path: Path) -> FixtureResult:
                 frame, ignore_mask, sidecar["patch_vote_top_candidates"]
             )
         )
+        loc_state = update_location(None, frame, ignore_mask, tick=0)
         result.checks.append(
-            _check_localize_first_frame(
-                frame, ignore_mask, sidecar["localize_first_frame"]
-            )
+            _check_localize_first_frame(loc_state, sidecar["localize_first_frame"])
         )
+        if "task_icons" in sidecar:  # additive within v4; S4.4+ sidecars carry it
+            result.checks.append(
+                _check_task_icons(atlas, frame, loc_state, sidecar["task_icons"])
+            )
     return result
 
 

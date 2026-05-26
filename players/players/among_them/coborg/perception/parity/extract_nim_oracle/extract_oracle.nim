@@ -434,23 +434,40 @@ proc patchVoteTopCandidatesJson(
     result.add(%* {"cam_x": c.cx, "cam_y": c.cy, "votes": c.votes})
 
 proc localizeFirstFrameJson(
-    frame: var seq[uint8], ignoreMaskData: seq[uint8]): JsonNode =
+    frame: var seq[uint8], ignoreMaskData: seq[uint8],
+    outState: var gbTypes.PerceptionState): JsonNode =
   ## Result of one `updateLocation` call starting from a fresh
   ## PerceptionState (no prior lock). Tick is fixed at 0. The seven
   ## fields emitted are the camera-related subset the Python state
-  ## also tracks.
+  ## also tracks. ``outState`` is populated as a side effect so the
+  ## task-icon scan can reuse the same camera offset without
+  ## re-running localize.
   var loc = gbLocalize.initLocalizer()
-  var p: gbTypes.PerceptionState
-  gbLocalize.updateLocation(loc, p, frame, ignoreMaskData, 0)
+  gbLocalize.updateLocation(loc, outState, frame, ignoreMaskData, 0)
   %* {
-    "camera_x": p.cameraX,
-    "camera_y": p.cameraY,
-    "camera_score": p.cameraScore,
-    "camera_lock": lockToString(p.cameraLock),
-    "localized": p.localized,
-    "self_x": p.selfX,
-    "self_y": p.selfY,
+    "camera_x": outState.cameraX,
+    "camera_y": outState.cameraY,
+    "camera_score": outState.cameraScore,
+    "camera_lock": lockToString(outState.cameraLock),
+    "localized": outState.localized,
+    "self_x": outState.selfX,
+    "self_y": outState.selfY,
   }
+
+
+proc taskIconsJson(
+    frame: var seq[uint8],
+    locState: gbTypes.PerceptionState): JsonNode =
+  ## Result of upstream `tasks.scanTaskIcons` at the camera offset
+  ## found by `updateLocation`. Returns an empty list when localization
+  ## failed (the production code path does the same gating).
+  result = newJArray()
+  if not locState.localized:
+    return
+  let sprite = gbData.referenceData.sprites.task
+  for m in gbTasks.scanTaskIcons(
+      frame, sprite, locState.cameraX, locState.cameraY):
+    result.add(%* {"x": m.x, "y": m.y})
 
 # ---------------------------------------------------------------------------
 # Fixture loader + per-fixture orchestrator
@@ -515,7 +532,14 @@ proc processFixture(path: string): JsonNode =
   result["score_camera_probes"] = scoreCameraProbesJson(frame, ignoreMask.data)
   result["frame_patch_hashes"] = framePatchHashesJson(frame, ignoreMask.data)
   result["patch_vote_top_candidates"] = patchVoteTopCandidatesJson(frame, ignoreMask.data)
-  result["localize_first_frame"] = localizeFirstFrameJson(frame, ignoreMask.data)
+
+  # localize_first_frame populates `locState` as a side effect; the
+  # subsequent task-icon scan reads the camera offset from it.
+  var locState: gbTypes.PerceptionState
+  result["localize_first_frame"] = localizeFirstFrameJson(
+    frame, ignoreMask.data, locState)
+  # v4 (S4.4) task-icon field — additive within v4 (no schema bump).
+  result["task_icons"] = taskIconsJson(frame, locState)
 
 proc main() =
   let here = currentSourcePath().parentDir()

@@ -91,6 +91,40 @@ def pixel_at(frame: np.ndarray, x: int, y: int) -> int:
     return int(frame[y, x])
 
 
+# Sentinel palette value for out-of-screen pixels in patches built by
+# :func:`oob_filled_patch`. 255 is safe to use as an in-band sentinel
+# because real frames are 4-bpp (palette indices 0..15) so 255 never
+# appears in a legitimate frame pixel. ``PLAYER_BODY_LUT[255]`` and
+# ``PALETTE_TO_PLAYER_SLOT[255]`` are both "not a player color", and
+# strict matches against any palette 0..15 sprite pixel will count
+# OOB as a miss because 255 != that pixel.
+OOB_SENTINEL: np.uint8 = np.uint8(255)
+
+
+def oob_filled_patch(
+    frame: np.ndarray, x: int, y: int, shape: tuple[int, int]
+) -> np.ndarray:
+    """Return a ``shape``-sized uint8 patch of ``frame`` anchored at
+    ``(x, y)``, with out-of-screen pixels filled with :data:`OOB_SENTINEL`.
+
+    Lets numpy-vectorised match helpers skip the per-pixel OOB branch by
+    making the OOB rule fall out of the same boolean-mask arithmetic the
+    in-bounds rule already uses. Shared between
+    :mod:`perception.actors` (HUD / crewmate scalar probes) and
+    :mod:`perception.tasks` (task-icon strict matches).
+    """
+    sh, sw = shape
+    patch = np.full((sh, sw), OOB_SENTINEL, dtype=np.uint8)
+    fy0, fx0 = max(0, y), max(0, x)
+    fy1 = min(SCREEN_HEIGHT, y + sh)
+    fx1 = min(SCREEN_WIDTH, x + sw)
+    if fy0 < fy1 and fx0 < fx1:
+        py0, px0 = fy0 - y, fx0 - x
+        py1, px1 = fy1 - y, fx1 - x
+        patch[py0:py1, px0:px1] = frame[fy0:fy1, fx0:fx1]
+    return patch
+
+
 def new_ignore_mask() -> np.ndarray:
     """Allocate a fresh ``(SCREEN_HEIGHT, SCREEN_WIDTH)`` bool ignore mask.
 

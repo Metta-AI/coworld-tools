@@ -7,9 +7,9 @@ human iterating on the port can run the exact same checks locally::
 
     uv run python -m players.among_them.coborg.perception.parity.run_parity
 
-With S4.3 landed (sidecar ``schema_version == 4``) the oracle emits
-and the gate checks **22 parity checks per fixture x 10 fixtures =
-220 checks total**:
+With S4.4 landed (sidecar ``schema_version == 4``) the oracle emits
+and the gate checks **23 parity checks per fixture x 10 fixtures =
+230 checks total**:
 
 - 5 ``sprite_match`` entries (player x {flip=False, True} + body x
   {flip=False} + ghost x {flip=False, True}, each at its actor-type
@@ -30,8 +30,12 @@ and the gate checks **22 parity checks per fixture x 10 fixtures =
   ``patch_vote_top_candidates`` (top-16 from the patch-vote kernel),
   ``localize_first_frame`` (full ``update_location`` from a fresh
   state).
+- 1 orchestrated check against the S4.4 port (``tasks.scan_task_icons``):
+  ``task_icons`` — list of detected on-screen icons at the camera
+  offset produced by ``localize_first_frame``. Empty when the
+  fixture didn't localize.
 
-S4.4+ moves to v5 (task-icons, ocr, voting).
+S4.5+ widens to v5 with ocr + voting.
 """
 
 from __future__ import annotations

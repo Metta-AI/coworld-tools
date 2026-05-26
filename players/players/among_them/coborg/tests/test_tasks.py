@@ -178,9 +178,80 @@ def test_icon_match_and_radar_dot_match_dataclasses():
     assert (r.x, r.y) == (3, 4)
 
 
-# --- public API: deferred task-icon scan stub -----------------------------
+# --- public API: scan_task_icons -----------------------------------------
 
 
-def test_scan_task_icons_not_implemented_until_s4():
-    with pytest.raises(NotImplementedError, match="S4"):
-        scan_task_icons()
+def _load_atlas():
+    from players.among_them.coborg.perception.data import load_sprite_atlas
+    return load_sprite_atlas()
+
+
+def test_scan_task_icons_no_tasks_in_view_returns_empty():
+    """A blank frame at a camera far from any task station yields no
+    matches — the strict sprite match never clears on empty pixels."""
+    frame = _empty_frame()
+    # Camera at (0, 0) puts world (0,0) at screen (0,0). The Skeld map's
+    # task stations are all at world coords >= 107, so an empty frame
+    # produces no matches regardless of camera.
+    out = scan_task_icons(_load_atlas(), frame, 0, 0)
+    assert out == []
+
+
+def test_scan_task_icons_returns_list_of_icon_match():
+    """Smoke: the function returns the right type on a real fixture even
+    when there are zero matches. Concrete value parity is in
+    ``test_perception_parity``."""
+    frame = np.frombuffer(
+        (_FIXTURES_DIR / "gameplay_200.bin").read_bytes(), dtype=np.uint8
+    ).reshape(SCREEN_HEIGHT, SCREEN_WIDTH)
+    # Camera at the home position (where update_location locks for this fixture).
+    out = scan_task_icons(_load_atlas(), frame, 504, 54)
+    assert isinstance(out, list)
+    for m in out:
+        assert isinstance(m, IconMatch)
+
+
+def test_scan_task_icons_fabricated_icon_matches():
+    """Stamp the task icon sprite onto a blank frame at the exact expected
+    screen position for one task station. The strict-match scan must find
+    it. Choose the task station whose expected screen position falls in
+    the middle of the frame for the (camera_x, camera_y) we use."""
+    from players.among_them.coborg.perception.data import (
+        ATLAS_TASK,
+        SPRITE_SIZE,
+        TRANSPARENT_INDEX,
+        TASK_COORDS,
+    )
+
+    atlas = _load_atlas()
+    sprite = atlas[ATLAS_TASK]
+
+    # Pick the first task. Compute the camera that puts its expected
+    # icon anchor near the centre of the screen.
+    tx, ty, tw, _th = TASK_COORDS[0]
+    # base_x = tx + tw//2 - SpriteSize//2 - cam_x => set cam_x so base_x = 58
+    target_screen_x = 58
+    target_screen_y = 58
+    cam_x = tx + tw // 2 - SPRITE_SIZE // 2 - target_screen_x
+    cam_y = ty - SPRITE_SIZE - 2 - target_screen_y
+
+    frame = _empty_frame()
+    # Stamp the sprite at the expected anchor, with TRANSPARENT_INDEX
+    # left as palette 0 (frame is all 0; transparent sprite pixels are
+    # not matched, so this is consistent with strict-match semantics).
+    sh, sw = sprite.shape
+    for sy in range(sh):
+        for sx in range(sw):
+            c = int(sprite[sy, sx])
+            if c == TRANSPARENT_INDEX:
+                continue
+            frame[target_screen_y + sy, target_screen_x + sx] = c
+
+    out = scan_task_icons(atlas, frame, cam_x, cam_y)
+    # The probe sweeps 3 bobs × 7×7 anchors around each task. Only the
+    # exact anchor (bob=0, dx=dy=0) should match cleanly; the dedup
+    # collapses near-by matches within Chebyshev-1.
+    assert len(out) >= 1
+    # The first kept match must be at the exact stamped anchor.
+    found = any(m.x == target_screen_x and m.y == target_screen_y for m in out)
+    assert found, f"expected ({target_screen_x}, {target_screen_y}) in {out!r}"
