@@ -95,3 +95,22 @@ def _build_player_body_lut() -> np.ndarray:
 
 PLAYER_BODY_LUT: np.ndarray = _build_player_body_lut()
 PLAYER_BODY_LUT.flags.writeable = False
+
+
+def _build_palette_to_player_slot() -> np.ndarray:
+    """256-entry LUT: palette index -> player-color slot.
+
+    Inverse of ``PLAYER_COLORS`` (which maps slot -> palette index). Palette
+    indices outside the 0..15 range — and the in-band OOB sentinel ``255``
+    that callers may use when feeding out-of-screen sprite anchors — map to
+    a sentinel slot equal to ``PLAYER_COLORS.size`` (16). Downstream code
+    filters that sentinel before histogramming.
+    """
+    lut = np.full(256, PLAYER_COLORS.size, dtype=np.int64)
+    for slot, c in enumerate(PLAYER_COLORS):
+        lut[int(c)] = slot
+    return lut
+
+
+PALETTE_TO_PLAYER_SLOT: np.ndarray = _build_palette_to_player_slot()
+PALETTE_TO_PLAYER_SLOT.flags.writeable = False

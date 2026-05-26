@@ -42,6 +42,7 @@ from .data import (
     ATLAS_GHOST_ICON,
     ATLAS_KILL_BUTTON,
     ATLAS_PLAYER,
+    PALETTE_TO_PLAYER_SLOT,
     PLAYER_BODY_LUT,
     PLAYER_COLORS,
     SHADE_TINT_COLOR,
@@ -52,6 +53,13 @@ from .data import (
 )
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from .sprite_match import match_actor_sprite_all
+
+# Sentinel palette value for out-of-screen pixels in patches built by
+# :func:`_oob_filled_patch`. 255 is safe to use as an in-band sentinel
+# because real frames are 4-bpp (palette indices 0..15) so 255 never
+# appears in a legitimate frame pixel. PLAYER_BODY_LUT[255] and
+# PALETTE_TO_PLAYER_SLOT[255] are both "not a player color".
+_OOB_SENTINEL = np.uint8(255)
 
 
 # --- actor scan budgets (mirror actors.nim constants) ---------------------
@@ -205,6 +213,44 @@ def _dedup_anchors(anchors: list[tuple[int, int, bool]], radius: int) -> list[tu
     return kept
 
 
+def _oob_filled_patch(
+    frame: np.ndarray, x: int, y: int, shape: tuple[int, int]
+) -> np.ndarray:
+    """Return a ``shape``-sized uint8 patch of ``frame`` anchored at
+    ``(x, y)``, with out-of-screen pixels filled with :data:`_OOB_SENTINEL`
+    (255). Real frame pixels are palette indices 0..15, so 255 is safe to
+    use as an in-band sentinel — ``PLAYER_BODY_LUT[255]`` and
+    ``PALETTE_TO_PLAYER_SLOT[255]`` both report "not a player color".
+
+    Lets the vectorised match helpers skip the per-pixel OOB branch by
+    making the OOB rule fall out of the same boolean-mask arithmetic the
+    in-bounds rule already uses.
+    """
+    sh, sw = shape
+    patch = np.full((sh, sw), _OOB_SENTINEL, dtype=np.uint8)
+    fy0, fx0 = max(0, y), max(0, x)
+    fy1 = min(SCREEN_HEIGHT, y + sh)
+    fx1 = min(SCREEN_WIDTH, x + sw)
+    if fy0 < fy1 and fx0 < fx1:
+        py0, px0 = fy0 - y, fx0 - x
+        py1, px1 = fy1 - y, fx1 - x
+        patch[py0:py1, px0:px1] = frame[fy0:fy1, fx0:fx1]
+    return patch
+
+
+def _ignore_zone_mask(max_y: int, max_x: int, sh: int, sw: int) -> np.ndarray:
+    """``(max_y, max_x)`` bool mask: True iff a sprite anchored at
+    ``(ay, ax)`` would have its centre inside the player-render
+    ignore zone. Used by :func:`_scan_actor` when ``ignore_center=True``.
+    """
+    ys = np.arange(max_y)[:, None]
+    xs = np.arange(max_x)[None, :]
+    return (
+        (np.abs(xs + sw // 2 - PLAYER_SPRITE_ANCHOR_X) <= PLAYER_IGNORE_RADIUS)
+        & (np.abs(ys + sh // 2 - PLAYER_SPRITE_ANCHOR_Y) <= PLAYER_IGNORE_RADIUS)
+    )
+
+
 def _scan_actor(
     frame: np.ndarray,
     sprite: np.ndarray,
@@ -228,10 +274,9 @@ def _scan_actor(
     max_y = SCREEN_HEIGHT - sh + 1
     max_x = SCREEN_WIDTH - sw + 1
     claimed = np.zeros((max_y, max_x), dtype=bool)
-    anchors: list[tuple[int, int, bool]] = []
-    spr_centre_off_x = sw // 2
-    spr_centre_off_y = sh // 2
+    ignore_zone = _ignore_zone_mask(max_y, max_x, sh, sw) if ignore_center else None
 
+    anchors: list[tuple[int, int, bool]] = []
     for flip in flips:
         mask = match_actor_sprite_all(
             frame,
@@ -240,48 +285,27 @@ def _scan_actor(
             max_misses=max_misses,
             min_stable=min_stable,
             min_tint=min_tint,
-        )
-        if ignore_center:
-            ys, xs = np.where(mask)
-            for ay, ax in zip(ys.tolist(), xs.tolist()):
-                cx = ax + spr_centre_off_x
-                cy = ay + spr_centre_off_y
-                if (
-                    abs(cx - PLAYER_SPRITE_ANCHOR_X) <= PLAYER_IGNORE_RADIUS
-                    and abs(cy - PLAYER_SPRITE_ANCHOR_Y) <= PLAYER_IGNORE_RADIUS
-                ):
-                    mask[ay, ax] = False
-
-        ys, xs = np.where(mask & ~claimed)
-        for ay, ax in zip(ys.tolist(), xs.tolist()):
-            claimed[ay, ax] = True
-            anchors.append((ay, ax, flip))
+        ).astype(bool)
+        if ignore_zone is not None:
+            mask &= ~ignore_zone
+        new_hits = mask & ~claimed
+        claimed |= new_hits
+        ys, xs = np.where(new_hits)
+        anchors.extend((int(y), int(x), flip) for y, x in zip(ys.tolist(), xs.tolist()))
 
     return _dedup_anchors(anchors, dedup_radius)
 
 
-# --- scalar sprite-match helpers (HUD icons) ------------------------------
+# --- vectorised sprite-match helpers (HUD icons) --------------------------
 
 
 def _sprite_misses(frame: np.ndarray, sprite: np.ndarray, x: int, y: int) -> tuple[int, int]:
     """Count ``(misses, opaque)`` for ``sprite`` placed at frame-space
     anchor ``(x, y)``. Mirrors ``actors.nim::spriteMisses``."""
-    sh, sw = sprite.shape
-    misses = 0
-    opaque = 0
-    for sy in range(sh):
-        for sx in range(sw):
-            c = int(sprite[sy, sx])
-            if c == TRANSPARENT_INDEX:
-                continue
-            opaque += 1
-            fx = x + sx
-            fy = y + sy
-            if fx < 0 or fy < 0 or fx >= SCREEN_WIDTH or fy >= SCREEN_HEIGHT:
-                misses += 1
-            elif int(frame[fy, fx]) != c:
-                misses += 1
-    return misses, opaque
+    patch = _oob_filled_patch(frame, x, y, sprite.shape)
+    opaque = sprite != TRANSPARENT_INDEX
+    misses = int(np.count_nonzero(opaque & (patch != sprite)))
+    return misses, int(opaque.sum())
 
 
 def _matches_sprite(frame: np.ndarray, sprite: np.ndarray, x: int, y: int) -> bool:
@@ -296,25 +320,11 @@ def _matches_sprite_shadowed(frame: np.ndarray, sprite: np.ndarray, x: int, y: i
     for the unlit kill-button check. Mirrors
     ``actors.nim::matchesSpriteShadowed`` (miss budget =
     ``KILL_ICON_MAX_MISSES``)."""
-    sh, sw = sprite.shape
-    misses = 0
-    opaque = 0
-    for sy in range(sh):
-        for sx in range(sw):
-            c = int(sprite[sy, sx])
-            if c == TRANSPARENT_INDEX:
-                continue
-            opaque += 1
-            sc = int(SHADOW_MAP[c & 0x0F])
-            fx = x + sx
-            fy = y + sy
-            if fx < 0 or fy < 0 or fx >= SCREEN_WIDTH or fy >= SCREEN_HEIGHT:
-                misses += 1
-            elif int(frame[fy, fx]) != sc:
-                misses += 1
-            if misses > KILL_ICON_MAX_MISSES:
-                return False
-    return opaque > 0 and misses <= KILL_ICON_MAX_MISSES
+    patch = _oob_filled_patch(frame, x, y, sprite.shape)
+    opaque = sprite != TRANSPARENT_INDEX
+    shadow = SHADOW_MAP[sprite & 0x0F]
+    misses = int(np.count_nonzero(opaque & (patch != shadow)))
+    return bool(opaque.any()) and misses <= KILL_ICON_MAX_MISSES
 
 
 # --- single-anchor crewmate match + colour vote ---------------------------
@@ -325,44 +335,24 @@ def _matches_crewmate(
 ) -> bool:
     """Strict single-anchor crewmate match. Used by :func:`update_self_color`
     where the screen position is known exactly. Mirrors
-    ``actors.nim::matchesCrewmate``."""
-    sh, sw = sprite.shape
-    misses = 0
-    matched_stable = 0
-    body_matched = 0
-    stable_pixels = 0
-    body_pixels = 0
-    for sy in range(sh):
-        for sx in range(sw):
-            src_x = sw - 1 - sx if flip_h else sx
-            c = int(sprite[sy, src_x])
-            if c == TRANSPARENT_INDEX:
-                continue
-            fx = x + sx
-            fy = y + sy
-            is_body_pixel = c == TINT_COLOR or c == SHADE_TINT_COLOR
-            if fx < 0 or fy < 0 or fx >= SCREEN_WIDTH or fy >= SCREEN_HEIGHT:
-                misses += 1
-                if is_body_pixel:
-                    body_pixels += 1
-                else:
-                    stable_pixels += 1
-            else:
-                fc = int(frame[fy, fx])
-                if is_body_pixel:
-                    body_pixels += 1
-                    if PLAYER_BODY_LUT[fc]:
-                        body_matched += 1
-                    else:
-                        misses += 1
-                else:
-                    stable_pixels += 1
-                    if fc == c:
-                        matched_stable += 1
-                    else:
-                        misses += 1
-            if misses > CREWMATE_MAX_MISSES:
-                return False
+    ``actors.nim::matchesCrewmate``: out-of-screen pixels count toward
+    ``stable_pixels`` / ``body_pixels`` (whichever the sprite says) and
+    add to ``misses``, but never to ``matched_stable`` /
+    ``body_matched``."""
+    spr = sprite[:, ::-1] if flip_h else sprite
+    patch = _oob_filled_patch(frame, x, y, spr.shape)
+    opaque = spr != TRANSPARENT_INDEX
+    body = (spr == TINT_COLOR) | (spr == SHADE_TINT_COLOR)
+    stable = opaque & ~body
+
+    stable_pixels = int(stable.sum())
+    body_pixels = int(body.sum())
+    matched_stable = int(np.count_nonzero(stable & (patch == spr)))
+    body_matched = int(np.count_nonzero(body & PLAYER_BODY_LUT[patch]))
+
+    misses = (stable_pixels - matched_stable) + (body_pixels - body_matched)
+    if misses > CREWMATE_MAX_MISSES:
+        return False
     return (
         stable_pixels >= CREWMATE_MIN_STABLE
         and matched_stable >= CREWMATE_MIN_STABLE
@@ -379,30 +369,17 @@ def _crewmate_color_index(
     ``actor_color_index_all`` which counts both. Mirrors
     ``actors.nim::crewmateColorIndex``. Returns the argmax player-colour
     slot or ``-1``."""
-    sh, sw = sprite.shape
-    counts = np.zeros(PLAYER_COLORS.size, dtype=np.int64)
-    for sy in range(sh):
-        for sx in range(sw):
-            src_x = sw - 1 - sx if flip_h else sx
-            c = int(sprite[sy, src_x])
-            if c != TINT_COLOR:
-                continue
-            fx = x + sx
-            fy = y + sy
-            if fx < 0 or fy < 0 or fx >= SCREEN_WIDTH or fy >= SCREEN_HEIGHT:
-                continue
-            fc = int(frame[fy, fx])
-            for i, pc in enumerate(PLAYER_COLORS):
-                if fc == int(pc):
-                    counts[i] += 1
-                    break
-    best = -1
-    best_votes = 0
-    for i in range(PLAYER_COLORS.size):
-        if counts[i] > best_votes:
-            best_votes = int(counts[i])
-            best = i
-    return best
+    spr = sprite[:, ::-1] if flip_h else sprite
+    tint_mask = spr == TINT_COLOR
+    if not tint_mask.any():
+        return -1
+    patch = _oob_filled_patch(frame, x, y, spr.shape)
+    slots = PALETTE_TO_PLAYER_SLOT[patch[tint_mask]]
+    in_range = slots < PLAYER_COLORS.size
+    if not in_range.any():
+        return -1
+    counts = np.bincount(slots[in_range], minlength=PLAYER_COLORS.size)
+    return int(counts.argmax())
 
 
 # --- public scan procs (return their outputs; never mutate args) ----------
