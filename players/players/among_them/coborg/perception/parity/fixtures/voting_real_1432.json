@@ -1,6 +1,6 @@
 {
   "fixture": "voting_real_1432.bin",
-  "schema_version": 2,
+  "schema_version": 3,
   "frame_length": 16384,
   "screen_width": 128,
   "screen_height": 128,
@@ -692,5 +692,10 @@
       "flip_h": false
     }
   ],
-  "radar_dots": []
+  "radar_dots": [],
+  "interstitial": {
+    "is_interstitial": true,
+    "kind": "unknown",
+    "black_pixel_count": 15537
+  }
 }

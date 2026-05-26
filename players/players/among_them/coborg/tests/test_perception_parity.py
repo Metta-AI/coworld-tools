@@ -7,9 +7,9 @@ human iterating on the port can run the exact same checks locally::
 
     uv run python -m players.among_them.coborg.perception.parity.run_parity
 
-With S3 closed (sidecar ``schema_version == 2``) the oracle emits and
-the gate checks **16 parity checks per fixture x 10 fixtures = 160
-checks total**:
+With S4.1 landed (sidecar ``schema_version == 3``) the oracle emits
+and the gate checks **17 parity checks per fixture x 10 fixtures =
+170 checks total**:
 
 - 5 ``sprite_match`` entries (player x {flip=False, True} + body x
   {flip=False} + ghost x {flip=False, True}, each at its actor-type
@@ -18,11 +18,12 @@ checks total**:
 - 5 orchestrated checks (``role``, ``self_color``, ``crewmates``,
   ``bodies``, ``ghosts``) against the S3.2 port (``actors.py``);
 - 1 orchestrated check (``radar_dots``) against the S3.3 port
-  (``tasks.py`` radar-dot half).
+  (``tasks.py`` radar-dot half);
+- 1 orchestrated check (``interstitial``) against the S4.1 port
+  (``interstitial.py``).
 
-S4 widens to ``schema_version == 3`` for the deferred task-icon scan
-plus the remaining perception modules (interstitial, ignore, localize,
-ocr, voting).
+S4.2+ extend v3 with ignore-mask stamps, then v4 with localize +
+task-icons, then v5 with ocr + voting.
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ def test_each_fixture_parity_green(fixture_name: str) -> None:
     anything mismatches. Equivalent to a per-row of ``run_parity`` CLI.
     """
     result = check_fixture(FIXTURES_DIR / fixture_name)
-    assert result.schema_version == 2, (
+    assert result.schema_version == 3, (
         f"{fixture_name}: schema_version {result.schema_version} not supported"
     )
     assert result.ok, "; ".join(

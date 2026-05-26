@@ -1,6 +1,6 @@
 {
   "fixture": "gameplay_131.bin",
-  "schema_version": 2,
+  "schema_version": 3,
   "frame_length": 16384,
   "screen_width": 128,
   "screen_height": 128,
@@ -190,5 +190,10 @@
   ],
   "bodies": [],
   "ghosts": [],
-  "radar_dots": []
+  "radar_dots": [],
+  "interstitial": {
+    "is_interstitial": false,
+    "kind": "not_interstitial",
+    "black_pixel_count": 300
+  }
 }

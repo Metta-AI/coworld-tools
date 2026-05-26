@@ -29,9 +29,11 @@ Schema scope:
   emitted by the Nim oracle but **not yet checked here**; concrete
   check functions land alongside the matching Python ports in S3.2
   (``actors.py``) and S3.3 (``tasks.py`` radar-dot half).
-- **S4** will bump the schema again to add the deferred task-icon scan
-  plus ``ocr``, ``voting``, ``interstitial``, ``localize``, and
-  ``ignore`` percept fields.
+- **v3 (S4.1):** adds the upstream ``interstitial.detect_interstitial``
+  output (black-pixel count + is/is-not + kind). Checked by
+  ``_check_interstitial``.
+- **S4.2 onward** extend v3 with ignore-mask stamps, then v4 with
+  localize / task-icons, then v5 with ocr and voting.
 
 Tolerance policy: every assertion in S2 is **exact** equality. The Nim
 oracle and the Python port are both deterministic over integer
@@ -54,12 +56,13 @@ import numpy as np
 from ..actors import ActorPercept, compute_actor_percept
 from ..data import load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from ..interstitial import InterstitialObservation, detect_interstitial
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
 from ..tasks import scan_radar_dots
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
-_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
+_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3})
 
 
 @dataclass
@@ -212,6 +215,22 @@ def _check_radar_dots(frame: np.ndarray, expected: list[dict]) -> CheckResult:
     )
 
 
+# --- v3 orchestrated checks (interstitial.py output) ----------------------
+
+
+def _check_interstitial(obs: InterstitialObservation, expected: dict) -> CheckResult:
+    actual = {
+        "is_interstitial": obs.is_interstitial,
+        "kind": obs.kind.value,
+        "black_pixel_count": obs.black_pixel_count,
+    }
+    if actual == expected:
+        return CheckResult(label="interstitial", ok=True)
+    return CheckResult(
+        label="interstitial", ok=False, detail=f"got {actual!r}, expected {expected!r}"
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -249,6 +268,10 @@ def check_fixture(bin_path: Path) -> FixtureResult:
         result.checks.append(_check_bodies(percept, sidecar["bodies"]))
         result.checks.append(_check_ghosts(percept, sidecar["ghosts"]))
         result.checks.append(_check_radar_dots(frame, sidecar["radar_dots"]))
+    if schema_version >= 3:
+        result.checks.append(
+            _check_interstitial(detect_interstitial(frame), sidecar["interstitial"])
+        )
     return result
 
 

@@ -18,6 +18,9 @@
 ##   crewmate / body / ghost match lists, and radar-dot positions.
 ##   The task-icon half of `tasks.nim` is deferred to S4 alongside
 ##   localize (see `PLAN.md` §12 item 5).
+## - v3 (S4.1): adds the upstream `interstitial.detectInterstitial`
+##   output (black-pixel count + boolean + kind). S4.2 (ignore-mask
+##   stamps) and S4.3 (localize) extend v3 with additional keys.
 ##
 ## Each sidecar's `schema_version` field declares the version the
 ## sidecar conforms to. The Python harness fails closed on unknown
@@ -52,13 +55,16 @@ import guided_bot/perception/tasks as gbTasks
 import guided_bot/perception/data as gbData
 import guided_bot/types as gbTypes
 
+# Upstream interstitial detector — used for v3 outputs.
+import guided_bot/perception/interstitial as gbInterstitial
+
 const
   ScreenWidth = 128
   ScreenHeight = 128
   FrameLen = ScreenWidth * ScreenHeight
   SpriteSize = 12
   SpriteCount = 6
-  SchemaVersion = 2
+  SchemaVersion = 3
 
   # Crewmate (= player sprite) scan budgets.
   CrewmateMaxMisses = 8
@@ -296,6 +302,32 @@ proc radarDotsJson(frame: var seq[uint8]): JsonNode =
     result.add(%* {"x": d.x, "y": d.y})
 
 # ---------------------------------------------------------------------------
+# Orchestrated outputs (v3)
+# ---------------------------------------------------------------------------
+
+proc interstitialKindToString(k: gbTypes.InterstitialKind): string =
+  case k
+  of gbTypes.NotInterstitial: "not_interstitial"
+  of gbTypes.InterstitialUnknown: "unknown"
+  of gbTypes.InterstitialRoleReveal: "role_reveal"
+  of gbTypes.InterstitialRoleRevealCrewmate: "role_reveal_crewmate"
+  of gbTypes.InterstitialRoleRevealImposter: "role_reveal_imposter"
+  of gbTypes.InterstitialVoting: "voting"
+  of gbTypes.InterstitialVoteResult: "vote_result"
+  of gbTypes.InterstitialGameOver: "game_over"
+
+proc interstitialJson(frame: var seq[uint8]): JsonNode =
+  ## Result of upstream `interstitial.detectInterstitial`. Pure
+  ## black-pixel count gate; never returns the role-reveal subtype
+  ## variants at this layer (those come from OCR, S4.5).
+  let obs = gbInterstitial.detectInterstitial(frame)
+  %* {
+    "is_interstitial": obs.isInterstitial,
+    "kind": interstitialKindToString(obs.kind),
+    "black_pixel_count": obs.blackPixelCount,
+  }
+
+# ---------------------------------------------------------------------------
 # Fixture loader + per-fixture orchestrator
 # ---------------------------------------------------------------------------
 
@@ -346,6 +378,7 @@ proc processFixture(path: string): JsonNode =
     "bodies": bodiesJson(percept),
     "ghosts": ghostsJson(percept),
     "radar_dots": radarDotsJson(frame),
+    "interstitial": interstitialJson(frame),
   }
 
 proc main() =
