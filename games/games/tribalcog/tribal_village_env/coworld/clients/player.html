@@ -11,7 +11,8 @@
     body { margin: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 300px; background: #151918; }
     main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #080b0a; }
     canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
-    #map { display: block; width: 100%; height: 100%; cursor: crosshair; }
+    #map { display: block; width: 100%; height: 100%; cursor: grab; }
+    #map.dragging { cursor: grabbing; }
     aside { min-width: 0; border-left: 1px solid #2b3633; background: #101514; overflow: auto; }
     .panel { padding: 8px 10px; border-bottom: 1px solid #28322f; }
     h1 { margin: 0 0 4px; font-size: 16px; font-weight: 700; letter-spacing: 0; }
@@ -25,6 +26,7 @@
     .metric strong { display: block; margin-top: 1px; overflow-wrap: anywhere; color: #edf2ef; font-size: 12px; font-variant-numeric: tabular-nums; }
     #pip { display: block; width: min(100%, 168px); height: auto; aspect-ratio: 1 / 1; margin: 0 auto 5px; background: #050706; border: 1px solid #3a4642; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+    .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 7px; }
     select, button { width: 100%; min-height: 28px; border: 1px solid #465651; background: #1c2422; color: #eef2ee; font: inherit; font-size: 12px; }
     button:hover, select:hover { border-color: #81908b; }
     details { font-size: 12px; color: #dfe7e3; }
@@ -52,6 +54,11 @@
         <div class="metric"><span>Team</span><strong id="team">-</strong></div>
         <div class="metric"><span>Step</span><strong id="step">0 / 0</strong></div>
         <div class="metric"><span>Score</span><strong id="score">0</strong></div>
+      </div>
+      <div class="tools">
+        <button id="zoomOut" type="button">-</button>
+        <button id="home" type="button">Home</button>
+        <button id="zoomIn" type="button">+</button>
       </div>
     </section>
     <section class="panel">
@@ -120,6 +127,14 @@
     let offsetY = 0;
     let selectedBuilding = null;
     let didFit = false;
+    let autoFit = true;
+    let pointerDown = false;
+    let dragging = false;
+    let dragX = 0;
+    let dragY = 0;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let suppressClick = false;
 
     mapCtx.imageSmoothingEnabled = false;
     pipCtx.imageSmoothingEnabled = false;
@@ -128,6 +143,23 @@
     addEventListener("resize", resize);
     if(window.ResizeObserver) new ResizeObserver(resize).observe(mapCanvas.parentElement);
     mapCanvas.addEventListener("click", onMapClick);
+    mapCanvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+    mapCanvas.addEventListener("wheel", onWheel, {passive:false});
+    document.getElementById("zoomOut").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
+    };
+    document.getElementById("zoomIn").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    };
+    document.getElementById("home").onclick = () => {
+      autoFit = true;
+      fitWorld();
+      drawMap();
+    };
     document.getElementById("applyProgram").onclick = applyProgram;
 
     function connect(){
@@ -185,7 +217,7 @@
     function loadWorld(view){
       world = {...view, objects: decodeObjects(view)};
       terrain = decodeTerrain(view.terrain);
-      fitWorld();
+      if(!didFit || autoFit) fitWorld();
       didFit = true;
       drawMap();
     }
@@ -251,7 +283,7 @@
       const dpr = devicePixelRatio || 1;
       mapCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
       mapCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
-      if(didFit) fitWorld();
+      if(didFit && autoFit) fitWorld();
       drawMap();
     }
 
@@ -326,6 +358,50 @@
       badgeEl.textContent = `team ${latest?.team_id ?? "-"} fog`;
     }
 
+    function onPointerDown(event){
+      if(event.button !== 0) return;
+      pointerDown = true;
+      dragging = false;
+      dragX = event.clientX;
+      dragY = event.clientY;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+    }
+
+    function onPointerMove(event){
+      if(!pointerDown) return;
+      const totalMove = Math.hypot(event.clientX - dragStartX, event.clientY - dragStartY);
+      if(!dragging && totalMove > 4){
+        dragging = true;
+        suppressClick = true;
+        autoFit = false;
+        mapCanvas.classList.add("dragging");
+      }
+      if(dragging){
+        offsetX += event.clientX - dragX;
+        offsetY += event.clientY - dragY;
+        drawMap();
+      }
+      dragX = event.clientX;
+      dragY = event.clientY;
+    }
+
+    function onPointerUp(){
+      const wasDragging = dragging;
+      pointerDown = false;
+      dragging = false;
+      mapCanvas.classList.remove("dragging");
+      if(wasDragging) setTimeout(() => { suppressClick = false; }, 0);
+    }
+
+    function onWheel(event){
+      event.preventDefault();
+      autoFit = false;
+      const nextSize = tileSize * (event.deltaY > 0 ? 0.88 : 1.14);
+      const rect = mapCanvas.getBoundingClientRect();
+      zoomAt(event.clientX - rect.left, event.clientY - rect.top, nextSize);
+    }
+
     function drawPip(view){
       const size = 96;
       pipCanvas.width = view.width * size;
@@ -348,6 +424,10 @@
     }
 
     function onMapClick(event){
+      if(suppressClick){
+        suppressClick = false;
+        return;
+      }
       if(!world) return;
       const rect = mapCanvas.getBoundingClientRect();
       const x = Math.floor((event.clientX - rect.left - offsetX) / tileSize);
@@ -389,6 +469,16 @@
       if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     }
 
+    function zoomAt(screenX, screenY, nextSize){
+      const oldSize = tileSize;
+      tileSize = clamp(nextSize, 2, 64);
+      const worldX = (screenX - offsetX) / oldSize;
+      const worldY = (screenY - offsetY) / oldSize;
+      offsetX = screenX - worldX * tileSize;
+      offsetY = screenY - worldY * tileSize;
+      drawMap();
+    }
+
     function drawCover(ctx, src, x, y, w, h){
       const img = cached(src);
       if(!img) return false;
@@ -423,6 +513,14 @@
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(2, Math.floor(size*.08));
       ctx.strokeRect(x + 2, y + 2, size - 4, size - 4);
+    }
+
+    function viewWidth(){
+      return mapCanvas.clientWidth || 1;
+    }
+
+    function viewHeight(){
+      return mapCanvas.clientHeight || 1;
     }
 
     function clamp(value, minValue, maxValue){
