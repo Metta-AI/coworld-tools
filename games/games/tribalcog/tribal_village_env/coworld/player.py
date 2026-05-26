@@ -16,14 +16,59 @@ def player_ws_url() -> str:
 async def main() -> None:
     url = player_ws_url()
     rng = random.Random(int(os.environ.get("TRIBALCOG_PLAYER_SEED", "0")))
-    mode = os.environ.get("TRIBALCOG_PLAYER_MODE", "sprite")
+    mode = os.environ.get("TRIBALCOG_PLAYER_MODE", "overseer")
     async with websockets.connect(url, max_size=None) as websocket:
-        async for raw_message in websocket:
-            message = json.loads(raw_message)
-            if message["type"] == "final":
-                return
-            if message["type"] == "observation":
-                await websocket.send(json.dumps({"action": choose_action(message, mode, rng)}))
+        try:
+            async for raw_message in websocket:
+                message = json.loads(raw_message)
+                if message["type"] == "final":
+                    return
+                if message["type"] == "observation":
+                    command = choose_overseer_command(message, mode, rng)
+                    if command is not None:
+                        await websocket.send(json.dumps(command))
+        except websockets.ConnectionClosed:
+            return
+
+
+def choose_overseer_command(
+    message: dict[str, Any],
+    mode: str,
+    rng: random.Random,
+) -> dict[str, Any] | None:
+    if mode == "noop":
+        return None
+    buildings = [
+        building
+        for building in message.get("visible_buildings", [])
+        if isinstance(building, dict)
+    ]
+    if not buildings:
+        return None
+    military = {
+        "barracks",
+        "archery_range",
+        "stable",
+        "siege_workshop",
+        "mangonel_workshop",
+        "trebuchet_workshop",
+        "monastery",
+        "castle",
+    }
+    candidates = [
+        building for building in buildings if building.get("thing") in military
+    ] or buildings
+    building = rng.choice(candidates)
+    program_id = 3 if building.get("thing") in military else 0
+    current = building.get("program") if isinstance(building.get("program"), dict) else {}
+    if int(current.get("id", -1)) == program_id:
+        return {"type": "town.select_building", "x": building["x"], "y": building["y"]}
+    return {
+        "type": "town.set_program",
+        "x": building["x"],
+        "y": building["y"],
+        "program_id": program_id,
+    }
 
 
 def choose_action(message: dict[str, Any], mode: str, rng: random.Random) -> int:

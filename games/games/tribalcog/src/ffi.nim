@@ -285,7 +285,7 @@ proc tribal_village_write_global_sprite_cells(
     return required.int32
   if out_len < required.int32:
     return -required.int32
-  if globalEnv.isNil:
+  if isNil(globalEnv):
     return 0
 
   try:
@@ -300,6 +300,166 @@ proc tribal_village_write_global_sprite_cells(
     return required.int32
   except CatchableError:
     return 0
+
+proc writeHiddenGlobalSpriteCell(
+  out_buffer: ptr UncheckedArray[int16],
+  base: int
+) =
+  ## Write one fog-hidden cell into the compact sprite grid.
+  out_buffer[base] = -1'i16
+  writeGlobalSpriteThing(out_buffer, base + 1, nil)
+  writeGlobalSpriteThing(out_buffer, base + 6, nil)
+  out_buffer[base + 11] = 0'i16
+  out_buffer[base + 12] = 0'i16
+
+proc tribal_village_write_team_global_sprite_cells(
+  env: pointer,
+  teamId: int32,
+  out_buffer: ptr UncheckedArray[int16],
+  out_len: int32
+): int32 {.exportc, dynlib.} =
+  ## Write a compact full-map sprite grid filtered by one team's explored fog.
+  discard env
+  let required = MapWidth * MapHeight * GlobalSpriteCellFields
+  if out_buffer.isNil:
+    return required.int32
+  if out_len < required.int32:
+    return -required.int32
+  if isNil(globalEnv):
+    return 0
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return 0
+
+  try:
+    let team = teamId.int
+    for y in 0 ..< MapHeight:
+      for x in 0 ..< MapWidth:
+        let base = (y * MapWidth + x) * GlobalSpriteCellFields
+        if not globalEnv.revealedMaps[team][x][y]:
+          writeHiddenGlobalSpriteCell(out_buffer, base)
+          continue
+        out_buffer[base] = ord(globalEnv.terrain[x][y]).int16
+        writeGlobalSpriteThing(out_buffer, base + 1, globalEnv.backgroundGrid[x][y])
+        writeGlobalSpriteThing(out_buffer, base + 6, globalEnv.grid[x][y])
+        out_buffer[base + 11] = globalEnv.actionTintCode[x][y].int16
+        out_buffer[base + 12] = globalEnv.elevation[x][y].int16
+    return required.int32
+  except CatchableError:
+    return 0
+
+proc buildingAt(x, y: int32): Thing =
+  ## Return a building at a map position, or nil.
+  if isNil(globalEnv):
+    return nil
+  let pos = ivec2(x, y)
+  if not isValidPos(pos):
+    return nil
+  result = globalEnv.grid[pos.x][pos.y]
+  if isNil(result) or not isBuildingKind(result.kind):
+    return nil
+
+proc tribal_village_get_citizen_program_count(): int32 {.exportc, dynlib.} =
+  ord(CitizenProgramId.high).int32 + 1
+
+proc tribal_village_get_agent_program_id(
+  env: pointer,
+  agentId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv) or agentId < 0 or agentId >= globalEnv.agents.len.int32:
+    return -1
+  ord(globalEnv.agents[agentId.int].programId).int32
+
+proc tribal_village_get_agent_program_revision(
+  env: pointer,
+  agentId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv) or agentId < 0 or agentId >= globalEnv.agents.len.int32:
+    return 0
+  globalEnv.agents[agentId.int].programRevision.int32
+
+proc tribal_village_get_agent_program_source_building_id(
+  env: pointer,
+  agentId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv) or agentId < 0 or agentId >= globalEnv.agents.len.int32:
+    return -1
+  globalEnv.agents[agentId.int].programSourceBuildingId.int32
+
+proc tribal_village_get_agent_program_assigned_step(
+  env: pointer,
+  agentId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv) or agentId < 0 or agentId >= globalEnv.agents.len.int32:
+    return 0
+  globalEnv.agents[agentId.int].programAssignedStep.int32
+
+proc tribal_village_get_building_program_id(
+  env: pointer,
+  x: int32,
+  y: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  let building = buildingAt(x, y)
+  if isNil(building):
+    return -1
+  ord(effectiveBuildingProgram(building)).int32
+
+proc tribal_village_get_building_program_revision(
+  env: pointer,
+  x: int32,
+  y: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  let building = buildingAt(x, y)
+  if isNil(building):
+    return 0
+  building.programRevision.int32
+
+proc tribal_village_get_building_team_id(
+  env: pointer,
+  x: int32,
+  y: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  let building = buildingAt(x, y)
+  if isNil(building):
+    return -1
+  if building.teamId >= 0 and building.teamId < MapRoomObjectsTeams:
+    return building.teamId.int32
+  getTeamId(building).int32
+
+proc tribal_village_set_building_program(
+  env: pointer,
+  x: int32,
+  y: int32,
+  programId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if programId < 0 or programId > ord(CitizenProgramId.high):
+    return 0
+  let building = buildingAt(x, y)
+  if isNil(building):
+    return 0
+  setBuildingProgram(building, CitizenProgramId(programId))
+  1
+
+proc tribal_village_get_team_stockpile(
+  env: pointer,
+  teamId: int32,
+  resourceId: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv):
+    return 0
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return 0
+  if resourceId < 0 or resourceId > ord(StockpileResource.high):
+    return 0
+  stockpileCount(globalEnv, teamId.int, StockpileResource(resourceId)).int32
 
 # Render full map as HxWx3 RGB (uint8)
 proc toByte(value: float32): uint8 =

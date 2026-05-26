@@ -1282,6 +1282,128 @@ proc useDropoffBuilding(
     setInv(agent, key, 0)
   true
 
+proc citizenProgramName*(programId: CitizenProgramId): string =
+  ## Return a stable public label for one compiled citizen policy.
+  case programId
+  of ProgramGathererDefault:
+    "gatherer_default"
+  of ProgramBuilderDefault:
+    "builder_default"
+  of ProgramFighterGuard:
+    "fighter_guard"
+  of ProgramFighterAggressive:
+    "fighter_aggressive"
+  of ProgramSettlerExpand:
+    "settler_expand"
+
+proc citizenProgramSource*(programId: CitizenProgramId): string =
+  ## Return human-readable pseudocode for the compiled policy.
+  case programId
+  of ProgramGathererDefault:
+    "step(obs): deposit carried stockpile resources; gather the nearest visible food/wood/stone/gold; avoid blocking; return home when full."
+  of ProgramBuilderDefault:
+    "step(obs): repair nearby damaged friendly structures; build the next useful economy or defense building; gather when no build target is available."
+  of ProgramFighterGuard:
+    "step(obs): stay near home or rally point; attack visible enemies that threaten friendly citizens or buildings; regroup when isolated."
+  of ProgramFighterAggressive:
+    "step(obs): spiral outward from base; chase visible enemies; attack hostile buildings and units; keep moving when no target is visible."
+  of ProgramSettlerExpand:
+    "step(obs): move toward an adjacent resource-rich area; place a town center or support buildings; then switch back to local builder work."
+
+proc citizenProgramSummary*(programId: CitizenProgramId): string =
+  ## Return a short UI summary for one compiled policy.
+  case programId
+  of ProgramGathererDefault:
+    "Economy: gather, deposit, and keep the stockpile moving."
+  of ProgramBuilderDefault:
+    "Builder: repair, expand, and maintain the village."
+  of ProgramFighterGuard:
+    "Defense: guard home territory and respond to nearby threats."
+  of ProgramFighterAggressive:
+    "Attack: search outward and engage enemies aggressively."
+  of ProgramSettlerExpand:
+    "Expansion: seek a resource-rich area and establish a new settlement."
+
+proc defaultCitizenProgramForUnit*(unitClass: AgentUnitClass): CitizenProgramId =
+  ## Pick the default policy for a trained citizen class.
+  if unitClass in {UnitFishingShip, UnitTradeCog}:
+    return ProgramGathererDefault
+  if unitClass in {
+      UnitManAtArms, UnitArcher, UnitScout, UnitKnight, UnitMonk,
+      UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitBoat,
+      UnitSamurai, UnitLongbowman, UnitCataphract, UnitWoadRaider,
+      UnitTeutonicKnight, UnitHuskarl, UnitMameluke, UnitJanissary, UnitKing,
+      UnitLongSwordsman, UnitChampion, UnitLightCavalry, UnitHussar,
+      UnitCrossbowman, UnitArbalester, UnitGalley, UnitFireShip,
+      UnitTransportShip, UnitDemoShip, UnitCannonGalleon, UnitScorpion,
+      UnitCavalier, UnitPaladin, UnitCamel, UnitHeavyCamel, UnitImperialCamel,
+      UnitSkirmisher, UnitEliteSkirmisher, UnitCavalryArcher,
+      UnitHeavyCavalryArcher, UnitHandCannoneer
+    }:
+    return ProgramFighterGuard
+  if unitClass == UnitVillager:
+    return ProgramGathererDefault
+  ProgramGathererDefault
+
+proc defaultCitizenProgramForBuilding*(
+  buildingKind: ThingKind,
+  unitClass: AgentUnitClass = UnitVillager
+): CitizenProgramId =
+  ## Pick the default future-entry policy for a building.
+  case buildingKind
+  of TownCenter:
+    ProgramBuilderDefault
+  of Barracks, ArcheryRange, Stable, SiegeWorkshop, MangonelWorkshop,
+      TrebuchetWorkshop, Monastery, Castle:
+    defaultCitizenProgramForUnit(unitClass)
+  of Dock:
+    defaultCitizenProgramForUnit(unitClass)
+  of University, Blacksmith:
+    ProgramBuilderDefault
+  of Mill, Granary, LumberCamp, Quarry, MiningCamp, Market:
+    ProgramGathererDefault
+  else:
+    ProgramGathererDefault
+
+proc effectiveBuildingProgram*(
+  building: Thing,
+  unitClass: AgentUnitClass = UnitVillager
+): CitizenProgramId =
+  ## Resolve a building's current template, falling back to sensible defaults.
+  if isNil(building):
+    return ProgramGathererDefault
+  if building.programRevision > 0:
+    return building.programId
+  defaultCitizenProgramForBuilding(building.kind, unitClass)
+
+proc setBuildingProgram*(
+  building: Thing,
+  programId: CitizenProgramId
+) =
+  ## Update the program future citizens will snapshot from this building.
+  if isNil(building):
+    return
+  building.programId = programId
+  building.programRevision = max(1, building.programRevision + 1)
+
+proc assignCitizenProgramFromBuilding*(
+  env: Environment,
+  agent: Thing,
+  building: Thing,
+  unitClass: AgentUnitClass
+) =
+  ## Snapshot a building's current program onto a citizen after transformation.
+  if isNil(agent) or isNil(building):
+    return
+  let programId = effectiveBuildingProgram(building, unitClass)
+  agent.programId = programId
+  agent.programRevision = max(1, building.programRevision)
+  agent.programSourceBuildingId = building.id
+  agent.programAssignedStep = env.currentStep
+  if programId in {ProgramFighterGuard, ProgramFighterAggressive} and
+      agent.stance == StanceNoAttack:
+    agent.stance = StanceDefensive
+
 proc tryTrainUnit(
   env: Environment,
   agent: Thing,
@@ -1299,6 +1421,7 @@ proc tryTrainUnit(
   if not env.spendStockpile(teamId, costs):
     return false
   applyUnitClass(env, agent, unitClass)
+  env.assignCitizenProgramFromBuilding(agent, building, unitClass)
   if agent.inventorySpear > 0:
     agent.inventorySpear = 0
   building.cooldown = cooldown

@@ -74,6 +74,7 @@ proc tryConsumeProductionQueue*(env: Environment, agent, thing: Thing): bool =
     return false
   let unitClass = thing.consumeReadyQueueEntry()
   applyUnitClass(env, agent, unitClass)
+  env.assignCitizenProgramFromBuilding(agent, thing, unitClass)
   env.spawnSpawnEffect(agent.pos)
   if agent.inventorySpear > 0:
     agent.inventorySpear = 0

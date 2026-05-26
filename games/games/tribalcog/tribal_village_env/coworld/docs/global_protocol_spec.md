@@ -33,10 +33,10 @@ The game server sends state snapshots:
   "started": true,
   "paused": false,
   "done": false,
-  "connected_players": 1000,
-  "total_player_slots": 1000,
+  "connected_players": 1,
+  "total_player_slots": 8,
   "team_scores": [0, 0, 0, 0, 0, 0, 0, 0],
-  "team_connected_players": [125, 125, 125, 125, 125, 125, 125, 125],
+  "team_connected_players": [1, 0, 0, 0, 0, 0, 0, 0],
   "step_seconds": 0.05,
   "global_view": {
     "protocol": "tribalcog-global-sprite-v1",
@@ -49,30 +49,35 @@ The game server sends state snapshots:
       "sprites": [{"id": 0, "label": "empty", "asset": "/assets/floor.png"}],
       "data": "..."
     },
-    "objects": [
-      {
-        "id": "foreground:14:20",
-        "layer": "foreground",
-        "x": 14,
-        "y": 20,
-        "z": 120,
-        "thing": "agent",
-        "team_id": 0,
-        "agent_id": 0,
-        "unit_class": "villager",
-        "orientation": "north",
-        "asset": "/assets/oriented/gatherer.n.png"
-      }
-    ]
+    "objects": {
+      "encoding": "i16-base64",
+      "columns": [
+        "layer",
+        "x",
+        "y",
+        "z",
+        "thing",
+        "team_id",
+        "agent_id",
+        "unit_class",
+        "orientation",
+        "asset"
+      ],
+      "sprites": ["/assets/oriented/gatherer.n.png"],
+      "data": "..."
+    },
+    "object_count": 8063
   }
 }
 ```
 
 `global_view` is the canonical spectator contract. Terrain is a compact
-row-major `uint8` ordinal grid, and `objects` are already flattened from the
-engine's blocking/background grids into drawable sprite placements. Browser
-clients should render terrain first, then objects by `z`, and load PNGs from
-the served `/assets/...` URLs.
+row-major `uint8` ordinal grid. Objects are also compact: decode the base64 as
+little-endian signed 16-bit rows using the listed columns, map ordinals through
+`legend.object_layer`, `legend.thing`, `legend.unit_class`, and
+`legend.orientation`, and map the `asset` column through `objects.sprites`.
+Render terrain first, then objects by `z`, loading PNGs from the served
+`/assets/...` URLs.
 
 `/global?frame=1` is retained as a legacy fallback. When requested, snapshots
 also include `frame`, whose bytes are raw RGB pixels produced by the Nim
@@ -81,10 +86,11 @@ renderer through the Python FFI. New Coworld clients should prefer
 
 ## Browser clients
 
-`/clients/global` is the Coworld spectator client for the `/global` websocket.
-If opened with `?slot=<slot>&token=<token>`, it also connects to `/player` for
-that slot and sends sprite-player button packets for keyboard control while
-continuing to render the global map.
+`/client/global` and `/clients/global` serve the Coworld spectator client for
+the `/global` websocket.
+If opened with `?slot=<team>&token=<token>`, it also connects to `/player` for
+that team. The dedicated `/client/player` and `/clients/player` page is the
+richer town-control view; the global page remains primarily a spectator.
 After running `nimble wasm` from the Tribal Cog package root, `/clients/wasm/`
 serves the native Emscripten build from `build/web/` for local browser checks.
 The WASM client is separate from the Coworld player protocol; player slots still

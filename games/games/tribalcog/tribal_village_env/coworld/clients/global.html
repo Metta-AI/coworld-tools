@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Tribal Cog Coworld</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0f1312; color: #eef2ee; }
@@ -40,7 +41,7 @@
   <aside>
     <h1>Tribal Cog</h1>
     <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
-    <div class="stat"><span>Players</span><strong id="players">0 / 1000</strong></div>
+    <div class="stat"><span>Teams</span><strong id="players">0 / 8</strong></div>
     <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
     <div class="stat"><span>Control</span><strong id="control">spectator</strong></div>
     <div class="stat"><span>Sprites</span><strong id="sprites">0</strong></div>
@@ -79,7 +80,12 @@
       snow: "#d8e7e8",
       mud: "#685947",
       mountain: "#777b80",
+      fog: "#050706",
     };
+    const teamColors = [
+      "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
+      "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
+    ];
     const spriteCache = new Map();
     const pressedKeys = new Set();
     const keyMasks = {
@@ -187,12 +193,12 @@
       playerWs = new WebSocket(websocketUrl("/player", query));
       playerWs.binaryType = "arraybuffer";
       playerWs.onopen = () => {
-        controlEl.textContent = `slot ${controlledSlot}`;
+        controlEl.textContent = `team ${controlledSlot}`;
         sendHeldButtons(true);
       };
       playerWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        controlEl.textContent = message.done ? "done" : `slot ${message.slot}`;
+        controlEl.textContent = message.done ? "done" : `team ${message.team_id}`;
       };
       playerWs.onclose = () => { controlEl.textContent = "closed"; };
     }
@@ -216,7 +222,7 @@
         view,
         terrain: decodeTerrain(view.terrain),
         terrainSprites: view.terrain.sprites || [],
-        objects: view.objects || [],
+        objects: decodeObjects(view),
       };
       spritesEl.textContent = String(world.objects.length);
       if (!didInitialCenter) {
@@ -235,6 +241,55 @@
         bytes[index] = raw.charCodeAt(index);
       }
       return bytes;
+    }
+
+    function decodeObjects(view) {
+      const payload = view.objects || [];
+      if (Array.isArray(payload)) return payload;
+      if (payload.encoding !== "i16-base64") return [];
+      const columns = payload.columns || [];
+      const columnCount = columns.length;
+      if (columnCount === 0) return [];
+      const raw = atob(payload.data || "");
+      const data = new DataView(new ArrayBuffer(raw.length));
+      for (let index = 0; index < raw.length; index++) data.setUint8(index, raw.charCodeAt(index));
+      const labels = view.legend || {};
+      const column = Object.fromEntries(columns.map((name, index) => [name, index]));
+      const rows = [];
+      for (let offset = 0; offset + columnCount * 2 <= data.byteLength; offset += columnCount * 2) {
+        const row = [];
+        for (let index = 0; index < columnCount; index++) row.push(data.getInt16(offset + index * 2, true));
+        const thing = label(labels.thing, row[column.thing]);
+        if (!thing) continue;
+        const teamId = row[column.team_id] >= 0 ? row[column.team_id] : null;
+        const layer = label(labels.object_layer, row[column.layer]) || "foreground";
+        const x = row[column.x];
+        const y = row[column.y];
+        rows.push({
+          id: `${layer}:${x}:${y}`,
+          layer,
+          x,
+          y,
+          z: row[column.z],
+          thing,
+          team_id: teamId,
+          agent_id: row[column.agent_id] >= 0 ? row[column.agent_id] : null,
+          unit_class: label(labels.unit_class, row[column.unit_class]),
+          orientation: label(labels.orientation, row[column.orientation]),
+          asset: spriteFrom(payload.sprites, row[column.asset]),
+          glyph: thing.slice(0, 1).toUpperCase(),
+          color: teamId !== null ? teamColors[teamId] : "#ffffff",
+        });
+      }
+      return rows;
+    }
+
+    function label(labels, index) {
+      return Array.isArray(labels) && index >= 0 && index < labels.length ? labels[index] : null;
+    }
+
+    function spriteFrom(sprites, index) {
+      return Array.isArray(sprites) && index >= 0 && index < sprites.length ? sprites[index] : null;
     }
 
     function resizeCanvas() {
@@ -314,7 +369,7 @@
           tileSize * (1 - inset * 2),
         );
         if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize);
-        if (object.agent_id === controlledSlot) drawControlledRing(x, y, tileSize);
+        if (object.team_id === controlledSlot) drawControlledRing(x, y, tileSize);
       }
     }
 
@@ -408,7 +463,7 @@
 
     function centerControlledObject() {
       if (!controlled || !world) return false;
-      const object = world.objects.find(candidate => candidate.agent_id === controlledSlot);
+      const object = world.objects.find(candidate => candidate.team_id === controlledSlot);
       if (!object) return false;
       centerOn(object.x + 0.5, object.y + 0.5);
       return true;

@@ -7,7 +7,8 @@ the standard Coworld runtime routes on port 8080.
 ## Local Coworld server
 
 Create a config file with one token for a local human-player smoke test. Hosted
-leagues can inject up to 1000 tokens, one per controllable villager.
+leagues inject 8 tokens, one per town/team. Local smoke tests may provide fewer
+tokens; towns without a connected controller run the built-in default policies.
 
 ```bash
 python3 - <<'PY'
@@ -37,14 +38,15 @@ python -m tribal_village_env.coworld.server
 
 Open `/clients/global` for the live map. It connects to `/global` and renders
 the `tribalcog-global-sprite-v1` terrain/object stream using the same PNG
-assets served from `/assets/...` as the player view. Open
-`/clients/global?slot=0&token=token-0` to watch the global map while that
-browser tab also controls slot 0 through `/player`.
+assets served from `/assets/...` as the player view.
 
-A player can also connect to `/clients/player?slot=<slot>&token=<token>` and
-control one villager through the 11x11 `tribalcog-sprite-v1` local view exposed
-by `/player`. Both browser paths render sprite assets into one 2D canvas tile
-per observation/map cell, with semantic glyphs kept only as a fallback.
+Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
+overseer. The player page shows the team's fog-of-war global map, a
+picture-in-picture 11x11 `tribalcog-sprite-v1` view for the selected citizen,
+visible citizens/buildings, stockpiles, and the program editor for selected
+friendly buildings. `/clients/global?slot=0&token=token-0` can still attach a
+team token while watching the whole map, but the dedicated player page is the
+primary controller surface.
 
 ## Native WASM client
 
@@ -70,10 +72,11 @@ COWORLD_PLAYER_WS_URL=ws://localhost:8080/player?slot=0\&token=token-0 \
 python -m tribal_village_env.coworld.player
 ```
 
-The default mode is `TRIBALCOG_PLAYER_MODE=sprite`, which uses the semantic
-11x11 `tribalcog-sprite-v1` view and moves toward visible resources or threats.
-Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic noop player or
-`TRIBALCOG_PLAYER_MODE=random` for random legal actions.
+The default mode is `TRIBALCOG_PLAYER_MODE=overseer`, which watches the
+team-scoped observation and edits visible military-building programs when it
+can. Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic passive controller.
+Legacy `sprite` and `random` modes remain for old local harnesses, but town
+control is the Coworld path.
 
 ## Certification
 
@@ -84,25 +87,12 @@ be validated with:
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-That full manifest is fixed at 1000 slots because current Coworld manifest
+The checked-in manifest is fixed at 8 town slots because Coworld manifest
 validation requires `tokens.minItems == tokens.maxItems` and
-`certification.players` must match that count. For routine local certification,
-generate a one-slot manifest from the checked-in manifest:
-
-```bash
-jq '(.game.config_schema.properties.tokens.minItems = 1) |
-    (.game.config_schema.properties.tokens.maxItems = 1) |
-    (.game.results_schema.properties.scores.minItems = 1) |
-    (.game.results_schema.properties.scores.maxItems = 1) |
-    (.certification.players = [.certification.players[0]])' \
-  /Users/relh/Code/games/games/tribalcog/coworld_manifest.json \
-  > /tmp/tribalcog-cert-manifest.json
-
-uv run --package coworld coworld certify /tmp/tribalcog-cert-manifest.json --timeout-seconds 60
-```
-
-This exercises the same runtime and reference player without connecting every
-hosted player slot.
+`certification.players` must match that count. This certification path exercises
+the same town-overseer reference player used by hosted variants. At runtime,
+the local server can still start with fewer connected human controllers and let
+unconnected towns run defaults.
 
 ## Replay
 

@@ -99,7 +99,7 @@ obs, reward, terminated, truncated, info = env.step(actions)
 | [Training & Replays](docs/training_and_replays.md) | Training entrypoints, replay setup |
 | [Asset Pipeline](docs/asset_pipeline.md) | Asset generation workflow |
 | [Coworld Play Guide](tribal_village_env/coworld/docs/play_tribalcog.md) | Coworld server, player, certification, and replay workflow |
-| [Coworld Rules](tribal_village_env/coworld/docs/rules.md) | Hosted league player slots, scoring, actions, and episode rules |
+| [Coworld Rules](tribal_village_env/coworld/docs/rules.md) | Hosted league town slots, scoring, building-program control, and episode rules |
 
 See [docs/README.md](docs/README.md) for the complete documentation index.
 

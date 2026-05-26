@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import zlib
 from pathlib import Path
 
 import pytest
 import numpy as np
 
-from tribal_village_env.coworld.player import choose_sprite_action, player_ws_url
+from tribal_village_env.coworld.player import (
+    choose_overseer_command,
+    choose_sprite_action,
+    player_ws_url,
+)
 from tribal_village_env.coworld.server import (
     AGENTS_PER_TEAM,
     GLOBAL_CELL_BACKGROUND_AGENT_ID,
@@ -26,16 +31,19 @@ from tribal_village_env.coworld.server import (
     OBSCURED_LAYER,
     ORIENTATION_LAYER,
     PLAYER_SLOT_COUNT,
+    SIM_AGENT_COUNT,
     TEAM_LAYER,
     TERRAIN_LAYER_START,
     THING_LAYER_START,
     UNIT_CLASS_LAYER,
     CoworldConfig,
+    TribalCogCoworld,
     asset_media_type,
     decode_action,
     decode_binary_action,
     decode_player_buttons,
     global_sprite_view_from_cells,
+    iter_global_objects,
     load_replay_data,
     resolve_sprite_asset_path,
     resolve_wasm_asset_path,
@@ -48,18 +56,17 @@ from tribal_village_env.coworld.server import (
 
 
 def test_slot_mapping() -> None:
-    assert PLAYER_SLOT_COUNT == 1000
+    assert PLAYER_SLOT_COUNT == 8
+    assert SIM_AGENT_COUNT == 1000
     assert AGENTS_PER_TEAM == 125
     assert slot_to_team(0) == 0
-    assert slot_to_team(124) == 0
-    assert slot_to_team(125) == 1
-    assert slot_to_team(999) == 7
-    assert slot_team_index(125) == 0
-    assert slot_team_index(999) == 124
+    assert slot_to_team(7) == 7
+    assert slot_team_index(0) == 0
+    assert slot_team_index(7) == 0
 
 
 def test_config_accepts_certification_sized_token_lists() -> None:
-    with pytest.raises(ValueError, match="between 1 and 1000 tokens"):
+    with pytest.raises(ValueError, match="between 1 and 8 team tokens"):
         CoworldConfig.from_dict({"tokens": [], "max_steps": 1})
 
     config = CoworldConfig.from_dict(
@@ -77,7 +84,7 @@ def test_config_accepts_certification_sized_token_lists() -> None:
     assert config.seed == 7
     assert config.render_every_steps == 2
 
-    with pytest.raises(ValueError, match="between 1 and 1000 tokens"):
+    with pytest.raises(ValueError, match="between 1 and 8 team tokens"):
         CoworldConfig.from_dict(
             {"tokens": [f"token-{idx}" for idx in range(PLAYER_SLOT_COUNT + 1)]}
         )
@@ -159,11 +166,13 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     assert base64.b64decode(view["terrain"]["data"]) == bytes([0, 0, 0, 0, 0, 6])
     assert view["terrain"]["sprites"][6]["asset"] == "/assets/grass.png"
     assert view["object_count"] == 2
-    assert view["objects"][0]["thing"] == "tree"
-    assert view["objects"][0]["asset"] == "/assets/tree.png"
-    assert view["objects"][1]["thing"] == "agent"
-    assert view["objects"][1]["agent_id"] == 7
-    assert view["objects"][1]["asset"] == "/assets/oriented/gatherer.n.png"
+    assert view["objects"]["encoding"] == "i16-base64"
+    objects = list(iter_global_objects(view))
+    assert objects[0]["thing"] == "tree"
+    assert objects[0]["asset"] == "/assets/tree.png"
+    assert objects[1]["thing"] == "agent"
+    assert objects[1]["agent_id"] == 7
+    assert objects[1]["asset"] == "/assets/oriented/gatherer.n.png"
 
 
 def test_sprite_player_policy_moves_toward_visible_resource() -> None:
@@ -183,6 +192,110 @@ def test_sprite_player_policy_moves_toward_visible_resource() -> None:
     message["sprite_view"]["cells"][5][6]["thing"] = "tree"
 
     assert choose_sprite_action(message) == 1 * 28 + 3
+
+
+def test_reference_overseer_edits_visible_military_building() -> None:
+    rng = random.Random(0)
+    message = {
+        "visible_buildings": [
+            {
+                "x": 4,
+                "y": 9,
+                "thing": "barracks",
+                "program": {"id": 2},
+            }
+        ]
+    }
+
+    assert choose_overseer_command(message, "overseer", rng) == {
+        "type": "town.set_program",
+        "x": 4,
+        "y": 9,
+        "program_id": 3,
+    }
+
+
+def test_visible_town_objects_use_building_ownership_lookup() -> None:
+    class DummyEnv:
+        def building_team_id(self, x: int, y: int) -> int:
+            return 0 if (x, y) == (4, 9) else -1
+
+        def building_program(self, x: int, y: int) -> dict[str, int]:
+            return {"program_id": 2, "revision": 7}
+
+        def agent_program(self, agent_id: int) -> dict[str, int]:
+            return {
+                "program_id": 0,
+                "revision": 0,
+                "source_building_id": -1,
+                "assigned_step": 0,
+            }
+
+    state = TribalCogCoworld.__new__(TribalCogCoworld)
+    state.env = DummyEnv()
+
+    buildings, citizens = state._visible_town_objects(
+        0,
+        {
+            "objects": [
+                {
+                    "id": "foreground:4:9",
+                    "x": 4,
+                    "y": 9,
+                    "thing": "barracks",
+                    "team_id": None,
+                },
+                {
+                    "id": "foreground:5:9",
+                    "x": 5,
+                    "y": 9,
+                    "thing": "stable",
+                    "team_id": None,
+                },
+                {
+                    "id": "foreground:6:9",
+                    "x": 6,
+                    "y": 9,
+                    "thing": "agent",
+                    "team_id": 0,
+                    "agent_id": 0,
+                    "unit_class": "villager",
+                },
+            ]
+        },
+    )
+
+    assert citizens == [
+        {
+            "agent_id": 0,
+            "x": 6,
+            "y": 9,
+            "unit_class": "villager",
+            "program": state._agent_program_payload(0),
+        }
+    ]
+    assert buildings == [
+        {
+            "id": "foreground:4:9",
+            "x": 4,
+            "y": 9,
+            "thing": "barracks",
+            "team_id": 0,
+            "program": {
+                "id": 2,
+                "key": "fighter_guard",
+                "name": "Fighter Guard",
+                "summary": "Defense: guard home territory and respond to nearby threats.",
+                "source": (
+                    "step(obs): stay near home or rally point; attack visible enemies "
+                    "that threaten friendly citizens or buildings; regroup when isolated."
+                ),
+                "revision": 7,
+                "x": 4,
+                "y": 9,
+            },
+        }
+    ]
 
 
 def test_winner_team_returns_none_on_tie() -> None:

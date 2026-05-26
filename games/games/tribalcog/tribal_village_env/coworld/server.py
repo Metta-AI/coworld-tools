@@ -47,9 +47,10 @@ HTTP_USER_AGENT = "tribalcog-coworld/0.1"
 
 TEAM_COUNT = 8
 AGENTS_PER_TEAM = 125
-PLAYER_SLOT_COUNT = TEAM_COUNT * AGENTS_PER_TEAM
+SIM_AGENT_COUNT = TEAM_COUNT * AGENTS_PER_TEAM
+PLAYER_SLOT_COUNT = TEAM_COUNT
 NPC_AGENT_COUNT = 6
-TOTAL_AGENT_COUNT = PLAYER_SLOT_COUNT + NPC_AGENT_COUNT
+TOTAL_AGENT_COUNT = SIM_AGENT_COUNT + NPC_AGENT_COUNT
 
 TERRAIN_LABELS = [
     "empty",
@@ -92,6 +93,7 @@ GLOBAL_TERRAIN_LABELS = [
     "ramp_down_s",
     "ramp_down_w",
     "ramp_down_e",
+    "fog",
 ]
 THING_LABELS = [
     "agent",
@@ -354,6 +356,89 @@ UNIT_CLASS_LABELS = [
     "heavy_cavalry_archer",
     "hand_cannoneer",
 ]
+GLOBAL_OBJECT_LAYERS = ["background", "foreground"]
+GLOBAL_OBJECT_COLUMNS = [
+    "layer",
+    "x",
+    "y",
+    "z",
+    "thing",
+    "team_id",
+    "agent_id",
+    "unit_class",
+    "orientation",
+    "asset",
+]
+STOCKPILE_LABELS = ["food", "wood", "gold", "stone", "water", "none"]
+PROGRAMS = [
+    {
+        "id": 0,
+        "key": "gatherer_default",
+        "name": "Gatherer Default",
+        "summary": "Economy: gather, deposit, and keep the stockpile moving.",
+        "source": "step(obs): deposit carried stockpile resources; gather the nearest visible food/wood/stone/gold; avoid blocking; return home when full.",
+    },
+    {
+        "id": 1,
+        "key": "builder_default",
+        "name": "Builder Default",
+        "summary": "Builder: repair, expand, and maintain the village.",
+        "source": "step(obs): repair nearby damaged friendly structures; build the next useful economy or defense building; gather when no build target is available.",
+    },
+    {
+        "id": 2,
+        "key": "fighter_guard",
+        "name": "Fighter Guard",
+        "summary": "Defense: guard home territory and respond to nearby threats.",
+        "source": "step(obs): stay near home or rally point; attack visible enemies that threaten friendly citizens or buildings; regroup when isolated.",
+    },
+    {
+        "id": 3,
+        "key": "fighter_aggressive",
+        "name": "Fighter Aggressive",
+        "summary": "Attack: search outward and engage enemies aggressively.",
+        "source": "step(obs): spiral outward from base; chase visible enemies; attack hostile buildings and units; keep moving when no target is visible.",
+    },
+    {
+        "id": 4,
+        "key": "settler_expand",
+        "name": "Settler Expand",
+        "summary": "Expansion: seek a resource-rich area and establish a new settlement.",
+        "source": "step(obs): move toward an adjacent resource-rich area; place a town center or support buildings; then switch back to local builder work.",
+    },
+]
+PROGRAM_BY_ID = {program["id"]: program for program in PROGRAMS}
+BUILDING_THINGS = {
+    "altar",
+    "clay_oven",
+    "weaving_loom",
+    "outpost",
+    "guard_tower",
+    "barrel",
+    "mill",
+    "granary",
+    "lumber_camp",
+    "quarry",
+    "mining_camp",
+    "lantern",
+    "town_center",
+    "house",
+    "barracks",
+    "archery_range",
+    "stable",
+    "siege_workshop",
+    "mangonel_workshop",
+    "trebuchet_workshop",
+    "blacksmith",
+    "market",
+    "dock",
+    "monastery",
+    "temple",
+    "university",
+    "castle",
+    "wonder",
+    "control_point",
+}
 ACTION_NAMES = [
     "noop",
     "move",
@@ -454,6 +539,7 @@ TERRAIN_COLORS = {
     "snow": "#d8e7e8",
     "mud": "#685947",
     "mountain": "#777b80",
+    "fog": "#050706",
 }
 TEAM_COLORS = [
     "#e3655b",
@@ -632,7 +718,7 @@ class CoworldConfig:
         tokens = [str(token) for token in data.get("tokens", [])]
         if not 1 <= len(tokens) <= PLAYER_SLOT_COUNT:
             raise ValueError(
-                f"Tribal Cog Coworld requires between 1 and {PLAYER_SLOT_COUNT} tokens, "
+                f"Tribal Cog Coworld requires between 1 and {PLAYER_SLOT_COUNT} team tokens, "
                 f"got {len(tokens)}"
             )
         if any(not token for token in tokens):
@@ -709,11 +795,19 @@ def load_replay_data(replay_uri: str) -> dict[str, Any]:
 
 
 def slot_to_team(slot: int) -> int:
-    return slot // AGENTS_PER_TEAM
+    return slot
 
 
 def slot_team_index(slot: int) -> int:
-    return slot % AGENTS_PER_TEAM
+    return 0
+
+
+def team_agent_start(team_id: int) -> int:
+    return team_id * AGENTS_PER_TEAM
+
+
+def team_agent_end(team_id: int) -> int:
+    return team_agent_start(team_id) + AGENTS_PER_TEAM
 
 
 def decode_action(message: dict[str, Any]) -> int:
@@ -965,7 +1059,18 @@ def _global_terrain_sprites() -> list[dict[str, Any]]:
     ]
 
 
-def _global_thing_object(
+def _asset_catalog_id(asset_catalog: list[str], asset_ids: dict[str, int], asset: str | None) -> int:
+    if asset is None:
+        return -1
+    asset_id = asset_ids.get(asset)
+    if asset_id is None:
+        asset_id = len(asset_catalog)
+        asset_ids[asset] = asset_id
+        asset_catalog.append(asset)
+    return asset_id
+
+
+def _global_thing_row(
     layer: str,
     x: int,
     y: int,
@@ -976,37 +1081,109 @@ def _global_thing_object(
     orientation_index: int,
     unit_class_index: int,
     agent_id_index: int,
-) -> dict[str, Any] | None:
+    asset_catalog: list[str],
+    asset_ids: dict[str, int],
+) -> list[int] | None:
     kind_value = int(cell[kind_index])
     thing = _ordinal_label(GLOBAL_THING_LABELS, kind_value)
     if thing is None:
         return None
 
     team_value = int(cell[team_index])
-    team_id = team_value if 0 <= team_value < TEAM_COUNT else None
-    orientation = _ordinal_label(ORIENTATION_LABELS, int(cell[orientation_index]))
-    unit_class = _ordinal_label(UNIT_CLASS_LABELS, int(cell[unit_class_index]))
+    team_id = team_value if 0 <= team_value < TEAM_COUNT else -1
+    orientation_id = int(cell[orientation_index])
+    if _ordinal_label(ORIENTATION_LABELS, orientation_id) is None:
+        orientation_id = -1
+    unit_class_id = int(cell[unit_class_index])
+    if _ordinal_label(UNIT_CLASS_LABELS, unit_class_id) is None:
+        unit_class_id = -1
     agent_id_value = int(cell[agent_id_index])
-    agent_id = agent_id_value if agent_id_value >= 0 else None
+    agent_id = agent_id_value if agent_id_value >= 0 else -1
+    orientation = _ordinal_label(ORIENTATION_LABELS, orientation_id)
+    unit_class = _ordinal_label(UNIT_CLASS_LABELS, unit_class_id)
     asset = _asset_url(_thing_asset_key(thing, unit_class, orientation))
+    asset_id = _asset_catalog_id(asset_catalog, asset_ids, asset)
     z = THING_RENDER_RANK.get(thing, len(THING_RENDER_RANK))
     if layer == "foreground":
         z += len(THING_RENDER_RANK)
+    return [
+        GLOBAL_OBJECT_LAYERS.index(layer),
+        x,
+        y,
+        z,
+        kind_value,
+        team_id,
+        agent_id,
+        unit_class_id,
+        orientation_id,
+        asset_id,
+    ]
+
+
+def _global_object_payload(rows: list[list[int]], asset_catalog: list[str]) -> dict[str, Any]:
+    if rows:
+        object_data = np.asarray(rows, dtype="<i2")
+    else:
+        object_data = np.zeros((0, len(GLOBAL_OBJECT_COLUMNS)), dtype="<i2")
     return {
-        "id": f"{layer}:{x}:{y}",
-        "layer": layer,
-        "x": x,
-        "y": y,
-        "z": z,
-        "thing": thing,
-        "team_id": team_id,
-        "agent_id": agent_id,
-        "unit_class": unit_class,
-        "orientation": orientation,
-        "asset": asset,
-        "glyph": THING_GLYPHS.get(thing, thing[:1].upper()),
-        "color": _cell_color("empty", team_id, False),
+        "encoding": "i16-base64",
+        "columns": GLOBAL_OBJECT_COLUMNS,
+        "sprites": asset_catalog,
+        "data": base64.b64encode(np.ascontiguousarray(object_data).tobytes()).decode(
+            "ascii"
+        ),
     }
+
+
+def iter_global_objects(global_view: dict[str, Any]):
+    payload = global_view.get("objects", [])
+    if isinstance(payload, list):
+        yield from payload
+        return
+    if not isinstance(payload, dict) or payload.get("encoding") != "i16-base64":
+        return
+    raw = base64.b64decode(payload.get("data") or "")
+    if not raw:
+        return
+    columns = payload.get("columns", GLOBAL_OBJECT_COLUMNS)
+    column_count = len(columns)
+    if column_count <= 0:
+        return
+    rows = np.frombuffer(raw, dtype="<i2")
+    if rows.size % column_count != 0:
+        return
+    rows = rows.reshape((-1, column_count))
+    column_index = {name: index for index, name in enumerate(columns)}
+    sprites = payload.get("sprites", [])
+    for row in rows:
+        layer_id = int(row[column_index["layer"]])
+        thing_id = int(row[column_index["thing"]])
+        team_id = int(row[column_index["team_id"]])
+        agent_id = int(row[column_index["agent_id"]])
+        unit_class_id = int(row[column_index["unit_class"]])
+        orientation_id = int(row[column_index["orientation"]])
+        asset_id = int(row[column_index["asset"]])
+        thing = _ordinal_label(GLOBAL_THING_LABELS, thing_id)
+        if thing is None:
+            continue
+        team = team_id if 0 <= team_id < TEAM_COUNT else None
+        layer = _ordinal_label(GLOBAL_OBJECT_LAYERS, layer_id) or "foreground"
+        asset = sprites[asset_id] if 0 <= asset_id < len(sprites) else None
+        yield {
+            "id": f"{layer}:{int(row[column_index['x']])}:{int(row[column_index['y']])}",
+            "layer": layer,
+            "x": int(row[column_index["x"]]),
+            "y": int(row[column_index["y"]]),
+            "z": int(row[column_index["z"]]),
+            "thing": thing,
+            "team_id": team,
+            "agent_id": agent_id if agent_id >= 0 else None,
+            "unit_class": _ordinal_label(UNIT_CLASS_LABELS, unit_class_id),
+            "orientation": _ordinal_label(ORIENTATION_LABELS, orientation_id),
+            "asset": asset,
+            "glyph": THING_GLYPHS.get(thing, thing[:1].upper()),
+            "color": _cell_color("empty", team, False),
+        }
 
 
 def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
@@ -1015,15 +1192,23 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
 
     height = int(cells.shape[0])
     width = int(cells.shape[1])
-    terrain = np.clip(cells[:, :, GLOBAL_CELL_TERRAIN], 0, 255).astype(
+    fog_id = len(GLOBAL_TERRAIN_LABELS) - 1
+    terrain = np.where(
+        cells[:, :, GLOBAL_CELL_TERRAIN] < 0,
+        fog_id,
+        cells[:, :, GLOBAL_CELL_TERRAIN],
+    )
+    terrain = np.clip(terrain, 0, fog_id).astype(
         np.uint8,
         copy=False,
     )
-    objects: list[dict[str, Any]] = []
+    object_rows: list[list[int]] = []
+    object_sprites: list[str] = []
+    object_sprite_ids: dict[str, int] = {}
     for y in range(height):
         for x in range(width):
             cell = cells[y, x]
-            background = _global_thing_object(
+            background = _global_thing_row(
                 "background",
                 x,
                 y,
@@ -1033,10 +1218,12 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
                 orientation_index=GLOBAL_CELL_BACKGROUND_ORIENTATION,
                 unit_class_index=GLOBAL_CELL_BACKGROUND_UNIT_CLASS,
                 agent_id_index=GLOBAL_CELL_BACKGROUND_AGENT_ID,
+                asset_catalog=object_sprites,
+                asset_ids=object_sprite_ids,
             )
             if background is not None:
-                objects.append(background)
-            foreground = _global_thing_object(
+                object_rows.append(background)
+            foreground = _global_thing_row(
                 "foreground",
                 x,
                 y,
@@ -1046,11 +1233,13 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
                 orientation_index=GLOBAL_CELL_THING_ORIENTATION,
                 unit_class_index=GLOBAL_CELL_THING_UNIT_CLASS,
                 agent_id_index=GLOBAL_CELL_THING_AGENT_ID,
+                asset_catalog=object_sprites,
+                asset_ids=object_sprite_ids,
             )
             if foreground is not None:
-                objects.append(foreground)
+                object_rows.append(foreground)
 
-    objects.sort(key=lambda obj: (obj["z"], obj["y"], obj["x"], obj["id"]))
+    object_rows.sort(key=lambda row: (row[3], row[2], row[1], row[0]))
     return {
         "protocol": "tribalcog-global-sprite-v1",
         "width": width,
@@ -1064,14 +1253,15 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
                 "ascii"
             ),
         },
-        "objects": objects,
-        "object_count": len(objects),
+        "objects": _global_object_payload(object_rows, object_sprites),
+        "object_count": len(object_rows),
         "legend": {
             "terrain": GLOBAL_TERRAIN_LABELS,
             "thing": GLOBAL_THING_LABELS,
             "unit_class": UNIT_CLASS_LABELS,
             "action": ACTION_NAMES,
             "orientation": ORIENTATION_LABELS,
+            "object_layer": GLOBAL_OBJECT_LAYERS,
         },
     }
 
@@ -1099,7 +1289,7 @@ class TribalCogCoworld:
             config={
                 "max_steps": config.max_steps,
                 "victory_condition": config.victory_condition,
-                "ai_mode": "external",
+                "ai_mode": "builtin",
                 "render_mode": "rgb_array",
             }
         )
@@ -1109,9 +1299,15 @@ class TribalCogCoworld:
         self.global_viewers: dict[WebSocket, bool] = {}
         self.player_slot_count = len(config.tokens)
         self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
-        self.last_rewards = [0.0 for _ in range(self.player_slot_count)]
-        self.scores = [0.0 for _ in range(self.player_slot_count)]
+        self.last_rewards = [0.0 for _ in range(TEAM_COUNT)]
+        self.scores = [0.0 for _ in range(TEAM_COUNT)]
         self.team_scores = [0.0 for _ in range(TEAM_COUNT)]
+        self.selected_citizens = {
+            team_id: team_agent_start(team_id) for team_id in range(TEAM_COUNT)
+        }
+        self.selected_buildings: dict[int, tuple[int, int] | None] = {
+            team_id: None for team_id in range(TEAM_COUNT)
+        }
         self.started = False
         self.done = False
         self.paused = False
@@ -1125,24 +1321,130 @@ class TribalCogCoworld:
     def validate_slot(self, slot: int, token: str) -> bool:
         return 0 <= slot < self.player_slot_count and self.config.tokens[slot] == token
 
+    def _program_payload(self, program_id: int) -> dict[str, Any]:
+        program = PROGRAM_BY_ID.get(program_id)
+        if program is not None:
+            return dict(program)
+        return {
+            "id": program_id,
+            "key": "unknown",
+            "name": "Unknown",
+            "summary": "Unknown compiled citizen program.",
+            "source": "step(obs): return noop",
+        }
+
+    def _agent_program_payload(self, agent_id: int) -> dict[str, Any]:
+        info = self.env.agent_program(agent_id)
+        program = self._program_payload(int(info.get("program_id", -1)))
+        program.update(
+            {
+                "revision": int(info.get("revision", 0)),
+                "source_building_id": int(info.get("source_building_id", -1)),
+                "assigned_step": int(info.get("assigned_step", 0)),
+            }
+        )
+        return program
+
+    def _building_program_payload(self, x: int, y: int) -> dict[str, Any]:
+        info = self.env.building_program(x, y)
+        program = self._program_payload(int(info.get("program_id", -1)))
+        program.update({"revision": int(info.get("revision", 0)), "x": x, "y": y})
+        return program
+
+    def _team_stockpiles(self, team_id: int) -> dict[str, int]:
+        return {
+            label: self.env.team_stockpile(team_id, resource_id)
+            for resource_id, label in enumerate(STOCKPILE_LABELS)
+            if label != "none"
+        }
+
+    def _visible_town_objects(
+        self, team_id: int, global_view: dict[str, Any] | None
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        buildings: list[dict[str, Any]] = []
+        citizens: list[dict[str, Any]] = []
+        if global_view is None:
+            return buildings, citizens
+        for obj in iter_global_objects(global_view):
+            thing = obj.get("thing")
+            if thing == "agent" and obj.get("agent_id") is not None:
+                if obj.get("team_id") != team_id:
+                    continue
+                agent_id = int(obj["agent_id"])
+                if team_agent_start(team_id) <= agent_id < team_agent_end(team_id):
+                    citizens.append(
+                        {
+                            "agent_id": agent_id,
+                            "x": int(obj["x"]),
+                            "y": int(obj["y"]),
+                            "unit_class": obj.get("unit_class"),
+                            "program": self._agent_program_payload(agent_id),
+                        }
+                    )
+            elif thing in BUILDING_THINGS:
+                x = int(obj["x"])
+                y = int(obj["y"])
+                building_team = self.env.building_team_id(x, y)
+                if building_team != team_id:
+                    continue
+                program = self._building_program_payload(x, y)
+                if program["id"] >= 0:
+                    buildings.append(
+                        {
+                            "id": obj.get("id"),
+                            "x": x,
+                            "y": y,
+                            "thing": thing,
+                            "team_id": building_team,
+                            "program": program,
+                        }
+                    )
+        return buildings, citizens
+
+    def team_global_sprite_view(self, team_id: int) -> dict[str, Any] | None:
+        cells = self.env.team_global_sprite_cells(team_id)
+        if cells is None:
+            return self.global_sprite_view()
+        return global_sprite_view_from_cells(cells)
+
+    def _selected_agent(self, team_id: int) -> int:
+        selected = int(self.selected_citizens.get(team_id, team_agent_start(team_id)))
+        if team_agent_start(team_id) <= selected < team_agent_end(team_id):
+            return selected
+        selected = team_agent_start(team_id)
+        self.selected_citizens[team_id] = selected
+        return selected
+
     def player_observation(self, slot: int, *, final: bool = False) -> dict[str, Any]:
-        obs = np.ascontiguousarray(self.env.observations[slot])
+        team_id = slot_to_team(slot)
+        selected_agent = self._selected_agent(team_id)
+        obs = np.ascontiguousarray(self.env.observations[selected_agent])
+        global_view = self.team_global_sprite_view(team_id)
+        buildings, citizens = self._visible_town_objects(team_id, global_view)
         return {
             "type": "final" if final else "observation",
             "slot": slot,
-            "agent_id": slot,
-            "team_id": slot_to_team(slot),
-            "team_agent_index": slot_team_index(slot),
+            "team_id": team_id,
+            "agent_id": selected_agent,
+            "team_agent_index": selected_agent - team_agent_start(team_id),
+            "selected_agent_id": selected_agent,
             "step": self.env.step_count,
             "max_steps": self.config.max_steps,
             "started": self.started,
             "done": self.done or final,
             "reward": self.last_rewards[slot],
             "score": self.scores[slot],
-            "team_score": self.team_scores[slot_to_team(slot)],
+            "team_score": self.team_scores[team_id],
             "action_space": ACTION_SPACE_SIZE,
             "action_names": ACTION_NAMES,
             "orientation_names": ORIENTATION_LABELS,
+            "program_catalog": PROGRAMS,
+            "citizen_program": self._agent_program_payload(selected_agent),
+            "visible_buildings": buildings,
+            "visible_citizens": citizens,
+            "selected_building": self.selected_buildings.get(team_id),
+            "stockpiles": self._team_stockpiles(team_id),
+            "global_view": global_view,
             "sprite_view": sprite_view_from_observation(obs),
             "observation": {
                 "dtype": "uint8",
@@ -1206,7 +1508,7 @@ class TribalCogCoworld:
                 self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
             action_dict = {
                 f"agent_{agent_id}": action
-                for agent_id, action in enumerate(action_values[:PLAYER_SLOT_COUNT])
+                for agent_id, action in enumerate(action_values[:SIM_AGENT_COUNT])
                 if action != 0
             }
             self.env.step(action_dict)
@@ -1227,15 +1529,65 @@ class TribalCogCoworld:
         if player_tasks or global_tasks:
             await asyncio.gather(*player_tasks, *global_tasks, return_exceptions=True)
 
+    def _visible_friendly_building(self, team_id: int, x: int, y: int) -> bool:
+        global_view = self.team_global_sprite_view(team_id)
+        if global_view is None:
+            return False
+        for obj in iter_global_objects(global_view):
+            if int(obj.get("x", -1)) != x or int(obj.get("y", -1)) != y:
+                continue
+            if obj.get("thing") in BUILDING_THINGS:
+                return self.env.building_team_id(x, y) == team_id
+        return False
+
+    def handle_player_command(self, slot: int, payload: dict[str, Any]) -> dict[str, Any]:
+        team_id = slot_to_team(slot)
+        command_type = str(payload.get("type", ""))
+        if command_type == "town.select_citizen":
+            agent_id = int(payload.get("agent_id", -1))
+            if not team_agent_start(team_id) <= agent_id < team_agent_end(team_id):
+                return {"type": "error", "error": "citizen is outside this team"}
+            self.selected_citizens[team_id] = agent_id
+            return {"type": "ack", "command": command_type, "agent_id": agent_id}
+
+        if command_type == "town.select_building":
+            x = int(payload.get("x", -1))
+            y = int(payload.get("y", -1))
+            if not self._visible_friendly_building(team_id, x, y):
+                return {"type": "error", "error": "building is not visible and friendly"}
+            self.selected_buildings[team_id] = (x, y)
+            return {"type": "ack", "command": command_type, "x": x, "y": y}
+
+        if command_type == "town.set_program":
+            x = int(payload.get("x", -1))
+            y = int(payload.get("y", -1))
+            program_id = int(payload.get("program_id", -1))
+            if program_id not in PROGRAM_BY_ID:
+                return {"type": "error", "error": "unknown program id"}
+            if not self._visible_friendly_building(team_id, x, y):
+                return {"type": "error", "error": "building is not visible and friendly"}
+            if not self.env.set_building_program(x, y, program_id):
+                return {"type": "error", "error": "building program update failed"}
+            self.selected_buildings[team_id] = (x, y)
+            return {
+                "type": "ack",
+                "command": command_type,
+                "x": x,
+                "y": y,
+                "program": self._building_program_payload(x, y),
+            }
+
+        return {"type": "ack", "command": "noop"}
+
     def _update_scores(self) -> None:
-        rewards = [float(value) for value in self.env.rewards[: self.player_slot_count]]
-        self.last_rewards = rewards
-        for slot, reward in enumerate(rewards):
-            self.scores[slot] += reward
-        self.team_scores = [
-            float(sum(self.scores[start : start + AGENTS_PER_TEAM]))
-            for start in range(0, PLAYER_SLOT_COUNT, AGENTS_PER_TEAM)
+        team_rewards = [
+            float(sum(self.env.rewards[team_agent_start(team) : team_agent_end(team)]))
+            for team in range(TEAM_COUNT)
         ]
+        self.last_rewards = team_rewards
+        for team, reward in enumerate(team_rewards):
+            self.scores[team] += reward
+        self.team_scores = [float(score) for score in self.scores]
 
     def results(self) -> dict[str, Any]:
         return {
@@ -1340,16 +1692,19 @@ def healthz() -> dict[str, bool]:
     return {"ok": True}
 
 
+@app.get("/client/global")
 @app.get("/clients/global")
 def global_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "global.html").read_text())
 
 
+@app.get("/client/player")
 @app.get("/clients/player")
 def player_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "player.html").read_text())
 
 
+@app.get("/client/replay")
 @app.get("/clients/replay")
 def replay_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())
@@ -1394,6 +1749,7 @@ async def global_viewer(websocket: WebSocket) -> None:
     state.global_viewers[websocket] = include_frame
     try:
         await websocket.send_json(state.snapshot(include_frame=include_frame))
+        await state.maybe_start()
         async for _ in websocket.iter_json():
             pass
     finally:
@@ -1442,8 +1798,7 @@ async def player(websocket: WebSocket) -> None:
     await websocket.accept()
     state.players[slot] = websocket
     await websocket.send_json(state.player_observation(slot))
-    if len(state.players) == state.player_slot_count:
-        await state.maybe_start()
+    await state.maybe_start()
 
     try:
         while True:
@@ -1456,11 +1811,19 @@ async def player(websocket: WebSocket) -> None:
                     payload = json.loads(message["text"])
                 except json.JSONDecodeError:
                     payload = {}
+                if isinstance(payload, dict) and str(payload.get("type", "")).startswith("town."):
+                    async with state.lock:
+                        response = state.handle_player_command(slot, payload)
+                    await websocket.send_json(response)
+                    continue
                 action = decode_action(payload) if isinstance(payload, dict) else 0
             elif message.get("bytes") is not None:
                 action = decode_binary_action(message["bytes"])
-            async with state.lock:
-                state.actions[slot] = action
+            if action:
+                # Team-level town controllers do not directly drive one citizen.
+                # Keep legacy action packets accepted as no-ops for old clients.
+                async with state.lock:
+                    state.actions[slot] = 0
     except WebSocketDisconnect:
         pass
     finally:

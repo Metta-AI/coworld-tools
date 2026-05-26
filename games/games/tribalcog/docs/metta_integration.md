@@ -97,7 +97,7 @@ Tribal Cog now has a Coworld runtime in this repository:
 - `Dockerfile` builds the game runtime image and serves the Coworld routes.
 - `player/Dockerfile` builds the lightweight reference player image.
 - `tribal_village_env/coworld/server.py` owns the game server.
-- `tribal_village_env/coworld/player.py` owns the bundled random/noop player.
+- `tribal_village_env/coworld/player.py` owns the bundled town-overseer player.
 
 The implementation follows the canonical Metta Coworld game runtime contract:
 
@@ -109,11 +109,12 @@ The implementation follows the canonical Metta Coworld game runtime contract:
 - Write replay artifacts to `COGAME_SAVE_REPLAY_URI`.
 - Serve replay mode when `COGAME_REPLAY_SERVER=1` is set.
 
-This first Coworld shape is intentionally per-agent: it exposes 1000 player
-slots, one for each controllable team agent. The 6 goblin agents are
-game-owned. The hosted runner must be able to schedule 1000 lightweight player
-processes or use a league-specific resource profile before this can run as a
-daily hosted league.
+The Coworld controller shape is town-scoped: it exposes 8 player slots, one per
+team/town. The simulation still runs 125 citizens per team plus 6 game-owned
+goblin/NPC agents. Human or LLM controllers edit building program templates;
+citizens snapshot those templates when they transform through a building and
+then continue under compiled Nim policies. Unconnected towns keep using the
+built-in default policies.
 
 The manifest describes the game container, config schema, results schema,
 protocol docs, variants, certification fixture, `rules.md`, and
@@ -155,9 +156,8 @@ For Coworld contract checks from a Metta checkout, use:
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-The checked-in hosted manifest is fixed at 1000 slots because current Coworld
+The checked-in hosted manifest is fixed at 8 town slots because current Coworld
 manifest validation requires `tokens.minItems == tokens.maxItems` and
-`certification.players` must match that count. For routine local certification,
-use the one-slot temporary manifest recipe in
-`tribal_village_env/coworld/docs/play_tribalcog.md` so the certifier exercises
-the same runtime without connecting every hosted player slot.
+`certification.players` must match that count. Local runtime smoke tests can
+start with fewer connected controllers; the remaining towns use default
+compiled policies.

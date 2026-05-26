@@ -246,6 +246,16 @@ class TribalVillageEnv(pufferlib.PufferEnv):
 
     def global_sprite_cells(self) -> np.ndarray | None:
         """Return a compact full-map sprite grid from Nim, if available."""
+        return self._global_sprite_cells_from_ffi("tribal_village_write_global_sprite_cells")
+
+    def team_global_sprite_cells(self, team_id: int) -> np.ndarray | None:
+        """Return a compact full-map sprite grid filtered by team fog."""
+        return self._global_sprite_cells_from_ffi(
+            "tribal_village_write_team_global_sprite_cells",
+            ctypes.c_int32(team_id),
+        )
+
+    def _global_sprite_cells_from_ffi(self, name: str, *extra_args) -> np.ndarray | None:
         if self.map_width is None or self.map_height is None:
             return None
         field_count = int(
@@ -263,7 +273,8 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             dtype=np.int16,
         )
         written = self._optional_env_ffi(
-            "tribal_village_write_global_sprite_cells",
+            name,
+            *extra_args,
             cells.ctypes.data_as(ctypes.c_void_p),
             ctypes.c_int32(cells.size),
             default=0,
@@ -318,6 +329,67 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             (
                 "tribal_village_write_global_sprite_cells",
                 [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_write_team_global_sprite_cells",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            ("tribal_village_get_citizen_program_count", [], ctypes.c_int32, True),
+            (
+                "tribal_village_get_agent_program_id",
+                [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_agent_program_revision",
+                [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_agent_program_source_building_id",
+                [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_agent_program_assigned_step",
+                [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_building_program_id",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_building_program_revision",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_building_team_id",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_set_building_program",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_team_stockpile",
+                [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32],
                 ctypes.c_int32,
                 True,
             ),
@@ -425,6 +497,75 @@ class TribalVillageEnv(pufferlib.PufferEnv):
 
     def _optional_env_bool(self, name: str, *args: int, default: bool = False) -> bool:
         return bool(self._optional_env_i32(name, *args, default=int(default)))
+
+    # --- Citizen program queries ---
+
+    def citizen_program_count(self) -> int:
+        return int(self._optional_ffi("tribal_village_get_citizen_program_count", default=0) or 0)
+
+    def agent_program(self, agent_id: int) -> dict[str, int]:
+        return {
+            "program_id": self._optional_env_i32(
+                "tribal_village_get_agent_program_id",
+                agent_id,
+                default=-1,
+            ),
+            "revision": self._optional_env_i32(
+                "tribal_village_get_agent_program_revision",
+                agent_id,
+                default=0,
+            ),
+            "source_building_id": self._optional_env_i32(
+                "tribal_village_get_agent_program_source_building_id",
+                agent_id,
+                default=-1,
+            ),
+            "assigned_step": self._optional_env_i32(
+                "tribal_village_get_agent_program_assigned_step",
+                agent_id,
+                default=0,
+            ),
+        }
+
+    def building_program(self, x: int, y: int) -> dict[str, int]:
+        return {
+            "program_id": self._optional_env_i32(
+                "tribal_village_get_building_program_id",
+                x,
+                y,
+                default=-1,
+            ),
+            "revision": self._optional_env_i32(
+                "tribal_village_get_building_program_revision",
+                x,
+                y,
+                default=0,
+            ),
+        }
+
+    def building_team_id(self, x: int, y: int) -> int:
+        return self._optional_env_i32(
+            "tribal_village_get_building_team_id",
+            x,
+            y,
+            default=-1,
+        )
+
+    def set_building_program(self, x: int, y: int, program_id: int) -> bool:
+        return self._optional_env_bool(
+            "tribal_village_set_building_program",
+            x,
+            y,
+            program_id,
+        )
+
+    def team_stockpile(self, team_id: int, resource_id: int) -> int:
+        return self._optional_env_i32(
+            "tribal_village_get_team_stockpile",
+            team_id,
+            resource_id,
+            default=0,
+        )
 
     def _research_at(self, name: str, agent_id: int, building_x: int, building_y: int) -> bool:
         return self._optional_env_bool(name, agent_id, building_x, building_y)

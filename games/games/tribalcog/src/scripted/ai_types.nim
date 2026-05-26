@@ -83,6 +83,8 @@ type
   AgentState* = object
     role*: AgentRole
     roleId*: int
+    citizenProgramId*: CitizenProgramId
+    citizenProgramRevision*: int
     activeOptionId*: int
     activeOptionTicks*: int
     gathererTask*: GathererTask
@@ -248,6 +250,8 @@ proc resetAgentState*(state: var AgentState) =
   ## Reset one agent state back to defaults.
   state.role = Gatherer
   state.roleId = 0
+  state.citizenProgramId = ProgramGathererDefault
+  state.citizenProgramRevision = 0
   state.activeOptionId = -1
   state.activeOptionTicks = 0
   state.gathererTask = TaskFood

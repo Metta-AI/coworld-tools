@@ -160,6 +160,48 @@ proc assignScriptedRole(controller: Controller, agentId: int,
     roleId = scriptedState.coreRoleIds[Gatherer]
   setAgentRole(agentId, state, roleId)
 
+proc roleForCitizenProgram(programId: CitizenProgramId): AgentRole =
+  ## Map a compiled citizen program to the existing role option family.
+  case programId
+  of ProgramGathererDefault:
+    Gatherer
+  of ProgramBuilderDefault, ProgramSettlerExpand:
+    Builder
+  of ProgramFighterGuard, ProgramFighterAggressive:
+    Fighter
+
+proc roleIdForCitizenProgram(programId: CitizenProgramId): int =
+  ## Resolve the core role backing a compiled citizen program.
+  let role = roleForCitizenProgram(programId)
+  result = scriptedState.coreRoleIds[role]
+  if result < 0:
+    result = scriptedState.coreRoleIds[Gatherer]
+
+proc applyCitizenProgramSnapshot(
+  controller: Controller,
+  agentId: int,
+  agent: Thing,
+  state: var AgentState
+) =
+  ## Apply a citizen's building-assigned program snapshot to AI state.
+  if agent.programRevision <= 0:
+    return
+  if state.citizenProgramId == agent.programId and
+      state.citizenProgramRevision == agent.programRevision:
+    return
+  let roleId = roleIdForCitizenProgram(agent.programId)
+  setAgentRole(agentId, state, roleId)
+  state.citizenProgramId = agent.programId
+  state.citizenProgramRevision = agent.programRevision
+  case agent.programId
+  of ProgramFighterAggressive:
+    agent.stance = StanceAggressive
+  of ProgramFighterGuard:
+    if agent.stance == StanceNoAttack:
+      agent.stance = StanceDefensive
+  else:
+    discard
+
 proc roleOptionsFor(roleId: int, rng: var Rand): seq[OptionDef] =
   ## Materialize and cache the option list for a role id.
   if roleId < 0 or roleId >= scriptedState.catalog.roles.len:
@@ -392,11 +434,15 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
       if slotMod < nGatherers: Gatherer
       elif slotMod < nGatherers + nBuilders: Builder
       else: Fighter
+    if agent.programRevision > 0:
+      role = roleForCitizenProgram(agent.programId)
 
     let existingState = controller.agents[agentId]
     var initState = AgentState(
       role: role,
       roleId: -1,
+      citizenProgramId: agent.programId,
+      citizenProgramRevision: 0,
       activeOptionId: -1,
       fighterEnemyAgentId: -1,
       fighterEnemyStep: -1,
@@ -424,7 +470,9 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
           existingState.attackMoveTarget
     )
     clearCachedPositions(initState)
-    if ScriptedTempleAssignEnabled and scriptedState.pendingHybridRoles[agentId] >= 0:
+    if agent.programRevision > 0:
+      applyCitizenProgramSnapshot(controller, agentId, agent, initState)
+    elif ScriptedTempleAssignEnabled and scriptedState.pendingHybridRoles[agentId] >= 0:
       let pending = scriptedState.pendingHybridRoles[agentId]
       scriptedState.pendingHybridRoles[agentId] = -1
       setAgentRole(agentId, initState, pending)
@@ -442,6 +490,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
       agent.stance = StanceDefensive
 
   var state = controller.agents[agentId]
+  applyCitizenProgramSnapshot(controller, agentId, agent, state)
 
   if state.stanceModified:
     agent.stance = state.pendingStance
@@ -816,6 +865,8 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
 
 proc isAgentReassignable(state: AgentState, agent: Thing): bool =
   ## Check whether an idle villager can be reassigned safely.
+  if agent.programRevision > 0:
+    return false
   if state.patrolActive:
     return false
   if state.attackMoveTarget.x >= 0:

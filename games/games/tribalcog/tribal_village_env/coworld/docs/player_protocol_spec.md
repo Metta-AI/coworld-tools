@@ -1,15 +1,14 @@
 # Tribal Cog Player Protocol
 
-Players connect to:
+Town controllers connect to:
 
 ```text
-WEBSOCKET /player?slot=<0-999>&token=<runner-token>
+WEBSOCKET /player?slot=<0-7>&token=<runner-token>
 ```
 
-Each slot controls exactly one Tribal Cog agent. Slot `0` controls agent `0`,
-slot `124` controls team 0's final agent, slot `125` controls team 1's first
-agent, and slot `999` controls team 7's final agent. Agent IDs `1000..1005`
-are game-owned goblin/NPC agents.
+Each slot controls one team/town. Citizens continue to act individually through
+compiled Nim policies. A town controller edits the programs assigned by visible
+friendly buildings and can inspect one selected citizen's local 11x11 view.
 
 ## Server to player
 
@@ -19,9 +18,8 @@ The server sends one JSON observation message per tick:
 {
   "type": "observation",
   "slot": 0,
-  "agent_id": 0,
   "team_id": 0,
-  "team_agent_index": 0,
+  "selected_agent_id": 0,
   "step": 12,
   "max_steps": 1000,
   "started": true,
@@ -29,110 +27,78 @@ The server sends one JSON observation message per tick:
   "reward": 0.0,
   "score": 1.25,
   "team_score": 91.5,
-  "action_space": 308,
-  "action_names": [
-    "noop",
-    "move",
-    "attack",
-    "use",
-    "swap",
-    "put",
-    "plant_lantern",
-    "plant_resource",
-    "build",
-    "orient",
-    "set_rally_point"
+  "program_catalog": [
+    {
+      "id": 0,
+      "key": "gatherer_default",
+      "name": "Gatherer Default",
+      "summary": "Economy: gather, deposit, and keep the stockpile moving.",
+      "source": "step(obs): ..."
+    }
   ],
-  "orientation_names": [
-    "north",
-    "south",
-    "west",
-    "east",
-    "north_west",
-    "north_east",
-    "south_west",
-    "south_east"
-  ],
-  "sprite_view": {
-    "protocol": "tribalcog-sprite-v1",
-    "width": 11,
-    "height": 11,
-    "radius": 5,
-    "center": {"x": 5, "y": 5},
-    "cells": [[
-      {
-        "x": 5,
-        "y": 5,
-        "terrain": "grass",
-        "thing": "agent",
-        "things": ["tree", "agent"],
-        "sprite": "thing.agent",
-        "terrain_asset": "/assets/grass.png",
-        "thing_asset": "/assets/oriented/gatherer.n.png",
-        "thing_assets": [
-          "/assets/tree.png",
-          "/assets/oriented/gatherer.n.png"
-        ],
-        "sprite_asset": "/assets/oriented/gatherer.n.png",
-        "glyph": "@",
-        "color": "#e3655b",
-        "team_id": 0,
-        "unit_class": "villager",
-        "orientation": "north",
-        "idle": true,
-        "tint": 0,
-        "obscured": false
-      }
-    ]]
+  "citizen_program": {
+    "id": 0,
+    "key": "gatherer_default",
+    "revision": 1,
+    "source_building_id": 42,
+    "assigned_step": 120,
+    "source": "step(obs): ..."
   },
-  "observation": {
-    "dtype": "uint8",
-    "shape": [101, 11, 11],
-    "encoding": "base64",
-    "data": "..."
-  }
+  "visible_buildings": [
+    {
+      "x": 20,
+      "y": 30,
+      "thing": "barracks",
+      "program": {"id": 2, "key": "fighter_guard", "revision": 0}
+    }
+  ],
+  "visible_citizens": [
+    {
+      "agent_id": 7,
+      "x": 21,
+      "y": 31,
+      "unit_class": "man_at_arms",
+      "program": {"id": 2, "key": "fighter_guard", "revision": 1}
+    }
+  ],
+  "stockpiles": {"food": 10, "wood": 12, "gold": 3, "stone": 0, "water": 0},
+  "global_view": {"protocol": "tribalcog-global-sprite-v1"},
+  "sprite_view": {"protocol": "tribalcog-sprite-v1"},
+  "observation": {"dtype": "uint8", "shape": [101, 11, 11], "encoding": "base64", "data": "..."}
 }
 ```
 
-`sprite_view` is the preferred browser and lightweight policy contract. It is
-a semantic 11x11 view centered on the controlled villager and uses stable
-sprite keys such as `terrain.grass`, `thing.agent`, and `fog.unknown`. Visible
-cells also include served PNG URLs: `terrain_asset` for the floor layer,
-`thing_assets` for the ordered occupant/resource/unit layers, `thing_asset` for
-the topmost layer, and `sprite_asset` for the primary drawable. Browser clients
-should render those URLs from `/assets/...`, splat them into one 2D tile in
-order, and fall back to `glyph` when an asset is absent or the cell is obscured.
-
-The `observation` bytes are retained for low-level policies that want the
-existing Tribal Cog per-agent observation tensor encoded as contiguous raw
-`uint8` bytes.
+`global_view` is the team fog-of-war map rendered with the same sprite/object
+schema as `/global`, except unrevealed cells are hidden. `sprite_view` and
+`observation` are centered on the selected citizen and keep the existing 11x11
+local view for inspection and lightweight policies.
 
 The final message has `"type": "final"` and the same shape as an observation.
 
 ## Player to server
 
-Players reply with one action for their controlled agent:
+Select a citizen for the PiP/local observation:
 
 ```json
-{ "action": 17 }
+{"type": "town.select_citizen", "agent_id": 7}
 ```
 
-The action must be an integer in `[0, 307]`. The server also accepts
-`{"action": {"verb": 0, "argument": 17}}`; the action ID is
-`verb * 28 + argument`.
+Select a visible friendly building:
 
-HTML sprite clients may instead send the BitWorld-style sprite player input
-packet as binary websocket data:
-
-```text
-0x84 <buttons-u8>
+```json
+{"type": "town.select_building", "x": 20, "y": 30}
 ```
 
-Button bits are `0x01` up, `0x02` down, `0x04` left, `0x08` right,
-`0x10` select, `0x20` A, and `0x40` B. Direction bits map to Tribal Cog's
-eight direction arguments. With only a direction held, the server sends
-`move`; with A it sends `attack`, with B it sends `use`, and with select it
-sends `orient`.
+Set the program future citizens will snapshot when they transform through that
+building:
 
-Invalid, missing, late, or out-of-range actions become action `0` noop for that
-tick. A duplicate active connection for the same slot is rejected.
+```json
+{"type": "town.set_program", "x": 20, "y": 30, "program_id": 3}
+```
+
+Edits apply only to future entrants. Existing citizens keep their already
+assigned program snapshot until they transform through another building.
+
+Legacy integer actions and BitWorld-style `0x84 <buttons-u8>` packets are
+accepted as no-ops for old clients. Town controllers do not directly drive one
+citizen's action each tick.

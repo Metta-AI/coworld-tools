@@ -7,27 +7,34 @@ village simulation.
 
 ## Players and agents
 
-- The Coworld has 1000 player slots.
-- Each player controls one team agent.
-- Slots `0..124` are team 0, `125..249` are team 1, and so on through team 7.
+- The Coworld has 8 player slots, one per town/team.
+- Each town still owns 125 citizens in the simulation.
+- Slots `0..7` control teams `0..7`.
 - Six goblin/NPC agents are game-owned and are not player slots.
+- Unconnected towns continue under the built-in default policies.
 
 ## Actions
 
-Every player sends one discrete action per tick. The action space has 308
-actions: 11 verbs times 28 arguments. Action `0` is noop. Invalid or late
-actions are treated as noop for the current tick.
+Town controllers do not send one action per citizen. They edit the AI program
+template on visible friendly buildings. When a citizen transforms through a
+building, it snapshots that building's current program and keeps running that
+compiled policy until it transforms again.
+
+The bundled templates start with the same sensible behaviors Tribal Cog already
+uses: gatherers collect and deposit resources, builders maintain construction,
+fighters guard or attack, and settlers expand the town. Existing citizens are
+not rewritten retroactively when a building template changes.
 
 ## Scoring
 
 The Coworld result includes:
 
-- `scores`: one cumulative reward score for each of the 1000 player slots.
-- `team_scores`: eight team totals, computed by summing each team's 125 player
-  scores.
+- `scores`: one cumulative reward score for each of the 8 town slots.
+- `team_scores`: the same eight team totals, kept for Coworld league consumers
+  that read team-level scores explicitly.
 - `winner_team`: the unique highest-scoring team, or `null` on a tie.
 
-The hosted league should rank teams by `team_scores` unless a league-specific
+The hosted league should rank towns by `team_scores` unless a league-specific
 commissioner chooses a different aggregation.
 
 ## Episode end

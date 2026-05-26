@@ -531,6 +531,14 @@ type
     ## Building production queue for training units over time (AoE2-style)
     entries*: seq[ProductionQueueEntry]
 
+  CitizenProgramId* = enum
+    ## Compiled citizen policy programs assignable from buildings.
+    ProgramGathererDefault
+    ProgramBuilderDefault
+    ProgramFighterGuard
+    ProgramFighterAggressive
+    ProgramSettlerExpand
+
   Thing* = ref object
     kind*: ThingKind
     pos*: IVec2
@@ -592,6 +600,14 @@ type
 
     # Production queue (AoE2-style):
     productionQueue*: ProductionQueue  # Queue of units being trained at this building
+
+    # Citizen programs:
+    # Buildings use these as future-entry templates; agents snapshot them when
+    # they train or transform through the building.
+    programId*: CitizenProgramId
+    programRevision*: int
+    programSourceBuildingId*: int
+    programAssignedStep*: int
 
     # Rally point (AoE2-style):
     rallyPoint*: IVec2  # Building: where trained units auto-move after spawning (-1,-1 = none)
