@@ -1,33 +1,32 @@
 """Actor scan layer: roles, self colour, bodies, ghosts, crewmates.
 
-Port of
+Public API surface (the only symbols the rest of the codebase should
+depend on):
+
+- :func:`compute_actor_percept` — canonical orchestration. Returns a
+  fully populated :class:`ActorPercept` for one frame. **Use this if
+  you don't have a specific reason to call the individual scans.**
+- :func:`update_role` -> :class:`RoleUpdate`
+- :func:`update_self_color` -> :class:`SelfColorUpdate`
+- :func:`scan_bodies` -> ``list[BodyMatch]``
+- :func:`scan_ghosts` -> ``list[GhostMatch]``
+- :func:`scan_crewmates` -> ``list[CrewmateMatch]``
+- :class:`ActorPercept`, :class:`Role`, and the four match record
+  dataclasses.
+
+Every scan function takes ``(atlas, frame)`` and returns its own
+output. None of them mutate caller state. This is so an alternate
+implementation of any single scan can be dropped in without touching
+the orchestration or other scans.
+
+The role / self-colour ports were originally written against the
+upstream Nim ``var ActorPercept`` in-place mutation pattern; the
+return-value API here is a deliberate departure. Concrete behavior
+parity against the Nim oracle is preserved by the fixture-based gate
+in ``perception/parity/run_parity.py``.
+
+Initially ported from
 ``users/james/personal_cogs/among_them/guided_bot/perception/actors.nim``.
-Names and constants are mirrored 1:1 (snake_cased) so the parity rig at
-``perception/parity/run_parity.py`` can assert symbol-by-symbol equality
-against the Nim oracle sidecars.
-
-Pipeline mirrors the upstream ``scanAll`` ordering, minus the
-``isInterstitial`` short-circuit (interstitial detection itself lands in
-S4 — until then the scan procs always run when called, and the production
-gate happens one level up). For one frame:
-
-1. :func:`update_role` — HUD probe at ``(KILL_ICON_X, KILL_ICON_Y)`` for
-   the ghost icon or the (lit / shadowed) kill button. Stateful: takes
-   the previous frame's debounce counters and current role and returns
-   updated counters + role transition.
-2. :func:`update_self_color` — small search window around the player's
-   rendered sprite anchor; returns the dominant tint colour slot if a
-   match is found.
-3. :func:`scan_bodies` / :func:`scan_ghosts` / :func:`scan_crewmates` —
-   vectorised sprite match (via the S2 ``match_actor_sprite_all`` kernel)
-   plus greedy raster-order Chebyshev dedup. ``scan_crewmates`` excludes
-   anchors whose centre falls within ``PLAYER_IGNORE_RADIUS`` of the
-   rendered self position.
-
-Performance: the hot kernel (``match_actor_sprite_all``) is already
-vectorised in S2. The HUD probes and self-colour search touch a single
-``(12, 12)`` window each. Dedup loops are O(n²) but n is small (typically
-<20 anchors per fixture across all sprite types). No numba.
 """
 
 from __future__ import annotations
@@ -53,6 +52,7 @@ from .sprite_match import (
 
 
 # --- atlas slot indices (mirrors data/sprite_index.json) -------------------
+# Moved to perception/data/sprites.py in a follow-up commit.
 
 ATLAS_PLAYER = 0
 ATLAS_BODY = 1
@@ -148,9 +148,37 @@ class GhostMatch:
 
 
 @dataclass
+class RoleUpdate:
+    """Result of one :func:`update_role` call. Mirrors the role-related
+    sub-fields of upstream ``ActorPercept`` after a single ``updateRole``
+    invocation. ``ghost_icon_frames`` / ``kill_icon_frames`` are the
+    post-update counter values and feed back as priors on the next tick."""
+
+    role_updated: bool = False
+    new_role: Role = Role.UNKNOWN
+    is_ghost: bool = False
+    kill_ready: bool = False
+    ghost_icon_frames: int = 0
+    kill_icon_frames: int = 0
+
+
+@dataclass
+class SelfColorUpdate:
+    """Result of one :func:`update_self_color` call. ``updated`` is True
+    iff the search window found a single-anchor crewmate match with at
+    least one tint vote; ``color_index`` is the slot in ``PLAYER_COLORS``
+    or ``-1`` when no vote landed."""
+
+    updated: bool = False
+    color_index: int = -1
+
+
+@dataclass
 class ActorPercept:
-    """Output of one actor-scan pass. Mirrors upstream ``ActorPercept`` in
-    ``actors.nim``."""
+    """Aggregated per-frame actor-scan output. Convenience composition of
+    :func:`update_role` / :func:`update_self_color` / :func:`scan_bodies`
+    / :func:`scan_ghosts` / :func:`scan_crewmates`. The flat-field shape
+    mirrors upstream ``ActorPercept`` in ``actors.nim``."""
 
     crewmates: list[CrewmateMatch] = field(default_factory=list)
     bodies: list[BodyMatch] = field(default_factory=list)
@@ -385,17 +413,17 @@ def _crewmate_color_index(
     return best
 
 
-# --- public scan procs ----------------------------------------------------
+# --- public scan procs (return their outputs; never mutate args) ----------
 
 
 def update_role(
-    percept: ActorPercept,
-    prev_ghost_icon_frames: int,
-    prev_kill_icon_frames: int,
-    prev_role: Role,
     atlas: np.ndarray,
     frame: np.ndarray,
-) -> None:
+    *,
+    prev_ghost_icon_frames: int = 0,
+    prev_kill_icon_frames: int = 0,
+    prev_role: Role = Role.UNKNOWN,
+) -> RoleUpdate:
     """HUD slot probe at ``(KILL_ICON_X, KILL_ICON_Y)``. Mirrors
     ``actors.nim::updateRole``.
 
@@ -405,47 +433,56 @@ def update_role(
     ``Unknown -> Imposter`` needs ``KILL_ICON_ROLE_FRAMES`` consecutive
     HUD matches, and ``Crewmate -> Imposter`` is never set from this
     path: an OCR-confirmed crewmate role is authoritative.
+
+    Stateful: thread the previous tick's ``ghost_icon_frames`` /
+    ``kill_icon_frames`` / role through the keyword arguments so the
+    debounce counters advance correctly across frames. The defaults
+    treat the call as the very first tick of a fresh episode.
     """
+    result = RoleUpdate(new_role=Role.UNKNOWN)
+
     ghost_sprite = atlas[ATLAS_GHOST_ICON]
     g_misses, g_opaque = _sprite_misses(frame, ghost_sprite, KILL_ICON_X, KILL_ICON_Y)
     if g_opaque > 0 and g_misses <= GHOST_ICON_MAX_MISSES:
-        percept.ghost_icon_frames = prev_ghost_icon_frames + 1
-        percept.kill_icon_frames = 0
-        percept.kill_ready = False
-        if percept.ghost_icon_frames >= GHOST_ICON_FRAME_THRESHOLD:
-            percept.is_ghost = True
-            percept.role_updated = True
+        result.ghost_icon_frames = prev_ghost_icon_frames + 1
+        result.kill_icon_frames = 0
+        result.kill_ready = False
+        if result.ghost_icon_frames >= GHOST_ICON_FRAME_THRESHOLD:
+            result.is_ghost = True
+            result.role_updated = True
             if prev_role == Role.UNKNOWN:
-                percept.new_role = Role.CREWMATE
+                result.new_role = Role.CREWMATE
             else:
-                percept.new_role = prev_role
-        return
+                result.new_role = prev_role
+        return result
 
-    percept.ghost_icon_frames = 0
+    result.ghost_icon_frames = 0
 
     kill_sprite = atlas[ATLAS_KILL_BUTTON]
     lit_match = _matches_sprite(frame, kill_sprite, KILL_ICON_X, KILL_ICON_Y)
     shad_match = _matches_sprite_shadowed(frame, kill_sprite, KILL_ICON_X, KILL_ICON_Y)
 
     if lit_match or shad_match:
-        percept.kill_icon_frames = prev_kill_icon_frames + 1
-        stable = prev_role == Role.IMPOSTER or percept.kill_icon_frames >= KILL_ICON_ROLE_FRAMES
-        percept.kill_ready = lit_match and stable
+        result.kill_icon_frames = prev_kill_icon_frames + 1
+        stable = prev_role == Role.IMPOSTER or result.kill_icon_frames >= KILL_ICON_ROLE_FRAMES
+        result.kill_ready = lit_match and stable
         # OCR-confirmed Crewmate is never overridden — HUD sprite matching
         # at (1, 115) produces false positives when map / task pixels land
         # there. Mirrors upstream comment in actors.nim:472.
         if stable and prev_role == Role.UNKNOWN:
-            percept.role_updated = True
-            percept.new_role = Role.IMPOSTER
+            result.role_updated = True
+            result.new_role = Role.IMPOSTER
     else:
-        percept.kill_icon_frames = 0
-        percept.kill_ready = False
+        result.kill_icon_frames = 0
+        result.kill_ready = False
         if prev_role == Role.UNKNOWN:
-            percept.role_updated = True
-            percept.new_role = Role.CREWMATE
+            result.role_updated = True
+            result.new_role = Role.CREWMATE
+
+    return result
 
 
-def update_self_color(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> None:
+def update_self_color(atlas: np.ndarray, frame: np.ndarray) -> SelfColorUpdate:
     """Centre-camera colour probe. Tries the canonical sprite-render
     anchor first, then expanding rings of offsets up to
     ``SELF_COLOR_SEARCH_RADIUS``, trying ``flip_h=False`` then
@@ -465,16 +502,12 @@ def update_self_color(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarra
                     if _matches_crewmate(frame, sprite, ax, ay, flip):
                         ci = _crewmate_color_index(frame, sprite, ax, ay, flip)
                         if ci >= 0:
-                            percept.self_color_updated = True
-                            percept.new_self_color = ci
-                            return
+                            return SelfColorUpdate(updated=True, color_index=ci)
+    return SelfColorUpdate()
 
 
-def scan_crewmates(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> None:
-    """Living-crewmate scan, excluding self. Uses the vectorised
-    ``match_actor_sprite_all`` kernel plus :func:`_dedup_anchors` and the
-    player-ignore-zone mask. Per-anchor colour vote uses the
-    ``TintColor``-only :func:`_crewmate_color_index`. Mirrors
+def scan_crewmates(atlas: np.ndarray, frame: np.ndarray) -> list[CrewmateMatch]:
+    """Living-crewmate scan, excluding self. Mirrors
     ``actors.nim::scanCrewmates``."""
     sprite = atlas[ATLAS_PLAYER]
     anchors = _scan_actor(
@@ -487,12 +520,18 @@ def scan_crewmates(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) 
         dedup_radius=CREWMATE_SEARCH_RADIUS,
         ignore_center=True,
     )
-    for y, x, flip in anchors:
-        ci = _crewmate_color_index(frame, sprite, x, y, flip)
-        percept.crewmates.append(CrewmateMatch(x=x, y=y, color_index=ci, flip_h=flip))
+    return [
+        CrewmateMatch(
+            x=x,
+            y=y,
+            color_index=_crewmate_color_index(frame, sprite, x, y, flip),
+            flip_h=flip,
+        )
+        for y, x, flip in anchors
+    ]
 
 
-def scan_bodies(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> None:
+def scan_bodies(atlas: np.ndarray, frame: np.ndarray) -> list[BodyMatch]:
     """Dead-crewmate (body) scan. Bodies don't flip in-game, so the scan
     uses ``flips=(False,)``. Mirrors ``actors.nim::scanBodies``."""
     sprite = atlas[ATLAS_BODY]
@@ -506,12 +545,17 @@ def scan_bodies(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> 
         dedup_radius=BODY_SEARCH_RADIUS,
         ignore_center=False,
     )
-    for y, x, _flip in anchors:
-        ci = _crewmate_color_index(frame, sprite, x, y, False)
-        percept.bodies.append(BodyMatch(x=x, y=y, color_index=ci))
+    return [
+        BodyMatch(
+            x=x,
+            y=y,
+            color_index=_crewmate_color_index(frame, sprite, x, y, False),
+        )
+        for y, x, _flip in anchors
+    ]
 
 
-def scan_ghosts(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> None:
+def scan_ghosts(atlas: np.ndarray, frame: np.ndarray) -> list[GhostMatch]:
     """Ghost-sprite scan. Ghosts are translucent — no reliable colour
     extraction, only anchor + flip. Mirrors ``actors.nim::scanGhosts``."""
     sprite = atlas[ATLAS_GHOST]
@@ -525,5 +569,51 @@ def scan_ghosts(percept: ActorPercept, atlas: np.ndarray, frame: np.ndarray) -> 
         dedup_radius=GHOST_SEARCH_RADIUS,
         ignore_center=False,
     )
-    for y, x, flip in anchors:
-        percept.ghosts.append(GhostMatch(x=x, y=y, flip_h=flip))
+    return [GhostMatch(x=x, y=y, flip_h=flip) for y, x, flip in anchors]
+
+
+def compute_actor_percept(
+    atlas: np.ndarray,
+    frame: np.ndarray,
+    *,
+    prev: ActorPercept | None = None,
+) -> ActorPercept:
+    """Canonical actor-scan orchestration. Runs every public scan
+    function and assembles the result into a single :class:`ActorPercept`.
+
+    This is the entry point callers should reach for unless they have a
+    specific reason to invoke a single scan. Swapping the implementation
+    of any individual scan only requires editing that scan's function;
+    this orchestrator stays untouched as long as the public signatures
+    hold.
+
+    Pass ``prev`` (a previous tick's percept) to thread the debounce
+    counters for :func:`update_role` across frames. Omit it (or pass
+    ``None``) to treat the call as the very first tick.
+    """
+    prev_g = prev.ghost_icon_frames if prev is not None else 0
+    prev_k = prev.kill_icon_frames if prev is not None else 0
+    prev_role = prev.new_role if prev is not None else Role.UNKNOWN
+
+    role = update_role(
+        atlas,
+        frame,
+        prev_ghost_icon_frames=prev_g,
+        prev_kill_icon_frames=prev_k,
+        prev_role=prev_role,
+    )
+    self_color = update_self_color(atlas, frame)
+
+    return ActorPercept(
+        crewmates=scan_crewmates(atlas, frame),
+        bodies=scan_bodies(atlas, frame),
+        ghosts=scan_ghosts(atlas, frame),
+        role_updated=role.role_updated,
+        new_role=role.new_role,
+        is_ghost=role.is_ghost,
+        kill_ready=role.kill_ready,
+        ghost_icon_frames=role.ghost_icon_frames,
+        kill_icon_frames=role.kill_icon_frames,
+        self_color_updated=self_color.updated,
+        new_self_color=self_color.color_index,
+    )

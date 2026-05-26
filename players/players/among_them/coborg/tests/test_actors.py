@@ -38,6 +38,8 @@ from players.among_them.coborg.perception.actors import (
     CrewmateMatch,
     GhostMatch,
     Role,
+    RoleUpdate,
+    SelfColorUpdate,
     _crewmate_color_index,
     _dedup_anchors,
     _matches_crewmate,
@@ -45,6 +47,7 @@ from players.among_them.coborg.perception.actors import (
     _matches_sprite_shadowed,
     _scan_actor,
     _sprite_misses,
+    compute_actor_percept,
     scan_bodies,
     scan_crewmates,
     scan_ghosts,
@@ -224,13 +227,12 @@ def _atlas():
 def test_update_role_no_hud_match_resolves_unknown_to_crewmate():
     # Empty frame: neither the ghost icon nor the kill button matches at
     # (KILL_ICON_X, KILL_ICON_Y). Unknown -> Crewmate.
-    percept = ActorPercept()
-    update_role(percept, 0, 0, Role.UNKNOWN, _atlas(), _zero_frame())
-    assert percept.role_updated
-    assert percept.new_role == Role.CREWMATE
-    assert percept.kill_icon_frames == 0
-    assert percept.ghost_icon_frames == 0
-    assert not percept.kill_ready
+    result = update_role(_atlas(), _zero_frame())
+    assert result.role_updated
+    assert result.new_role == Role.CREWMATE
+    assert result.kill_icon_frames == 0
+    assert result.ghost_icon_frames == 0
+    assert not result.kill_ready
 
 
 def test_update_role_unknown_with_kill_hud_debounces_imposter():
@@ -243,22 +245,19 @@ def test_update_role_unknown_with_kill_hud_debounces_imposter():
     sh, sw = kill_sprite.shape
     frame[KILL_ICON_Y : KILL_ICON_Y + sh, KILL_ICON_X : KILL_ICON_X + sw] = kill_sprite
 
-    percept = ActorPercept()
-    update_role(percept, 0, 0, Role.UNKNOWN, atlas, frame)
-    assert percept.kill_icon_frames == 1
-    assert not percept.role_updated  # not yet debounced
-    assert not percept.kill_ready    # stable only after threshold
+    first = update_role(atlas, frame)
+    assert first.kill_icon_frames == 1
+    assert not first.role_updated   # not yet debounced
+    assert not first.kill_ready     # stable only after threshold
 
     # Roll forward KILL_ICON_ROLE_FRAMES - 1 more frames with the same
     # HUD state. The last one trips the threshold.
     for n in range(2, KILL_ICON_ROLE_FRAMES + 1):
-        percept_n = ActorPercept()
-        update_role(percept_n, n - 1, n - 1, Role.UNKNOWN, atlas, frame)
-        assert percept_n.kill_icon_frames == n
+        nth = update_role(atlas, frame, prev_kill_icon_frames=n - 1)
+        assert nth.kill_icon_frames == n
     # Final iteration: prev_kill_icon_frames + 1 == KILL_ICON_ROLE_FRAMES,
     # role flips to Imposter and kill_ready latches.
-    final = ActorPercept()
-    update_role(final, 0, KILL_ICON_ROLE_FRAMES - 1, Role.UNKNOWN, atlas, frame)
+    final = update_role(atlas, frame, prev_kill_icon_frames=KILL_ICON_ROLE_FRAMES - 1)
     assert final.role_updated
     assert final.new_role == Role.IMPOSTER
     assert final.kill_ready
@@ -273,18 +272,19 @@ def test_update_role_crewmate_not_overridden_by_kill_hud():
     sh, sw = kill_sprite.shape
     frame[KILL_ICON_Y : KILL_ICON_Y + sh, KILL_ICON_X : KILL_ICON_X + sw] = kill_sprite
     # Even with role_frames already past threshold, prev=Crewmate stays.
-    percept = ActorPercept()
-    update_role(
-        percept, 0, KILL_ICON_ROLE_FRAMES, Role.CREWMATE, atlas, frame
+    result = update_role(
+        atlas, frame,
+        prev_kill_icon_frames=KILL_ICON_ROLE_FRAMES,
+        prev_role=Role.CREWMATE,
     )
-    assert not percept.role_updated
-    assert percept.new_role == Role.UNKNOWN  # default; role_updated is False
+    assert not result.role_updated
+    assert result.new_role == Role.UNKNOWN  # RoleUpdate default; role_updated False
     # kill_ready *can* go true: stable triggers via prev==Imposter; here
     # prev=Crewmate so stable=False unless threshold hit, which it does
     # (kill_icon_frames == 4 >= 3) — but kill_ready depends on lit_match,
     # which holds here. Upstream comment: kill_ready is set independent
     # of role override.
-    assert percept.kill_ready
+    assert result.kill_ready
 
 
 def test_update_role_ghost_icon_threshold():
@@ -296,13 +296,13 @@ def test_update_role_ghost_icon_threshold():
     sh, sw = ghost_sprite.shape
     frame[KILL_ICON_Y : KILL_ICON_Y + sh, KILL_ICON_X : KILL_ICON_X + sw] = ghost_sprite
 
-    one = ActorPercept()
-    update_role(one, 0, 0, Role.UNKNOWN, atlas, frame)
+    one = update_role(atlas, frame)
     assert one.ghost_icon_frames == 1
     assert not one.is_ghost  # below threshold
 
-    debounced = ActorPercept()
-    update_role(debounced, GHOST_ICON_FRAME_THRESHOLD - 1, 0, Role.UNKNOWN, atlas, frame)
+    debounced = update_role(
+        atlas, frame, prev_ghost_icon_frames=GHOST_ICON_FRAME_THRESHOLD - 1
+    )
     assert debounced.ghost_icon_frames == GHOST_ICON_FRAME_THRESHOLD
     assert debounced.is_ghost
     # Ghost detection on Unknown role canonicalises to Crewmate so the
@@ -338,17 +338,15 @@ def test_update_self_color_finds_color_at_centre_anchor():
             else:
                 frame[base_y + sy, base_x + sx] = c
 
-    percept = ActorPercept()
-    update_self_color(percept, atlas, frame)
-    assert percept.self_color_updated
-    assert percept.new_self_color == target_slot
+    result = update_self_color(atlas, frame)
+    assert result.updated
+    assert result.color_index == target_slot
 
 
 def test_update_self_color_no_match_leaves_minus_one():
-    percept = ActorPercept()
-    update_self_color(percept, _atlas(), _zero_frame())
-    assert not percept.self_color_updated
-    assert percept.new_self_color == -1
+    result = update_self_color(_atlas(), _zero_frame())
+    assert not result.updated
+    assert result.color_index == -1
 
 
 # --- player-ignore-zone exclusion in scan_crewmates ----------------------
@@ -387,12 +385,11 @@ def test_scan_crewmates_excludes_self_centre():
                 else:
                     frame[fy, fx] = c
 
-    percept = ActorPercept()
-    scan_crewmates(percept, atlas, frame)
+    crewmates = scan_crewmates(atlas, frame)
     # The self-centred patch must be excluded; only the off-centre patch
     # should appear in the crewmate list.
     self_centres = [
-        m for m in percept.crewmates
+        m for m in crewmates
         if abs(m.x + sw // 2 - PLAYER_SPRITE_ANCHOR_X) <= PLAYER_IGNORE_RADIUS
         and abs(m.y + sh // 2 - PLAYER_SPRITE_ANCHOR_Y) <= PLAYER_IGNORE_RADIUS
     ]
@@ -430,11 +427,8 @@ def test_match_record_dataclass_fields():
 
 
 def test_scan_bodies_and_scan_ghosts_on_empty_frame_emit_nothing():
-    percept = ActorPercept()
-    scan_bodies(percept, _atlas(), _zero_frame())
-    scan_ghosts(percept, _atlas(), _zero_frame())
-    assert percept.bodies == []
-    assert percept.ghosts == []
+    assert scan_bodies(_atlas(), _zero_frame()) == []
+    assert scan_ghosts(_atlas(), _zero_frame()) == []
 
 
 # --- minimal _scan_actor coverage of flip-priority -----------------------
@@ -471,24 +465,42 @@ def test_scan_actor_first_flip_claims_anchor():
 
 @pytest.mark.parametrize("fixture_name", ["gameplay_274"])
 def test_pipeline_runs_clean_on_fixture(fixture_name: str) -> None:
-    """End-to-end smoke: pipeline doesn't raise on a real fixture and
-    populates the percept with the expected types. Concrete value
-    parity is asserted by ``test_perception_parity``."""
+    """End-to-end smoke: ``compute_actor_percept`` doesn't raise on a
+    real fixture and populates the percept with the expected types.
+    Concrete value parity is asserted by ``test_perception_parity``."""
     raw = (_FIXTURES_DIR / f"{fixture_name}.bin").read_bytes()
     frame = np.frombuffer(raw, dtype=np.uint8).reshape(SCREEN_HEIGHT, SCREEN_WIDTH)
+    percept = compute_actor_percept(_atlas(), frame)
+    assert isinstance(percept, ActorPercept)
+    assert all(isinstance(m, CrewmateMatch) for m in percept.crewmates)
+    assert all(isinstance(m, BodyMatch) for m in percept.bodies)
+    assert all(isinstance(m, GhostMatch) for m in percept.ghosts)
+
+
+def test_compute_actor_percept_threads_prev_state():
+    """Passing a prior percept advances the debounce counters in
+    ``update_role`` rather than resetting them to zero."""
     atlas = _atlas()
-    percept = ActorPercept()
-    update_role(percept, 0, 0, Role.UNKNOWN, atlas, frame)
-    update_self_color(percept, atlas, frame)
-    scan_bodies(percept, atlas, frame)
-    scan_ghosts(percept, atlas, frame)
-    scan_crewmates(percept, atlas, frame)
-    assert isinstance(percept.crewmates, list)
-    assert isinstance(percept.bodies, list)
-    assert isinstance(percept.ghosts, list)
-    for m in percept.crewmates:
-        assert isinstance(m, CrewmateMatch)
-    for m in percept.bodies:
-        assert isinstance(m, BodyMatch)
-    for m in percept.ghosts:
-        assert isinstance(m, GhostMatch)
+    kill_sprite = atlas[ATLAS_KILL_BUTTON]
+    frame = _zero_frame()
+    sh, sw = kill_sprite.shape
+    frame[KILL_ICON_Y : KILL_ICON_Y + sh, KILL_ICON_X : KILL_ICON_X + sw] = kill_sprite
+
+    prev = ActorPercept(kill_icon_frames=KILL_ICON_ROLE_FRAMES - 1)
+    percept = compute_actor_percept(atlas, frame, prev=prev)
+    # With prev kill_icon_frames threaded, this call trips the threshold
+    # and flips role to Imposter, latching kill_ready.
+    assert percept.kill_icon_frames == KILL_ICON_ROLE_FRAMES
+    assert percept.role_updated
+    assert percept.new_role == Role.IMPOSTER
+    assert percept.kill_ready
+
+
+def test_role_update_and_self_color_update_dataclass_defaults():
+    r = RoleUpdate()
+    assert (
+        r.role_updated, r.new_role, r.is_ghost, r.kill_ready,
+        r.ghost_icon_frames, r.kill_icon_frames,
+    ) == (False, Role.UNKNOWN, False, False, 0, 0)
+    sc = SelfColorUpdate()
+    assert (sc.updated, sc.color_index) == (False, -1)

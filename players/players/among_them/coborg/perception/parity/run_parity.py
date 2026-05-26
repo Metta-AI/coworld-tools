@@ -51,15 +51,7 @@ from typing import Iterable
 
 import numpy as np
 
-from ..actors import (
-    ActorPercept,
-    Role,
-    scan_bodies,
-    scan_crewmates,
-    scan_ghosts,
-    update_role,
-    update_self_color,
-)
+from ..actors import ActorPercept, compute_actor_percept
 from ..data import load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
@@ -146,26 +138,6 @@ def _check_actor_color_index(frame: np.ndarray, sprite: np.ndarray, entry: dict)
 
 
 # --- v2 orchestrated checks (actors.py outputs) ----------------------------
-
-
-def _compute_actor_percept(frame: np.ndarray, atlas: np.ndarray) -> ActorPercept:
-    """Run the v2 scan pipeline against ``frame`` with no prior frame
-    history. Mirrors the Nim oracle's per-fixture sequence so the Python
-    side can be compared field-by-field against the sidecar."""
-    percept = ActorPercept()
-    update_role(
-        percept,
-        prev_ghost_icon_frames=0,
-        prev_kill_icon_frames=0,
-        prev_role=Role.UNKNOWN,
-        atlas=atlas,
-        frame=frame,
-    )
-    update_self_color(percept, atlas, frame)
-    scan_bodies(percept, atlas, frame)
-    scan_ghosts(percept, atlas, frame)
-    scan_crewmates(percept, atlas, frame)
-    return percept
 
 
 def _check_role(percept: ActorPercept, expected: dict) -> CheckResult:
@@ -270,7 +242,7 @@ def check_fixture(bin_path: Path) -> FixtureResult:
     for entry in sidecar["actor_color_index"]:
         result.checks.append(_check_actor_color_index(frame, atlas[entry["atlas_index"]], entry))
     if schema_version >= 2:
-        percept = _compute_actor_percept(frame, atlas)
+        percept = compute_actor_percept(atlas, frame)
         result.checks.append(_check_role(percept, sidecar["role"]))
         result.checks.append(_check_self_color(percept, sidecar["self_color"]))
         result.checks.append(_check_crewmates(percept, sidecar["crewmates"]))
