@@ -32,6 +32,11 @@ SHADE_TINT_COLOR = 9
 MAP_VOID_COLOR = 12
 SPACE_COLOR = 0
 
+# Palette index of radar dots (offscreen-task pointers drawn at the
+# screen-edge periphery). The bitworld palette assigns yellow here.
+# Mirrors upstream `ignore.nim::RadarTaskColor`.
+RADAR_TASK_COLOR = 8
+
 FIRST_PRINTABLE_ASCII = 32
 LAST_PRINTABLE_ASCII = 126
 PRINTABLE_ASCII_COUNT = LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII + 1

@@ -28,19 +28,18 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .data import RADAR_TASK_COLOR
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
 
 
-# --- constants (mirror upstream tasks.nim + ignore.nim) -------------------
-
-# Palette index of radar-dot hits (yellow). Matches ``RadarTaskColor``
-# in upstream ``guided_bot/perception/ignore.nim``.
-RADAR_TASK_COLOR: int = 8
+# --- constants (mirror upstream tasks.nim) --------------------------------
 
 # Pixel margin defining the screen-edge periphery ring where radar dots
 # may appear. Matches ``RadarPeripheryMargin`` in upstream
 # ``guided_bot/perception/tasks.nim``. With margin=1 the ring is two
-# pixels deep on each edge.
+# pixels deep on each edge. ``RADAR_TASK_COLOR`` (palette index of the
+# yellow radar pixel) is imported from ``data.palette`` — both this
+# module and ``perception.ignore`` consume it.
 RADAR_PERIPHERY_MARGIN: int = 1
 
 # Forward-compat task-icon constants. Used by the deferred S4 work; kept

@@ -58,6 +58,12 @@ import guided_bot/types as gbTypes
 # Upstream interstitial detector — used for v3 outputs.
 import guided_bot/perception/interstitial as gbInterstitial
 
+# Upstream ignore-mask builder — used for v3 outputs (additive within v3).
+import guided_bot/perception/ignore as gbIgnore
+import guided_bot/perception/frame as gbFrame
+
+import std/sha1
+
 const
   ScreenWidth = 128
   ScreenHeight = 128
@@ -327,6 +333,31 @@ proc interstitialJson(frame: var seq[uint8]): JsonNode =
     "black_pixel_count": obs.blackPixelCount,
   }
 
+
+proc maskSha1Hex(data: seq[uint8]): string =
+  ## SHA-1 over the raw 16384 bytes of an IgnoreMask. Encodes the
+  ## full mask as a 40-char hex string so the Python parity rig can
+  ## assert byte-exact equality without round-tripping ~16 KB of
+  ## boolean data through JSON.
+  var s = newString(data.len)
+  if data.len > 0:
+    copyMem(addr s[0], unsafeAddr data[0], data.len)
+  $secureHash(s)
+
+
+proc ignorePhase10Json(frame: var seq[uint8]): JsonNode =
+  ## Result of upstream `ignore.buildPhase10IgnoreMask`. The Python
+  ## sidecar consumer compares both fields: `stamped_pixel_count`
+  ## is the human-readable summary; `sha1` is the exact-equality
+  ## fingerprint over all 16384 mask bytes (0/1 per pixel,
+  ## row-major).
+  var mask = gbFrame.initIgnoreMask()
+  gbIgnore.buildPhase10IgnoreMask(mask, frame)
+  %* {
+    "stamped_pixel_count": gbFrame.countSet(mask),
+    "sha1": maskSha1Hex(mask.data),
+  }
+
 # ---------------------------------------------------------------------------
 # Fixture loader + per-fixture orchestrator
 # ---------------------------------------------------------------------------
@@ -379,6 +410,7 @@ proc processFixture(path: string): JsonNode =
     "ghosts": ghostsJson(percept),
     "radar_dots": radarDotsJson(frame),
     "interstitial": interstitialJson(frame),
+    "ignore_phase_1_0": ignorePhase10Json(frame),
   }
 
 proc main() =

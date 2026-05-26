@@ -52,6 +52,11 @@ from .data import (
     TRANSPARENT_INDEX,
 )
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from .ignore import (
+    PLAYER_IGNORE_RADIUS,
+    PLAYER_SPRITE_ANCHOR_X,
+    PLAYER_SPRITE_ANCHOR_Y,
+)
 from .sprite_match import match_actor_sprite_all
 
 # Sentinel palette value for out-of-screen pixels in patches built by
@@ -99,15 +104,11 @@ KILL_ICON_X = 1
 KILL_ICON_Y = SCREEN_HEIGHT - SPRITE_SIZE - 1  # = 115
 
 
-# --- self-colour and player-ignore zone -----------------------------------
+# --- self-colour search radius -------------------------------------------
 
-# Screen position where the player's own sprite is rendered. Distinct from
-# the collision-box centre used by geometry.nim (upstream comment), and
-# offset from the bare ``ScreenWidth/2 - SpriteSize/2`` self-colour search
-# centre by one pixel in X and four pixels in Y.
-PLAYER_SPRITE_ANCHOR_X = (SCREEN_WIDTH // 2) - 1   # = 63
-PLAYER_SPRITE_ANCHOR_Y = (SCREEN_HEIGHT // 2) - 4  # = 60
-PLAYER_IGNORE_RADIUS = 9
+# `PLAYER_SPRITE_ANCHOR_X`, `PLAYER_SPRITE_ANCHOR_Y`, and
+# `PLAYER_IGNORE_RADIUS` live in `perception.ignore` — the canonical
+# upstream home (`guided_bot/perception/ignore.nim`). Imported above.
 
 SELF_COLOR_SEARCH_RADIUS = 2
 

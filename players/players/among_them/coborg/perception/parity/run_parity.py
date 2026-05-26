@@ -53,9 +53,12 @@ from typing import Iterable
 
 import numpy as np
 
+import hashlib
+
 from ..actors import ActorPercept, compute_actor_percept
 from ..data import load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from ..ignore import build_phase_1_0_ignore_mask
 from ..interstitial import InterstitialObservation, detect_interstitial
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
 from ..tasks import scan_radar_dots
@@ -231,6 +234,26 @@ def _check_interstitial(obs: InterstitialObservation, expected: dict) -> CheckRe
     )
 
 
+def _check_ignore_phase_1_0(frame: np.ndarray, expected: dict) -> CheckResult:
+    """Build the phase-1.0 ignore mask in Python and compare against the
+    oracle's stamped-pixel count + SHA-1 fingerprint over the raw mask
+    bytes. The Nim side serialises ``IgnoreMask.data`` (uint8 0/1,
+    row-major); ``mask.tobytes()`` on a numpy bool ndarray produces the
+    same 16384-byte sequence, so the SHA-1 strings match exactly."""
+    mask = build_phase_1_0_ignore_mask(frame)
+    actual = {
+        "stamped_pixel_count": int(mask.sum()),
+        "sha1": hashlib.sha1(mask.tobytes()).hexdigest().upper(),
+    }
+    if actual == expected:
+        return CheckResult(label="ignore_phase_1_0", ok=True)
+    return CheckResult(
+        label="ignore_phase_1_0",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -272,6 +295,10 @@ def check_fixture(bin_path: Path) -> FixtureResult:
         result.checks.append(
             _check_interstitial(detect_interstitial(frame), sidecar["interstitial"])
         )
+        if "ignore_phase_1_0" in sidecar:  # additive within v3; S4.2+ sidecars carry it
+            result.checks.append(
+                _check_ignore_phase_1_0(frame, sidecar["ignore_phase_1_0"])
+            )
     return result
 
 

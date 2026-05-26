@@ -805,5 +805,9 @@
     "is_interstitial": true,
     "kind": "unknown",
     "black_pixel_count": 15757
+  },
+  "ignore_phase_1_0": {
+    "stamped_pixel_count": 401,
+    "sha1": "352BF792905FF456EB3274E0054E3F0FF82233A7"
   }
 }
