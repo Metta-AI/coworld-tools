@@ -14,9 +14,24 @@ Usable two ways:
 2. As an importable helper from ``tests/test_perception_parity.py``, which
    asserts the same condition as the CI gate.
 
-Schema scope (S2 first pass, sidecar ``schema_version == 1``): ``frame``
-plus ``sprite_match`` only. S3 / S4 widen this harness as additional
-perception modules are ported.
+Schema scope:
+
+- **v1 (S2):** kernel-level outputs for the player sprite at crewmate
+  budgets, both flips. Checked by ``_check_sprite_match`` and
+  ``_check_actor_color_index``.
+- **v2 (S3 kickoff, this harness):** kernel-level coverage widened to
+  body + ghost sprites at their own budgets. The same kernel-level
+  checks run unchanged — they iterate the per-(sprite, flip) entries
+  in ``sprite_matches`` / ``actor_color_index``, which now contain 5
+  entries (player×2 flips + body×1 + ghost×2 flips) instead of 2.
+  v2 also introduces orchestrated fields (``role``, ``self_color``,
+  ``crewmates``, ``bodies``, ``ghosts``, ``radar_dots``) that are
+  emitted by the Nim oracle but **not yet checked here**; concrete
+  check functions land alongside the matching Python ports in S3.2
+  (``actors.py``) and S3.3 (``tasks.py`` radar-dot half).
+- **S4** will bump the schema again to add the deferred task-icon scan
+  plus ``ocr``, ``voting``, ``interstitial``, ``localize``, and
+  ``ignore`` percept fields.
 
 Tolerance policy: every assertion in S2 is **exact** equality. The Nim
 oracle and the Python port are both deterministic over integer
@@ -41,6 +56,8 @@ from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
+
+_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
 
 
 @dataclass
@@ -126,7 +143,7 @@ def check_fixture(bin_path: Path) -> FixtureResult:
     json_path = bin_path.with_suffix(".json")
     sidecar = json.loads(json_path.read_text())
     schema_version = int(sidecar.get("schema_version", 0))
-    if schema_version != 1:
+    if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
         return FixtureResult(
             name=bin_path.stem,
             schema_version=schema_version,
@@ -135,7 +152,7 @@ def check_fixture(bin_path: Path) -> FixtureResult:
                     label="schema_version",
                     ok=False,
                     detail=f"unsupported schema_version {schema_version}; "
-                    "run_parity only knows v1 so far",
+                    f"run_parity knows {sorted(_SUPPORTED_SCHEMA_VERSIONS)}",
                 )
             ],
         )

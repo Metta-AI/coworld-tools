@@ -118,15 +118,18 @@ def _load_sidecar(name: str) -> dict:
 @pytest.mark.parametrize("fixture_name", _FIXTURE_NAMES)
 def test_sprite_match_parity_all_fixtures(fixture_name: str) -> None:
     """Python ``match_actor_sprite_all`` must match the Nim oracle anchors
-    exactly on every fixture, for both flips, at crewmate budgets.
+    exactly on every fixture, for every (sprite, flip, budget) combination
+    the oracle records. v1 covered player only; v2 widens to body + ghost.
+    The kernel is sprite-agnostic, so the same check function handles all
+    actor sprites — we just use ``entry["atlas_index"]`` to pick the right
+    one from the baked atlas.
     """
     frame = _load_fixture_frame(fixture_name)
     sidecar = _load_sidecar(fixture_name)
-    sprite = load_sprite_atlas()[0]  # player sprite, atlas index 0
+    atlas = load_sprite_atlas()
 
     for entry in sidecar["sprite_matches"]:
-        assert entry["sprite"] == "player"
-        assert entry["atlas_index"] == 0
+        sprite = atlas[entry["atlas_index"]]
         mask = match_actor_sprite_all(
             frame,
             sprite,
@@ -139,7 +142,8 @@ def test_sprite_match_parity_all_fixtures(fixture_name: str) -> None:
         actual = sorted(zip(ys.tolist(), xs.tolist()))
         expected = [tuple(a) for a in entry["anchors"]]
         assert actual == expected, (
-            f"{fixture_name} flip_h={entry['flip_h']}: "
+            f"{fixture_name} sprite={entry['sprite']} "
+            f"flip_h={entry['flip_h']}: "
             f"actual={actual} expected={expected}"
         )
 
@@ -147,17 +151,21 @@ def test_sprite_match_parity_all_fixtures(fixture_name: str) -> None:
 @pytest.mark.parametrize("fixture_name", _FIXTURE_NAMES)
 def test_actor_color_index_parity_all_fixtures(fixture_name: str) -> None:
     """Python ``actor_color_index_all`` must agree with the Nim oracle at
-    every match-mask anchor (the only positions the oracle records).
+    every match-mask anchor (the only positions the oracle records). v1
+    covered player only; v2 widens to body + ghost. The kernel is
+    sprite-agnostic — we pick the right sprite per entry by atlas index.
     """
     frame = _load_fixture_frame(fixture_name)
     sidecar = _load_sidecar(fixture_name)
-    sprite = load_sprite_atlas()[0]
+    atlas = load_sprite_atlas()
 
     for entry in sidecar["actor_color_index"]:
+        sprite = atlas[entry["atlas_index"]]
         ci = actor_color_index_all(frame, sprite, flip_h=entry["flip_h"])
         for ay, ax, expected_idx in entry["indices"]:
             assert int(ci[ay, ax]) == int(expected_idx), (
-                f"{fixture_name} flip_h={entry['flip_h']} ({ay}, {ax}): "
+                f"{fixture_name} sprite={entry['sprite']} "
+                f"flip_h={entry['flip_h']} ({ay}, {ax}): "
                 f"got {int(ci[ay, ax])}, expected {expected_idx}"
             )
 
