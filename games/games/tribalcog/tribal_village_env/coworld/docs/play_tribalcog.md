@@ -19,7 +19,7 @@ Path("/tmp/tribalcog-config.json").write_text(json.dumps({
     "tokens": ["token-0"],
     "max_steps": 100,
     "seed": 0,
-    "step_seconds": 0.05,
+    "step_seconds": 0.1,
     "victory_condition": 0,
     "player_connect_timeout_seconds": 10,
     "render_every_steps": 5,
@@ -40,7 +40,9 @@ Open `/clients/global` for the live map. It connects to `/global` and renders
 the `tribalcog-global-sprite-v1` terrain/object/tint stream using the same PNG
 assets served from `/assets/...` as the player view. Team-owned citizens and
 lanterns are tinted with the active Nim team palette, and the territory tint
-layer is drawn over terrain before sprites.
+layer is drawn over terrain before sprites. Tiles outside current citizen
+vision are dimmed with a gray overlay; the server still sends the underlying
+global terrain and object state.
 
 Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
 overseer. The player page shows the team's fog-of-war global map, a

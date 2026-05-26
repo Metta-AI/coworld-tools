@@ -37,7 +37,7 @@ The game server sends state snapshots:
   "total_player_slots": 8,
   "team_scores": [0, 0, 0, 0, 0, 0, 0, 0],
   "team_connected_players": [1, 0, 0, 0, 0, 0, 0, 0],
-  "step_seconds": 0.05,
+  "step_seconds": 0.1,
   "global_view": {
     "protocol": "tribalcog-global-sprite-v1",
     "width": 306,
@@ -62,6 +62,11 @@ The game server sends state snapshots:
     "tint": {
       "encoding": "rgba8-base64",
       "columns": ["r", "g", "b", "a"],
+      "data": "..."
+    },
+    "visibility": {
+      "encoding": "u8-base64",
+      "labels": ["not_visible", "visible"],
       "data": "..."
     },
     "objects": {
@@ -94,6 +99,12 @@ lanterns, citizens, and other tint emitters write color into the map, and the
 alpha channel is the per-tile tint intensity used for territory scoring. Render
 terrain first, then apply the territory tint over that terrain, then render
 objects by `z`.
+
+`visibility` is a row-major `uint8` mask at the same dimensions as terrain:
+`1` means at least one relevant citizen can currently see the tile, and `0`
+means the browser should dim the tile with a gray overlay rather than painting
+it black. The global route computes this from all citizens; team-scoped player
+views compute it from that team's citizens.
 
 Objects are also compact: decode the base64 as little-endian signed 16-bit rows
 using the listed columns, map ordinals through `legend.object_layer`,

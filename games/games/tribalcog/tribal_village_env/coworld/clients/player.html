@@ -111,8 +111,11 @@
       bridge: "#8f7a52", fertile: "#6a8f3f", road: "#7a715d",
       grass: "#4f8146", dune: "#b69b55", sand: "#c8ad74",
       snow: "#d8e7e8", mud: "#685947", mountain: "#777b80",
-      fog: "#050706",
+      fog: "#5d6661",
     };
+    const fogOverlayColor = "rgba(150, 158, 154, 0.54)";
+    const terrainSpriteMinTile = 8;
+    const objectSpriteMinTile = 6;
     const defaultTeamColors = [
       "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
       "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
@@ -137,6 +140,7 @@
     let dragStartX = 0;
     let dragStartY = 0;
     let suppressClick = false;
+    let drawScheduled = false;
 
     mapCtx.imageSmoothingEnabled = false;
     pipCtx.imageSmoothingEnabled = false;
@@ -160,7 +164,7 @@
     document.getElementById("home").onclick = () => {
       autoFit = true;
       fitWorld();
-      drawMap();
+      requestDrawMap();
     };
     document.getElementById("applyProgram").onclick = applyProgram;
 
@@ -221,9 +225,10 @@
       world = {...view, objects: decodeObjects(view)};
       terrain = decodeTerrain(view.terrain);
       world.tint = decodeTint(view.tint, view.width, view.height);
+      world.visibility = decodeVisibility(view.visibility, view.width, view.height);
       if(!didFit || autoFit) fitWorld();
       didFit = true;
-      drawMap();
+      requestDrawMap();
     }
 
     function decodeTerrain(terrainInfo){
@@ -237,6 +242,14 @@
       const bytes = new Uint8Array(width * height * 4);
       if(!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
       const raw = atob(tintInfo.data || "");
+      for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
+      return bytes;
+    }
+
+    function decodeVisibility(visibilityInfo, width, height){
+      if(!visibilityInfo || visibilityInfo.encoding !== "u8-base64") return null;
+      const bytes = new Uint8Array(width * height);
+      const raw = atob(visibilityInfo.data || "");
       for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
       return bytes;
     }
@@ -312,7 +325,7 @@
       mapCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
       mapCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
       if(didFit && autoFit) fitWorld();
-      drawMap();
+      requestDrawMap();
     }
 
     function fitWorld(){
@@ -359,40 +372,92 @@
       return {minX: 0, minY: 0, maxX: world.width - 1, maxY: world.height - 1};
     }
 
+    function requestDrawMap(){
+      if(drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(() => {
+        drawScheduled = false;
+        drawMap();
+      });
+    }
+
     function drawMap(){
       const dpr = devicePixelRatio || 1;
       mapCtx.setTransform(dpr,0,0,dpr,0,0);
       mapCtx.imageSmoothingEnabled = false;
       mapCtx.clearRect(0,0,mapCanvas.clientWidth || 1,mapCanvas.clientHeight || 1);
       if(!world || !terrain) return;
-      for(let y=0;y<world.height;y++){
-        for(let x=0;x<world.width;x++){
+      const range = visibleRange();
+      for(let y=range.startY;y<range.endY;y++){
+        for(let x=range.startX;x<range.endX;x++){
           const id = terrain[y * world.width + x] || 0;
           const sprite = (world.terrain.sprites || [])[id] || {};
           const px = offsetX + x * tileSize;
           const py = offsetY + y * tileSize;
-          mapCtx.fillStyle = sprite.color || terrainColors[sprite.label] || "#4b534c";
+          const isFog = sprite.label === "fog";
+          mapCtx.fillStyle = isFog ? terrainColors.fog : (sprite.color || terrainColors[sprite.label] || "#4b534c");
           mapCtx.fillRect(px, py, tileSize, tileSize);
-          drawCover(mapCtx, sprite.asset, px, py, tileSize, tileSize);
-          drawTerritoryTint(mapCtx, territoryTintAt(x, y), px, py, tileSize, tileSize);
+          if(!isFog && tileSize >= terrainSpriteMinTile){
+            drawCover(mapCtx, sprite.asset, px, py, tileSize, tileSize);
+          }
+          if(!isFog){
+            drawTerritoryTint(mapCtx, territoryTintAt(x, y), px, py, tileSize, tileSize);
+          }
         }
       }
       for(const object of world.objects || []){
         const px = offsetX + object.x * tileSize;
         const py = offsetY + object.y * tileSize;
-        drawContain(
-          mapCtx,
-          object.asset,
-          px + tileSize*.08,
-          py + tileSize*.08,
-          tileSize*.84,
-          tileSize*.84,
-          teamColor(object.team_id),
-        );
+        if(px > viewWidth() || py > viewHeight() || px + tileSize < 0 || py + tileSize < 0) continue;
+        const tintColor = teamColor(object.team_id);
+        if(tileSize < objectSpriteMinTile){
+          const dotSize = Math.max(1.4, tileSize * (object.thing === "agent" ? 0.6 : 0.45));
+          mapCtx.fillStyle = tintColor || object.color || "#dbe6df";
+          mapCtx.fillRect(px + (tileSize - dotSize) / 2, py + (tileSize - dotSize) / 2, dotSize, dotSize);
+        } else {
+          drawContain(
+            mapCtx,
+            object.asset,
+            px + tileSize*.08,
+            py + tileSize*.08,
+            tileSize*.84,
+            tileSize*.84,
+            tintColor,
+          );
+        }
         if(object.agent_id === latest?.selected_agent_id) ring(mapCtx, px, py, tileSize, "#f2f5de");
         if(selectedBuilding && object.x === selectedBuilding.x && object.y === selectedBuilding.y) ring(mapCtx, px, py, tileSize, "#9ee7ff");
       }
+      drawVisibilityOverlay(range);
       badgeEl.textContent = `team ${latest?.team_id ?? "-"} fog`;
+    }
+
+    function visibleRange(){
+      return {
+        startX: clamp(Math.floor((-offsetX) / tileSize) - 1, 0, world.width - 1),
+        startY: clamp(Math.floor((-offsetY) / tileSize) - 1, 0, world.height - 1),
+        endX: clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, world.width),
+        endY: clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, world.height),
+      };
+    }
+
+    function drawVisibilityOverlay(range){
+      if(!world?.visibility) return;
+      mapCtx.save();
+      mapCtx.fillStyle = fogOverlayColor;
+      for(let y=range.startY;y<range.endY;y++){
+        for(let x=range.startX;x<range.endX;x++){
+          const visible = world.visibility[y * world.width + x] || 0;
+          if(visible > 0 || terrainLabelAt(x, y) === "fog") continue;
+          mapCtx.fillRect(offsetX + x * tileSize, offsetY + y * tileSize, tileSize, tileSize);
+        }
+      }
+      mapCtx.restore();
+    }
+
+    function terrainLabelAt(x, y){
+      const id = terrain[y * world.width + x] || 0;
+      return ((world.terrain.sprites || [])[id] || {}).label || null;
     }
 
     function onPointerDown(event){
@@ -417,7 +482,7 @@
       if(dragging){
         offsetX += event.clientX - dragX;
         offsetY += event.clientY - dragY;
-        drawMap();
+        requestDrawMap();
       }
       dragX = event.clientX;
       dragY = event.clientY;
@@ -466,7 +531,7 @@
               teamColor(drawable.team_id),
             );
           }
-          if(cell.obscured){ pipCtx.fillStyle = "rgba(6,8,8,.78)"; pipCtx.fillRect(x,y,size,size); }
+          if(cell.obscured){ pipCtx.fillStyle = fogOverlayColor; pipCtx.fillRect(x,y,size,size); }
         }
       }
       ring(pipCtx, view.center.x * size, view.center.y * size, size, "#f2f5de");
@@ -500,7 +565,7 @@
           programSourceEl.textContent = building.program.source || "-";
         }
         send({type:"town.select_building", x, y});
-        drawMap();
+        requestDrawMap();
       }
     }
 
@@ -547,7 +612,7 @@
       const worldY = (screenY - offsetY) / oldSize;
       offsetX = screenX - worldX * tileSize;
       offsetY = screenY - worldY * tileSize;
-      drawMap();
+      requestDrawMap();
     }
 
     function drawCover(ctx, src, x, y, w, h){
@@ -595,7 +660,7 @@
       if(!entry){
         const image = new Image();
         entry = {image, loaded:false, failed:false};
-        image.onload = () => { entry.loaded = true; drawMap(); if(latest?.sprite_view) drawPip(latest.sprite_view); };
+        image.onload = () => { entry.loaded = true; requestDrawMap(); if(latest?.sprite_view) drawPip(latest.sprite_view); };
         image.onerror = () => { entry.failed = true; };
         image.src = src;
         spriteCache.set(src, entry);

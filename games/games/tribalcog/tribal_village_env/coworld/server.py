@@ -55,6 +55,10 @@ SIM_AGENT_COUNT = TEAM_COUNT * AGENTS_PER_TEAM
 PLAYER_SLOT_COUNT = TEAM_COUNT
 NPC_AGENT_COUNT = 6
 TOTAL_AGENT_COUNT = SIM_AGENT_COUNT + NPC_AGENT_COUNT
+DEFAULT_STEP_SECONDS = 0.1
+DEFAULT_RENDER_EVERY_STEPS = 5
+THREAT_VISION_RANGE = 12
+SCOUT_VISION_RANGE = 18
 
 TERRAIN_LABELS = [
     "empty",
@@ -360,6 +364,7 @@ UNIT_CLASS_LABELS = [
     "heavy_cavalry_archer",
     "hand_cannoneer",
 ]
+SCOUT_UNIT_CLASS_ID = UNIT_CLASS_LABELS.index("scout")
 GLOBAL_OBJECT_LAYERS = ["background", "foreground"]
 GLOBAL_OBJECT_COLUMNS = [
     "layer",
@@ -547,7 +552,7 @@ TERRAIN_COLORS = {
     "snow": "#d8e7e8",
     "mud": "#685947",
     "mountain": "#777b80",
-    "fog": "#050706",
+    "fog": "#5d6661",
 }
 TEAM_COLORS = [
     "#e3655b",
@@ -735,10 +740,10 @@ class CoworldConfig:
         max_steps = int(data.get("max_steps", 1000))
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1")
-        step_seconds = float(data.get("step_seconds", 0.05))
+        step_seconds = float(data.get("step_seconds", DEFAULT_STEP_SECONDS))
         if step_seconds <= 0:
             raise ValueError("step_seconds must be greater than 0")
-        render_every_steps = int(data.get("render_every_steps", 5))
+        render_every_steps = int(data.get("render_every_steps", DEFAULT_RENDER_EVERY_STEPS))
         if render_every_steps < 1:
             raise ValueError("render_every_steps must be at least 1")
         return cls(
@@ -1310,6 +1315,34 @@ def _global_object_payload(rows: list[list[int]], asset_catalog: list[str]) -> d
     }
 
 
+def _current_visibility_mask(
+    cells: np.ndarray,
+    *,
+    team_id: int | None = None,
+) -> np.ndarray:
+    visibility = np.zeros((cells.shape[0], cells.shape[1]), dtype=np.uint8)
+    if cells.size == 0:
+        return visibility
+
+    agent_mask = cells[:, :, GLOBAL_CELL_THING_KIND] == GLOBAL_THING_LABELS.index("agent")
+    if team_id is not None:
+        agent_mask &= cells[:, :, GLOBAL_CELL_THING_TEAM] == team_id
+    agent_positions = np.argwhere(agent_mask)
+    for y, x in agent_positions:
+        unit_class_id = int(cells[y, x, GLOBAL_CELL_THING_UNIT_CLASS])
+        radius = (
+            SCOUT_VISION_RANGE
+            if unit_class_id == SCOUT_UNIT_CLASS_ID
+            else THREAT_VISION_RANGE
+        )
+        min_y = max(0, int(y) - radius)
+        max_y = min(cells.shape[0], int(y) + radius + 1)
+        min_x = max(0, int(x) - radius)
+        max_x = min(cells.shape[1], int(x) + radius + 1)
+        visibility[min_y:max_y, min_x:max_x] = 1
+    return visibility
+
+
 def iter_global_objects(global_view: dict[str, Any]):
     payload = global_view.get("objects", [])
     if isinstance(payload, list):
@@ -1504,6 +1537,7 @@ def global_sprite_view_from_cells(
     cells: np.ndarray,
     *,
     team_colors: list[str] | None = None,
+    visibility_team_id: int | None = None,
 ) -> dict[str, Any]:
     if cells.ndim != 3 or cells.shape[2] < GLOBAL_CELL_FIELD_COUNT:
         raise ValueError("global sprite cells must be an HxWx17 int16 array")
@@ -1525,6 +1559,7 @@ def global_sprite_view_from_cells(
     tint[:, :, 1] = np.clip(cells[:, :, GLOBAL_CELL_TINT_G], 0, 255).astype(np.uint8)
     tint[:, :, 2] = np.clip(cells[:, :, GLOBAL_CELL_TINT_B], 0, 255).astype(np.uint8)
     tint[:, :, 3] = np.clip(cells[:, :, GLOBAL_CELL_TINT_ALPHA], 0, 255).astype(np.uint8)
+    visibility = _current_visibility_mask(cells, team_id=visibility_team_id)
     object_rows: list[list[int]] = []
     object_sprites: list[str] = []
     object_sprite_ids: dict[str, int] = {}
@@ -1583,6 +1618,13 @@ def global_sprite_view_from_cells(
             "data": base64.b64encode(np.ascontiguousarray(tint).tobytes()).decode(
                 "ascii"
             ),
+        },
+        "visibility": {
+            "encoding": "u8-base64",
+            "labels": ["not_visible", "visible"],
+            "data": base64.b64encode(
+                np.ascontiguousarray(visibility).tobytes()
+            ).decode("ascii"),
         },
         "objects": _global_object_payload(object_rows, object_sprites),
         "object_count": len(object_rows),
@@ -1745,7 +1787,11 @@ class TribalCogCoworld:
         cells = self.env.team_global_sprite_cells(team_id)
         if cells is None:
             return self.global_sprite_view()
-        return global_sprite_view_from_cells(cells, team_colors=self._team_colors())
+        return global_sprite_view_from_cells(
+            cells,
+            team_colors=self._team_colors(),
+            visibility_team_id=team_id,
+        )
 
     def _team_colors(self) -> list[str]:
         colors = None
@@ -1769,7 +1815,11 @@ class TribalCogCoworld:
         if team_cells is None:
             team_cells = self.env.global_sprite_cells()
         global_view = (
-            global_sprite_view_from_cells(team_cells, team_colors=self._team_colors())
+            global_sprite_view_from_cells(
+                team_cells,
+                team_colors=self._team_colors(),
+                visibility_team_id=team_id,
+            )
             if team_cells is not None
             else None
         )

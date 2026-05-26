@@ -177,7 +177,7 @@
       "game_config": {
         "max_steps": 1000,
         "seed": 0,
-        "step_seconds": 0.05,
+        "step_seconds": 0.1,
         "victory_condition": 0,
         "player_connect_timeout_seconds": 180,
         "render_every_steps": 5
