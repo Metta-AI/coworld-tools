@@ -311,7 +311,6 @@
       for(const object of world.objects || []){
         const px = offsetX + object.x * tileSize;
         const py = offsetY + object.y * tileSize;
-        if(object.team_id !== null && object.team_id !== undefined) halo(mapCtx, px, py, tileSize, object.color || "#fff");
         drawContain(mapCtx, object.asset, px + tileSize*.08, py + tileSize*.08, tileSize*.84, tileSize*.84);
         if(object.agent_id === latest?.selected_agent_id) ring(mapCtx, px, py, tileSize, "#f2f5de");
         if(selectedBuilding && object.x === selectedBuilding.x && object.y === selectedBuilding.y) ring(mapCtx, px, py, tileSize, "#9ee7ff");
@@ -404,14 +403,6 @@
         spriteCache.set(src, entry);
       }
       return entry.loaded && !entry.failed ? entry.image : null;
-    }
-
-    function halo(ctx, x, y, size, color){
-      ctx.save();
-      ctx.globalAlpha = .62;
-      ctx.fillStyle = color;
-      ctx.fillRect(x + size*.22, y + size*.72, size*.56, Math.max(2, size*.16));
-      ctx.restore();
     }
 
     function ring(ctx, x, y, size, color){

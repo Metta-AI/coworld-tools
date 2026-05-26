@@ -357,9 +357,6 @@
         const x = offsetX + object.x * tileSize;
         const y = offsetY + object.y * tileSize;
         if (x > viewWidth() || y > viewHeight() || x + tileSize < 0 || y + tileSize < 0) continue;
-        if (object.team_id !== null && object.team_id !== undefined) {
-          drawTeamHalo(x, y, tileSize, object.color || "#ffffff");
-        }
         const inset = object.layer === "background" ? 0.05 : 0.08;
         const drawn = drawContain(
           object.asset,
@@ -369,7 +366,6 @@
           tileSize * (1 - inset * 2),
         );
         if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize);
-        if (object.team_id === controlledSlot) drawControlledRing(x, y, tileSize);
       }
     }
 
@@ -403,28 +399,6 @@
       }
       if (entry.failed || !entry.loaded) return null;
       return entry.image;
-    }
-
-    function drawTeamHalo(x, y, size, color) {
-      const gradient = ctx.createRadialGradient(
-        x + size / 2, y + size * 0.62, size * 0.12,
-        x + size / 2, y + size * 0.62, size * 0.52,
-      );
-      gradient.addColorStop(0, color);
-      gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-      ctx.fillStyle = gradient;
-      ctx.globalAlpha = 0.62;
-      ctx.fillRect(x, y, size, size);
-      ctx.globalAlpha = 1;
-    }
-
-    function drawControlledRing(x, y, size) {
-      ctx.strokeStyle = "#f4f7df";
-      ctx.lineWidth = Math.max(2, Math.floor(size * 0.08));
-      ctx.strokeRect(x + 2, y + 2, size - 4, size - 4);
-      ctx.strokeStyle = "rgba(7, 10, 8, 0.8)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 5, y + 5, size - 10, size - 10);
     }
 
     function drawGlyph(glyph, x, y, size) {
