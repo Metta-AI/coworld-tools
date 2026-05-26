@@ -7,19 +7,19 @@ loop; architecture historically called "Cyborg"). This is the SDK's
 **first concrete in-repo game client**.
 
 > **Status (2026-05-26)**: **P0 + P1 sub-stacks S1, S2, and S3 landed;
-> S4 next.** Idle/noop agent runs end-to-end through the `bitscreen_v1`
-> WebSocket bridge. Baked perception data (palette, sprite atlas, map
-> rasters, walk/wall masks, font) is checked in with a digest-pinned
-> regenerator. `perception/{frame,sprite_match,actors,tasks}.py` are
-> byte-exact against the Nim oracle on all 10 fixtures — 160 parity
-> checks per run, all green (5 sprite_match + 5 actor_color_index + 5
-> orchestrated actor checks + 1 radar_dots, x 10 fixtures). The parity
-> rig (oracle dumper + v2 sidecars + `run_parity.py` CLI + CI gate)
-> covers every v2 sidecar key. 173 tests green
-> (`pytest players/among_them/coborg/tests`). **S4** brings localize,
-> ocr, voting, interstitial, ignore, and the deferred task-icon half
-> of `tasks.py` (see `PLAN.md` §12 item 5).
-> See [`PLAN.md` §6](./PLAN.md#6-phasing) for the phase tracker.
+> S4 in flight.** Idle/noop agent runs end-to-end through the
+> `bitscreen_v1` WebSocket bridge. Baked perception data (palette,
+> sprite atlas, map rasters, walk/wall masks, font) is checked in
+> with a digest-pinned regenerator. `perception/{frame,sprite_match,actors,tasks}.py`
+> are byte-exact against the Nim oracle on all 10 fixtures (160
+> parity checks per run, all green) and have been audited /
+> tightened for swappability and Pythonic style — see `PLAN.md`
+> §14. 176 tests green (`pytest players/among_them/coborg/tests`).
+> **S4** ports the remaining perception modules in dependency order:
+> interstitial → ignore → localize → task-icon (the deferred half
+> of `tasks.py`) → ocr → voting. Sidecar schema rolls v3 → v5 as
+> the corresponding fields land. See [`PLAN.md` §6](./PLAN.md#6-phasing)
+> for the phase + sub-stack tracker.
 
 ---
 
