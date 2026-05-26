@@ -312,7 +312,7 @@ def _format_report(results: Iterable[FixtureResult], verbose: bool) -> str:
     lines.append("")
     lines.append(
         f"{fixture_pass}/{fixture_total} fixture(s) parity-green; "
-        f"{total_checks - total_fails}/{total_checks} kernel checks ok"
+        f"{total_checks - total_fails}/{total_checks} parity checks ok"
     )
     return "\n".join(lines)
 

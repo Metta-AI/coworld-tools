@@ -7,23 +7,26 @@ Author of this plan: prior Claude Code session; record carried over for a fresh
 session to pick up cold.
 
 > **Current status (2026-05-26):** P0 + P1 sub-stacks **S1** (baked
-> assets) and **S2** (frame + sprite_match + parity rig) are landed;
-> P1 sub-stack **S3** (actors + radar-dot scan) is in flight. The
-> idle/noop runtime, action resolver, stderr trace sinks,
+> assets), **S2** (frame + sprite_match + parity rig), and **S3**
+> (actors + radar-dot scan) are landed; P1 sub-stack **S4** (the
+> remaining perception modules + deferred task-icon scan) is next.
+> The idle/noop runtime, action resolver, stderr trace sinks,
 > `bitscreen_v1` WebSocket bridge, Dockerfile, `build.sh`, and
-> `scripts/play_local.sh` are in place. `perception/frame.py` and
-> `perception/sprite_match.py` are byte-exact against the Nim oracle
-> on all 10 fixtures; the parity spine — 10 fixtures, Nim oracle
-> dumper at `perception/parity/extract_nim_oracle/` emitting JSON
-> sidecars at `schema_version=1`, `run_parity.py` CLI + library API,
-> and CI gate — is the scaffolding new modules plug into.
-> `pytest players/among_them/coborg/tests` is green (134 tests).
-> R1 toolchain flake (§10) was root-caused and resolved 2026-05-13.
-> §12 items 1–4 (D8, D9, P4 stop point, parity-oracle source) were
-> all confirmed 2026-05-22; §12 item 5 (S3 scope tightening — defer
-> task-icon scan to S4 alongside localize) was recorded 2026-05-26.
-> See [`README.md`](./README.md) for the runnable surface today and
-> [`DESIGN.md`](./DESIGN.md) for the durable architecture notes.
+> `scripts/play_local.sh` are in place. `perception/frame.py`,
+> `perception/sprite_match.py`, `perception/actors.py`, and the
+> radar-dot half of `perception/tasks.py` are byte-exact against
+> the Nim oracle on all 10 fixtures (160 parity checks per run, all
+> green). The parity spine — 10 fixtures, Nim oracle dumper at
+> `perception/parity/extract_nim_oracle/` emitting JSON sidecars at
+> `schema_version=2`, `run_parity.py` CLI + library API, and CI gate
+> — covers every v2 sidecar key. `pytest players/among_them/coborg/tests`
+> is green (173 tests). R1 toolchain flake (§10) was root-caused and
+> resolved 2026-05-13. §12 items 1–4 (D8, D9, P4 stop point,
+> parity-oracle source) were all confirmed 2026-05-22; §12 item 5
+> (S3 scope tightening — defer task-icon scan to S4 alongside
+> localize) was recorded 2026-05-26. See [`README.md`](./README.md)
+> for the runnable surface today and [`DESIGN.md`](./DESIGN.md) for
+> the durable architecture notes.
 
 ---
 
@@ -524,8 +527,8 @@ schema version bumps with each widening):
 |---|---|---|---|
 | S1 | Baked assets: palette + sprite_atlas + map_pixels + walk/wall_mask + font + digest-pinned regenerator | n/a (data only) | Landed 2026-05-22 |
 | S2 | `perception/frame.py` + `perception/sprite_match.py`; Nim oracle dumper; 10 fixtures + sidecars; `run_parity.py` CLI + library + CI gate | v1 | Landed 2026-05-22 |
-| **S3** | `perception/actors.py` (role / self-color / bodies / ghosts / crewmates) + `perception/tasks.py` (radar-dot scan only — task-icon scan deferred to S4 per §12 item 5) | v2 | **In flight** |
-| S4 | `perception/interstitial.py`, `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred task-icon half of `tasks.py` (needs localize's camera offset) | v3+ | Pending |
+| S3 | `perception/actors.py` (role / self-color / bodies / ghosts / crewmates) + `perception/tasks.py` (radar-dot scan only — task-icon scan deferred to S4 per §12 item 5); parity gate widened to all v2 keys | v2 | Landed 2026-05-26 |
+| **S4** | `perception/interstitial.py`, `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred task-icon half of `tasks.py` (needs localize's camera offset) | v3+ | **Next** |
 
 **Done when**:
 1. All parity tests pass at the highest landed schema version.

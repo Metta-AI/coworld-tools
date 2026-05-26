@@ -7,19 +7,22 @@ human iterating on the port can run the exact same checks locally::
 
     uv run python -m players.among_them.coborg.perception.parity.run_parity
 
-As of S3 P1 kickoff (sidecar ``schema_version == 2``) the oracle emits:
+With S3 closed (sidecar ``schema_version == 2``) the oracle emits and
+the gate checks **16 parity checks per fixture x 10 fixtures = 160
+checks total**:
 
-- kernel-level outputs at v1 shape, widened to body + ghost sprites
-  alongside the original player sprite (5 ``sprite_match`` entries +
-  5 ``actor_color_index`` entries = **10 kernel checks per fixture**
-  for 10 fixtures = 100 checks total); these are what the gate
-  currently asserts;
-- orchestrated outputs (``role``, ``self_color``, ``crewmates``,
-  ``bodies``, ``ghosts``, ``radar_dots``) emitted but **not yet
-  checked** — concrete checks land alongside the matching Python
-  ports in S3.2 (``actors.py``) and S3.3 (``tasks.py`` radar-dot
-  half). S4 widens to v3+ for the deferred task-icon scan and the
-  remaining perception modules.
+- 5 ``sprite_match`` entries (player x {flip=False, True} + body x
+  {flip=False} + ghost x {flip=False, True}, each at its actor-type
+  budget) and 5 matching ``actor_color_index`` entries — kernel-level
+  checks against the S2 ports (``frame.py``, ``sprite_match.py``);
+- 5 orchestrated checks (``role``, ``self_color``, ``crewmates``,
+  ``bodies``, ``ghosts``) against the S3.2 port (``actors.py``);
+- 1 orchestrated check (``radar_dots``) against the S3.3 port
+  (``tasks.py`` radar-dot half).
+
+S4 widens to ``schema_version == 3`` for the deferred task-icon scan
+plus the remaining perception modules (interstitial, ignore, localize,
+ocr, voting).
 """
 
 from __future__ import annotations
