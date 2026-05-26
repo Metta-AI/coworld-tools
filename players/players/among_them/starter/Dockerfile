@@ -60,7 +60,7 @@ COPY --from=build /workspace/bitworld/clients/data ./clients/data
 
 WORKDIR /workspace/bitworld/among_them/players
 
-# The ivotewell binary reads COGAMES_ENGINE_WS_URL from the environment when
+# The ivotewell binary reads COWORLD_PLAYER_WS_URL from the environment when
 # set (see ``ivotewell.nim``'s ``main``). The Coworld runner injects that
 # variable into the container at episode start. No CLI flags are needed.
 CMD ["/bin/ivotewell"]
