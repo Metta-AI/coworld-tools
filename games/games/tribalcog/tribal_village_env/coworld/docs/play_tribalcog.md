@@ -11,7 +11,7 @@ leagues inject 8 tokens, one per town/team. Local smoke tests may provide fewer
 tokens; towns without a connected controller run the built-in default policies.
 
 ```bash
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 from pathlib import Path
 
@@ -33,7 +33,7 @@ Run the server:
 COGAME_CONFIG_URI=file:///tmp/tribalcog-config.json \
 COGAME_RESULTS_URI=file:///tmp/tribalcog-results.json \
 COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
-python -m tribal_village_env.coworld.server
+uv run python -m tribal_village_env.coworld.server
 ```
 
 Open `/clients/global` for the live map. It connects to `/global` and renders
@@ -71,7 +71,7 @@ and falls back to `COGAMES_ENGINE_WS_URL` for older local harnesses:
 
 ```bash
 COWORLD_PLAYER_WS_URL=ws://localhost:8080/player?slot=0\&token=token-0 \
-python -m tribal_village_env.coworld.player
+uv run python -m tribal_village_env.coworld.player
 ```
 
 The default mode is `TRIBALCOG_PLAYER_MODE=overseer`, which watches the
@@ -106,5 +106,8 @@ image with `COGAME_REPLAY_SERVER=1` and iframes:
 /clients/replay?uri=<replay-uri>
 ```
 
-The replay client opens `/replay?uri=<replay-uri>`, decompresses `.json.z`
-artifacts, and draws the native object timeline.
+The replay artifact is an action log: initial deterministic setup plus one
+`uint16` action row for every agent at every simulation step. `/replay` expands
+that compact action log into the object timeline expected by the browser when a
+viewer asks for it, so live games do not maintain per-object JSON time series in
+the hot loop.

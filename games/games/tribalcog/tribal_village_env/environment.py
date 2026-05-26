@@ -298,6 +298,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
                     ctypes.c_void_p,
                     ctypes.c_void_p,
                     ctypes.c_void_p,
+                    ctypes.c_int32,
                 ],
                 ctypes.c_int32,
                 False,
@@ -329,6 +330,18 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             (
                 "tribal_village_get_team_color_rgb",
                 [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_get_game_seed",
+                [ctypes.c_void_p],
+                ctypes.c_int32,
+                True,
+            ),
+            (
+                "tribal_village_write_last_actions",
+                [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32],
                 ctypes.c_int32,
                 True,
             ),
@@ -585,6 +598,24 @@ class TribalVillageEnv(pufferlib.PufferEnv):
                 return None
             colors.append(f"#{int(rgb) & 0xFFFFFF:06x}")
         return colors
+
+    def game_seed(self) -> int | None:
+        seed = self._optional_env_i32("tribal_village_get_game_seed", default=0)
+        if seed is None:
+            return None
+        return int(seed)
+
+    def last_actions(self) -> np.ndarray | None:
+        actions = np.empty(self.num_agents, dtype=np.uint16)
+        written = self._optional_env_ffi(
+            "tribal_village_write_last_actions",
+            actions.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int32(actions.size),
+            default=0,
+        )
+        if int(written or 0) <= 0:
+            return None
+        return actions
 
     def _research_at(self, name: str, agent_id: int, building_x: int, building_y: int) -> bool:
         return self._optional_env_bool(name, agent_id, building_x, building_y)

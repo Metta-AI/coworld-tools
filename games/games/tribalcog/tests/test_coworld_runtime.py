@@ -42,6 +42,7 @@ from tribal_village_env.coworld.server import (
     UNIT_CLASS_LAYER,
     CoworldConfig,
     TribalCogCoworld,
+    _decode_action_rows,
     asset_media_type,
     decode_action,
     decode_binary_action,
@@ -387,6 +388,62 @@ def test_load_replay_data_reads_zlib_json(tmp_path: Path) -> None:
     replay_path.write_bytes(zlib.compress(json.dumps(payload).encode()))
 
     assert load_replay_data(str(replay_path)) == payload
+
+
+def test_decode_action_rows_reads_uint16_action_log() -> None:
+    actions = np.asarray([[1, 2, 300], [0, 59, 307]], dtype="<u2")
+    replay = {
+        "num_agents": 3,
+        "actions": {
+            "encoding": "u16le-base64",
+            "shape": [2, 3],
+            "data": base64.b64encode(actions.tobytes()).decode("ascii"),
+        },
+    }
+
+    rows = _decode_action_rows(replay)
+
+    assert rows.dtype == np.dtype("<u2")
+    assert rows.tolist() == [[1, 2, 300], [0, 59, 307]]
+
+
+def test_coworld_replay_bytes_are_action_log(tmp_path: Path) -> None:
+    class DummyEnv:
+        num_agents = 3
+
+    config = CoworldConfig.from_dict(
+        {
+            "tokens": ["token-0"],
+            "max_steps": 2,
+            "seed": 5,
+            "step_seconds": 0.01,
+            "victory_condition": 0,
+            "render_every_steps": 1,
+        }
+    )
+    action_path = tmp_path / "replay.json.z.actions"
+    action_bytes = np.asarray([[1, 2, 3], [4, 5, 6]], dtype="<u2").tobytes()
+    action_path.write_bytes(action_bytes)
+
+    state = TribalCogCoworld.__new__(TribalCogCoworld)
+    state.config = config
+    state.env = DummyEnv()
+    state.local_replay_path = tmp_path / "replay.json.z"
+    state.action_replay_path = action_path
+    state.replay_steps = 2
+    state.actual_seed = 5
+    state.initial_global_view = {"width": 9, "height": 7}
+    state.replay_action_file = action_path.open("rb")
+    try:
+        replay = json.loads(zlib.decompress(state._replay_bytes({"steps": 2})))
+    finally:
+        state.replay_action_file.close()
+
+    assert replay["format"] == "tribalcog-action-log-v1"
+    assert replay["map_size"] == [9, 7]
+    assert replay["actions"]["shape"] == [2, 3]
+    assert replay["action_argument_count"] == 28
+    assert base64.b64decode(replay["actions"]["data"]) == action_bytes
 
 
 def test_wasm_asset_resolution_stays_inside_build_dir(tmp_path: Path) -> None:

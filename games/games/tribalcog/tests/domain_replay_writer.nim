@@ -1,7 +1,7 @@
-## Tests replay writer episode recording and JSON output.
+## Tests replay writer episode recording and action-log JSON output.
 
 import
-  std/[json, os, strformat, unittest],
+  std/[base64, json, os, unittest],
   zippy,
   environment, test_utils, types
 
@@ -85,7 +85,7 @@ suite "Replay Writer - No-Op Safety":
     rw.replayWriter = nil
 
 suite "Replay Writer - Full Replay Output":
-  test "complete episode produces valid compressed JSON":
+  test "complete episode produces compact action-log JSON":
     let tmpPath = getTempDir() / "test_full_replay.json.z"
     putEnv("TV_REPLAY_PATH", tmpPath)
     delEnv("TV_REPLAY_DIR")
@@ -97,7 +97,6 @@ suite "Replay Writer - Full Replay Output":
     for _ in 0 ..< 5:
       var actions: array[MapAgents, uint16]
       env.step(addr actions)
-      rw.maybeLogReplayStep(env, addr actions)
 
     rw.maybeFinalizeReplay(env)
 
@@ -106,88 +105,28 @@ suite "Replay Writer - Full Replay Output":
     let replay = readReplayJson(tmpPath)
     check replay.hasKey("version")
     check replay["version"].getInt() == 3
+    check replay["format"].getStr() == "tribalcog-action-log-v1"
     check replay.hasKey("num_agents")
     check replay["num_agents"].getInt() == MapAgents
     check replay.hasKey("max_steps")
-    check replay["max_steps"].getInt() > 0
+    check replay["max_steps"].getInt() == 5
     check replay.hasKey("map_size")
     check replay["map_size"][0].getInt() == MapWidth
     check replay["map_size"][1].getInt() == MapHeight
-    check replay.hasKey("objects")
-    check replay["objects"].kind == JArray
-    check replay["objects"].len > 0
     check replay.hasKey("action_names")
-    check replay.hasKey("item_names")
-    check replay.hasKey("type_names")
+    check replay["action_argument_count"].getInt() == ActionArgumentCount
     check replay.hasKey("file_name")
-    check replay.hasKey("mg_config")
+    check replay.hasKey("initial_state")
+    check replay["initial_state"]["seed"].getInt() == env.gameSeed
+    check replay.hasKey("actions")
+    check replay["actions"]["encoding"].getStr() == "u16le-base64"
+    check replay["actions"]["shape"][0].getInt() == 5
+    check replay["actions"]["shape"][1].getInt() == MapAgents
+    check decode(replay["actions"]["data"].getStr()).len == 5 * MapAgents * sizeof(uint16)
 
-    echo(
-      &"  Replay: {replay[\"objects\"].len} objects, " &
-      &"{replay[\"max_steps\"].getInt()} steps"
-    )
-
-    removeFile(tmpPath)
-    delEnv("TV_REPLAY_PATH")
-    rw.replayWriter = nil
-
-  test "replay objects have required const fields":
-    let tmpPath = getTempDir() / "test_replay_fields.json.z"
-    putEnv("TV_REPLAY_PATH", tmpPath)
-    delEnv("TV_REPLAY_DIR")
-    rw.replayWriter = nil
-
-    let env = newEnvironment()
-    rw.maybeStartReplayEpisode(env)
-
-    var actions: array[MapAgents, uint16]
-    env.step(addr actions)
-    rw.maybeLogReplayStep(env, addr actions)
-
-    rw.maybeFinalizeReplay(env)
-
-    let replay = readReplayJson(tmpPath)
-    for obj in replay["objects"].items:
-      check obj.hasKey("id")
-      check obj.hasKey("type_name")
-      check obj.hasKey("inventory_max")
-      check obj.hasKey("location")
-
-    echo &"  Validated {replay[\"objects\"].len} object schemas"
-
-    removeFile(tmpPath)
-    delEnv("TV_REPLAY_PATH")
-    rw.replayWriter = nil
-
-  test "agent objects have agent-specific series":
-    let tmpPath = getTempDir() / "test_replay_agent.json.z"
-    putEnv("TV_REPLAY_PATH", tmpPath)
-    delEnv("TV_REPLAY_DIR")
-    rw.replayWriter = nil
-
-    let env = newEnvironment()
-    rw.maybeStartReplayEpisode(env)
-
-    var actions: array[MapAgents, uint16]
-    env.step(addr actions)
-    rw.maybeLogReplayStep(env, addr actions)
-
-    rw.maybeFinalizeReplay(env)
-
-    let replay = readReplayJson(tmpPath)
-    var foundAgent = false
-    for obj in replay["objects"].items:
-      if obj.hasKey("agent_id"):
-        foundAgent = true
-        check obj.hasKey("group_id")
-        check obj.hasKey("action_id")
-        check obj.hasKey("action_param")
-        check obj.hasKey("action_success")
-        check obj.hasKey("current_reward")
-        check obj.hasKey("total_reward")
-        check obj.hasKey("is_frozen")
-        break
-    check foundAgent
+    let bytes = decode(replay["actions"]["data"].getStr())
+    check uint8(bytes[0]) == 0'u8
+    check uint8(bytes[1]) == 0'u8
 
     removeFile(tmpPath)
     delEnv("TV_REPLAY_PATH")
@@ -205,11 +144,10 @@ suite "Replay Writer - Full Replay Output":
 
     var actions: array[MapAgents, uint16]
     env.step(addr actions)
-    rw.maybeLogReplayStep(env, addr actions)
     rw.maybeFinalizeReplay(env)
 
     let replay = readReplayJson(tmpPath)
-    check replay["mg_config"]["label"].getStr() == "Custom Test Label"
+    check replay["initial_state"]["label"].getStr() == "Custom Test Label"
 
     removeFile(tmpPath)
     delEnv("TV_REPLAY_PATH")
@@ -229,23 +167,14 @@ suite "Replay Writer - Full Replay Output":
     for _ in 0 ..< numSteps:
       var actions: array[MapAgents, uint16]
       env.step(addr actions)
-      rw.maybeLogReplayStep(env, addr actions)
 
     rw.maybeFinalizeReplay(env)
 
     let replay = readReplayJson(tmpPath)
     check replay["max_steps"].getInt() == numSteps
-
-    # Verify that some location series changed across steps.
-    var hasMultiEntry = false
-    for obj in replay["objects"].items:
-      if obj.hasKey("location"):
-        let locSeries = obj["location"]
-        if locSeries.kind == JArray and locSeries.len > 1:
-          hasMultiEntry = true
-          break
-    echo &"  Multi-entry location series found: {hasMultiEntry}"
-    check replay["max_steps"].getInt() == numSteps
+    check replay["actions"]["shape"][0].getInt() == numSteps
+    check decode(replay["actions"]["data"].getStr()).len ==
+      numSteps * MapAgents * sizeof(uint16)
 
     removeFile(tmpPath)
     delEnv("TV_REPLAY_PATH")

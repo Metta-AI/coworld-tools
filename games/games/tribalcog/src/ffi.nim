@@ -24,7 +24,9 @@ type
     survivalPenalty*: float32
     deathPenalty*: float32
 
-var globalEnv: Environment = nil
+var
+  globalEnv: Environment = nil
+  lastActions: array[MapAgents, uint16]
 
 # --- AI Controller nil-check templates ---
 # These eliminate repeated boilerplate for checking globalController.aiController
@@ -155,6 +157,7 @@ proc tribal_village_reset_and_get_obs(
   ## When seed > 0, uses deterministic world generation; seed=0 uses current time.
   try:
     globalEnv.reset(int(seed))
+    lastActions = default(array[MapAgents, uint16])
     # Observations are lazily built - rebuild now since we're returning them
     globalEnv.ensureObservations()
 
@@ -194,6 +197,8 @@ proc tribal_village_step_with_pointers(
       # Read actions directly from buffer (no conversion)
       copyMem(addr actions[0], actions_buffer, sizeof(actions))
 
+    lastActions = actions
+
     # Step environment
     globalEnv.step(unsafeAddr actions)
 
@@ -215,6 +220,23 @@ proc tribal_village_step_with_pointers(
     return 1
   except CatchableError:
     return 0
+
+proc tribal_village_get_game_seed*(env: pointer): int32 {.exportc, dynlib.} =
+  discard env
+  if isNil(globalEnv):
+    return 0
+  globalEnv.gameSeed.int32
+
+proc tribal_village_write_last_actions*(
+  env: pointer,
+  out_buffer: ptr UncheckedArray[uint16],
+  out_len: int32
+): int32 {.exportc, dynlib.} =
+  discard env
+  if out_buffer.isNil or out_len < MapAgents:
+    return 0
+  copyMem(out_buffer, addr lastActions[0], sizeof(lastActions))
+  MapAgents.int32
 
 proc tribal_village_get_num_agents(): int32 {.exportc, dynlib.} =
   MapAgents.int32

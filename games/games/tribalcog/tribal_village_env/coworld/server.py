@@ -21,7 +21,11 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 
 from tribal_village_env.build import get_runtime_project_root
-from tribal_village_env.environment import ACTION_SPACE_SIZE, TribalVillageEnv
+from tribal_village_env.environment import (
+    ACTION_ARGUMENT_COUNT,
+    ACTION_SPACE_SIZE,
+    TribalVillageEnv,
+)
 
 CLIENTS_DIR = Path(__file__).parent / "clients"
 PROJECT_ROOT = get_runtime_project_root()
@@ -799,6 +803,158 @@ def load_replay_data(replay_uri: str) -> dict[str, Any]:
     return json.loads(replay_data)
 
 
+def _decode_action_rows(replay: dict[str, Any]) -> np.ndarray:
+    actions = replay.get("actions", {})
+    if not isinstance(actions, dict):
+        return np.zeros((0, SIM_AGENT_COUNT), dtype=np.uint16)
+    raw = base64.b64decode(actions.get("data") or "")
+    num_agents = int(replay.get("num_agents") or SIM_AGENT_COUNT)
+    if num_agents <= 0 or len(raw) % (num_agents * 2) != 0:
+        return np.zeros((0, max(1, num_agents)), dtype=np.uint16)
+    return np.frombuffer(raw, dtype="<u2").reshape((-1, num_agents))
+
+
+def _replay_object_key(obj: dict[str, Any]) -> str:
+    agent_id = obj.get("agent_id")
+    if agent_id is not None:
+        return f"agent:{agent_id}"
+    return ":".join(
+        [
+            "thing",
+            str(obj.get("layer") or ""),
+            str(obj.get("thing") or ""),
+            str(obj.get("asset") or ""),
+            str(obj.get("x") or 0),
+            str(obj.get("y") or 0),
+        ]
+    )
+
+
+def _add_replay_change(
+    replay_obj: dict[str, Any],
+    key: str,
+    step: int,
+    value: Any,
+) -> None:
+    series = replay_obj.setdefault(key, [])
+    if not series or series[-1][1] != value:
+        series.append([step, value])
+
+
+def _capture_replay_frame(
+    env: TribalVillageEnv,
+    *,
+    step: int,
+    replay_objects: dict[str, dict[str, Any]],
+    ordered_objects: list[dict[str, Any]],
+) -> None:
+    cells = env.global_sprite_cells()
+    if cells is None:
+        return
+    view = global_sprite_view_from_cells(cells, team_colors=env.team_colors(TEAM_COUNT))
+    seen: set[str] = set()
+    for obj in iter_global_objects(view):
+        key = _replay_object_key(obj)
+        seen.add(key)
+        replay_obj = replay_objects.get(key)
+        if replay_obj is None:
+            replay_obj = {
+                "id": len(ordered_objects) + 1,
+                "type_name": str(obj.get("thing") or "thing"),
+                "agent_id": obj.get("agent_id"),
+                "group_id": obj.get("team_id"),
+                "inventory_max": 0,
+            }
+            replay_objects[key] = replay_obj
+            ordered_objects.append(replay_obj)
+        color = obj.get("team_id")
+        _add_replay_change(
+            replay_obj,
+            "location",
+            step,
+            [int(obj.get("x", -1)), int(obj.get("y", -1))],
+        )
+        _add_replay_change(
+            replay_obj,
+            "color",
+            step,
+            int(color) if color is not None else TEAM_COUNT,
+        )
+
+    for key, replay_obj in replay_objects.items():
+        if key not in seen:
+            _add_replay_change(replay_obj, "location", step, [-1, -1])
+
+
+def materialize_replay_for_viewer(replay: dict[str, Any]) -> dict[str, Any]:
+    if replay.get("format") != "tribalcog-action-log-v1":
+        return replay
+
+    initial_raw = replay.get("initial_state", {})
+    initial = initial_raw if isinstance(initial_raw, dict) else {}
+    config = initial.get("config", {})
+    if not isinstance(config, dict):
+        config = {}
+    seed = int(initial.get("seed", replay.get("seed", 0)) or 0)
+    rows = _decode_action_rows(replay)
+    env = TribalVillageEnv(
+        config={
+            "max_steps": int(config.get("max_steps", max(1, len(rows) + 1))),
+            "victory_condition": int(config.get("victory_condition", 0)),
+            "ai_mode": "external",
+            "render_mode": "rgb_array",
+        }
+    )
+    replay_objects: dict[str, dict[str, Any]] = {}
+    ordered_objects: list[dict[str, Any]] = []
+    try:
+        env.reset(seed=seed)
+        _capture_replay_frame(
+            env,
+            step=0,
+            replay_objects=replay_objects,
+            ordered_objects=ordered_objects,
+        )
+        for index, row in enumerate(rows):
+            action_dict = {
+                f"agent_{agent_id}": int(action)
+                for agent_id, action in enumerate(row[: env.num_agents])
+                if int(action) != 0
+            }
+            env.step(action_dict)
+            _capture_replay_frame(
+                env,
+                step=index + 1,
+                replay_objects=replay_objects,
+                ordered_objects=ordered_objects,
+            )
+    finally:
+        env.close()
+
+    return {
+        "version": replay.get("version", 4),
+        "format": "tribalcog-object-timeline-v1",
+        "source_format": replay.get("format"),
+        "action_log": {
+            "num_agents": int(replay.get("num_agents") or rows.shape[1]),
+            "action_names": replay.get("action_names", ACTION_NAMES),
+            "action_argument_count": int(
+                replay.get("action_argument_count") or ACTION_ARGUMENT_COUNT
+            ),
+            "steps": int(rows.shape[0]),
+        },
+        "max_steps": int(rows.shape[0]) + 1,
+        "map_size": replay.get("map_size", [306, 192]),
+        "file_name": replay.get("file_name", "tribalcog-action-log.json.z"),
+        "mg_config": {
+            "label": initial.get("label", "Tribal Cog Coworld Replay")
+            if isinstance(initial, dict)
+            else "Tribal Cog Coworld Replay"
+        },
+        "objects": ordered_objects,
+    }
+
+
 def slot_to_team(slot: int) -> int:
     return slot
 
@@ -820,7 +976,7 @@ def decode_action(message: dict[str, Any]) -> int:
     if isinstance(raw_action, dict):
         verb = int(raw_action.get("verb", 0))
         argument = int(raw_action.get("argument", 0))
-        raw_action = verb * 28 + argument
+        raw_action = verb * ACTION_ARGUMENT_COUNT + argument
     try:
         action = int(raw_action)
     except (TypeError, ValueError):
@@ -858,7 +1014,7 @@ def decode_player_buttons(buttons: int) -> int:
         verb = 9
     else:
         verb = 1
-    return verb * 28 + direction
+    return verb * ACTION_ARGUMENT_COUNT + direction
 
 
 def decode_binary_action(message: bytes) -> int:
@@ -1457,8 +1613,11 @@ class TribalCogCoworld:
         self.replay_uri = replay_uri
         self.local_replay_path = _local_replay_path(replay_uri)
         self.local_replay_path.parent.mkdir(parents=True, exist_ok=True)
-        os.environ["TV_REPLAY_PATH"] = str(self.local_replay_path)
-        os.environ["TV_REPLAY_LABEL"] = "Tribal Cog Coworld Replay"
+        self.action_replay_path = self.local_replay_path.with_suffix(
+            self.local_replay_path.suffix + ".actions"
+        )
+        os.environ.pop("TV_REPLAY_PATH", None)
+        os.environ.pop("TV_REPLAY_DIR", None)
 
         self.env = TribalVillageEnv(
             config={
@@ -1469,6 +1628,10 @@ class TribalCogCoworld:
             }
         )
         self.env.reset(seed=config.seed)
+        self.actual_seed = self.env.game_seed() or config.seed
+        self.initial_global_view = self.global_sprite_view()
+        self.replay_steps = 0
+        self.replay_action_file = self.action_replay_path.open("wb")
 
         self.players: dict[int, WebSocket] = {}
         self.global_viewers: dict[WebSocket, bool] = {}
@@ -1491,6 +1654,8 @@ class TribalCogCoworld:
         self.lock = asyncio.Lock()
 
     def close(self) -> None:
+        with suppress(Exception):
+            self.replay_action_file.close()
         self.env.close()
 
     def validate_slot(self, slot: int, token: str) -> bool:
@@ -1714,10 +1879,19 @@ class TribalCogCoworld:
                 if action != 0
             }
             self.env.step(action_dict)
+            self._record_replay_step()
             self._update_scores()
             await self.broadcast()
             await asyncio.sleep(self.config.step_seconds)
         await self.finalize()
+
+    def _record_replay_step(self) -> None:
+        actions = self.env.last_actions()
+        if actions is None:
+            actions = np.zeros(self.env.num_agents, dtype=np.uint16)
+        row = np.ascontiguousarray(actions[: self.env.num_agents], dtype="<u2")
+        self.replay_action_file.write(row.tobytes())
+        self.replay_steps += 1
 
     async def broadcast(self) -> None:
         player_tasks = [
@@ -1832,16 +2006,50 @@ class TribalCogCoworld:
             server.should_exit = True
 
     def _replay_bytes(self, results: dict[str, Any]) -> bytes:
-        if self.local_replay_path.exists():
-            return self.local_replay_path.read_bytes()
-        fallback = {
-            "version": 1,
-            "label": "Tribal Cog Coworld Replay",
+        with suppress(Exception):
+            self.replay_action_file.flush()
+        action_bytes = (
+            self.action_replay_path.read_bytes()
+            if self.action_replay_path.exists()
+            else b""
+        )
+        replay = {
+            "version": 4,
+            "format": "tribalcog-action-log-v1",
+            "file_name": self.local_replay_path.name,
+            "num_agents": self.env.num_agents,
+            "max_steps": self.replay_steps,
+            "map_size": [
+                int(self.initial_global_view.get("width", 306))
+                if self.initial_global_view is not None
+                else 306,
+                int(self.initial_global_view.get("height", 192))
+                if self.initial_global_view is not None
+                else 192,
+            ],
+            "action_names": ACTION_NAMES,
+            "action_argument_count": ACTION_ARGUMENT_COUNT,
+            "initial_state": {
+                "seed": self.actual_seed,
+                "label": "Tribal Cog Coworld Replay",
+                "config": {
+                    "max_steps": self.config.max_steps,
+                    "seed": self.config.seed,
+                    "actual_seed": self.actual_seed,
+                    "victory_condition": self.config.victory_condition,
+                    "step_seconds": self.config.step_seconds,
+                    "render_every_steps": self.config.render_every_steps,
+                },
+                "global_view": self.initial_global_view,
+            },
+            "actions": {
+                "encoding": "u16le-base64",
+                "shape": [self.replay_steps, self.env.num_agents],
+                "data": base64.b64encode(action_bytes).decode("ascii"),
+            },
             "results": results,
-            "steps": self.env.step_count,
-            "team_scores": self.team_scores,
         }
-        return json.dumps(fallback).encode()
+        return zlib.compress(json.dumps(replay, separators=(",", ":")).encode())
 
 
 def winner_team(team_scores: list[float]) -> int | None:
@@ -1965,8 +2173,17 @@ async def replay_viewer(websocket: WebSocket) -> None:
         return
     await websocket.accept()
     try:
-        replay = load_replay_data(websocket.query_params["uri"])
-    except (OSError, ValueError, json.JSONDecodeError, zlib.error, gzip.BadGzipFile):
+        replay = materialize_replay_for_viewer(
+            load_replay_data(websocket.query_params["uri"])
+        )
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        json.JSONDecodeError,
+        zlib.error,
+        gzip.BadGzipFile,
+    ):
         await websocket.close(code=1008)
         return
     await websocket.send_json(

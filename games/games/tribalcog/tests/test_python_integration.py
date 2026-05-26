@@ -205,6 +205,23 @@ class TestEnvironmentLifecycle:
             assert env.step_count == 0
             assert len(obs) == env.num_agents
 
+    def test_reset_seed_round_trips_to_nim(self, env):
+        """Reset seed should reach Nim so compact action-log replays are deterministic."""
+        env.reset(seed=123)
+        assert env.game_seed() == 123
+        env.reset(seed=456)
+        assert env.game_seed() == 456
+
+    def test_last_actions_reflect_step_actions(self, env):
+        """The FFI exposes the raw action row used by the latest step."""
+        env.reset(seed=123)
+        env.step({"agent_0": ACTION_ARGUMENT_COUNT})
+        actions = env.last_actions()
+        assert actions is not None
+        assert actions.shape == (env.num_agents,)
+        assert actions.dtype == np.uint16
+        assert actions[0] == ACTION_ARGUMENT_COUNT
+
     def test_run_multiple_steps(self, env):
         """Run multiple steps without errors."""
         env.reset()

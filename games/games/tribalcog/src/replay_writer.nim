@@ -1,9 +1,13 @@
-## Replay serialization helpers for episode logging.
+## Action-log replay serialization.
+##
+## A replay is the initial deterministic setup plus one raw uint16 action row
+## per simulation step. Object timelines are derived from that log on demand by
+## replay tooling rather than maintained inside the live game loop.
 
 import
-  std/[json, os, tables],
+  std/[base64, json, os],
   zippy,
-  items, registry, replay_common, types
+  common_types, replay_common, types
 
 const
   DefaultReplayBaseName = "tribal_village"
@@ -11,17 +15,6 @@ const
   ReplayFileExtension = ".json.z"
 
 type
-  ReplaySeries = object
-    hasLast: bool
-    last: JsonNode
-    changes: seq[tuple[step: int, value: JsonNode]]
-
-  ReplayObject = ref object
-    id: int
-    constFields: Table[string, JsonNode]
-    series: Table[string, ReplaySeries]
-    active: bool
-
   ReplayWriter* = ref object
     enabled*: bool
     baseDir: string
@@ -31,12 +24,9 @@ type
     episodeIndex: int
     outputPath: string
     fileName: string
-    nextId: int
-    thingIds: Table[pointer, int]
-    objects: seq[ReplayObject]
-    totalRewards: array[MapAgents, float32]
-    lastInvalidCounts: array[MapAgents, int]
+    seed: int
     maxStep: int
+    actionBytes: string
     active: bool
 
 var
@@ -54,9 +44,21 @@ proc buildEpisodePath(writer: ReplayWriter): string =
     return writer.baseDir / fileName
   fileName
 
+proc appendActionRow(
+  writer: ReplayWriter,
+  actions: ptr array[MapAgents, uint16]
+) =
+  ## Append one little-endian uint16 action row.
+  writer.actionBytes.setLen(writer.actionBytes.len + MapAgents * sizeof(uint16))
+  var offset = writer.actionBytes.len - MapAgents * sizeof(uint16)
+  for agentId in 0 ..< MapAgents:
+    let value = actions[][agentId]
+    writer.actionBytes[offset] = char(value and 0xff'u16)
+    writer.actionBytes[offset + 1] = char((value shr 8) and 0xff'u16)
+    offset += 2
+
 proc maybeStartReplayEpisode*(env: Environment) =
   ## Initialize replay logging for a new episode when configured.
-  discard env
   var writer = replayWriter
   if writer.isNil:
     let
@@ -77,93 +79,18 @@ proc maybeStartReplayEpisode*(env: Environment) =
     replayWriter = writer
 
   inc writer.episodeIndex
-  writer.thingIds.clear()
-  writer.objects.setLen(0)
-  writer.nextId = 1
-  writer.totalRewards = default(array[MapAgents, float32])
-  writer.lastInvalidCounts = default(array[MapAgents, int])
   writer.maxStep = -1
+  writer.seed = env.gameSeed
+  writer.actionBytes.setLen(0)
   writer.active = true
   writer.outputPath = buildEpisodePath(writer)
   writer.fileName = extractFilename(writer.outputPath)
-
-proc addSeries(
-  replayObj: ReplayObject,
-  key: string,
-  step: int,
-  value: JsonNode
-) =
-  ## Append a changed value to one replay time series.
-  var replaySeries = replayObj.series.mgetOrPut(key, ReplaySeries())
-  if not replaySeries.hasLast:
-    replaySeries.changes.add((step: step, value: value))
-    replaySeries.last = value
-    replaySeries.hasLast = true
-  elif replaySeries.last != value:
-    replaySeries.changes.add((step: step, value: value))
-    replaySeries.last = value
-  replayObj.series[key] = replaySeries
-
-proc inventoryNode(thing: Thing): JsonNode =
-  ## Serialize one thing inventory as `[itemKind, count]` pairs.
-  result = newJArray()
-  for kind in ItemKind:
-    if kind == ikNone:
-      continue
-    let count = getInv(thing, kind)
-    if count <= 0:
-      continue
-    var pair = newJArray()
-    pair.add(newJInt(kind.int))
-    pair.add(newJInt(count))
-    result.add(pair)
-
-proc locationNode(pos: IVec2): JsonNode =
-  ## Serialize one map position as `[x, y]`.
-  result = newJArray()
-  result.add(newJInt(pos.x))
-  result.add(newJInt(pos.y))
-
-proc ensureReplayObject(
-  writer: ReplayWriter,
-  thing: Thing
-): ReplayObject =
-  ## Get or create the replay object entry for a thing.
-  let key = cast[pointer](thing)
-  var objectId = writer.thingIds.getOrDefault(key, 0)
-  if objectId == 0:
-    objectId = writer.nextId
-    inc writer.nextId
-    writer.thingIds[key] = objectId
-
-  if writer.objects.len < objectId:
-    writer.objects.setLen(objectId)
-
-  if writer.objects[objectId - 1].isNil:
-    let replayObj = ReplayObject(id: objectId)
-    replayObj.constFields = initTable[string, JsonNode]()
-    replayObj.series = initTable[string, ReplaySeries]()
-    replayObj.constFields["id"] = newJInt(objectId)
-    replayObj.constFields["type_name"] =
-      newJString(buildingSpriteKey(thing.kind))
-    if thing.kind == Agent:
-      replayObj.constFields["agent_id"] = newJInt(thing.agentId)
-      replayObj.constFields["group_id"] = newJInt(getTeamId(thing))
-      replayObj.constFields["inventory_max"] =
-        newJInt(MapObjectAgentMaxInventory)
-    elif thing.barrelCapacity > 0:
-      replayObj.constFields["inventory_max"] = newJInt(thing.barrelCapacity)
-    else:
-      replayObj.constFields["inventory_max"] = newJInt(0)
-    writer.objects[objectId - 1] = replayObj
-
-  writer.objects[objectId - 1]
 
 proc maybeLogReplayStep*(
   env: Environment,
   actions: ptr array[MapAgents, uint16]
 ) =
-  ## Record one environment step into the active replay.
+  ## Record one action row into the active replay.
   let writer = replayWriter
   if writer.isNil or not writer.active:
     return
@@ -172,107 +99,27 @@ proc maybeLogReplayStep*(
   if stepIndex < 0:
     return
   writer.maxStep = max(writer.maxStep, stepIndex)
-
-  var seen: seq[bool] = @[]
-  for thing in env.things:
-    if thing.isNil:
-      continue
-
-    let replayObj = writer.ensureReplayObject(thing)
-    let objectIdx = replayObj.id - 1
-    if objectIdx >= seen.len:
-      seen.setLen(objectIdx + 1)
-    seen[objectIdx] = true
-    replayObj.active = true
-
-    replayObj.addSeries("location", stepIndex, locationNode(thing.pos))
-    replayObj.addSeries(
-      "orientation",
-      stepIndex,
-      newJInt(thing.orientation.int)
-    )
-    replayObj.addSeries("inventory", stepIndex, inventoryNode(thing))
-    var color = 0
-    if thing.kind == Agent:
-      color = getTeamId(thing)
-    elif isBuildingKind(thing.kind) or thing.kind == Lantern:
-      color = max(0, thing.teamId)
-    replayObj.addSeries("color", stepIndex, newJInt(color))
-
-    if thing.kind == Agent:
-      let
-        agentId = thing.agentId
-        actionValue = actions[][agentId]
-        verb = actionValue.int div ActionArgumentCount
-        arg = actionValue.int mod ActionArgumentCount
-      var actionSuccess = false
-      if agentId >= 0 and agentId < env.stats.len:
-        let invalidNow = env.stats[agentId].actionInvalid
-        actionSuccess = invalidNow == writer.lastInvalidCounts[agentId]
-        writer.lastInvalidCounts[agentId] = invalidNow
-      replayObj.addSeries("action_id", stepIndex, newJInt(verb))
-      replayObj.addSeries("action_param", stepIndex, newJInt(arg))
-      replayObj.addSeries(
-        "action_success",
-        stepIndex,
-        newJBool(actionSuccess)
-      )
-      replayObj.addSeries(
-        "current_reward",
-        stepIndex,
-        newJFloat(env.rewards[agentId].float)
-      )
-      writer.totalRewards[agentId] += env.rewards[agentId]
-      replayObj.addSeries(
-        "total_reward",
-        stepIndex,
-        newJFloat(writer.totalRewards[agentId].float)
-      )
-      replayObj.addSeries(
-        "is_frozen",
-        stepIndex,
-        newJBool(thing.frozen > 0)
-      )
-
-  for idx, replayObj in writer.objects:
-    if replayObj.isNil:
-      continue
-    if idx >= seen.len or not seen[idx]:
-      if replayObj.active:
-        replayObj.active = false
-        replayObj.addSeries(
-          "location",
-          stepIndex,
-          locationNode(ivec2(-1, -1))
-        )
+  writer.appendActionRow(actions)
 
 proc buildReplayJson(writer: ReplayWriter): JsonNode =
-  ## Build the final replay JSON document for one episode.
+  ## Build the compressed action-log replay JSON document.
   result = newJObject()
   result["version"] = newJInt(ReplayVersion)
+  result["format"] = newJString("tribalcog-action-log-v1")
 
   var actionNames = newJArray()
   for name in ActionNames:
     actionNames.add(newJString(name))
   result["action_names"] = actionNames
-
-  var itemNames = newJArray()
-  for kind in ItemKind:
-    itemNames.add(newJString(ItemKindNames[kind]))
-  result["item_names"] = itemNames
-
-  var typeNames = newJArray()
-  for kind in ThingKind:
-    typeNames.add(newJString(buildingSpriteKey(kind)))
-  result["type_names"] = typeNames
+  result["action_argument_count"] = newJInt(ActionArgumentCount)
 
   result["num_agents"] = newJInt(MapAgents)
-  let maxSteps =
+  let steps =
     if writer.maxStep >= 0:
       writer.maxStep + 1
     else:
       0
-  result["max_steps"] = newJInt(maxSteps)
+  result["max_steps"] = newJInt(steps)
 
   var mapSize = newJArray()
   mapSize.add(newJInt(MapWidth))
@@ -280,24 +127,19 @@ proc buildReplayJson(writer: ReplayWriter): JsonNode =
   result["map_size"] = mapSize
   result["file_name"] = newJString(writer.fileName)
 
-  var mgConfig = newJObject()
-  mgConfig["label"] = newJString(writer.label)
-  result["mg_config"] = mgConfig
+  var initial = newJObject()
+  initial["seed"] = newJInt(writer.seed)
+  initial["label"] = newJString(writer.label)
+  result["initial_state"] = initial
 
-  var objectsArr = newJArray()
-  for replayObj in writer.objects:
-    if replayObj.isNil:
-      continue
-    var objNode = newJObject()
-    for key, value in replayObj.constFields:
-      objNode[key] = value
-    for key, replaySeries in replayObj.series:
-      objNode[key] = serializeChanges(replaySeries.changes)
-    objectsArr.add(objNode)
-  result["objects"] = objectsArr
+  var actions = newJObject()
+  actions["encoding"] = newJString("u16le-base64")
+  actions["shape"] = %*[steps, MapAgents]
+  actions["data"] = newJString(encode(writer.actionBytes))
+  result["actions"] = actions
 
 proc maybeFinalizeReplay*(env: Environment) =
-  ## Flush the active replay to disk and close the episode.
+  ## Flush the active action-log replay to disk and close the episode.
   discard env
   let writer = replayWriter
   if writer.isNil or not writer.active:

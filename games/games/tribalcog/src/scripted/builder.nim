@@ -24,6 +24,7 @@ const
   StrategicDropoffSearchRadius = 30
   StrategicDropoffMinResources = 5
   StrategicDropoffMinSpacing = 6
+  StrategicDropoffCacheInterval = 8
   BuilderThreatRadius* = 15
   BuilderFleeRadius* = 8
   BuilderFleeRadiusConst = BuilderFleeRadius
@@ -360,30 +361,45 @@ proc findStrategicDropoffTarget(
       x += gridStep
 
 var
-  strategicDropoffCache: PerAgentCache[
+  strategicDropoffCacheValid: array[MapRoomObjectsTeams, bool]
+  strategicDropoffCacheBucket: array[MapRoomObjectsTeams, int]
+  strategicDropoffCacheBase: array[MapRoomObjectsTeams, IVec2]
+  strategicDropoffCache: array[
+    MapRoomObjectsTeams,
     tuple[pos: IVec2, kind: ThingKind, found: bool]
   ]
+
+proc cachedStrategicDropoffTarget(
+  env: Environment,
+  agent: Thing
+): tuple[pos: IVec2, kind: ThingKind, found: bool] =
+  ## Strategic drop-off choice is team/base scoped; avoid rescanning every builder.
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return findStrategicDropoffTarget(env, agent)
+  let
+    basePos = agent.getBasePos()
+    bucket = env.currentStep div StrategicDropoffCacheInterval
+  if (not strategicDropoffCacheValid[teamId]) or
+      strategicDropoffCacheBucket[teamId] != bucket or
+      strategicDropoffCacheBase[teamId] != basePos:
+    strategicDropoffCache[teamId] = findStrategicDropoffTarget(env, agent)
+    strategicDropoffCacheBucket[teamId] = bucket
+    strategicDropoffCacheBase[teamId] = basePos
+    strategicDropoffCacheValid[teamId] = true
+  strategicDropoffCache[teamId]
 
 optionGuard(canStartBuilderStrategicDropoff, shouldTerminateBuilderStrategicDropoff):
   let teamId = getTeamId(agent)
   (controller.getBuildingCount(env, teamId, Granary) > 0 or
     controller.getBuildingCount(env, teamId, LumberCamp) > 0) and
-    strategicDropoffCache.getWithAgent(
-      env,
-      agent,
-      findStrategicDropoffTarget
-    ).found
+    cachedStrategicDropoffTarget(env, agent).found
 
 proc optBuilderStrategicDropoff(controller: Controller, env: Environment, agent: Thing,
                                 agentId: int, state: var AgentState): uint16 =
   ## Move to a resource cluster and build a drop-off building there.
   let teamId = getTeamId(agent)
-  let cached =
-    strategicDropoffCache.getWithAgent(
-      env,
-      agent,
-      findStrategicDropoffTarget
-    )
+  let cached = cachedStrategicDropoffTarget(env, agent)
   if not cached.found:
     return 0'u16
   let distToCluster = int(chebyshevDist(agent.pos, cached.pos))
