@@ -37,6 +37,11 @@ from enum import Enum
 import numpy as np
 
 from .data import (
+    ATLAS_BODY,
+    ATLAS_GHOST,
+    ATLAS_GHOST_ICON,
+    ATLAS_KILL_BUTTON,
+    ATLAS_PLAYER,
     PLAYER_BODY_LUT,
     PLAYER_COLORS,
     SHADE_TINT_COLOR,
@@ -47,17 +52,6 @@ from .data import (
 )
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from .sprite_match import match_actor_sprite_all
-
-
-# --- atlas slot indices (mirrors data/sprite_index.json) -------------------
-# Moved to perception/data/sprites.py in a follow-up commit.
-
-ATLAS_PLAYER = 0
-ATLAS_BODY = 1
-ATLAS_GHOST = 2
-ATLAS_TASK = 3
-ATLAS_KILL_BUTTON = 4
-ATLAS_GHOST_ICON = 5
 
 
 # --- actor scan budgets (mirror actors.nim constants) ---------------------

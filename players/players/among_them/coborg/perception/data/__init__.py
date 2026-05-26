@@ -35,11 +35,31 @@ from .palette import (
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
-from .sprites import SPRITE_COUNT, load_sprite_atlas, load_sprite_index
+from .sprites import (
+    ATLAS_BODY,
+    ATLAS_GHOST,
+    ATLAS_GHOST_ICON,
+    ATLAS_KILL_BUTTON,
+    ATLAS_PLAYER,
+    ATLAS_TASK,
+    SPRITE_COUNT,
+    load_sprite_atlas,
+    load_sprite_index,
+)
 
 verify_all()
+# Trigger the ATLAS_* invariant check in load_sprite_index (asserts the
+# JSON layout matches the named constants) at package import time, so a
+# drift fails loudly before any module that uses ATLAS_* runs.
+load_sprite_index()
 
 __all__ = [
+    "ATLAS_BODY",
+    "ATLAS_GHOST",
+    "ATLAS_GHOST_ICON",
+    "ATLAS_KILL_BUTTON",
+    "ATLAS_PLAYER",
+    "ATLAS_TASK",
     "BAKE_SCHEMA_VERSION",
     "BakeManifestMismatch",
     "DEFAULT_GLYPH_SPACING",

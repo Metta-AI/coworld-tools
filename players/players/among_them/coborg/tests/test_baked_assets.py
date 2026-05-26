@@ -17,6 +17,12 @@ from players.among_them.coborg.perception.data import (
     MAP_SHAPE,
     MAP_WIDTH,
     PALETTE,
+    ATLAS_BODY,
+    ATLAS_GHOST,
+    ATLAS_GHOST_ICON,
+    ATLAS_KILL_BUTTON,
+    ATLAS_PLAYER,
+    ATLAS_TASK,
     PALETTE_COLOR_TABLE_SIZE,
     PRINTABLE_ASCII_COUNT,
     SPRITE_COUNT,
@@ -188,6 +194,22 @@ def test_sprite_index_load_is_cached() -> None:
     i1 = load_sprite_index()
     i2 = load_sprite_index()
     assert i1 is i2
+
+
+def test_atlas_named_constants_match_sprite_index() -> None:
+    """The ``ATLAS_*`` constants in ``data.sprites`` are the named-access
+    surface for the atlas. They must agree with the canonical
+    ``sprite_index.json`` mapping, or callers using them will silently
+    pick the wrong sprite. The same invariant is also enforced at import
+    time by ``load_sprite_index`` itself; this test is the explicit
+    failure point so a future spritesheet rotation can't go unnoticed."""
+    index = load_sprite_index()
+    assert index["player"] == ATLAS_PLAYER
+    assert index["body"] == ATLAS_BODY
+    assert index["ghost"] == ATLAS_GHOST
+    assert index["task"] == ATLAS_TASK
+    assert index["kill_button"] == ATLAS_KILL_BUTTON
+    assert index["ghost_icon"] == ATLAS_GHOST_ICON
 
 
 def test_sprite_atlas_in_checked_in_manifest() -> None:
