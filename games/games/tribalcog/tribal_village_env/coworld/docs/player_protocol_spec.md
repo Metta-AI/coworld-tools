@@ -69,9 +69,16 @@ The server sends one JSON observation message per tick:
 ```
 
 `global_view` is the team fog-of-war map rendered with the same sprite/object
-schema as `/global`, except unrevealed cells are hidden. `sprite_view` and
-`observation` are centered on the selected citizen and keep the existing 11x11
-local view for inspection and lightweight policies.
+schema as `/global`, including `team_colors`, team-tinted sprites, and the RGBA
+territory tint layer used for score. Unrevealed cells are hidden. `sprite_view`
+and `observation` are centered on the selected citizen and keep the existing
+11x11 local view for inspection and lightweight policies.
+
+Each `sprite_view` cell includes the same visual information needed to match the
+map: `terrain_asset`, `thing_drawables` with per-object `team_id`, and
+`territory_tint` with `{rgba, color, alpha}`. Player clients should render this
+11x11 view as a crop of the fog-scoped map, not as a separate bitworld-style
+pixel protocol.
 
 The final message has `"type": "final"` and the same shape as an observation.
 

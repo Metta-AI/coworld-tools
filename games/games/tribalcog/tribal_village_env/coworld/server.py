@@ -483,7 +483,11 @@ GLOBAL_CELL_THING_UNIT_CLASS = 9
 GLOBAL_CELL_THING_AGENT_ID = 10
 GLOBAL_CELL_TINT = 11
 GLOBAL_CELL_ELEVATION = 12
-GLOBAL_CELL_FIELD_COUNT = 13
+GLOBAL_CELL_TINT_R = 13
+GLOBAL_CELL_TINT_G = 14
+GLOBAL_CELL_TINT_B = 15
+GLOBAL_CELL_TINT_ALPHA = 16
+GLOBAL_CELL_FIELD_COUNT = 17
 SPRITE_PLAYER_INPUT_MESSAGE = 0x84
 BUTTON_UP = 0x01
 BUTTON_DOWN = 0x02
@@ -551,6 +555,7 @@ TEAM_COLORS = [
     "#6f8be8",
     "#b46ce0",
 ]
+ZERO_TINT_RGBA = [0, 0, 0, 0]
 ORIENTATION_ASSET_SUFFIXES = {
     "north": "n",
     "south": "s",
@@ -908,6 +913,20 @@ def _cell_color(terrain: str, team_id: int | None, obscured: bool) -> str:
     return TERRAIN_COLORS.get(terrain, "#4b534c")
 
 
+def _normalize_team_colors(team_colors: list[str] | None = None) -> list[str]:
+    colors = list(TEAM_COLORS)
+    if team_colors is None:
+        return colors
+    for index, color in enumerate(team_colors[:TEAM_COUNT]):
+        if isinstance(color, str) and color.startswith("#") and len(color) == 7:
+            colors[index] = color
+    return colors
+
+
+def _hex_color(rgb: list[int]) -> str:
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+
+
 def _sprite_key_exists(key: str) -> bool:
     return (ASSETS_DIR / f"{key}.png").is_file()
 
@@ -1203,6 +1222,7 @@ def sprite_view_from_global_cells(
     center_y: int,
     *,
     radius: int = 5,
+    team_colors: list[str] | None = None,
 ) -> dict[str, Any]:
     width = radius * 2 + 1
     crop = np.full((width, width, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
@@ -1216,10 +1236,12 @@ def sprite_view_from_global_cells(
                 continue
             crop[local_y, local_x] = cells[world_y, world_x]
 
-    crop_view = global_sprite_view_from_cells(crop)
+    crop_view = global_sprite_view_from_cells(crop, team_colors=team_colors)
     terrain_bytes = base64.b64decode(crop_view["terrain"]["data"])
     terrain = np.frombuffer(terrain_bytes, dtype=np.uint8).reshape((width, width))
     terrain_sprites = crop_view["terrain"]["sprites"]
+    tint_bytes = base64.b64decode(crop_view["tint"]["data"])
+    tint = np.frombuffer(tint_bytes, dtype=np.uint8).reshape((width, width, 4))
     objects_by_cell: dict[tuple[int, int], list[dict[str, Any]]] = {}
     for obj in iter_global_objects(crop_view):
         objects_by_cell.setdefault((int(obj["x"]), int(obj["y"])), []).append(obj)
@@ -1240,8 +1262,18 @@ def sprite_view_from_global_cells(
             thing_assets = [
                 str(obj["asset"]) for obj in objects if obj.get("asset") is not None
             ]
+            thing_drawables = [
+                {
+                    "asset": str(obj["asset"]),
+                    "team_id": obj.get("team_id"),
+                    "thing": str(obj["thing"]),
+                }
+                for obj in objects
+                if obj.get("asset") is not None
+            ]
             top_object = objects[-1] if objects else None
             team_id = top_object.get("team_id") if top_object is not None else None
+            tint_rgba = [int(value) for value in tint[local_y, local_x]]
             row.append(
                 {
                     "x": local_x,
@@ -1259,6 +1291,7 @@ def sprite_view_from_global_cells(
                     "terrain_asset": None if obscured else terrain_info.get("asset"),
                     "thing_asset": thing_assets[-1] if thing_assets else None,
                     "thing_assets": [] if obscured else thing_assets,
+                    "thing_drawables": [] if obscured else thing_drawables,
                     "sprite_asset": (
                         thing_assets[-1]
                         if thing_assets
@@ -1283,6 +1316,11 @@ def sprite_view_from_global_cells(
                     ),
                     "idle": False,
                     "tint": int(crop[local_y, local_x, GLOBAL_CELL_TINT]),
+                    "territory_tint": {
+                        "rgba": ZERO_TINT_RGBA if obscured else tint_rgba,
+                        "color": "#000000" if obscured else _hex_color(tint_rgba),
+                        "alpha": 0.0 if obscured else round(tint_rgba[3] / 255.0, 3),
+                    },
                     "obscured": obscured,
                 }
             )
@@ -1306,9 +1344,13 @@ def sprite_view_from_global_cells(
     }
 
 
-def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
+def global_sprite_view_from_cells(
+    cells: np.ndarray,
+    *,
+    team_colors: list[str] | None = None,
+) -> dict[str, Any]:
     if cells.ndim != 3 or cells.shape[2] < GLOBAL_CELL_FIELD_COUNT:
-        raise ValueError("global sprite cells must be an HxWx13 int16 array")
+        raise ValueError("global sprite cells must be an HxWx17 int16 array")
 
     height = int(cells.shape[0])
     width = int(cells.shape[1])
@@ -1322,6 +1364,11 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
         np.uint8,
         copy=False,
     )
+    tint = np.zeros((height, width, 4), dtype=np.uint8)
+    tint[:, :, 0] = np.clip(cells[:, :, GLOBAL_CELL_TINT_R], 0, 255).astype(np.uint8)
+    tint[:, :, 1] = np.clip(cells[:, :, GLOBAL_CELL_TINT_G], 0, 255).astype(np.uint8)
+    tint[:, :, 2] = np.clip(cells[:, :, GLOBAL_CELL_TINT_B], 0, 255).astype(np.uint8)
+    tint[:, :, 3] = np.clip(cells[:, :, GLOBAL_CELL_TINT_ALPHA], 0, 255).astype(np.uint8)
     object_rows: list[list[int]] = []
     object_sprites: list[str] = []
     object_sprite_ids: dict[str, int] = {}
@@ -1365,11 +1412,19 @@ def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
         "width": width,
         "height": height,
         "tile_size": 24,
+        "team_colors": _normalize_team_colors(team_colors),
         "terrain": {
             "encoding": "u8-base64",
             "labels": GLOBAL_TERRAIN_LABELS,
             "sprites": _global_terrain_sprites(),
             "data": base64.b64encode(np.ascontiguousarray(terrain).tobytes()).decode(
+                "ascii"
+            ),
+        },
+        "tint": {
+            "encoding": "rgba8-base64",
+            "columns": ["r", "g", "b", "a"],
+            "data": base64.b64encode(np.ascontiguousarray(tint).tobytes()).decode(
                 "ascii"
             ),
         },
@@ -1525,7 +1580,13 @@ class TribalCogCoworld:
         cells = self.env.team_global_sprite_cells(team_id)
         if cells is None:
             return self.global_sprite_view()
-        return global_sprite_view_from_cells(cells)
+        return global_sprite_view_from_cells(cells, team_colors=self._team_colors())
+
+    def _team_colors(self) -> list[str]:
+        colors = None
+        if hasattr(self.env, "team_colors"):
+            colors = self.env.team_colors(TEAM_COUNT)
+        return _normalize_team_colors(colors)
 
     def _selected_agent(self, team_id: int) -> int:
         selected = int(self.selected_citizens.get(team_id, team_agent_start(team_id)))
@@ -1543,7 +1604,7 @@ class TribalCogCoworld:
         if team_cells is None:
             team_cells = self.env.global_sprite_cells()
         global_view = (
-            global_sprite_view_from_cells(team_cells)
+            global_sprite_view_from_cells(team_cells, team_colors=self._team_colors())
             if team_cells is not None
             else None
         )
@@ -1554,7 +1615,11 @@ class TribalCogCoworld:
             else None
         )
         sprite_view = (
-            sprite_view_from_global_cells(team_cells, *selected_position)
+            sprite_view_from_global_cells(
+                team_cells,
+                *selected_position,
+                team_colors=self._team_colors(),
+            )
             if team_cells is not None and selected_position is not None
             else sprite_view_from_observation(obs)
         )
@@ -1595,7 +1660,7 @@ class TribalCogCoworld:
         cells = self.env.global_sprite_cells()
         if cells is None:
             return None
-        return global_sprite_view_from_cells(cells)
+        return global_sprite_view_from_cells(cells, team_colors=self._team_colors())
 
     def snapshot(self, *, include_frame: bool = False) -> dict[str, Any]:
         snapshot: dict[str, Any] = {

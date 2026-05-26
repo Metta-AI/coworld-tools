@@ -28,6 +28,10 @@ from tribal_village_env.coworld.server import (
     GLOBAL_CELL_THING_ORIENTATION,
     GLOBAL_CELL_THING_TEAM,
     GLOBAL_CELL_THING_UNIT_CLASS,
+    GLOBAL_CELL_TINT_ALPHA,
+    GLOBAL_CELL_TINT_B,
+    GLOBAL_CELL_TINT_G,
+    GLOBAL_CELL_TINT_R,
     OBSCURED_LAYER,
     ORIENTATION_LAYER,
     PLAYER_SLOT_COUNT,
@@ -158,13 +162,46 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     cells[1, 2, GLOBAL_CELL_THING_ORIENTATION] = 0
     cells[1, 2, GLOBAL_CELL_THING_UNIT_CLASS] = 0
     cells[1, 2, GLOBAL_CELL_THING_AGENT_ID] = 7
+    cells[0, 1, GLOBAL_CELL_TINT_R] = 255
+    cells[0, 1, GLOBAL_CELL_TINT_G] = 96
+    cells[0, 1, GLOBAL_CELL_TINT_B] = 48
+    cells[0, 1, GLOBAL_CELL_TINT_ALPHA] = 128
 
     view = global_sprite_view_from_cells(cells)
 
     assert view["protocol"] == "tribalcog-global-sprite-v1"
     assert view["width"] == 3
     assert view["height"] == 2
+    assert view["team_colors"][0] == "#e3655b"
     assert base64.b64decode(view["terrain"]["data"]) == bytes([0, 0, 0, 0, 0, 6])
+    assert base64.b64decode(view["tint"]["data"]) == bytes(
+        [
+            0,
+            0,
+            0,
+            0,
+            255,
+            96,
+            48,
+            128,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+    )
     assert view["terrain"]["sprites"][6]["asset"] == "/assets/grass.png"
     assert view["object_count"] == 2
     assert view["objects"]["encoding"] == "i16-base64"
@@ -186,6 +223,10 @@ def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
     cells[2, 2, GLOBAL_CELL_THING_ORIENTATION] = 0
     cells[2, 2, GLOBAL_CELL_THING_UNIT_CLASS] = 0
     cells[2, 2, GLOBAL_CELL_THING_AGENT_ID] = 7
+    cells[2, 2, GLOBAL_CELL_TINT_R] = 227
+    cells[2, 2, GLOBAL_CELL_TINT_G] = 101
+    cells[2, 2, GLOBAL_CELL_TINT_B] = 91
+    cells[2, 2, GLOBAL_CELL_TINT_ALPHA] = 192
 
     view = sprite_view_from_global_cells(cells, 2, 2, radius=1)
 
@@ -197,7 +238,19 @@ def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
     assert center["terrain"] == "shallow_water"
     assert center["thing"] == "agent"
     assert center["thing_assets"] == ["/assets/oriented/gatherer.n.png"]
+    assert center["thing_drawables"] == [
+        {
+            "asset": "/assets/oriented/gatherer.n.png",
+            "team_id": 0,
+            "thing": "agent",
+        }
+    ]
     assert center["team_id"] == 0
+    assert center["territory_tint"] == {
+        "rgba": [227, 101, 91, 192],
+        "color": "#e3655b",
+        "alpha": 0.753,
+    }
 
 
 def test_sprite_player_policy_moves_toward_visible_resource() -> None:

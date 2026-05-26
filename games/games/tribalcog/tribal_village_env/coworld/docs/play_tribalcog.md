@@ -37,8 +37,10 @@ python -m tribal_village_env.coworld.server
 ```
 
 Open `/clients/global` for the live map. It connects to `/global` and renders
-the `tribalcog-global-sprite-v1` terrain/object stream using the same PNG
-assets served from `/assets/...` as the player view.
+the `tribalcog-global-sprite-v1` terrain/object/tint stream using the same PNG
+assets served from `/assets/...` as the player view. Team-owned citizens and
+lanterns are tinted with the active Nim team palette, and the territory tint
+layer is drawn over terrain before sprites.
 
 Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
 overseer. The player page shows the team's fog-of-war global map, a

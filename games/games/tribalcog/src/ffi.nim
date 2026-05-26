@@ -44,6 +44,10 @@ const
   ObsTileStride = ObservationWidth * ObservationHeight
   ObsAgentStride = ObservationLayers * ObsTileStride
 
+proc toByte(value: float32): uint8 =
+  let iv = max(0, min(255, int(value * 255.0)))
+  uint8(iv)
+
 proc applyObscuredMask(env: Environment, obs_buffer: ptr UncheckedArray[uint8]) =
   ## Mask tiles above the observer elevation and mark the ObscuredLayer.
   let radius = ObservationRadius
@@ -228,10 +232,24 @@ proc tribal_village_get_map_width(): int32 {.exportc, dynlib.} =
 proc tribal_village_get_map_height(): int32 {.exportc, dynlib.} =
   MapHeight.int32
 
-const GlobalSpriteCellFields = 13
+const GlobalSpriteCellFields = 17
 
 proc tribal_village_get_global_sprite_cell_fields(): int32 {.exportc, dynlib.} =
   GlobalSpriteCellFields.int32
+
+proc tribal_village_get_team_color_rgb*(env: pointer, teamId: int32): int32 {.exportc, dynlib.} =
+  ## Return one team color as 0xRRGGBB for Coworld clients.
+  discard env
+  if isNil(globalEnv):
+    return -1
+  let team = teamId.int
+  if team < 0 or team >= globalEnv.teamColors.len:
+    return -1
+  let color = globalEnv.teamColors[team]
+  let r = toByte(color.r).int32
+  let g = toByte(color.g).int32
+  let b = toByte(color.b).int32
+  (r shl 16) or (g shl 8) or b
 
 proc globalSpriteTeam(thing: Thing): int16 =
   if thing.isNil:
@@ -279,6 +297,7 @@ proc tribal_village_write_global_sprite_cells(
   ##   6..10 blocking thing kind/team/orientation/unit_class/agent_id
   ##   11 action tint code
   ##   12 elevation
+  ##   13..16 territory tint r/g/b/a bytes
   discard env
   let required = MapWidth * MapHeight * GlobalSpriteCellFields
   if out_buffer.isNil:
@@ -289,6 +308,7 @@ proc tribal_village_write_global_sprite_cells(
     return 0
 
   try:
+    globalEnv.ensureTintColors()
     for y in 0 ..< MapHeight:
       for x in 0 ..< MapWidth:
         let base = (y * MapWidth + x) * GlobalSpriteCellFields
@@ -297,6 +317,11 @@ proc tribal_village_write_global_sprite_cells(
         writeGlobalSpriteThing(out_buffer, base + 6, globalEnv.grid[x][y])
         out_buffer[base + 11] = globalEnv.actionTintCode[x][y].int16
         out_buffer[base + 12] = globalEnv.elevation[x][y].int16
+        let tint = globalEnv.computedTintColors[x][y]
+        out_buffer[base + 13] = toByte(tint.r).int16
+        out_buffer[base + 14] = toByte(tint.g).int16
+        out_buffer[base + 15] = toByte(tint.b).int16
+        out_buffer[base + 16] = toByte(tint.intensity).int16
     return required.int32
   except CatchableError:
     return 0
@@ -311,6 +336,10 @@ proc writeHiddenGlobalSpriteCell(
   writeGlobalSpriteThing(out_buffer, base + 6, nil)
   out_buffer[base + 11] = 0'i16
   out_buffer[base + 12] = 0'i16
+  out_buffer[base + 13] = 0'i16
+  out_buffer[base + 14] = 0'i16
+  out_buffer[base + 15] = 0'i16
+  out_buffer[base + 16] = 0'i16
 
 proc tribal_village_write_team_global_sprite_cells(
   env: pointer,
@@ -331,6 +360,7 @@ proc tribal_village_write_team_global_sprite_cells(
     return 0
 
   try:
+    globalEnv.ensureTintColors()
     let team = teamId.int
     for y in 0 ..< MapHeight:
       for x in 0 ..< MapWidth:
@@ -343,6 +373,11 @@ proc tribal_village_write_team_global_sprite_cells(
         writeGlobalSpriteThing(out_buffer, base + 6, globalEnv.grid[x][y])
         out_buffer[base + 11] = globalEnv.actionTintCode[x][y].int16
         out_buffer[base + 12] = globalEnv.elevation[x][y].int16
+        let tint = globalEnv.computedTintColors[x][y]
+        out_buffer[base + 13] = toByte(tint.r).int16
+        out_buffer[base + 14] = toByte(tint.g).int16
+        out_buffer[base + 15] = toByte(tint.b).int16
+        out_buffer[base + 16] = toByte(tint.intensity).int16
     return required.int32
   except CatchableError:
     return 0
@@ -460,11 +495,6 @@ proc tribal_village_get_team_stockpile(
   if resourceId < 0 or resourceId > ord(StockpileResource.high):
     return 0
   stockpileCount(globalEnv, teamId.int, StockpileResource(resourceId)).int32
-
-# Render full map as HxWx3 RGB (uint8)
-proc toByte(value: float32): uint8 =
-  let iv = max(0, min(255, int(value * 255.0)))
-  uint8(iv)
 
 proc tribal_village_render_rgb(
   env: pointer,

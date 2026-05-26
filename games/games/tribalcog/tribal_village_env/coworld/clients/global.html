@@ -82,11 +82,13 @@
       mountain: "#777b80",
       fog: "#050706",
     };
-    const teamColors = [
+    const defaultTeamColors = [
       "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
       "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
     ];
+    const teamColors = defaultTeamColors.slice();
     const spriteCache = new Map();
+    const tintedSpriteCache = new Map();
     const pressedKeys = new Set();
     const keyMasks = {
       w: 0x01,
@@ -225,9 +227,11 @@
     }
 
     function loadWorld(view) {
+      syncTeamColors(view.team_colors);
       world = {
         view,
         terrain: decodeTerrain(view.terrain),
+        tint: decodeTint(view.tint, view.width, view.height),
         terrainSprites: view.terrain.sprites || [],
         objects: decodeObjects(view),
       };
@@ -245,6 +249,16 @@
       const raw = atob(terrain.data || "");
       const bytes = new Uint8Array(raw.length);
       for (let index = 0; index < raw.length; index++) {
+        bytes[index] = raw.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    function decodeTint(tintInfo, width, height) {
+      const bytes = new Uint8Array(width * height * 4);
+      if (!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
+      const raw = atob(tintInfo.data || "");
+      for (let index = 0; index < Math.min(raw.length, bytes.length); index++) {
         bytes[index] = raw.charCodeAt(index);
       }
       return bytes;
@@ -285,10 +299,28 @@
           orientation: label(labels.orientation, row[column.orientation]),
           asset: spriteFrom(payload.sprites, row[column.asset]),
           glyph: thing.slice(0, 1).toUpperCase(),
-          color: teamId !== null ? teamColors[teamId] : "#ffffff",
+          color: teamColor(teamId) || "#ffffff",
         });
       }
       return rows;
+    }
+
+    function syncTeamColors(colors) {
+      for (let index = 0; index < teamColors.length; index++) {
+        teamColors[index] = defaultTeamColors[index];
+      }
+      if (!Array.isArray(colors)) return;
+      colors.slice(0, teamColors.length).forEach((color, index) => {
+        if (typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) {
+          teamColors[index] = color;
+        }
+      });
+    }
+
+    function teamColor(teamId) {
+      return Number.isInteger(teamId) && teamId >= 0 && teamId < teamColors.length
+        ? teamColors[teamId]
+        : null;
     }
 
     function label(labels, index) {
@@ -331,16 +363,17 @@
           const sprite = world.terrainSprites[terrainId] || {};
           const px = offsetX + x * tileSize;
           const py = offsetY + y * tileSize;
-          drawTerrainCell(sprite, px, py);
+          drawTerrainCell(sprite, px, py, x, y);
         }
       }
       if (tileSize >= 14) drawGrid(startX, startY, endX, endY);
     }
 
-    function drawTerrainCell(sprite, x, y) {
+    function drawTerrainCell(sprite, x, y, worldX, worldY) {
       ctx.fillStyle = sprite.color || terrainColors[sprite.label] || "#4b534c";
       ctx.fillRect(x, y, tileSize, tileSize);
       drawCover(sprite.asset, x, y, tileSize, tileSize);
+      drawTerritoryTint(ctx, territoryTintAt(worldX, worldY), x, y, tileSize, tileSize);
     }
 
     function drawGrid(startX, startY, endX, endY) {
@@ -366,15 +399,39 @@
         const y = offsetY + object.y * tileSize;
         if (x > viewWidth() || y > viewHeight() || x + tileSize < 0 || y + tileSize < 0) continue;
         const inset = object.layer === "background" ? 0.05 : 0.08;
+        const tintColor = teamColor(object.team_id);
         const drawn = drawContain(
           object.asset,
           x + tileSize * inset,
           y + tileSize * inset,
           tileSize * (1 - inset * 2),
           tileSize * (1 - inset * 2),
+          tintColor,
         );
-        if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize);
+        if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize, tintColor);
       }
+    }
+
+    function territoryTintAt(x, y) {
+      if (!world?.tint) return null;
+      const index = (y * world.view.width + x) * 4;
+      const alpha = world.tint[index + 3] || 0;
+      if (alpha <= 0) return null;
+      return [
+        world.tint[index],
+        world.tint[index + 1],
+        world.tint[index + 2],
+        alpha,
+      ];
+    }
+
+    function drawTerritoryTint(targetCtx, rgba, x, y, width, height) {
+      if (!rgba || rgba[3] <= 0) return;
+      targetCtx.save();
+      targetCtx.globalAlpha = Math.min(0.58, rgba[3] / 255 * 0.68);
+      targetCtx.fillStyle = `rgb(${rgba[0]}, ${rgba[1]}, ${rgba[2]})`;
+      targetCtx.fillRect(x, y, width, height);
+      targetCtx.restore();
     }
 
     function drawCover(src, x, y, width, height) {
@@ -384,14 +441,37 @@
       return true;
     }
 
-    function drawContain(src, x, y, width, height) {
+    function drawContain(src, x, y, width, height, tintColor = null) {
       const image = cachedImage(src);
       if (!image) return false;
+      const drawable = tintColor ? tintedImage(src, image, tintColor) : image;
       const ratio = Math.min(width / image.naturalWidth, height / image.naturalHeight);
       const drawWidth = image.naturalWidth * ratio;
       const drawHeight = image.naturalHeight * ratio;
-      ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+      ctx.drawImage(drawable, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
       return true;
+    }
+
+    function tintedImage(src, image, color) {
+      const key = `${src}|${color}`;
+      let canvas = tintedSpriteCache.get(key);
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const buffer = canvas.getContext("2d");
+        buffer.imageSmoothingEnabled = false;
+        buffer.drawImage(image, 0, 0);
+        buffer.globalCompositeOperation = "source-atop";
+        buffer.globalAlpha = 0.82;
+        buffer.fillStyle = color;
+        buffer.fillRect(0, 0, canvas.width, canvas.height);
+        buffer.globalCompositeOperation = "source-over";
+        buffer.globalAlpha = 0.22;
+        buffer.drawImage(image, 0, 0);
+        tintedSpriteCache.set(key, canvas);
+      }
+      return canvas;
     }
 
     function cachedImage(src) {
@@ -409,8 +489,8 @@
       return entry.image;
     }
 
-    function drawGlyph(glyph, x, y, size) {
-      ctx.fillStyle = "#eef4ed";
+    function drawGlyph(glyph, x, y, size, color = null) {
+      ctx.fillStyle = color || "#eef4ed";
       ctx.font = `700 ${Math.max(10, Math.floor(size * 0.34))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -431,7 +511,7 @@
         const row = document.createElement("div");
         row.className = "team";
         const width = Math.min(100, Math.abs(score) / maxScore * 100);
-        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${width}%"></span></div><strong>${Number(score).toFixed(1)}</strong>`;
+        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${width}%; background:${teamColor(index) || "#82d59b"}"></span></div><strong>${Number(score).toFixed(1)}</strong>`;
         teamsEl.appendChild(row);
       });
     }

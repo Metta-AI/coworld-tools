@@ -327,6 +327,12 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             ("tribal_village_get_map_height", [], ctypes.c_int32, True),
             ("tribal_village_get_global_sprite_cell_fields", [], ctypes.c_int32, True),
             (
+                "tribal_village_get_team_color_rgb",
+                [ctypes.c_void_p, ctypes.c_int32],
+                ctypes.c_int32,
+                True,
+            ),
+            (
                 "tribal_village_write_global_sprite_cells",
                 [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32],
                 ctypes.c_int32,
@@ -566,6 +572,19 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             resource_id,
             default=0,
         )
+
+    def team_colors(self, team_count: int = 8) -> list[str] | None:
+        colors: list[str] = []
+        for team_id in range(team_count):
+            rgb = self._optional_env_i32(
+                "tribal_village_get_team_color_rgb",
+                team_id,
+                default=-1,
+            )
+            if rgb is None or rgb < 0:
+                return None
+            colors.append(f"#{int(rgb) & 0xFFFFFF:06x}")
+        return colors
 
     def _research_at(self, name: str, agent_id: int, building_x: int, building_y: int) -> bool:
         return self._optional_env_bool(name, agent_id, building_x, building_y)

@@ -43,10 +43,25 @@ The game server sends state snapshots:
     "width": 306,
     "height": 192,
     "tile_size": 24,
+    "team_colors": [
+      "#e3655b",
+      "#f0c552",
+      "#6bbf69",
+      "#58b6b2",
+      "#5b8de0",
+      "#b46ce0",
+      "#df8a3b",
+      "#d96f9f"
+    ],
     "terrain": {
       "encoding": "u8-base64",
       "labels": ["empty", "water"],
       "sprites": [{"id": 0, "label": "empty", "asset": "/assets/floor.png"}],
+      "data": "..."
+    },
+    "tint": {
+      "encoding": "rgba8-base64",
+      "columns": ["r", "g", "b", "a"],
       "data": "..."
     },
     "objects": {
@@ -72,12 +87,22 @@ The game server sends state snapshots:
 ```
 
 `global_view` is the canonical spectator contract. Terrain is a compact
-row-major `uint8` ordinal grid. Objects are also compact: decode the base64 as
-little-endian signed 16-bit rows using the listed columns, map ordinals through
-`legend.object_layer`, `legend.thing`, `legend.unit_class`, and
-`legend.orientation`, and map the `asset` column through `objects.sprites`.
-Render terrain first, then objects by `z`, loading PNGs from the served
-`/assets/...` URLs.
+row-major `uint8` ordinal grid. `team_colors` comes from the Nim simulation's
+active team palette and is the source of truth for team-owned sprite tinting.
+`tint` is the row-major RGBA territory layer produced by the Nim tint pass:
+lanterns, citizens, and other tint emitters write color into the map, and the
+alpha channel is the per-tile tint intensity used for territory scoring. Render
+terrain first, then apply the territory tint over that terrain, then render
+objects by `z`.
+
+Objects are also compact: decode the base64 as little-endian signed 16-bit rows
+using the listed columns, map ordinals through `legend.object_layer`,
+`legend.thing`, `legend.unit_class`, and `legend.orientation`, and map the
+`asset` column through `objects.sprites`. A non-negative `team_id` means the
+sprite should be tinted with `team_colors[team_id]`. Team IDs are intentionally
+limited to actual team-owned citizens and healthy lanterns so resource and
+building sprites do not inherit misleading ownership colors. Load PNGs from the
+served `/assets/...` URLs.
 
 `/global?frame=1` is retained as a legacy fallback. When requested, snapshots
 also include `frame`, whose bytes are raw RGB pixels produced by the Nim

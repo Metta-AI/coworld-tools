@@ -113,11 +113,13 @@
       snow: "#d8e7e8", mud: "#685947", mountain: "#777b80",
       fog: "#050706",
     };
-    const teamColors = [
+    const defaultTeamColors = [
       "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
       "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
     ];
+    const teamColors = defaultTeamColors.slice();
     const spriteCache = new Map();
+    const tintedSpriteCache = new Map();
     let ws = null;
     let latest = null;
     let world = null;
@@ -215,8 +217,10 @@
     }
 
     function loadWorld(view){
+      syncTeamColors(view.team_colors);
       world = {...view, objects: decodeObjects(view)};
       terrain = decodeTerrain(view.terrain);
+      world.tint = decodeTint(view.tint, view.width, view.height);
       if(!didFit || autoFit) fitWorld();
       didFit = true;
       drawMap();
@@ -226,6 +230,14 @@
       const raw = atob(terrainInfo.data || "");
       const bytes = new Uint8Array(raw.length);
       for(let i=0;i<raw.length;i++) bytes[i] = raw.charCodeAt(i);
+      return bytes;
+    }
+
+    function decodeTint(tintInfo, width, height){
+      const bytes = new Uint8Array(width * height * 4);
+      if(!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
+      const raw = atob(tintInfo.data || "");
+      for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
       return bytes;
     }
 
@@ -264,10 +276,26 @@
           orientation: label(labels.orientation, row[column.orientation]),
           asset: spriteFrom(payload.sprites, row[column.asset]),
           glyph: thing.slice(0, 1).toUpperCase(),
-          color: teamId !== null ? teamColors[teamId] : "#ffffff",
+          color: teamColor(teamId) || "#ffffff",
         });
       }
       return rows;
+    }
+
+    function syncTeamColors(colors){
+      for(let i=0;i<teamColors.length;i++) teamColors[i] = defaultTeamColors[i];
+      if(!Array.isArray(colors)) return;
+      colors.slice(0, teamColors.length).forEach((color, index) => {
+        if(typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) {
+          teamColors[index] = color;
+        }
+      });
+    }
+
+    function teamColor(teamId){
+      return Number.isInteger(teamId) && teamId >= 0 && teamId < teamColors.length
+        ? teamColors[teamId]
+        : null;
     }
 
     function label(labels, index){
@@ -346,12 +374,21 @@
           mapCtx.fillStyle = sprite.color || terrainColors[sprite.label] || "#4b534c";
           mapCtx.fillRect(px, py, tileSize, tileSize);
           drawCover(mapCtx, sprite.asset, px, py, tileSize, tileSize);
+          drawTerritoryTint(mapCtx, territoryTintAt(x, y), px, py, tileSize, tileSize);
         }
       }
       for(const object of world.objects || []){
         const px = offsetX + object.x * tileSize;
         const py = offsetY + object.y * tileSize;
-        drawContain(mapCtx, object.asset, px + tileSize*.08, py + tileSize*.08, tileSize*.84, tileSize*.84);
+        drawContain(
+          mapCtx,
+          object.asset,
+          px + tileSize*.08,
+          py + tileSize*.08,
+          tileSize*.84,
+          tileSize*.84,
+          teamColor(object.team_id),
+        );
         if(object.agent_id === latest?.selected_agent_id) ring(mapCtx, px, py, tileSize, "#f2f5de");
         if(selectedBuilding && object.x === selectedBuilding.x && object.y === selectedBuilding.y) ring(mapCtx, px, py, tileSize, "#9ee7ff");
       }
@@ -414,8 +451,20 @@
           pipCtx.fillStyle = terrainColors[cell.terrain] || "#4b534c";
           pipCtx.fillRect(x, y, size, size);
           drawCover(pipCtx, cell.terrain_asset, x, y, size, size);
-          for(const asset of cell.thing_assets || []) {
-            drawContain(pipCtx, asset, x + size*.08, y + size*.08, size*.84, size*.84);
+          drawTerritoryTint(pipCtx, cell.territory_tint?.rgba, x, y, size, size);
+          const drawables = Array.isArray(cell.thing_drawables)
+            ? cell.thing_drawables
+            : (cell.thing_assets || []).map(asset => ({asset, team_id: cell.team_id}));
+          for(const drawable of drawables) {
+            drawContain(
+              pipCtx,
+              drawable.asset,
+              x + size*.08,
+              y + size*.08,
+              size*.84,
+              size*.84,
+              teamColor(drawable.team_id),
+            );
           }
           if(cell.obscured){ pipCtx.fillStyle = "rgba(6,8,8,.78)"; pipCtx.fillRect(x,y,size,size); }
         }
@@ -469,6 +518,28 @@
       if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     }
 
+    function territoryTintAt(x, y){
+      if(!world?.tint) return null;
+      const index = (y * world.width + x) * 4;
+      const alpha = world.tint[index + 3] || 0;
+      if(alpha <= 0) return null;
+      return [
+        world.tint[index],
+        world.tint[index + 1],
+        world.tint[index + 2],
+        alpha,
+      ];
+    }
+
+    function drawTerritoryTint(ctx, rgba, x, y, w, h){
+      if(!rgba || rgba[3] <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.58, rgba[3] / 255 * 0.68);
+      ctx.fillStyle = `rgb(${rgba[0]}, ${rgba[1]}, ${rgba[2]})`;
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
+    }
+
     function zoomAt(screenX, screenY, nextSize){
       const oldSize = tileSize;
       tileSize = clamp(nextSize, 2, 64);
@@ -486,13 +557,36 @@
       return true;
     }
 
-    function drawContain(ctx, src, x, y, w, h){
+    function drawContain(ctx, src, x, y, w, h, tintColor = null){
       const img = cached(src);
       if(!img) return false;
+      const drawable = tintColor ? tintedImage(src, img, tintColor) : img;
       const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
       const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
-      ctx.drawImage(img, x + (w - dw)/2, y + (h - dh)/2, dw, dh);
+      ctx.drawImage(drawable, x + (w - dw)/2, y + (h - dh)/2, dw, dh);
       return true;
+    }
+
+    function tintedImage(src, image, color){
+      const key = `${src}|${color}`;
+      let canvas = tintedSpriteCache.get(key);
+      if(!canvas){
+        canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const buffer = canvas.getContext("2d");
+        buffer.imageSmoothingEnabled = false;
+        buffer.drawImage(image, 0, 0);
+        buffer.globalCompositeOperation = "source-atop";
+        buffer.globalAlpha = 0.82;
+        buffer.fillStyle = color;
+        buffer.fillRect(0, 0, canvas.width, canvas.height);
+        buffer.globalCompositeOperation = "source-over";
+        buffer.globalAlpha = 0.22;
+        buffer.drawImage(image, 0, 0);
+        tintedSpriteCache.set(key, canvas);
+      }
+      return canvas;
     }
 
     function cached(src){
