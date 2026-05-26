@@ -2,15 +2,27 @@
 
 Whole-pipeline parity against the Nim oracle on every fixture is covered
 by ``tests/test_perception_parity.py`` (via ``run_parity``). This file
-focuses on:
+covers two distinct test surfaces:
 
-- helpers the parity rig doesn't surface independently (``_dedup_anchors``,
-  ``_sprite_misses``, ``_matches_sprite_shadowed``, ``_matches_crewmate``,
-  ``_crewmate_color_index``);
-- stateful behaviour in ``update_role`` that the per-fixture oracle
-  treats as fresh-tick-1 (debounce thresholds, OCR-confirmed Crewmate
-  not overridden by kill-button HUD, Imposter sticky on lit lapse);
-- ``_scan_actor``'s player-ignore-zone exclusion in :func:`scan_crewmates`.
+1. **Public-API tests** — exercise the documented signatures of
+   :func:`compute_actor_percept`, :func:`update_role`,
+   :func:`update_self_color`, and the three :func:`scan_*` procs.
+   Concrete cases the fixture set doesn't surface in isolation: the
+   stateful debounce in ``update_role``, the player-ignore-zone
+   exclusion in ``scan_crewmates``, ``prev``-state threading in
+   ``compute_actor_percept``, dataclass defaults.
+
+2. **White-box tests** — exercise private helpers (``_dedup_anchors``,
+   ``_sprite_misses``, ``_matches_sprite``, ``_matches_sprite_shadowed``,
+   ``_matches_crewmate``, ``_crewmate_color_index``, ``_scan_actor``).
+   These are intentionally tied to the current implementation strategy;
+   a rewrite of ``actors.py`` that replaces these helpers is expected to
+   replace the matching tests as well. They earn their keep by
+   localizing regressions to the helper level rather than to a vague
+   "the whole pipeline drifted" symptom — but they are not part of the
+   public contract.
+
+   Grouped under the ``# --- white-box ... ---`` headers below.
 """
 
 from __future__ import annotations
@@ -74,7 +86,7 @@ _FIXTURES_DIR = (
 )
 
 
-# --- _dedup_anchors --------------------------------------------------------
+# --- white-box: _dedup_anchors --------------------------------------------
 
 
 def test_dedup_anchors_empty_and_singleton_return_input_unchanged():
@@ -103,7 +115,7 @@ def test_dedup_anchors_chain_dedups_against_first_only():
     assert _dedup_anchors(anchors, 1) == [(0, 0, False), (0, 2, True)]
 
 
-# --- _sprite_misses / _matches_sprite[_shadowed] --------------------------
+# --- white-box: _sprite_misses / _matches_sprite[_shadowed] ---------------
 
 
 def _zero_frame() -> np.ndarray:
@@ -162,7 +174,7 @@ def test_matches_sprite_shadowed_uses_shadow_map():
     assert not _matches_sprite_shadowed(frame_miss, sprite, 0, 0)
 
 
-# --- _matches_crewmate + _crewmate_color_index ----------------------------
+# --- white-box: _matches_crewmate + _crewmate_color_index ----------------
 
 
 def test_matches_crewmate_requires_stable_and_body_pixels():
@@ -217,7 +229,7 @@ def test_crewmate_color_index_returns_minus_one_when_no_votes():
     assert _crewmate_color_index(frame, sprite, 0, 0, flip_h=False) == -1
 
 
-# --- update_role stateful semantics ---------------------------------------
+# --- public API: update_role stateful semantics ---------------------------
 
 
 def _atlas():
@@ -311,7 +323,7 @@ def test_update_role_ghost_icon_threshold():
     assert debounced.new_role == Role.CREWMATE
 
 
-# --- update_self_color -----------------------------------------------------
+# --- public API: update_self_color ----------------------------------------
 
 
 def test_update_self_color_finds_color_at_centre_anchor():
@@ -349,7 +361,7 @@ def test_update_self_color_no_match_leaves_minus_one():
     assert result.color_index == -1
 
 
-# --- player-ignore-zone exclusion in scan_crewmates ----------------------
+# --- public API: player-ignore-zone exclusion in scan_crewmates ----------
 
 
 def test_scan_crewmates_excludes_self_centre():
@@ -396,7 +408,7 @@ def test_scan_crewmates_excludes_self_centre():
     assert self_centres == [], f"self centre was not excluded: {self_centres!r}"
 
 
-# --- ActorPercept defaults ------------------------------------------------
+# --- public API: ActorPercept defaults ------------------------------------
 
 
 def test_actor_percept_defaults_match_init_actor_percept():
@@ -423,7 +435,7 @@ def test_match_record_dataclass_fields():
     assert (gm.x, gm.y, gm.flip_h) == (7, 8, False)
 
 
-# --- smoke: scan_bodies / scan_ghosts run on a clean frame ----------------
+# --- public API: smoke for scan_bodies / scan_ghosts ----------------------
 
 
 def test_scan_bodies_and_scan_ghosts_on_empty_frame_emit_nothing():
@@ -431,7 +443,7 @@ def test_scan_bodies_and_scan_ghosts_on_empty_frame_emit_nothing():
     assert scan_ghosts(_atlas(), _zero_frame()) == []
 
 
-# --- minimal _scan_actor coverage of flip-priority -----------------------
+# --- white-box: _scan_actor flip-priority smoke ---------------------------
 
 
 def test_scan_actor_first_flip_claims_anchor():
@@ -460,7 +472,7 @@ def test_scan_actor_first_flip_claims_anchor():
     assert anchors == []  # no false matches on a blank frame
 
 
-# --- run-once smoke: pipeline on the smallest gameplay fixture ----------
+# --- public API: pipeline smoke + prev-state threading -------------------
 
 
 @pytest.mark.parametrize("fixture_name", ["gameplay_274"])
