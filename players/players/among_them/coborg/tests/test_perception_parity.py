@@ -7,9 +7,9 @@ human iterating on the port can run the exact same checks locally::
 
     uv run python -m players.among_them.coborg.perception.parity.run_parity
 
-With S4.2 landed (sidecar ``schema_version == 3``) the oracle emits
-and the gate checks **18 parity checks per fixture x 10 fixtures =
-180 checks total**:
+With S4.3 landed (sidecar ``schema_version == 4``) the oracle emits
+and the gate checks **22 parity checks per fixture x 10 fixtures =
+220 checks total**:
 
 - 5 ``sprite_match`` entries (player x {flip=False, True} + body x
   {flip=False} + ghost x {flip=False, True}, each at its actor-type
@@ -23,9 +23,15 @@ and the gate checks **18 parity checks per fixture x 10 fixtures =
   (``interstitial.py``);
 - 1 orchestrated check (``ignore_phase_1_0``) against the S4.2
   port (``ignore.py``): stamped-pixel count + SHA-1 over the
-  16384-byte mask.
+  16384-byte mask;
+- 4 orchestrated checks against the S4.3 port (``localize.py``):
+  ``score_camera_probes`` (4 fixed (cx,cy) seeds per fixture),
+  ``frame_patch_hashes`` (full 16x16 uint64 grid + valid bools),
+  ``patch_vote_top_candidates`` (top-16 from the patch-vote kernel),
+  ``localize_first_frame`` (full ``update_location`` from a fresh
+  state).
 
-S4.3+ moves to v4 (localize + task-icons), then v5 (ocr + voting).
+S4.4+ moves to v5 (task-icons, ocr, voting).
 """
 
 from __future__ import annotations
@@ -63,7 +69,7 @@ def test_each_fixture_parity_green(fixture_name: str) -> None:
     anything mismatches. Equivalent to a per-row of ``run_parity`` CLI.
     """
     result = check_fixture(FIXTURES_DIR / fixture_name)
-    assert result.schema_version == 3, (
+    assert result.schema_version == 4, (
         f"{fixture_name}: schema_version {result.schema_version} not supported"
     )
     assert result.ok, "; ".join(

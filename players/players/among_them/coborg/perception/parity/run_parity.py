@@ -56,16 +56,25 @@ import numpy as np
 import hashlib
 
 from ..actors import ActorPercept, compute_actor_percept
-from ..data import load_sprite_atlas
+from ..data import load_map_pixels, load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
 from ..ignore import build_phase_1_0_ignore_mask
 from ..interstitial import InterstitialObservation, detect_interstitial
+from ..localize import (
+    FULL_FRAME_FIT_MAX_ERRORS,
+    PATCH_TOTAL_COUNT,
+    get_patch_index,
+    hash_frame_patches,
+    score_camera,
+    update_location,
+    vote_camera_candidates,
+)
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
 from ..tasks import scan_radar_dots
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
-_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3})
+_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3, 4})
 
 
 @dataclass
@@ -254,6 +263,110 @@ def _check_ignore_phase_1_0(frame: np.ndarray, expected: dict) -> CheckResult:
     )
 
 
+# --- v4 orchestrated checks (localize.py output) --------------------------
+
+
+def _check_score_camera_probes(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Run ``score_camera`` at the oracle-recorded probe positions and
+    compare the full ``(score, errors, compared)`` triple per probe."""
+    map_pixels = load_map_pixels()
+    mismatches: list[str] = []
+    for exp in expected_list:
+        cx = int(exp["cam_x"])
+        cy = int(exp["cam_y"])
+        sc = score_camera(
+            frame, map_pixels, ignore_mask, cx, cy, FULL_FRAME_FIT_MAX_ERRORS
+        )
+        actual = {
+            "cam_x": cx,
+            "cam_y": cy,
+            "score": sc.score,
+            "errors": sc.errors,
+            "compared": sc.compared,
+        }
+        if actual != exp:
+            mismatches.append(f"at ({cx},{cy}): got {actual!r} vs {exp!r}")
+    if not mismatches:
+        return CheckResult(label="score_camera_probes", ok=True)
+    return CheckResult(
+        label="score_camera_probes", ok=False, detail="; ".join(mismatches)
+    )
+
+
+def _check_frame_patch_hashes(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected: dict
+) -> CheckResult:
+    """Compare the full 16x16 grid of FNV patch hashes (as uint64 hex
+    strings) plus the parallel validity bool array."""
+    py_hashes, py_valid = hash_frame_patches(frame, ignore_mask)
+    expected_hashes = [int(h, 16) for h in expected["hashes"]]
+    expected_valid = [bool(v) for v in expected["valid"]]
+    actual_hashes = [int(h) for h in py_hashes.tolist()]
+    actual_valid = [bool(v) for v in py_valid.tolist()]
+    if actual_hashes == expected_hashes and actual_valid == expected_valid:
+        return CheckResult(label="frame_patch_hashes", ok=True)
+    # Find the first mismatch for a concise diff.
+    for i in range(PATCH_TOTAL_COUNT):
+        if actual_hashes[i] != expected_hashes[i] or actual_valid[i] != expected_valid[i]:
+            return CheckResult(
+                label="frame_patch_hashes",
+                ok=False,
+                detail=(
+                    f"first mismatch at patch {i}: "
+                    f"got (hash={actual_hashes[i]:016X}, valid={actual_valid[i]}), "
+                    f"expected (hash={expected_hashes[i]:016X}, valid={expected_valid[i]})"
+                ),
+            )
+    return CheckResult(label="frame_patch_hashes", ok=False, detail="unknown mismatch")
+
+
+def _check_patch_vote_top_candidates(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Compare the top-K output of the patch-vote kernel byte-for-byte."""
+    frame_hashes, frame_valid = hash_frame_patches(frame, ignore_mask)
+    candidates = vote_camera_candidates(frame_hashes, frame_valid, get_patch_index())
+    actual_list = [
+        {"cam_x": c.cx, "cam_y": c.cy, "votes": c.votes} for c in candidates
+    ]
+    if actual_list == expected_list:
+        return CheckResult(label="patch_vote_top_candidates", ok=True)
+    return CheckResult(
+        label="patch_vote_top_candidates",
+        ok=False,
+        detail=(
+            f"got {len(actual_list)} entries {actual_list!r}, "
+            f"expected {len(expected_list)} entries {expected_list!r}"
+        ),
+    )
+
+
+def _check_localize_first_frame(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected: dict
+) -> CheckResult:
+    """Run ``update_location`` from a fresh state and compare the
+    camera-related fields against the oracle."""
+    state = update_location(None, frame, ignore_mask, tick=0)
+    actual = {
+        "camera_x": state.camera_x,
+        "camera_y": state.camera_y,
+        "camera_score": state.camera_score,
+        "camera_lock": state.camera_lock.value,
+        "localized": state.localized,
+        "self_x": state.self_x,
+        "self_y": state.self_y,
+    }
+    if actual == expected:
+        return CheckResult(label="localize_first_frame", ok=True)
+    return CheckResult(
+        label="localize_first_frame",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -299,6 +412,26 @@ def check_fixture(bin_path: Path) -> FixtureResult:
             result.checks.append(
                 _check_ignore_phase_1_0(frame, sidecar["ignore_phase_1_0"])
             )
+    if schema_version >= 4:
+        # The localize kernels consume the phase-1.0 ignore mask. Build
+        # it once here and feed all four v4 checks.
+        ignore_mask = build_phase_1_0_ignore_mask(frame)
+        result.checks.append(
+            _check_score_camera_probes(frame, ignore_mask, sidecar["score_camera_probes"])
+        )
+        result.checks.append(
+            _check_frame_patch_hashes(frame, ignore_mask, sidecar["frame_patch_hashes"])
+        )
+        result.checks.append(
+            _check_patch_vote_top_candidates(
+                frame, ignore_mask, sidecar["patch_vote_top_candidates"]
+            )
+        )
+        result.checks.append(
+            _check_localize_first_frame(
+                frame, ignore_mask, sidecar["localize_first_frame"]
+            )
+        )
     return result
 
 

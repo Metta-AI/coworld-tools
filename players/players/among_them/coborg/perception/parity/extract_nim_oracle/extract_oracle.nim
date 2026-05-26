@@ -20,7 +20,12 @@
 ##   localize (see `PLAN.md` §12 item 5).
 ## - v3 (S4.1): adds the upstream `interstitial.detectInterstitial`
 ##   output (black-pixel count + boolean + kind). S4.2 (ignore-mask
-##   stamps) and S4.3 (localize) extend v3 with additional keys.
+##   stamps) extends v3 with `ignore_phase_1_0`.
+## - v4 (S4.3): adds upstream localize kernel + orchestrator outputs:
+##   `score_camera_probes` (per-fixture at canonical seeds),
+##   `frame_patch_hashes` (16x16 grid of FNV hashes), `patch_vote_top_candidates`
+##   (top-16 from the vote kernel), `localize_first_frame` (result of
+##   `updateLocation` starting from a fresh state).
 ##
 ## Each sidecar's `schema_version` field declares the version the
 ## sidecar conforms to. The Python harness fails closed on unknown
@@ -62,7 +67,12 @@ import guided_bot/perception/interstitial as gbInterstitial
 import guided_bot/perception/ignore as gbIgnore
 import guided_bot/perception/frame as gbFrame
 
+# Upstream localize + geometry — used for v4 outputs.
+import guided_bot/perception/localize as gbLocalize
+import guided_bot/perception/geometry as gbGeometry
+
 import std/sha1
+import std/strutils
 
 const
   ScreenWidth = 128
@@ -70,7 +80,7 @@ const
   FrameLen = ScreenWidth * ScreenHeight
   SpriteSize = 12
   SpriteCount = 6
-  SchemaVersion = 3
+  SchemaVersion = 4
 
   # Crewmate (= player sprite) scan budgets.
   CrewmateMaxMisses = 8
@@ -358,6 +368,90 @@ proc ignorePhase10Json(frame: var seq[uint8]): JsonNode =
     "sha1": maskSha1Hex(mask.data),
   }
 
+
+# ---------------------------------------------------------------------------
+# Orchestrated outputs (v4) — localize
+# ---------------------------------------------------------------------------
+
+proc lockToString(lock: gbTypes.CameraLock): string =
+  case lock
+  of gbTypes.NoLock: "no_lock"
+  of gbTypes.LocalFrameMapLock: "local_frame_map_lock"
+  of gbTypes.FrameMapLock: "frame_map_lock"
+  else: "no_lock"
+
+proc scoreCameraProbesJson(frame: var seq[uint8], ignoreMaskData: seq[uint8]): JsonNode =
+  ## Score the upstream `scoreCamera` kernel at a deterministic set of
+  ## probe positions per fixture. Probes are chosen for coverage:
+  ## (0, 0) at the map origin, the button-camera seed, a negative
+  ## offset, and a deep-positive offset. Each emits
+  ## ``{cam_x, cam_y, score, errors, compared}``.
+  result = newJArray()
+  let mapPixels = gbData.referenceData.map.mapPixels
+  let probes: seq[(int, int)] = @[
+    (0, 0),
+    (gbGeometry.buttonCameraX(gbData.referenceData.map),
+     gbGeometry.buttonCameraY(gbData.referenceData.map)),
+    (-50, -50),
+    (400, 250),
+  ]
+  for (cx, cy) in probes:
+    let sc = gbLocalize.scoreCamera(
+      frame, mapPixels, ignoreMaskData, cx, cy,
+      gbLocalize.FullFrameFitMaxErrors)
+    result.add(%* {
+      "cam_x": cx,
+      "cam_y": cy,
+      "score": sc.score,
+      "errors": sc.errors,
+      "compared": sc.compared,
+    })
+
+proc framePatchHashesJson(frame: var seq[uint8], ignoreMaskData: seq[uint8]): JsonNode =
+  ## Full 256-entry grid from upstream `hashFramePatches`. Hashes are
+  ## emitted as 16-char hex strings (uppercase, no `0x`) so JSON-side
+  ## uint64 round-tripping is unambiguous; validity is a parallel bool
+  ## array.
+  let (hashes, valid) = gbLocalize.hashFramePatches(frame, ignoreMaskData)
+  var hashJson = newJArray()
+  var validJson = newJArray()
+  for i in 0 ..< gbLocalize.PatchTotalCount:
+    hashJson.add(%* toHex(hashes[i].uint64, 16))
+    validJson.add(%* (valid[i] != 0'u8))
+  %* {"hashes": hashJson, "valid": validJson}
+
+proc patchVoteTopCandidatesJson(
+    frame: var seq[uint8], ignoreMaskData: seq[uint8]): JsonNode =
+  ## Top-K output of upstream `voteCameraCandidates`. Each entry is
+  ## ``{cam_x, cam_y, votes}`` in descending vote order with ties
+  ## broken by ascending ``(cy, cx)``.
+  let (hashes, valid) = gbLocalize.hashFramePatches(frame, ignoreMaskData)
+  var votesScratch: seq[uint16] = @[]
+  let cands = gbLocalize.voteCameraCandidates(
+    hashes, valid, gbLocalize.getPatchIndex(), votesScratch)
+  result = newJArray()
+  for c in cands:
+    result.add(%* {"cam_x": c.cx, "cam_y": c.cy, "votes": c.votes})
+
+proc localizeFirstFrameJson(
+    frame: var seq[uint8], ignoreMaskData: seq[uint8]): JsonNode =
+  ## Result of one `updateLocation` call starting from a fresh
+  ## PerceptionState (no prior lock). Tick is fixed at 0. The seven
+  ## fields emitted are the camera-related subset the Python state
+  ## also tracks.
+  var loc = gbLocalize.initLocalizer()
+  var p: gbTypes.PerceptionState
+  gbLocalize.updateLocation(loc, p, frame, ignoreMaskData, 0)
+  %* {
+    "camera_x": p.cameraX,
+    "camera_y": p.cameraY,
+    "camera_score": p.cameraScore,
+    "camera_lock": lockToString(p.cameraLock),
+    "localized": p.localized,
+    "self_x": p.selfX,
+    "self_y": p.selfY,
+  }
+
 # ---------------------------------------------------------------------------
 # Fixture loader + per-fixture orchestrator
 # ---------------------------------------------------------------------------
@@ -412,6 +506,16 @@ proc processFixture(path: string): JsonNode =
     "interstitial": interstitialJson(frame),
     "ignore_phase_1_0": ignorePhase10Json(frame),
   }
+
+  # v4 (S4.3) localize fields. The localize kernels need the phase-1.0
+  # ignore mask, so we build it once here and feed the raw data buffer
+  # to the v4 emitters (they all consume `openArray[uint8]`).
+  var ignoreMask = gbFrame.initIgnoreMask()
+  gbIgnore.buildPhase10IgnoreMask(ignoreMask, frame)
+  result["score_camera_probes"] = scoreCameraProbesJson(frame, ignoreMask.data)
+  result["frame_patch_hashes"] = framePatchHashesJson(frame, ignoreMask.data)
+  result["patch_vote_top_candidates"] = patchVoteTopCandidatesJson(frame, ignoreMask.data)
+  result["localize_first_frame"] = localizeFirstFrameJson(frame, ignoreMask.data)
 
 proc main() =
   let here = currentSourcePath().parentDir()

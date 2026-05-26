@@ -32,6 +32,26 @@ _WALL_MASK_PATH = _DATA_DIR / "wall_mask.npz"
 MAP_SHAPE = (MAP_HEIGHT, MAP_WIDTH)
 
 
+# --- Skeld map metadata (mirrors upstream baked/map.json) ----------------
+
+# Emergency-button bounding box (world coordinates). Used by localize to
+# seed the cold-start spiral search and the post-interstitial reseed.
+# Values pinned to upstream
+# `users/.../guided_bot/perception/baked/map.json::button`.
+BUTTON_X = 524
+BUTTON_Y = 114
+BUTTON_W = 28
+BUTTON_H = 34
+
+# Initial home position (world coordinates). Belief layer reseeds the
+# camera here after interstitials when no lock has been established yet.
+# Mirrors `map.json::home`. Used by localize.reseed_camera_at_home only
+# when `home_set` is False on the first reseed; subsequent reseeds use
+# the locked-in self position.
+HOME_X = 536
+HOME_Y = 120
+
+
 def _load_raster(path: Path, key: str) -> np.ndarray:
     with np.load(path) as bundle:
         arr = bundle[key].copy()
