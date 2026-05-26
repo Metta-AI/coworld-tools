@@ -49,6 +49,7 @@ from tribal_village_env.coworld.server import (
     resolve_wasm_asset_path,
     slot_team_index,
     slot_to_team,
+    sprite_view_from_global_cells,
     sprite_view_from_observation,
     wasm_media_type,
     winner_team,
@@ -173,6 +174,30 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     assert objects[1]["thing"] == "agent"
     assert objects[1]["agent_id"] == 7
     assert objects[1]["asset"] == "/assets/oriented/gatherer.n.png"
+
+
+def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
+    cells = np.full((4, 4, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
+    cells[:, :, GLOBAL_CELL_TERRAIN] = 6
+    cells[1, 1, GLOBAL_CELL_TERRAIN] = 10
+    cells[2, 2, GLOBAL_CELL_TERRAIN] = 2
+    cells[2, 2, GLOBAL_CELL_THING_KIND] = 0
+    cells[2, 2, GLOBAL_CELL_THING_TEAM] = 0
+    cells[2, 2, GLOBAL_CELL_THING_ORIENTATION] = 0
+    cells[2, 2, GLOBAL_CELL_THING_UNIT_CLASS] = 0
+    cells[2, 2, GLOBAL_CELL_THING_AGENT_ID] = 7
+
+    view = sprite_view_from_global_cells(cells, 2, 2, radius=1)
+
+    assert view["protocol"] == "tribalcog-sprite-v1"
+    assert view["source"] == "global_sprite_cells"
+    assert view["center"] == {"x": 1, "y": 1, "world_x": 2, "world_y": 2}
+    assert view["cells"][0][0]["terrain"] == "mud"
+    center = view["cells"][1][1]
+    assert center["terrain"] == "shallow_water"
+    assert center["thing"] == "agent"
+    assert center["thing_assets"] == ["/assets/oriented/gatherer.n.png"]
+    assert center["team_id"] == 0
 
 
 def test_sprite_player_policy_moves_toward_visible_resource() -> None:

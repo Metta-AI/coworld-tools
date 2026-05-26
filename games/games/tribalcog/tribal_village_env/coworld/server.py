@@ -1186,6 +1186,126 @@ def iter_global_objects(global_view: dict[str, Any]):
         }
 
 
+def _agent_position_from_global_cells(
+    cells: np.ndarray,
+    agent_id: int,
+) -> tuple[int, int] | None:
+    matches = np.argwhere(cells[:, :, GLOBAL_CELL_THING_AGENT_ID] == agent_id)
+    if matches.size == 0:
+        return None
+    y, x = matches[0]
+    return int(x), int(y)
+
+
+def sprite_view_from_global_cells(
+    cells: np.ndarray,
+    center_x: int,
+    center_y: int,
+    *,
+    radius: int = 5,
+) -> dict[str, Any]:
+    width = radius * 2 + 1
+    crop = np.full((width, width, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
+    for local_y in range(width):
+        world_y = center_y + local_y - radius
+        if world_y < 0 or world_y >= cells.shape[0]:
+            continue
+        for local_x in range(width):
+            world_x = center_x + local_x - radius
+            if world_x < 0 or world_x >= cells.shape[1]:
+                continue
+            crop[local_y, local_x] = cells[world_y, world_x]
+
+    crop_view = global_sprite_view_from_cells(crop)
+    terrain_bytes = base64.b64decode(crop_view["terrain"]["data"])
+    terrain = np.frombuffer(terrain_bytes, dtype=np.uint8).reshape((width, width))
+    terrain_sprites = crop_view["terrain"]["sprites"]
+    objects_by_cell: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for obj in iter_global_objects(crop_view):
+        objects_by_cell.setdefault((int(obj["x"]), int(obj["y"])), []).append(obj)
+
+    cell_rows: list[list[dict[str, Any]]] = []
+    for local_y in range(width):
+        row: list[dict[str, Any]] = []
+        for local_x in range(width):
+            terrain_id = int(terrain[local_y, local_x])
+            terrain_info = terrain_sprites[terrain_id]
+            terrain_label = str(terrain_info["label"])
+            obscured = terrain_label == "fog"
+            objects = sorted(
+                objects_by_cell.get((local_x, local_y), []),
+                key=lambda obj: int(obj.get("z", 0)),
+            )
+            things = [str(obj["thing"]) for obj in objects]
+            thing_assets = [
+                str(obj["asset"]) for obj in objects if obj.get("asset") is not None
+            ]
+            top_object = objects[-1] if objects else None
+            team_id = top_object.get("team_id") if top_object is not None else None
+            row.append(
+                {
+                    "x": local_x,
+                    "y": local_y,
+                    "world_x": center_x + local_x - radius,
+                    "world_y": center_y + local_y - radius,
+                    "terrain": terrain_label,
+                    "thing": top_object.get("thing") if top_object is not None else None,
+                    "things": [] if obscured else things,
+                    "sprite": _cell_sprite(
+                        terrain_label,
+                        top_object.get("thing") if top_object is not None else None,
+                        obscured,
+                    ),
+                    "terrain_asset": None if obscured else terrain_info.get("asset"),
+                    "thing_asset": thing_assets[-1] if thing_assets else None,
+                    "thing_assets": [] if obscured else thing_assets,
+                    "sprite_asset": (
+                        thing_assets[-1]
+                        if thing_assets
+                        else None if obscured else terrain_info.get("asset")
+                    ),
+                    "glyph": _cell_glyph(
+                        terrain_label,
+                        top_object.get("thing") if top_object is not None else None,
+                        obscured,
+                    ),
+                    "color": _cell_color(
+                        terrain_label,
+                        int(team_id) if team_id is not None else None,
+                        obscured,
+                    ),
+                    "team_id": team_id,
+                    "unit_class": (
+                        top_object.get("unit_class") if top_object is not None else None
+                    ),
+                    "orientation": (
+                        top_object.get("orientation") if top_object is not None else None
+                    ),
+                    "idle": False,
+                    "tint": int(crop[local_y, local_x, GLOBAL_CELL_TINT]),
+                    "obscured": obscured,
+                }
+            )
+        cell_rows.append(row)
+
+    return {
+        "protocol": "tribalcog-sprite-v1",
+        "source": "global_sprite_cells",
+        "width": width,
+        "height": width,
+        "radius": radius,
+        "center": {"x": radius, "y": radius, "world_x": center_x, "world_y": center_y},
+        "cells": cell_rows,
+        "legend": {
+            "terrain": GLOBAL_TERRAIN_LABELS,
+            "thing": GLOBAL_THING_LABELS,
+            "unit_class": UNIT_CLASS_LABELS,
+            "action": ACTION_NAMES,
+            "orientation": ORIENTATION_LABELS,
+        },
+    }
+
+
 def global_sprite_view_from_cells(cells: np.ndarray) -> dict[str, Any]:
     if cells.ndim != 3 or cells.shape[2] < GLOBAL_CELL_FIELD_COUNT:
         raise ValueError("global sprite cells must be an HxWx13 int16 array")
@@ -1419,8 +1539,25 @@ class TribalCogCoworld:
         team_id = slot_to_team(slot)
         selected_agent = self._selected_agent(team_id)
         obs = np.ascontiguousarray(self.env.observations[selected_agent])
-        global_view = self.team_global_sprite_view(team_id)
+        team_cells = self.env.team_global_sprite_cells(team_id)
+        if team_cells is None:
+            team_cells = self.env.global_sprite_cells()
+        global_view = (
+            global_sprite_view_from_cells(team_cells)
+            if team_cells is not None
+            else None
+        )
         buildings, citizens = self._visible_town_objects(team_id, global_view)
+        selected_position = (
+            _agent_position_from_global_cells(team_cells, selected_agent)
+            if team_cells is not None
+            else None
+        )
+        sprite_view = (
+            sprite_view_from_global_cells(team_cells, *selected_position)
+            if team_cells is not None and selected_position is not None
+            else sprite_view_from_observation(obs)
+        )
         return {
             "type": "final" if final else "observation",
             "slot": slot,
@@ -1445,7 +1582,7 @@ class TribalCogCoworld:
             "selected_building": self.selected_buildings.get(team_id),
             "stockpiles": self._team_stockpiles(team_id),
             "global_view": global_view,
-            "sprite_view": sprite_view_from_observation(obs),
+            "sprite_view": sprite_view,
             "observation": {
                 "dtype": "uint8",
                 "shape": list(obs.shape),
@@ -1815,6 +1952,8 @@ async def player(websocket: WebSocket) -> None:
                     async with state.lock:
                         response = state.handle_player_command(slot, payload)
                     await websocket.send_json(response)
+                    if response.get("type") == "ack":
+                        await websocket.send_json(state.player_observation(slot))
                     continue
                 action = decode_action(payload) if isinstance(payload, dict) else 0
             elif message.get("bytes") is not None:

@@ -295,6 +295,7 @@
     function drawMap(){
       const dpr = devicePixelRatio || 1;
       mapCtx.setTransform(dpr,0,0,dpr,0,0);
+      mapCtx.imageSmoothingEnabled = false;
       mapCtx.clearRect(0,0,mapCanvas.clientWidth || 1,mapCanvas.clientHeight || 1);
       if(!world || !terrain) return;
       for(let y=0;y<world.height;y++){
@@ -322,6 +323,7 @@
       const size = 96;
       pipCanvas.width = view.width * size;
       pipCanvas.height = view.height * size;
+      pipCtx.imageSmoothingEnabled = false;
       pipCtx.clearRect(0,0,pipCanvas.width,pipCanvas.height);
       for(const row of view.cells){
         for(const cell of row){
@@ -329,10 +331,10 @@
           pipCtx.fillStyle = terrainColors[cell.terrain] || "#4b534c";
           pipCtx.fillRect(x, y, size, size);
           drawCover(pipCtx, cell.terrain_asset, x, y, size, size);
-          for(const asset of cell.thing_assets || []) drawContain(pipCtx, asset, x + 8, y + 8, size - 16, size - 16);
+          for(const asset of cell.thing_assets || []) {
+            drawContain(pipCtx, asset, x + size*.08, y + size*.08, size*.84, size*.84);
+          }
           if(cell.obscured){ pipCtx.fillStyle = "rgba(6,8,8,.78)"; pipCtx.fillRect(x,y,size,size); }
-          pipCtx.strokeStyle = "rgba(0,0,0,.85)";
-          pipCtx.strokeRect(x+.5,y+.5,size-1,size-1);
         }
       }
       ring(pipCtx, view.center.x * size, view.center.y * size, size, "#f2f5de");
@@ -343,20 +345,25 @@
       const rect = mapCanvas.getBoundingClientRect();
       const x = Math.floor((event.clientX - rect.left - offsetX) / tileSize);
       const y = Math.floor((event.clientY - rect.top - offsetY) / tileSize);
-      const object = [...(world.objects || [])].reverse().find(obj => obj.x === x && obj.y === y);
-      if(!object) return;
-      if(object.agent_id !== null && object.agent_id !== undefined){
-        send({type:"town.select_citizen", agent_id:object.agent_id});
+      const objects = [...(world.objects || [])].filter(obj => obj.x === x && obj.y === y);
+      if(objects.length === 0) return;
+      const friendlyCitizen = [...objects].reverse().find(obj =>
+        obj.agent_id !== null &&
+        obj.agent_id !== undefined &&
+        obj.team_id === latest?.team_id
+      );
+      if(friendlyCitizen){
+        send({type:"town.select_citizen", agent_id:friendlyCitizen.agent_id});
         return;
       }
-      if(object.team_id === latest?.team_id){
-        selectedBuilding = {x:object.x, y:object.y};
-        const building = (latest.visible_buildings || []).find(entry => entry.x === object.x && entry.y === object.y);
+      const building = (latest.visible_buildings || []).find(entry => entry.x === x && entry.y === y);
+      if(building){
+        selectedBuilding = {x, y};
         if(building?.program){
           programSelect.value = String(building.program.id);
           programSourceEl.textContent = building.program.source || "-";
         }
-        send({type:"town.select_building", x:object.x, y:object.y});
+        send({type:"town.select_building", x, y});
         drawMap();
       }
     }
