@@ -8,8 +8,8 @@
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0f1312; color: #eef2ee; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 320px; background: #121716; }
-    main { position: relative; min-width: 0; min-height: 100vh; overflow: hidden; background: #0a0d0c; }
+    body { margin: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 320px; background: #121716; }
+    main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0a0d0c; }
     canvas { display: block; width: 100%; height: 100%; cursor: grab; image-rendering: pixelated; image-rendering: crisp-edges; }
     canvas.dragging { cursor: grabbing; }
     aside { border-left: 1px solid #293330; padding: 16px; background: #101615; overflow: auto; }
@@ -27,8 +27,8 @@
     .bar span { display: block; height: 100%; background: #82d59b; }
     .badge { position: absolute; left: 14px; top: 14px; padding: 6px 9px; border: 1px solid rgba(238, 242, 238, 0.2); background: rgba(9, 13, 12, 0.82); color: #d8e1dc; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
     @media (max-width: 840px) {
-      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
-      main { min-height: 68vh; }
+      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 68vh) minmax(0, 32vh); }
+      main { min-height: 0; }
       aside { border-left: 0; border-top: 1px solid #293330; }
     }
   </style>
@@ -112,7 +112,7 @@
     let offsetX = 0;
     let offsetY = 0;
     let didInitialCenter = false;
-    let followControlled = controlled;
+    let autoFit = true;
     let dragging = false;
     let dragX = 0;
     let dragY = 0;
@@ -125,18 +125,25 @@
     if (controlled) connectPlayer();
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
+    if (window.ResizeObserver) new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 
-    document.getElementById("zoomOut").onclick = () => zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
-    document.getElementById("zoomIn").onclick = () => zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    document.getElementById("zoomOut").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
+    };
+    document.getElementById("zoomIn").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    };
     document.getElementById("home").onclick = () => {
-      followControlled = controlled;
-      centerViewport();
+      autoFit = true;
+      fitWorld();
       draw();
     };
 
     canvas.addEventListener("mousedown", (event) => {
       dragging = true;
-      followControlled = false;
+      autoFit = false;
       dragX = event.clientX;
       dragY = event.clientY;
       canvas.classList.add("dragging");
@@ -158,7 +165,7 @@
     });
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
-      followControlled = false;
+      autoFit = false;
       const nextSize = tileSize * (event.deltaY > 0 ? 0.88 : 1.14);
       const rect = canvas.getBoundingClientRect();
       zoomAt(event.clientX - rect.left, event.clientY - rect.top, nextSize);
@@ -226,10 +233,10 @@
       };
       spritesEl.textContent = String(world.objects.length);
       if (!didInitialCenter) {
-        centerViewport();
+        fitWorld();
         didInitialCenter = true;
-      } else if (followControlled) {
-        centerControlledObject();
+      } else if (autoFit) {
+        fitWorld();
       }
       draw();
     }
@@ -297,6 +304,7 @@
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      if (autoFit) fitWorld();
       draw();
     }
 
@@ -428,29 +436,22 @@
       });
     }
 
-    function centerViewport() {
+    function fitWorld() {
       if (!world) return;
-      if (!centerControlledObject()) {
-        centerOn(world.view.width / 2, world.view.height / 2);
-      }
-    }
-
-    function centerControlledObject() {
-      if (!controlled || !world) return false;
-      const object = world.objects.find(candidate => candidate.team_id === controlledSlot);
-      if (!object) return false;
-      centerOn(object.x + 0.5, object.y + 0.5);
-      return true;
-    }
-
-    function centerOn(worldX, worldY) {
-      offsetX = viewWidth() / 2 - worldX * tileSize;
-      offsetY = viewHeight() / 2 - worldY * tileSize;
+      const bounds = { minX: 0, minY: 0, maxX: world.view.width - 1, maxY: world.view.height - 1 };
+      const screenPadding = 18;
+      const areaW = Math.max(1, bounds.maxX - bounds.minX + 1);
+      const areaH = Math.max(1, bounds.maxY - bounds.minY + 1);
+      const availableW = Math.max(1, viewWidth() - screenPadding * 2);
+      const availableH = Math.max(1, viewHeight() - screenPadding * 2);
+      tileSize = clamp(Math.min(availableW / areaW, availableH / areaH), 1, 96);
+      offsetX = Math.floor((viewWidth() - areaW * tileSize) / 2 - bounds.minX * tileSize);
+      offsetY = Math.floor((viewHeight() - areaH * tileSize) / 2 - bounds.minY * tileSize);
     }
 
     function zoomAt(screenX, screenY, nextSize) {
       const oldSize = tileSize;
-      tileSize = clamp(nextSize, 6, 96);
+      tileSize = clamp(nextSize, 1, 96);
       const worldX = (screenX - offsetX) / oldSize;
       const worldY = (screenY - offsetY) / oldSize;
       offsetX = screenX - worldX * tileSize;
@@ -492,7 +493,7 @@
       else if (event.key === "ArrowLeft") offsetX += amount;
       else if (event.key === "ArrowRight") offsetX -= amount;
       else return false;
-      followControlled = false;
+      autoFit = false;
       draw();
       return true;
     }

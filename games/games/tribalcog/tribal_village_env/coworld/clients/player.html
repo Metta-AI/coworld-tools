@@ -8,30 +8,33 @@
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0e1211; color: #edf2ef; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 360px; background: #151918; }
-    main { position: relative; min-width: 0; min-height: 100vh; overflow: hidden; background: #080b0a; }
+    body { margin: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 300px; background: #151918; }
+    main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #080b0a; }
     canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
     #map { display: block; width: 100%; height: 100%; cursor: crosshair; }
     aside { min-width: 0; border-left: 1px solid #2b3633; background: #101514; overflow: auto; }
-    .panel { padding: 14px 16px; border-bottom: 1px solid #28322f; }
-    h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
-    h2 { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: #dfe7e3; letter-spacing: 0; }
-    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; }
+    .panel { padding: 8px 10px; border-bottom: 1px solid #28322f; }
+    h1 { margin: 0 0 4px; font-size: 16px; font-weight: 700; letter-spacing: 0; }
+    h2 { margin: 0 0 5px; font-size: 12px; font-weight: 700; color: #dfe7e3; letter-spacing: 0; }
+    .stat { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12px; line-height: 1.2; }
     .stat span { color: #9fadA8; }
     .stat strong { text-align: right; font-variant-numeric: tabular-nums; }
-    #pip { display: block; width: 100%; aspect-ratio: 1; background: #050706; border: 1px solid #3a4642; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
+    .metric { min-width: 0; font-size: 11px; line-height: 1.15; }
+    .metric span { display: block; color: #9fadA8; }
+    .metric strong { display: block; margin-top: 1px; overflow-wrap: anywhere; color: #edf2ef; font-size: 12px; font-variant-numeric: tabular-nums; }
+    #pip { display: block; width: min(100%, 168px); height: auto; aspect-ratio: 1 / 1; margin: 0 auto 5px; background: #050706; border: 1px solid #3a4642; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
-    select, button { width: 100%; min-height: 34px; border: 1px solid #465651; background: #1c2422; color: #eef2ee; font: inherit; }
+    select, button { width: 100%; min-height: 28px; border: 1px solid #465651; background: #1c2422; color: #eef2ee; font: inherit; font-size: 12px; }
     button:hover, select:hover { border-color: #81908b; }
-    pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #cbd8d2; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.35; }
-    .row { display: grid; grid-template-columns: 1fr 120px; gap: 8px; align-items: center; }
-    .list { display: grid; gap: 6px; max-height: 180px; overflow: auto; }
-    .item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; min-height: 28px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 12px; }
-    .item button { min-height: 26px; padding: 0 8px; }
+    details { font-size: 12px; color: #dfe7e3; }
+    summary { cursor: pointer; user-select: none; }
+    pre { margin: 6px 0 0; max-height: 88px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #cbd8d2; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.25; }
+    .row { display: grid; grid-template-columns: 1fr 72px; gap: 6px; align-items: center; }
     .badge { position: absolute; left: 12px; top: 12px; padding: 6px 8px; border: 1px solid rgba(238,242,238,.24); background: rgba(7,10,9,.84); color: #dce5e0; font-size: 12px; pointer-events: none; }
     @media (max-width: 900px) {
-      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 68vh) auto; }
-      main { min-height: 68vh; }
+      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 68vh) minmax(0, 32vh); }
+      main { min-height: 0; }
       aside { border-left: 0; border-top: 1px solid #2b3633; }
     }
   </style>
@@ -44,36 +47,37 @@
   <aside>
     <section class="panel">
       <h1>Tribal Cog</h1>
-      <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
-      <div class="stat"><span>Team</span><strong id="team">-</strong></div>
-      <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
-      <div class="stat"><span>Score</span><strong id="score">0</strong></div>
+      <div class="metrics">
+        <div class="metric"><span>Status</span><strong id="status">connecting</strong></div>
+        <div class="metric"><span>Team</span><strong id="team">-</strong></div>
+        <div class="metric"><span>Step</span><strong id="step">0 / 0</strong></div>
+        <div class="metric"><span>Score</span><strong id="score">0</strong></div>
+      </div>
     </section>
     <section class="panel">
       <h2>Citizen</h2>
       <canvas id="pip" width="1056" height="1056"></canvas>
-      <div class="stat"><span>Selected</span><strong id="selected">-</strong></div>
-      <div class="stat"><span>Program</span><strong id="citizenProgram">-</strong></div>
+      <div class="metrics">
+        <div class="metric"><span>Selected</span><strong id="selected">-</strong></div>
+        <div class="metric"><span>Program</span><strong id="citizenProgram">-</strong></div>
+      </div>
     </section>
     <section class="panel">
-      <h2>Building</h2>
-      <div class="stat"><span>Selected</span><strong id="building">-</strong></div>
+      <div class="stat"><span>Building</span><strong id="building">-</strong></div>
       <div class="row">
         <select id="programSelect"></select>
         <button id="applyProgram" type="button">Apply</button>
       </div>
     </section>
     <section class="panel">
-      <h2>Program</h2>
-      <pre id="programSource">-</pre>
+      <details>
+        <summary>Program</summary>
+        <pre id="programSource">-</pre>
+      </details>
     </section>
     <section class="panel">
       <h2>Stockpile</h2>
       <div class="grid" id="stockpile"></div>
-    </section>
-    <section class="panel">
-      <h2>Visible Citizens</h2>
-      <div class="list" id="citizens"></div>
     </section>
   </aside>
   <script>
@@ -91,7 +95,6 @@
     const programSelect = document.getElementById("programSelect");
     const programSourceEl = document.getElementById("programSource");
     const stockpileEl = document.getElementById("stockpile");
-    const citizensEl = document.getElementById("citizens");
     const badgeEl = document.getElementById("badge");
     const params = new URLSearchParams(location.search);
     const slot = params.get("slot") || "0";
@@ -123,6 +126,7 @@
     connect();
     resize();
     addEventListener("resize", resize);
+    if(window.ResizeObserver) new ResizeObserver(resize).observe(mapCanvas.parentElement);
     mapCanvas.addEventListener("click", onMapClick);
     document.getElementById("applyProgram").onclick = applyProgram;
 
@@ -150,7 +154,6 @@
       programSourceEl.textContent = program.source || "-";
       renderProgramOptions(message.program_catalog || []);
       renderStockpile(message.stockpiles || {});
-      renderCitizens(message.visible_citizens || []);
       if(message.global_view) loadWorld(message.global_view);
       if(message.sprite_view) drawPip(message.sprite_view);
       if(selectedBuilding) buildingEl.textContent = `${selectedBuilding.x},${selectedBuilding.y}`;
@@ -179,26 +182,11 @@
       }
     }
 
-    function renderCitizens(citizens){
-      citizensEl.textContent = "";
-      for(const citizen of citizens.slice(0, 40)){
-        const row = document.createElement("div");
-        row.className = "item";
-        const label = document.createElement("span");
-        label.textContent = `#${citizen.agent_id} ${citizen.unit_class || ""}`;
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = "View";
-        button.onclick = () => send({type:"town.select_citizen", agent_id:citizen.agent_id});
-        row.append(label, button);
-        citizensEl.append(row);
-      }
-    }
-
     function loadWorld(view){
       world = {...view, objects: decodeObjects(view)};
       terrain = decodeTerrain(view.terrain);
-      if(!didFit){ fitWorld(); didFit = true; }
+      fitWorld();
+      didFit = true;
       drawMap();
     }
 
@@ -263,33 +251,52 @@
       const dpr = devicePixelRatio || 1;
       mapCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
       mapCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      if(didFit) fitWorld();
       drawMap();
     }
 
     function fitWorld(){
-      if(!world) return;
+      if(!world || !terrain) return;
       const w = mapCanvas.clientWidth || 1;
       const h = mapCanvas.clientHeight || 1;
-      const objects = world.objects || [];
-      if(objects.length === 0){
-        tileSize = Math.max(3, Math.floor(Math.min(w / world.width, h / world.height)));
-        offsetX = Math.floor((w - world.width * tileSize) / 2);
-        offsetY = Math.floor((h - world.height * tileSize) / 2);
-        return;
-      }
-      const xs = objects.map(object => object.x);
-      const ys = objects.map(object => object.y);
-      const minX = Math.max(0, Math.min(...xs) - 10);
-      const maxX = Math.min(world.width - 1, Math.max(...xs) + 10);
-      const minY = Math.max(0, Math.min(...ys) - 10);
-      const maxY = Math.min(world.height - 1, Math.max(...ys) + 10);
+      const bounds = visibleBounds();
+      const paddingTiles = 2;
+      const minX = Math.max(0, bounds.minX - paddingTiles);
+      const maxX = Math.min(world.width - 1, bounds.maxX + paddingTiles);
+      const minY = Math.max(0, bounds.minY - paddingTiles);
+      const maxY = Math.min(world.height - 1, bounds.maxY + paddingTiles);
       const areaW = Math.max(1, maxX - minX + 1);
       const areaH = Math.max(1, maxY - minY + 1);
-      tileSize = Math.max(6, Math.floor(Math.min(w / areaW, h / areaH, 24)));
-      const centerX = (minX + maxX + 1) / 2;
-      const centerY = (minY + maxY + 1) / 2;
-      offsetX = Math.floor(w / 2 - centerX * tileSize);
-      offsetY = Math.floor(h / 2 - centerY * tileSize);
+      const screenPadding = 18;
+      const availableW = Math.max(1, w - screenPadding * 2);
+      const availableH = Math.max(1, h - screenPadding * 2);
+      tileSize = clamp(Math.min(availableW / areaW, availableH / areaH), 2, 32);
+      offsetX = Math.floor((w - areaW * tileSize) / 2 - minX * tileSize);
+      offsetY = Math.floor((h - areaH * tileSize) / 2 - minY * tileSize);
+    }
+
+    function visibleBounds(){
+      let minX = world.width, minY = world.height, maxX = -1, maxY = -1;
+      const sprites = world.terrain.sprites || [];
+      for(let y=0;y<world.height;y++){
+        for(let x=0;x<world.width;x++){
+          const id = terrain[y * world.width + x] || 0;
+          const sprite = sprites[id] || {};
+          if(sprite.label === "fog") continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      for(const object of world.objects || []){
+        minX = Math.min(minX, object.x);
+        maxX = Math.max(maxX, object.x);
+        minY = Math.min(minY, object.y);
+        maxY = Math.max(maxY, object.y);
+      }
+      if(maxX >= minX && maxY >= minY) return {minX, minY, maxX, maxY};
+      return {minX: 0, minY: 0, maxX: world.width - 1, maxY: world.height - 1};
     }
 
     function drawMap(){
@@ -416,6 +423,10 @@
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(2, Math.floor(size*.08));
       ctx.strokeRect(x + 2, y + 2, size - 4, size - 4);
+    }
+
+    function clamp(value, minValue, maxValue){
+      return Math.max(minValue, Math.min(maxValue, value));
     }
   </script>
 </body>
