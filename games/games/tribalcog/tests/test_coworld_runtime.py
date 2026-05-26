@@ -41,6 +41,7 @@ from tribal_village_env.coworld.server import (
     THING_LAYER_START,
     UNIT_CLASS_LAYER,
     CoworldConfig,
+    DEFAULT_RENDER_EVERY_STEPS,
     TribalCogCoworld,
     _decode_action_rows,
     asset_media_type,
@@ -74,6 +75,9 @@ def test_slot_mapping() -> None:
 def test_config_accepts_certification_sized_token_lists() -> None:
     with pytest.raises(ValueError, match="between 1 and 8 team tokens"):
         CoworldConfig.from_dict({"tokens": [], "max_steps": 1})
+
+    default_config = CoworldConfig.from_dict({"tokens": ["token-0"], "max_steps": 1})
+    assert default_config.render_every_steps == DEFAULT_RENDER_EVERY_STEPS == 1
 
     config = CoworldConfig.from_dict(
         {

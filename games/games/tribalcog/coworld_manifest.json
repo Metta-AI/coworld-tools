@@ -64,7 +64,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 1000,
-          "default": 5
+          "default": 1
         }
       }
     },
@@ -180,7 +180,7 @@
         "step_seconds": 0.1,
         "victory_condition": 0,
         "player_connect_timeout_seconds": 180,
-        "render_every_steps": 5
+        "render_every_steps": 1
       },
       "description": "Hosted eight-town Tribal Cog match with one Coworld controller per town/team."
     }

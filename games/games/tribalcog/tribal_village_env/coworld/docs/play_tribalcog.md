@@ -22,7 +22,7 @@ Path("/tmp/tribalcog-config.json").write_text(json.dumps({
     "step_seconds": 0.1,
     "victory_condition": 0,
     "player_connect_timeout_seconds": 10,
-    "render_every_steps": 5,
+    "render_every_steps": 1,
 }, indent=2))
 PY
 ```
