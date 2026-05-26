@@ -61,3 +61,37 @@ PALETTE: np.ndarray = np.array(
     dtype=np.uint8,
 )
 PALETTE.flags.writeable = False
+
+
+# --- player-color slot mapping --------------------------------------------
+
+# Player color slots -> lit palette index. Must match ``sim.nim``'s
+# ``PlayerColors`` and ``common/perception_kernels/sprite_match.nim``'s
+# ``PlayerColors``. The 16 slots cover every PICO-8 palette entry exactly
+# once (a permutation), which has implications for
+# ``perception.sprite_match.actor_color_index_all``.
+PLAYER_COLORS: np.ndarray = np.array(
+    [3, 7, 8, 14, 4, 11, 13, 15, 1, 2, 5, 6, 9, 10, 12, 0], dtype=np.uint8
+)
+PLAYER_COLORS.flags.writeable = False
+
+# Palette index -> shadowed variant. Mirrors ``sim.nim``'s ``ShadowMap``.
+SHADOW_MAP: np.ndarray = np.array(
+    [0, 12, 9, 5, 5, 0, 5, 5, 5, 12, 9, 9, 0, 12, 12, 9], dtype=np.uint8
+)
+SHADOW_MAP.flags.writeable = False
+
+
+def _build_player_body_lut() -> np.ndarray:
+    """256-entry bool LUT: index ``c`` is True iff ``c`` is a plausible
+    player-body palette index (lit color OR its shadowed variant).
+    Mirrors ``isPlayerBodyColor`` in the upstream Nim kernel."""
+    lut = np.zeros(256, dtype=bool)
+    for pc in PLAYER_COLORS:
+        lut[int(pc)] = True
+        lut[int(SHADOW_MAP[int(pc) & 0x0F])] = True
+    return lut
+
+
+PLAYER_BODY_LUT: np.ndarray = _build_player_body_lut()
+PLAYER_BODY_LUT.flags.writeable = False

@@ -37,18 +37,16 @@ from enum import Enum
 import numpy as np
 
 from .data import (
+    PLAYER_BODY_LUT,
+    PLAYER_COLORS,
     SHADE_TINT_COLOR,
+    SHADOW_MAP,
     SPRITE_SIZE,
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
-from .sprite_match import (
-    PLAYER_BODY_LUT,
-    PLAYER_COLORS,
-    SHADOW_MAP,
-    match_actor_sprite_all,
-)
+from .sprite_match import match_actor_sprite_all
 
 
 # --- atlas slot indices (mirrors data/sprite_index.json) -------------------
