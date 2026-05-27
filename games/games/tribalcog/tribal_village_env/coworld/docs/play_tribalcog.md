@@ -37,7 +37,7 @@ uv run python -m tribal_village_env.coworld.server
 ```
 
 Open `/clients/global` for the live map. It connects to `/global` and renders
-the `tribalcog-global-sprite-v1` terrain/object/tint stream in a thin
+the `tribalcog-view-plane-v1` terrain/object/tint stream in a thin
 JavaScript canvas client using the same PNG assets served from `/assets/...` as
 the player view. Team-owned citizens and lanterns are tinted with the active Nim
 team palette, and the territory tint layer is drawn over terrain before sprites.
@@ -68,8 +68,7 @@ spectator and player-control routes backed by thin JavaScript clients.
 
 ## Reference player
 
-The bundled reference player reads the Coworld-standard `COWORLD_PLAYER_WS_URL`
-and falls back to `COGAMES_ENGINE_WS_URL` for older local harnesses:
+The bundled reference player reads the Coworld-standard `COWORLD_PLAYER_WS_URL`:
 
 ```bash
 COWORLD_PLAYER_WS_URL=ws://localhost:8080/player?slot=0\&token=token-0 \
@@ -79,8 +78,6 @@ uv run python -m tribal_village_env.coworld.player
 The default mode is `TRIBALCOG_PLAYER_MODE=overseer`, which watches the
 team-scoped observation and edits visible military-building programs when it
 can. Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic passive controller.
-Legacy `sprite` and `random` modes remain for old local harnesses, but town
-control is the Coworld path.
 
 ## Certification
 

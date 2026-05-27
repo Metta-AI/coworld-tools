@@ -23,7 +23,6 @@ from starlette.websockets import WebSocketDisconnect
 from tribal_village_env.build import get_runtime_project_root
 from tribal_village_env.environment import (
     ACTION_ARGUMENT_COUNT,
-    ACTION_SPACE_SIZE,
     TribalVillageEnv,
 )
 
@@ -53,8 +52,6 @@ TEAM_COUNT = 8
 AGENTS_PER_TEAM = 125
 SIM_AGENT_COUNT = TEAM_COUNT * AGENTS_PER_TEAM
 PLAYER_SLOT_COUNT = TEAM_COUNT
-NPC_AGENT_COUNT = 6
-TOTAL_AGENT_COUNT = SIM_AGENT_COUNT + NPC_AGENT_COUNT
 DEFAULT_STEP_SECONDS = 0.1
 DEFAULT_RENDER_EVERY_STEPS = 1
 
@@ -494,14 +491,6 @@ GLOBAL_CELL_TINT_G = 14
 GLOBAL_CELL_TINT_B = 15
 GLOBAL_CELL_TINT_ALPHA = 16
 GLOBAL_CELL_FIELD_COUNT = 17
-SPRITE_PLAYER_INPUT_MESSAGE = 0x84
-BUTTON_UP = 0x01
-BUTTON_DOWN = 0x02
-BUTTON_LEFT = 0x04
-BUTTON_RIGHT = 0x08
-BUTTON_SELECT = 0x10
-BUTTON_A = 0x20
-BUTTON_B = 0x40
 
 TERRAIN_GLYPHS = {
     "water": "~",
@@ -850,12 +839,12 @@ def _capture_replay_frame(
     replay_objects: dict[str, dict[str, Any]],
     ordered_objects: list[dict[str, Any]],
 ) -> None:
-    cells = env.global_sprite_cells()
+    cells = env.view_plane_cells()
     if cells is None:
         return
-    view = global_sprite_view_from_cells(cells, team_colors=env.team_colors(TEAM_COUNT))
+    view = view_plane_from_cells(cells, team_colors=env.team_colors(TEAM_COUNT))
     seen: set[str] = set()
-    for obj in iter_global_objects(view):
+    for obj in iter_view_plane_objects(view):
         key = _replay_object_key(obj)
         seen.add(key)
         replay_obj = replay_objects.get(key)
@@ -971,58 +960,6 @@ def team_agent_start(team_id: int) -> int:
 
 def team_agent_end(team_id: int) -> int:
     return team_agent_start(team_id) + AGENTS_PER_TEAM
-
-
-def decode_action(message: dict[str, Any]) -> int:
-    raw_action = message.get("action", 0)
-    if isinstance(raw_action, dict):
-        verb = int(raw_action.get("verb", 0))
-        argument = int(raw_action.get("argument", 0))
-        raw_action = verb * ACTION_ARGUMENT_COUNT + argument
-    try:
-        action = int(raw_action)
-    except (TypeError, ValueError):
-        return 0
-    if action < 0 or action >= ACTION_SPACE_SIZE:
-        return 0
-    return action
-
-
-def _direction_argument(dx: int, dy: int) -> int | None:
-    return {
-        (0, -1): 0,
-        (0, 1): 1,
-        (-1, 0): 2,
-        (1, 0): 3,
-        (-1, -1): 4,
-        (1, -1): 5,
-        (-1, 1): 6,
-        (1, 1): 7,
-    }.get((dx, dy))
-
-
-def decode_player_buttons(buttons: int) -> int:
-    buttons = int(buttons) & 0x7F
-    dx = int(bool(buttons & BUTTON_RIGHT)) - int(bool(buttons & BUTTON_LEFT))
-    dy = int(bool(buttons & BUTTON_DOWN)) - int(bool(buttons & BUTTON_UP))
-    direction = _direction_argument(dx, dy)
-    if direction is None:
-        return 0
-    if buttons & BUTTON_A:
-        verb = 2
-    elif buttons & BUTTON_B:
-        verb = 3
-    elif buttons & BUTTON_SELECT:
-        verb = 9
-    else:
-        verb = 1
-    return verb * ACTION_ARGUMENT_COUNT + direction
-
-
-def decode_binary_action(message: bytes) -> int:
-    if len(message) >= 2 and message[0] == SPRITE_PLAYER_INPUT_MESSAGE:
-        return decode_player_buttons(message[1])
-    return 0
 
 
 def _first_active_layer(obs: np.ndarray, labels: list[str], start: int, x: int, y: int) -> str | None:
@@ -1312,8 +1249,8 @@ def _global_object_payload(rows: list[list[int]], asset_catalog: list[str]) -> d
     }
 
 
-def iter_global_objects(global_view: dict[str, Any]):
-    payload = global_view.get("objects", [])
+def iter_view_plane_objects(view_plane: dict[str, Any]):
+    payload = view_plane.get("objects", [])
     if isinstance(payload, list):
         yield from payload
         return
@@ -1374,7 +1311,7 @@ def _agent_position_from_global_cells(
     return int(x), int(y)
 
 
-def sprite_view_from_global_cells(
+def sprite_view_from_plane_cells(
     cells: np.ndarray,
     center_x: int,
     center_y: int,
@@ -1394,14 +1331,14 @@ def sprite_view_from_global_cells(
                 continue
             crop[local_y, local_x] = cells[world_y, world_x]
 
-    crop_view = global_sprite_view_from_cells(crop, team_colors=team_colors)
+    crop_view = view_plane_from_cells(crop, team_colors=team_colors)
     terrain_bytes = base64.b64decode(crop_view["terrain"]["data"])
     terrain = np.frombuffer(terrain_bytes, dtype=np.uint8).reshape((width, width))
     terrain_sprites = crop_view["terrain"]["sprites"]
     tint_bytes = base64.b64decode(crop_view["tint"]["data"])
     tint = np.frombuffer(tint_bytes, dtype=np.uint8).reshape((width, width, 4))
     objects_by_cell: dict[tuple[int, int], list[dict[str, Any]]] = {}
-    for obj in iter_global_objects(crop_view):
+    for obj in iter_view_plane_objects(crop_view):
         objects_by_cell.setdefault((int(obj["x"]), int(obj["y"])), []).append(obj)
 
     cell_rows: list[list[dict[str, Any]]] = []
@@ -1486,7 +1423,7 @@ def sprite_view_from_global_cells(
 
     return {
         "protocol": "tribalcog-sprite-v1",
-        "source": "global_sprite_cells",
+        "source": "view_plane_cells",
         "width": width,
         "height": width,
         "radius": radius,
@@ -1502,13 +1439,13 @@ def sprite_view_from_global_cells(
     }
 
 
-def global_sprite_view_from_cells(
+def view_plane_from_cells(
     cells: np.ndarray,
     *,
     team_colors: list[str] | None = None,
 ) -> dict[str, Any]:
     if cells.ndim != 3 or cells.shape[2] < GLOBAL_CELL_FIELD_COUNT:
-        raise ValueError("global sprite cells must be an HxWx17 int16 array")
+        raise ValueError("view plane cells must be an HxWx17 int16 array")
 
     height = int(cells.shape[0])
     width = int(cells.shape[1])
@@ -1566,7 +1503,7 @@ def global_sprite_view_from_cells(
 
     object_rows.sort(key=lambda row: (row[3], row[2], row[1], row[0]))
     return {
-        "protocol": "tribalcog-global-sprite-v1",
+        "protocol": "tribalcog-view-plane-v1",
         "width": width,
         "height": height,
         "tile_size": 24,
@@ -1631,14 +1568,13 @@ class TribalCogCoworld:
         )
         self.env.reset(seed=config.seed)
         self.actual_seed = self.env.game_seed() or config.seed
-        self.initial_global_view = self.global_sprite_view()
+        self.initial_view_plane = self.view_plane()
         self.replay_steps = 0
         self.replay_action_file = self.action_replay_path.open("wb")
 
         self.players: dict[int, WebSocket] = {}
-        self.global_viewers: dict[WebSocket, bool] = {}
+        self.view_plane_viewers: set[WebSocket] = set()
         self.player_slot_count = len(config.tokens)
-        self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
         self.last_rewards = [0.0 for _ in range(TEAM_COUNT)]
         self.scores = [0.0 for _ in range(TEAM_COUNT)]
         self.team_scores = [0.0 for _ in range(TEAM_COUNT)]
@@ -1701,13 +1637,13 @@ class TribalCogCoworld:
         }
 
     def _visible_town_objects(
-        self, team_id: int, global_view: dict[str, Any] | None
+        self, team_id: int, view_plane: dict[str, Any] | None
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         buildings: list[dict[str, Any]] = []
         citizens: list[dict[str, Any]] = []
-        if global_view is None:
+        if view_plane is None:
             return buildings, citizens
-        for obj in iter_global_objects(global_view):
+        for obj in iter_view_plane_objects(view_plane):
             thing = obj.get("thing")
             if thing == "agent" and obj.get("agent_id") is not None:
                 if obj.get("team_id") != team_id:
@@ -1743,11 +1679,11 @@ class TribalCogCoworld:
                     )
         return buildings, citizens
 
-    def team_global_sprite_view(self, team_id: int) -> dict[str, Any] | None:
-        cells = self.env.team_global_sprite_cells(team_id)
+    def team_view_plane(self, team_id: int) -> dict[str, Any] | None:
+        cells = self.env.team_view_plane_cells(team_id)
         if cells is None:
-            return self.global_sprite_view()
-        return global_sprite_view_from_cells(
+            return self.view_plane()
+        return view_plane_from_cells(
             cells,
             team_colors=self._team_colors(),
         )
@@ -1770,25 +1706,25 @@ class TribalCogCoworld:
         team_id = slot_to_team(slot)
         selected_agent = self._selected_agent(team_id)
         obs = np.ascontiguousarray(self.env.observations[selected_agent])
-        team_cells = self.env.team_global_sprite_cells(team_id)
+        team_cells = self.env.team_view_plane_cells(team_id)
         if team_cells is None:
-            team_cells = self.env.global_sprite_cells()
-        global_view = (
-            global_sprite_view_from_cells(
+            team_cells = self.env.view_plane_cells()
+        view_plane = (
+            view_plane_from_cells(
                 team_cells,
                 team_colors=self._team_colors(),
             )
             if team_cells is not None
             else None
         )
-        buildings, citizens = self._visible_town_objects(team_id, global_view)
+        buildings, citizens = self._visible_town_objects(team_id, view_plane)
         selected_position = (
             _agent_position_from_global_cells(team_cells, selected_agent)
             if team_cells is not None
             else None
         )
         sprite_view = (
-            sprite_view_from_global_cells(
+            sprite_view_from_plane_cells(
                 team_cells,
                 *selected_position,
                 team_colors=self._team_colors(),
@@ -1810,8 +1746,6 @@ class TribalCogCoworld:
             "reward": self.last_rewards[slot],
             "score": self.scores[slot],
             "team_score": self.team_scores[team_id],
-            "action_space": ACTION_SPACE_SIZE,
-            "action_names": ACTION_NAMES,
             "orientation_names": ORIENTATION_LABELS,
             "program_catalog": PROGRAMS,
             "citizen_program": self._agent_program_payload(selected_agent),
@@ -1819,7 +1753,7 @@ class TribalCogCoworld:
             "visible_citizens": citizens,
             "selected_building": self.selected_buildings.get(team_id),
             "stockpiles": self._team_stockpiles(team_id),
-            "global_view": global_view,
+            "view_plane": view_plane,
             "sprite_view": sprite_view,
             "observation": {
                 "dtype": "uint8",
@@ -1829,13 +1763,13 @@ class TribalCogCoworld:
             },
         }
 
-    def global_sprite_view(self) -> dict[str, Any] | None:
-        cells = self.env.global_sprite_cells()
+    def view_plane(self) -> dict[str, Any] | None:
+        cells = self.env.view_plane_cells()
         if cells is None:
             return None
-        return global_sprite_view_from_cells(cells, team_colors=self._team_colors())
+        return view_plane_from_cells(cells, team_colors=self._team_colors())
 
-    def snapshot(self, *, include_frame: bool = False) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         snapshot: dict[str, Any] = {
             "type": "state",
             "step": self.env.step_count,
@@ -1852,19 +1786,9 @@ class TribalCogCoworld:
             ],
             "step_seconds": self.config.step_seconds,
         }
-        global_view = self.global_sprite_view()
-        if global_view is not None:
-            snapshot["global_view"] = global_view
-        if include_frame and (
-            self.env.step_count % self.config.render_every_steps == 0 or self.done
-        ):
-            frame = np.ascontiguousarray(self.env.render())
-            snapshot["frame"] = {
-                "width": int(frame.shape[1]),
-                "height": int(frame.shape[0]),
-                "encoding": "rgb-base64",
-                "data": base64.b64encode(frame.tobytes()).decode("ascii"),
-            }
+        view_plane = self.view_plane()
+        if view_plane is not None:
+            snapshot["view_plane"] = view_plane
         return snapshot
 
     async def maybe_start(self) -> None:
@@ -1878,15 +1802,7 @@ class TribalCogCoworld:
             if self.paused:
                 await asyncio.sleep(0.1)
                 continue
-            async with self.lock:
-                action_values = self.actions.copy()
-                self.actions = [0 for _ in range(TOTAL_AGENT_COUNT)]
-            action_dict = {
-                f"agent_{agent_id}": action
-                for agent_id, action in enumerate(action_values[:SIM_AGENT_COUNT])
-                if action != 0
-            }
-            self.env.step(action_dict)
+            self.env.step({})
             self._record_replay_step()
             self._update_scores()
             await self.broadcast()
@@ -1907,17 +1823,17 @@ class TribalCogCoworld:
             for slot, player in list(self.players.items())
         ]
         global_tasks = [
-            viewer.send_json(self.snapshot(include_frame=include_frame))
-            for viewer, include_frame in list(self.global_viewers.items())
+            viewer.send_json(self.snapshot())
+            for viewer in list(self.view_plane_viewers)
         ]
         if player_tasks or global_tasks:
             await asyncio.gather(*player_tasks, *global_tasks, return_exceptions=True)
 
     def _visible_friendly_building(self, team_id: int, x: int, y: int) -> bool:
-        global_view = self.team_global_sprite_view(team_id)
-        if global_view is None:
+        view_plane = self.team_view_plane(team_id)
+        if view_plane is None:
             return False
-        for obj in iter_global_objects(global_view):
+        for obj in iter_view_plane_objects(view_plane):
             if int(obj.get("x", -1)) != x or int(obj.get("y", -1)) != y:
                 continue
             if obj.get("thing") in BUILDING_THINGS:
@@ -2005,11 +1921,9 @@ class TribalCogCoworld:
         for slot, player in list(self.players.items()):
             with suppress(Exception):
                 await player.send_json(self.player_observation(slot, final=True))
-        for viewer in list(self.global_viewers):
+        for viewer in list(self.view_plane_viewers):
             with suppress(Exception):
-                await viewer.send_json(
-                    self.snapshot(include_frame=self.global_viewers[viewer])
-                )
+                await viewer.send_json(self.snapshot())
         if server is not None:
             server.should_exit = True
 
@@ -2028,11 +1942,11 @@ class TribalCogCoworld:
             "num_agents": self.env.num_agents,
             "max_steps": self.replay_steps,
             "map_size": [
-                int(self.initial_global_view.get("width", 306))
-                if self.initial_global_view is not None
+                int(self.initial_view_plane.get("width", 306))
+                if self.initial_view_plane is not None
                 else 306,
-                int(self.initial_global_view.get("height", 192))
-                if self.initial_global_view is not None
+                int(self.initial_view_plane.get("height", 192))
+                if self.initial_view_plane is not None
                 else 192,
             ],
             "action_names": ACTION_NAMES,
@@ -2048,7 +1962,7 @@ class TribalCogCoworld:
                     "step_seconds": self.config.step_seconds,
                     "render_every_steps": self.config.render_every_steps,
                 },
-                "global_view": self.initial_global_view,
+                "view_plane": self.initial_view_plane,
             },
             "actions": {
                 "encoding": "u16le-base64",
@@ -2160,18 +2074,17 @@ def sprite_asset(asset_path: str) -> FileResponse:
 
 
 @app.websocket("/global")
-async def global_viewer(websocket: WebSocket) -> None:
+async def view_plane_viewer(websocket: WebSocket) -> None:
     state = _runtime()
     await websocket.accept()
-    include_frame = websocket.query_params.get("frame") == "1"
-    state.global_viewers[websocket] = include_frame
+    state.view_plane_viewers.add(websocket)
     try:
-        await websocket.send_json(state.snapshot(include_frame=include_frame))
+        await websocket.send_json(state.snapshot())
         await state.maybe_start()
         async for _ in websocket.iter_json():
             pass
     finally:
-        state.global_viewers.pop(websocket, None)
+        state.view_plane_viewers.discard(websocket)
 
 
 @app.websocket("/replay")
@@ -2232,7 +2145,6 @@ async def player(websocket: WebSocket) -> None:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
                 break
-            action = 0
             if message.get("text") is not None:
                 try:
                     payload = json.loads(message["text"])
@@ -2245,14 +2157,9 @@ async def player(websocket: WebSocket) -> None:
                     if response.get("type") == "ack":
                         await websocket.send_json(state.player_observation(slot))
                     continue
-                action = decode_action(payload) if isinstance(payload, dict) else 0
-            elif message.get("bytes") is not None:
-                action = decode_binary_action(message["bytes"])
-            if action:
-                # Team-level town controllers do not directly drive one citizen.
-                # Keep legacy action packets accepted as no-ops for old clients.
-                async with state.lock:
-                    state.actions[slot] = 0
+            await websocket.send_json(
+                {"type": "error", "message": "expected town.* JSON command"}
+            )
     except WebSocketDisconnect:
         pass
     finally:

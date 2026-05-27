@@ -6,12 +6,6 @@ Global viewers connect to:
 WEBSOCKET /global
 ```
 
-Browser clients may request an initial full-map frame with:
-
-```text
-WEBSOCKET /global?frame=1
-```
-
 Replay viewers connect to:
 
 ```text
@@ -21,7 +15,7 @@ WEBSOCKET /replay?uri=<replay-uri>
 The hosted Coworld replay proxy must preserve the `uri` query parameter when it
 iframes `/clients/replay?uri=...` and opens `/replay?uri=...`.
 
-## Global messages
+## View-plane messages
 
 The game server sends state snapshots:
 
@@ -38,8 +32,8 @@ The game server sends state snapshots:
   "team_scores": [0, 0, 0, 0, 0, 0, 0, 0],
   "team_connected_players": [1, 0, 0, 0, 0, 0, 0, 0],
   "step_seconds": 0.1,
-  "global_view": {
-    "protocol": "tribalcog-global-sprite-v1",
+  "view_plane": {
+    "protocol": "tribalcog-view-plane-v1",
     "width": 306,
     "height": 192,
     "tile_size": 24,
@@ -86,7 +80,7 @@ The game server sends state snapshots:
 }
 ```
 
-`global_view` is the canonical spectator contract. Terrain is a compact
+`view_plane` is the canonical spectator contract. Terrain is a compact
 row-major `uint8` ordinal grid. `team_colors` comes from the Nim simulation's
 active team palette and is the source of truth for team-owned sprite tinting.
 `tint` is the row-major RGBA territory layer produced by the Nim tint pass:
@@ -103,11 +97,6 @@ sprite should be tinted with `team_colors[team_id]`. Team IDs are intentionally
 limited to actual team-owned citizens and healthy lanterns so resource and
 building sprites do not inherit misleading ownership colors. Load PNGs from the
 served `/assets/...` URLs.
-
-`/global?frame=1` is retained as a legacy fallback. When requested, snapshots
-also include `frame`, whose bytes are raw RGB pixels produced by the Nim
-renderer through the Python FFI. New Coworld clients should prefer
-`global_view` so the spectator sees the same sprite assets as player views.
 
 ## Browser clients
 

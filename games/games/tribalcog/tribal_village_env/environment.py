@@ -244,18 +244,18 @@ class TribalVillageEnv(pufferlib.PufferEnv):
             return ""
         return cbuf.value.decode("utf-8", errors="replace")
 
-    def global_sprite_cells(self) -> np.ndarray | None:
+    def view_plane_cells(self) -> np.ndarray | None:
         """Return a compact full-map sprite grid from Nim, if available."""
-        return self._global_sprite_cells_from_ffi("tribal_village_write_global_sprite_cells")
+        return self._view_plane_cells_from_ffi("tribal_village_write_global_sprite_cells")
 
-    def team_global_sprite_cells(self, team_id: int) -> np.ndarray | None:
+    def team_view_plane_cells(self, team_id: int) -> np.ndarray | None:
         """Return a compact full-map sprite grid filtered by team fog."""
-        return self._global_sprite_cells_from_ffi(
+        return self._view_plane_cells_from_ffi(
             "tribal_village_write_team_global_sprite_cells",
             ctypes.c_int32(team_id),
         )
 
-    def _global_sprite_cells_from_ffi(self, name: str, *extra_args) -> np.ndarray | None:
+    def _view_plane_cells_from_ffi(self, name: str, *extra_args) -> np.ndarray | None:
         if self.map_width is None or self.map_height is None:
             return None
         field_count = int(

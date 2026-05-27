@@ -193,8 +193,8 @@
       ws.onmessage = (event) => {
         latestState = JSON.parse(event.data);
         updateStats(latestState);
-        if (latestState.global_view) {
-          loadWorld(latestState.global_view);
+        if (latestState.view_plane) {
+          loadWorld(latestState.view_plane);
         }
       };
       ws.onclose = () => { statusEl.textContent = "closed"; };

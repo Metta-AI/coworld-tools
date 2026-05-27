@@ -191,7 +191,7 @@
       programSourceEl.textContent = program.source || "-";
       renderProgramOptions(message.program_catalog || []);
       renderStockpile(message.stockpiles || {});
-      if(message.global_view) loadWorld(message.global_view);
+      if(message.view_plane) loadWorld(message.view_plane);
       if(message.sprite_view) drawPip(message.sprite_view);
       if(selectedBuilding) buildingEl.textContent = `${selectedBuilding.x},${selectedBuilding.y}`;
       else buildingEl.textContent = "-";

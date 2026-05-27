@@ -62,17 +62,17 @@ The server sends one JSON observation message per tick:
     }
   ],
   "stockpiles": {"food": 10, "wood": 12, "gold": 3, "stone": 0, "water": 0},
-  "global_view": {"protocol": "tribalcog-global-sprite-v1"},
+  "view_plane": {"protocol": "tribalcog-view-plane-v1"},
   "sprite_view": {"protocol": "tribalcog-sprite-v1"},
   "observation": {"dtype": "uint8", "shape": [101, 11, 11], "encoding": "base64", "data": "..."}
 }
 ```
 
-`global_view` is the team fog-of-war map rendered with the same sprite/object
+`view_plane` is the team fog-of-war map rendered with the same sprite/object
 schema as `/global`, including `team_colors`, team-tinted sprites, and the RGBA
 territory tint layer used for score. Unrevealed cells are hidden. `sprite_view`
-and `observation` are centered on the selected citizen and keep the existing
-11x11 local view for inspection and lightweight policies.
+and `observation` are centered on the selected citizen for inspection and
+picture-in-picture display.
 
 Each `sprite_view` cell includes the same visual information needed to match the
 map: `terrain_asset`, `thing_drawables` with per-object `team_id`, and
@@ -107,6 +107,5 @@ building:
 Edits apply only to future entrants. Existing citizens keep their already
 assigned program snapshot until they transform through another building.
 
-Legacy integer actions and BitWorld-style `0x84 <buttons-u8>` packets are
-accepted as no-ops for old clients. Town controllers do not directly drive one
-citizen's action each tick.
+Town controllers do not directly drive one citizen's action each tick. The
+canonical write protocol is the `town.*` JSON command set above.

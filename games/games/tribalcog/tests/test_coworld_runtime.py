@@ -11,7 +11,6 @@ import numpy as np
 
 from tribal_village_env.coworld.player import (
     choose_overseer_command,
-    choose_sprite_action,
     player_ws_url,
 )
 from tribal_village_env.coworld.server import (
@@ -45,17 +44,14 @@ from tribal_village_env.coworld.server import (
     TribalCogCoworld,
     _decode_action_rows,
     asset_media_type,
-    decode_action,
-    decode_binary_action,
-    decode_player_buttons,
-    global_sprite_view_from_cells,
-    iter_global_objects,
+    view_plane_from_cells,
+    iter_view_plane_objects,
     load_replay_data,
     resolve_sprite_asset_path,
     resolve_wasm_asset_path,
     slot_team_index,
     slot_to_team,
-    sprite_view_from_global_cells,
+    sprite_view_from_plane_cells,
     sprite_view_from_observation,
     wasm_media_type,
     winner_team,
@@ -100,27 +96,6 @@ def test_config_accepts_certification_sized_token_lists() -> None:
         )
 
 
-def test_decode_action_accepts_integer_and_verb_argument() -> None:
-    assert decode_action({"action": 17}) == 17
-    assert decode_action({"action": {"verb": 2, "argument": 3}}) == 59
-    assert decode_action({"action": -1}) == 0
-    assert decode_action({"action": 9999}) == 0
-    assert decode_action({"action": "not-an-action"}) == 0
-    assert decode_action({}) == 0
-
-
-def test_decode_sprite_player_input_buttons() -> None:
-    assert decode_player_buttons(0x01) == 1 * 28 + 0
-    assert decode_player_buttons(0x08) == 1 * 28 + 3
-    assert decode_player_buttons(0x01 | 0x04) == 1 * 28 + 4
-    assert decode_player_buttons(0x20 | 0x08) == 2 * 28 + 3
-    assert decode_player_buttons(0x40 | 0x02) == 3 * 28 + 1
-    assert decode_player_buttons(0x10 | 0x01) == 9 * 28 + 0
-    assert decode_player_buttons(0) == 0
-    assert decode_binary_action(bytes([0x84, 0x08])) == 1 * 28 + 3
-    assert decode_binary_action(bytes([0x81, 0x08])) == 0
-
-
 def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     obs = np.zeros((101, 11, 11), dtype=np.uint8)
     obs[TERRAIN_LAYER_START + 5, 5, 5] = 1
@@ -153,7 +128,7 @@ def test_sprite_view_from_observation_exposes_semantic_cells() -> None:
     assert view["cells"][0][0]["sprite_asset"] is None
 
 
-def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
+def test_view_plane_from_cells_exposes_terrain_and_objects() -> None:
     cells = np.full((2, 3, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
     cells[:, :, GLOBAL_CELL_TERRAIN] = 0
     cells[1, 2, GLOBAL_CELL_TERRAIN] = 6
@@ -172,9 +147,9 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     cells[0, 1, GLOBAL_CELL_TINT_B] = 48
     cells[0, 1, GLOBAL_CELL_TINT_ALPHA] = 128
 
-    view = global_sprite_view_from_cells(cells)
+    view = view_plane_from_cells(cells)
 
-    assert view["protocol"] == "tribalcog-global-sprite-v1"
+    assert view["protocol"] == "tribalcog-view-plane-v1"
     assert view["width"] == 3
     assert view["height"] == 2
     assert view["team_colors"][0] == "#e3655b"
@@ -210,7 +185,7 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     assert view["terrain"]["sprites"][6]["asset"] == "/assets/grass.png"
     assert view["object_count"] == 2
     assert view["objects"]["encoding"] == "i16-base64"
-    objects = list(iter_global_objects(view))
+    objects = list(iter_view_plane_objects(view))
     assert objects[0]["thing"] == "tree"
     assert objects[0]["asset"] == "/assets/tree.png"
     assert objects[1]["thing"] == "agent"
@@ -219,7 +194,7 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     assert "visibility" not in view
 
 
-def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
+def test_sprite_view_from_plane_cells_matches_view_plane_protocol() -> None:
     cells = np.full((4, 4, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
     cells[:, :, GLOBAL_CELL_TERRAIN] = 6
     cells[1, 1, GLOBAL_CELL_TERRAIN] = 10
@@ -234,10 +209,10 @@ def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
     cells[2, 2, GLOBAL_CELL_TINT_B] = 91
     cells[2, 2, GLOBAL_CELL_TINT_ALPHA] = 192
 
-    view = sprite_view_from_global_cells(cells, 2, 2, radius=1)
+    view = sprite_view_from_plane_cells(cells, 2, 2, radius=1)
 
     assert view["protocol"] == "tribalcog-sprite-v1"
-    assert view["source"] == "global_sprite_cells"
+    assert view["source"] == "view_plane_cells"
     assert view["center"] == {"x": 1, "y": 1, "world_x": 2, "world_y": 2}
     assert view["cells"][0][0]["terrain"] == "mud"
     center = view["cells"][1][1]
@@ -257,25 +232,6 @@ def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:
         "color": "#e3655b",
         "alpha": 0.753,
     }
-
-
-def test_sprite_player_policy_moves_toward_visible_resource() -> None:
-    message = {
-        "team_id": 0,
-        "sprite_view": {
-            "center": {"x": 5, "y": 5},
-            "cells": [
-                [
-                    {"x": x, "y": y, "thing": None, "team_id": None, "obscured": False}
-                    for x in range(11)
-                ]
-                for y in range(11)
-            ],
-        },
-    }
-    message["sprite_view"]["cells"][5][6]["thing"] = "tree"
-
-    assert choose_sprite_action(message) == 1 * 28 + 3
 
 
 def test_reference_overseer_edits_visible_military_building() -> None:
@@ -437,7 +393,7 @@ def test_coworld_replay_bytes_are_action_log(tmp_path: Path) -> None:
     state.action_replay_path = action_path
     state.replay_steps = 2
     state.actual_seed = 5
-    state.initial_global_view = {"width": 9, "height": 7}
+    state.initial_view_plane = {"width": 9, "height": 7}
     state.replay_action_file = action_path.open("rb")
     try:
         replay = json.loads(zlib.decompress(state._replay_bytes({"steps": 2})))
@@ -446,6 +402,7 @@ def test_coworld_replay_bytes_are_action_log(tmp_path: Path) -> None:
 
     assert replay["format"] == "tribalcog-action-log-v1"
     assert replay["map_size"] == [9, 7]
+    assert replay["initial_state"]["view_plane"] == {"width": 9, "height": 7}
     assert replay["actions"]["shape"] == [2, 3]
     assert replay["action_argument_count"] == 28
     assert base64.b64decode(replay["actions"]["data"]) == action_bytes
@@ -495,11 +452,11 @@ def test_sprite_asset_media_types() -> None:
     assert asset_media_type(Path("grass.bin")) == "application/octet-stream"
 
 
-def test_reference_player_prefers_coworld_player_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("COGAMES_ENGINE_WS_URL", "ws://old-player")
+def test_reference_player_requires_coworld_player_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COWORLD_PLAYER_WS_URL", "ws://coworld-player")
 
     assert player_ws_url() == "ws://coworld-player"
 
     monkeypatch.delenv("COWORLD_PLAYER_WS_URL")
-    assert player_ws_url() == "ws://old-player"
+    with pytest.raises(KeyError):
+        player_ws_url()
