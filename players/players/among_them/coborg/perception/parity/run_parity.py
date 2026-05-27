@@ -31,9 +31,18 @@ Schema scope:
   (``actors.py``) and S3.3 (``tasks.py`` radar-dot half).
 - **v3 (S4.1):** adds the upstream ``interstitial.detect_interstitial``
   output (black-pixel count + is/is-not + kind). Checked by
-  ``_check_interstitial``.
-- **S4.2 onward** extend v3 with ignore-mask stamps, then v4 with
-  localize / task-icons, then v5 with ocr and voting.
+  ``_check_interstitial``. S4.2 extends v3 with
+  ``ignore_phase_1_0`` (stamped-pixel count + SHA-1 fingerprint).
+- **v4 (S4.3):** adds upstream localize output:
+  ``score_camera_probes`` (per-fixture at canonical seeds),
+  ``frame_patch_hashes`` (full 16x16 FNV grid + valid bools),
+  ``patch_vote_top_candidates`` (top-K from the vote kernel),
+  ``localize_first_frame`` (``update_location`` from a fresh state).
+  S4.4 extends v4 with ``task_icons``.
+- **v5 (S4.5):** adds upstream OCR output:
+  ``ocr_classify_interstitial`` (refined InterstitialKind via
+  banner text + game-over heuristic), ``ocr_best_glyph_probes``
+  (best_glyph at four canonical (x, y) positions).
 
 Tolerance policy: every assertion in S2 is **exact** equality. The Nim
 oracle and the Python port are both deterministic over integer
@@ -69,12 +78,13 @@ from ..localize import (
     update_location,
     vote_camera_candidates,
 )
+from ..ocr import best_glyph, classify_interstitial
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
 from ..tasks import scan_radar_dots, scan_task_icons
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
-_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3, 4})
+_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3, 4, 5})
 
 
 @dataclass
@@ -391,6 +401,52 @@ def _check_task_icons(
     )
 
 
+# --- v5 orchestrated checks (ocr.py outputs) -----------------------------
+
+
+def _check_ocr_classify_interstitial(
+    frame: np.ndarray, expected: dict
+) -> CheckResult:
+    """Compare the refined :class:`InterstitialKind` against the oracle.
+    The oracle emits the kind as a lowercase string; the Python enum's
+    ``.value`` is the same string, so a direct compare suffices."""
+    kind = classify_interstitial(frame)
+    actual = {"kind": kind.value}
+    if actual == expected:
+        return CheckResult(label="ocr_classify_interstitial", ok=True)
+    return CheckResult(
+        label="ocr_classify_interstitial",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
+def _check_ocr_best_glyph_probes(
+    frame: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Per-probe ``best_glyph`` result equality. Each entry has
+    ``(x, y, char, errors, advance)`` — full byte-exact compare."""
+    mismatches: list[str] = []
+    for exp in expected_list:
+        x = int(exp["x"])
+        y = int(exp["y"])
+        m = best_glyph(frame, x, y, 0)
+        actual = {
+            "x": x,
+            "y": y,
+            "char": m.char,
+            "errors": m.errors,
+            "advance": m.advance,
+        }
+        if actual != exp:
+            mismatches.append(f"at ({x},{y}): got {actual!r} vs {exp!r}")
+    if not mismatches:
+        return CheckResult(label="ocr_best_glyph_probes", ok=True)
+    return CheckResult(
+        label="ocr_best_glyph_probes", ok=False, detail="; ".join(mismatches)
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -460,6 +516,15 @@ def check_fixture(bin_path: Path) -> FixtureResult:
             result.checks.append(
                 _check_task_icons(atlas, frame, loc_state, sidecar["task_icons"])
             )
+    if schema_version >= 5:
+        result.checks.append(
+            _check_ocr_classify_interstitial(
+                frame, sidecar["ocr_classify_interstitial"]
+            )
+        )
+        result.checks.append(
+            _check_ocr_best_glyph_probes(frame, sidecar["ocr_best_glyph_probes"])
+        )
     return result
 
 

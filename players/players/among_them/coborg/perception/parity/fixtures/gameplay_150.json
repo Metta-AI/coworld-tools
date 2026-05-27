@@ -1,6 +1,6 @@
 {
   "fixture": "gameplay_150.bin",
-  "schema_version": 4,
+  "schema_version": 5,
   "frame_length": 16384,
   "screen_width": 128,
   "screen_height": 128,
@@ -811,5 +811,38 @@
     "self_x": 564,
     "self_y": 120
   },
-  "task_icons": []
+  "task_icons": [],
+  "ocr_classify_interstitial": {
+    "kind": "unknown"
+  },
+  "ocr_best_glyph_probes": [
+    {
+      "x": 1,
+      "y": 1,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 10,
+      "y": 30,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 40,
+      "y": 60,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 50,
+      "y": 80,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    }
+  ]
 }

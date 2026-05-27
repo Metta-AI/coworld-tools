@@ -25,7 +25,12 @@
 ##   `score_camera_probes` (per-fixture at canonical seeds),
 ##   `frame_patch_hashes` (16x16 grid of FNV hashes), `patch_vote_top_candidates`
 ##   (top-16 from the vote kernel), `localize_first_frame` (result of
-##   `updateLocation` starting from a fresh state).
+##   `updateLocation` starting from a fresh state). S4.4 extends v4
+##   with `task_icons`.
+## - v5 (S4.5): adds upstream OCR outputs:
+##   `ocr_classify_interstitial` (refined InterstitialKind via banner
+##   text and game-over layout heuristic), `ocr_best_glyph_probes`
+##   (best_glyph result at a small set of canonical screen positions).
 ##
 ## Each sidecar's `schema_version` field declares the version the
 ## sidecar conforms to. The Python harness fails closed on unknown
@@ -71,6 +76,9 @@ import guided_bot/perception/frame as gbFrame
 import guided_bot/perception/localize as gbLocalize
 import guided_bot/perception/geometry as gbGeometry
 
+# Upstream OCR — used for v5 outputs.
+import guided_bot/perception/ocr as gbOcr
+
 import std/sha1
 import std/strutils
 
@@ -80,7 +88,7 @@ const
   FrameLen = ScreenWidth * ScreenHeight
   SpriteSize = 12
   SpriteCount = 6
-  SchemaVersion = 4
+  SchemaVersion = 5
 
   # Crewmate (= player sprite) scan budgets.
   CrewmateMaxMisses = 8
@@ -469,6 +477,48 @@ proc taskIconsJson(
       frame, sprite, locState.cameraX, locState.cameraY):
     result.add(%* {"x": m.x, "y": m.y})
 
+
+# ---------------------------------------------------------------------------
+# Orchestrated outputs (v5) — OCR
+# ---------------------------------------------------------------------------
+
+proc ocrClassifyInterstitialJson(frame: var seq[uint8]): JsonNode =
+  ## Result of upstream `ocr.classifyInterstitial`. Reuses the same
+  ## InterstitialKind enum the v3 detector uses; emits the kind as a
+  ## lowercase string.
+  let kind = gbOcr.classifyInterstitial(frame, 2)
+  %* {"kind": interstitialKindToString(kind)}
+
+const
+  # Probe positions for best_glyph parity. Picks 4 fixed screen-space
+  # anchors that span gameplay (typically empty), HUD area (player
+  # name in top-left on gameplay frames), and centre (banners on
+  # interstitials). The exact result depends only on the frame
+  # content at those positions, so it stays deterministic.
+  OcrProbes: array[4, (int, int)] = [
+    (1, 1),    # top-left corner
+    (10, 30),  # mid-left
+    (40, 60),  # centre-ish
+    (50, 80),  # lower-centre
+  ]
+
+proc ocrBestGlyphProbesJson(frame: var seq[uint8]): JsonNode =
+  ## Per-probe `best_glyph` result. Each entry emits the (x, y) and
+  ## the (char, errors, advance) triple the Python wrapper returns.
+  ## The chosen probes are deterministic for a given frame; mismatches
+  ## here localize the failure to a specific position rather than a
+  ## whole-frame OCR sweep.
+  result = newJArray()
+  for (px, py) in OcrProbes:
+    let (ch, errors, advance) = gbOcr.bestGlyph(frame, px, py, 0)
+    result.add(%* {
+      "x": px,
+      "y": py,
+      "char": $ch,
+      "errors": errors,
+      "advance": advance,
+    })
+
 # ---------------------------------------------------------------------------
 # Fixture loader + per-fixture orchestrator
 # ---------------------------------------------------------------------------
@@ -540,6 +590,10 @@ proc processFixture(path: string): JsonNode =
     frame, ignoreMask.data, locState)
   # v4 (S4.4) task-icon field — additive within v4 (no schema bump).
   result["task_icons"] = taskIconsJson(frame, locState)
+
+  # v5 (S4.5) OCR fields.
+  result["ocr_classify_interstitial"] = ocrClassifyInterstitialJson(frame)
+  result["ocr_best_glyph_probes"] = ocrBestGlyphProbesJson(frame)
 
 proc main() =
   let here = currentSourcePath().parentDir()
