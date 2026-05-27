@@ -3,6 +3,7 @@
 import pytest
 
 from tests.conftest import requires_nim_library
+from tribal_village_env.config import EnvironmentConfig
 
 
 class TestNimConfig:
@@ -173,7 +174,7 @@ class TestTribalVillageEnvIntegration:
         """Environment should render to ANSI string."""
         from tribal_village_env.environment import TribalVillageEnv
 
-        env = TribalVillageEnv(config={"render_mode": "ansi"})
+        env = TribalVillageEnv(config=EnvironmentConfig(render_mode="ansi"))
         env.reset()
 
         result = env.render()
@@ -185,10 +186,7 @@ class TestTribalVillageEnvIntegration:
         """Environment should apply custom config."""
         from tribal_village_env.environment import TribalVillageEnv
 
-        config = {
-            "max_steps": 500,
-            "tumor_spawn_rate": 0.1,
-        }
+        config = EnvironmentConfig(max_steps=500, tumor_spawn_rate=0.1)
         env = TribalVillageEnv(config=config)
         assert env.max_steps == 500
 
@@ -282,10 +280,10 @@ class TestMakeTribalVillageEnv:
 
     @requires_nim_library
     def test_factory_with_config(self):
-        """Factory should accept config dict."""
+        """Factory should accept typed config."""
         from tribal_village_env.environment import make_tribal_village_env
 
-        env = make_tribal_village_env(config={"max_steps": 100})
+        env = make_tribal_village_env(config=EnvironmentConfig(max_steps=100))
         assert env.max_steps == 100
         env.close()
 

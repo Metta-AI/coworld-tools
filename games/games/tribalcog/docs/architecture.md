@@ -288,21 +288,25 @@ pip install -e .
 
 ### Python Config
 
-`TribalVillageEnv` accepts config dict:
+`TribalVillageEnv` accepts typed `EnvironmentConfig`:
 ```python
-env = TribalVillageEnv(config={
-    "max_steps": 10000,
-    "render_mode": "rgb_array",
-    "victory_condition": 0,
-    "tumor_spawn_rate": 0.1,
-    # Reward coefficients:
-    "heart_reward": 0.0,
-    "ore_reward": 0.0,
-    "wood_reward": 0.0,
-    "food_reward": 0.0,
-    "death_penalty": 0.0,
-    # ... etc
-})
+from tribal_village_env import EnvironmentConfig, TribalVillageEnv
+
+env = TribalVillageEnv(
+    config=EnvironmentConfig(
+        max_steps=10000,
+        render_mode="rgb_array",
+        victory_condition=0,
+        tumor_spawn_rate=0.1,
+        rewards={
+            "heart": 0.0,
+            "ore": 0.0,
+            "wood": 0.0,
+            "food": 0.0,
+            "death_penalty": 0.0,
+        },
+    )
+)
 ```
 
 Config is passed to Nim via `NimConfig` struct in the FFI layer.

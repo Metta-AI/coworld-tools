@@ -12,7 +12,12 @@ from tribal_village_env.build import (
     ensure_nim_library_current,
     get_runtime_project_root,
 )
-from tribal_village_env.config import DEFAULT_ANSI_STEPS, DEFAULT_PROFILE_STEPS
+from tribal_village_env.config import (
+    DEFAULT_ANSI_STEPS,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_PROFILE_STEPS,
+    EnvironmentConfig,
+)
 
 # Optional CoGames training integration
 try:
@@ -99,9 +104,10 @@ def _run_gui(
 def _run_ansi(steps: int, max_steps: int | None, random_actions: bool) -> None:
     from tribal_village_env.environment import TribalVillageEnv
 
-    config: dict[str, object] = {"render_mode": "ansi"}
-    if max_steps is not None:
-        config["max_steps"] = max_steps
+    config = EnvironmentConfig(
+        render_mode="ansi",
+        max_steps=max_steps if max_steps is not None else DEFAULT_MAX_STEPS,
+    )
 
     env = TribalVillageEnv(config=config)
 

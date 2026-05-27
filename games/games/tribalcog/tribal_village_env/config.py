@@ -11,9 +11,6 @@ Usage:
     # Override nested values using dot notation
     env_config.override("rewards.heart", 1.5)
 
-    # Convert to dict for compatibility
-    config_dict = env_config.model_dump()
-
     # Serialize for reproducibility
     config_json = env_config.model_dump_json()
 """
@@ -25,10 +22,6 @@ import types
 from typing import Any, ClassVar, NoReturn, Self, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
-
-
-def reward_legacy_field_name(field_name: str) -> str:
-    return field_name if field_name.endswith("_penalty") else f"{field_name}_reward"
 
 
 class Config(BaseModel):
@@ -267,47 +260,6 @@ class EnvironmentConfig(Config):
         if v not in valid_modes:
             raise ValueError(f"render_mode must be one of {valid_modes}, got '{v}'")
         return v
-
-    def to_legacy_dict(self) -> dict[str, Any]:
-        """Convert to legacy dictionary format for backward compatibility."""
-        result: dict[str, Any] = {
-            "max_steps": self.max_steps,
-            "victory_condition": self.victory_condition,
-            "ai_mode": self.ai_mode,
-            "render_mode": self.render_mode,
-            "render_scale": self.render_scale,
-        }
-
-        if not math.isnan(self.tumor_spawn_rate):
-            result["tumor_spawn_rate"] = self.tumor_spawn_rate
-
-        for field_name in RewardConfig.model_fields:
-            value = getattr(self.rewards, field_name)
-            if not math.isnan(value):
-                result[reward_legacy_field_name(field_name)] = value
-
-        return result
-
-    @classmethod
-    def from_legacy_dict(cls, config: dict[str, Any]) -> EnvironmentConfig:
-        """Create config from legacy dictionary format."""
-        reward_kwargs = {
-            field_name: config.get(reward_legacy_field_name(field_name), math.nan)
-            for field_name in RewardConfig.model_fields
-        }
-        rewards = RewardConfig(**reward_kwargs)
-
-        return cls(
-            max_steps=config.get("max_steps", 10_000),
-            victory_condition=config.get("victory_condition", 0),
-            tumor_spawn_rate=config.get("tumor_spawn_rate", math.nan),
-            ai_mode=config.get("ai_mode", "external"),
-            render_mode=config.get("render_mode", "rgb_array"),
-            render_scale=config.get("render_scale", 4),
-            ansi_buffer_size=config.get("ansi_buffer_size", 1_000_000),
-            rewards=rewards,
-        )
-
 
 class PPOConfig(Config):
     """Configuration for PPO (Proximal Policy Optimization) hyperparameters.

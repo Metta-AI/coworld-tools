@@ -66,12 +66,11 @@ nimble wasm
 ## Python API
 
 ```python
-from tribal_village_env import TribalVillageEnv
+from tribal_village_env import EnvironmentConfig, TribalVillageEnv
 
-env = TribalVillageEnv(config={
-    'max_steps': 10000,
-    'render_mode': 'rgb_array',  # or 'ansi'
-})
+env = TribalVillageEnv(
+    config=EnvironmentConfig(max_steps=10000, render_mode="rgb_array")  # or "ansi"
+)
 obs, info = env.reset()
 obs, reward, terminated, truncated, info = env.step(actions)
 ```

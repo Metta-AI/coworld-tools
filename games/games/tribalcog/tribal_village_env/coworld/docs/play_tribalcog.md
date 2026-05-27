@@ -48,9 +48,7 @@ Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
 overseer. The player page shows the team's fog-of-war global map, a
 picture-in-picture 11x11 `tribalcog-sprite-v1` view for the selected citizen,
 visible citizens/buildings, stockpiles, and the program editor for selected
-friendly buildings. `/clients/global?slot=0&token=token-0` can still attach a
-team token while watching the whole map, but the dedicated player page is the
-primary controller surface.
+friendly buildings.
 
 ## Native WASM client
 

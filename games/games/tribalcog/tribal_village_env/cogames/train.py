@@ -42,6 +42,7 @@ from tribal_village_env.config import (
     DEFAULT_VF_COEF,
     DEFAULT_VTRACE_C_CLIP,
     DEFAULT_VTRACE_RHO_CLIP,
+    EnvironmentConfig,
 )
 
 logger = logging.getLogger("cogames.tribal_village.train")
@@ -69,24 +70,21 @@ def _getattr_fallback(obj: Any, *names: str, default: Any = None) -> Any:
 class TribalEnvFactory:
     """Picklable factory for vectorized Tribal Village environments."""
 
-    def __init__(self, base_config: dict[str, Any]):
-        self._base_config = dict(base_config)
+    def __init__(self, base_config: EnvironmentConfig):
+        self._base_config = base_config
 
     def __call__(
         self,
-        cfg: dict[str, Any] | None = None,
+        cfg: EnvironmentConfig | None = None,
         buf: Any | None = None,
         seed: int | None = None,
     ) -> Any:
         from tribal_village_env.environment import TribalVillageEnv
 
-        merged_cfg = dict(self._base_config)
-        if cfg is not None:
-            merged_cfg.update(cfg)
-        if seed is not None and "seed" not in merged_cfg:
-            merged_cfg["seed"] = seed
+        del seed
+        config = cfg if cfg is not None else self._base_config
 
-        env = TribalVillageEnv(config=merged_cfg)
+        env = TribalVillageEnv(config=config)
         set_buffers(env, buf)
         return env
 
@@ -205,15 +203,13 @@ def train(settings: dict[str, Any]) -> None:
         )
         vector_batch_size = num_envs
 
-    base_config = {"render_mode": "ansi", "render_scale": 1}
-    base_config.update(
-        settings.get(
-            "env_config",
-            {
-                "max_steps": DEFAULT_TRAIN_MAX_STEPS,
-            },
-        )
-    )
+    base_config_values = {
+        "render_mode": "ansi",
+        "render_scale": 1,
+        "max_steps": DEFAULT_TRAIN_MAX_STEPS,
+    }
+    base_config_values.update(settings.get("env_config", {}))
+    base_config = EnvironmentConfig(**base_config_values)
 
     env_creator = TribalEnvFactory(base_config)
 
@@ -223,7 +219,7 @@ def train(settings: dict[str, Any]) -> None:
         num_workers=num_workers,
         batch_size=vector_batch_size,
         backend=backend,
-        env_kwargs={"cfg": dict(base_config)},
+        env_kwargs={"cfg": base_config},
     )
     agents_per_batch = _getattr_fallback(vecenv, "agents_per_batch")
     if agents_per_batch is not None:

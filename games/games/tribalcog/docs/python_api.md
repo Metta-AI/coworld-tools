@@ -19,13 +19,13 @@ pip install -e .[cogames]
 ## Quick Start
 
 ```python
-from tribal_village_env import TribalVillageEnv, make_tribal_village_env
+from tribal_village_env import EnvironmentConfig, TribalVillageEnv, make_tribal_village_env
 
 # Create environment with factory function
-env = make_tribal_village_env(config={"max_steps": 5000})
+env = make_tribal_village_env(config=EnvironmentConfig(max_steps=5000))
 
 # Or instantiate directly
-env = TribalVillageEnv(config={"max_steps": 5000})
+env = TribalVillageEnv(config=EnvironmentConfig(max_steps=5000))
 
 # Standard Gymnasium interface
 obs, info = env.reset()
@@ -42,11 +42,11 @@ The main environment class inherits from `pufferlib.PufferEnv` and implements th
 ### Constructor
 
 ```python
-TribalVillageEnv(config: Optional[Dict[str, Any]] = None, buf=None)
+TribalVillageEnv(config: EnvironmentConfig | None = None, buf=None)
 ```
 
 **Parameters:**
-- `config`: Configuration dictionary (see [Configuration](#configuration))
+- `config`: Typed `EnvironmentConfig` model (see [Configuration](#configuration))
 - `buf`: PufferLib buffer allocation (managed automatically in most cases)
 
 ### Properties
@@ -131,7 +131,8 @@ Clean up environment resources. Always call when done.
 
 ## Configuration
 
-Configuration is passed as a dictionary to the environment constructor. Unspecified values use defaults.
+Configuration is passed as an `EnvironmentConfig` instance. Unspecified values
+use defaults.
 
 The Python wrapper defaults are not identical to the direct Nim executable:
 `EnvironmentConfig()` defaults to `max_steps=10000` and `victory_condition=0`
@@ -153,24 +154,24 @@ The Python wrapper defaults are not identical to the direct Nim executable:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `heart_reward` | float | 1.0 | Reward for depositing bars at altar |
-| `ore_reward` | float | 0.1 | Reward for mining gold ore |
-| `bar_reward` | float | 0.8 | Reward for smelting ore into bars |
-| `wood_reward` | float | 0.0 | Reward for harvesting wood |
-| `water_reward` | float | 0.0 | Reward for collecting water |
-| `wheat_reward` | float | 0.0 | Reward for harvesting wheat |
-| `spear_reward` | float | 0.0 | Reward for crafting spears |
-| `armor_reward` | float | 0.0 | Reward for crafting armor |
-| `food_reward` | float | 0.0 | Reward for producing food |
-| `cloth_reward` | float | 0.0 | Reward for producing cloth |
-| `tumor_kill_reward` | float | 0.0 | Reward for destroying tumors |
+| `rewards.heart` | float | 1.0 | Reward for depositing bars at altar |
+| `rewards.ore` | float | 0.1 | Reward for mining gold ore |
+| `rewards.bar` | float | 0.8 | Reward for smelting ore into bars |
+| `rewards.wood` | float | 0.0 | Reward for harvesting wood |
+| `rewards.water` | float | 0.0 | Reward for collecting water |
+| `rewards.wheat` | float | 0.0 | Reward for harvesting wheat |
+| `rewards.spear` | float | 0.0 | Reward for crafting spears |
+| `rewards.armor` | float | 0.0 | Reward for crafting armor |
+| `rewards.food` | float | 0.0 | Reward for producing food |
+| `rewards.cloth` | float | 0.0 | Reward for producing cloth |
+| `rewards.tumor_kill` | float | 0.0 | Reward for destroying tumors |
 
 ### Penalties
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `survival_penalty` | float | -0.01 | Per-step penalty for all alive agents |
-| `death_penalty` | float | -5.0 | One-time penalty when agent dies |
+| `rewards.survival_penalty` | float | -0.01 | Per-step penalty for all alive agents |
+| `rewards.death_penalty` | float | -5.0 | One-time penalty when agent dies |
 
 ### Combat
 
@@ -182,30 +183,24 @@ The Python wrapper defaults are not identical to the direct Nim executable:
 
 ```python
 # Peaceful exploration
-config = {
-    "max_steps": 10000,
-    "tumor_spawn_rate": 0.0,
-    "survival_penalty": 0.0,
-    "death_penalty": 0.0,
-}
+config = EnvironmentConfig(
+    max_steps=10000,
+    tumor_spawn_rate=0.0,
+    rewards={"survival_penalty": 0.0, "death_penalty": 0.0},
+)
 
 # Combat training
-config = {
-    "max_steps": 2000,
-    "tumor_spawn_rate": 0.3,
-    "tumor_kill_reward": 2.0,
-    "death_penalty": -2.0,
-}
+config = EnvironmentConfig(
+    max_steps=2000,
+    tumor_spawn_rate=0.3,
+    rewards={"tumor_kill": 2.0, "death_penalty": -2.0},
+)
 
 # Full economy
-config = {
-    "max_steps": 5000,
-    "heart_reward": 1.0,
-    "ore_reward": 0.1,
-    "bar_reward": 0.5,
-    "wood_reward": 0.1,
-    "food_reward": 0.3,
-}
+config = EnvironmentConfig(
+    max_steps=5000,
+    rewards={"heart": 1.0, "ore": 0.1, "bar": 0.5, "wood": 0.1, "food": 0.3},
+)
 ```
 
 ## Observation Space
@@ -318,11 +313,11 @@ The environment is designed for high-performance training with PufferLib.
 ```python
 import pufferlib
 from pufferlib import vector as pvector
-from tribal_village_env import TribalVillageEnv
+from tribal_village_env import EnvironmentConfig, TribalVillageEnv
 
 # Create vectorized environments
 def env_creator(cfg=None, buf=None, seed=None):
-    config = cfg or {}
+    config = cfg or EnvironmentConfig()
     env = TribalVillageEnv(config=config)
     pufferlib.set_buffers(env, buf)
     return env
@@ -395,9 +390,9 @@ from tribal_village_env import (
 ### Random Agent Loop
 
 ```python
-from tribal_village_env import make_tribal_village_env
+from tribal_village_env import EnvironmentConfig, make_tribal_village_env
 
-env = make_tribal_village_env(config={"max_steps": 1000})
+env = make_tribal_village_env(config=EnvironmentConfig(max_steps=1000))
 obs, info = env.reset()
 
 total_reward = 0
@@ -416,9 +411,11 @@ print(f"Total reward: {total_reward}")
 
 ```python
 import imageio
-from tribal_village_env import make_tribal_village_env
+from tribal_village_env import EnvironmentConfig, make_tribal_village_env
 
-env = make_tribal_village_env(config={"render_mode": "rgb_array", "render_scale": 4})
+env = make_tribal_village_env(
+    config=EnvironmentConfig(render_mode="rgb_array", render_scale=4)
+)
 obs, _ = env.reset()
 
 frames = []
@@ -437,17 +434,21 @@ imageio.mimsave("episode.mp4", frames, fps=30)
 ### Custom Reward Configuration
 
 ```python
-from tribal_village_env import make_tribal_village_env
+from tribal_village_env import EnvironmentConfig, make_tribal_village_env
 
 # Economy-focused training
-env = make_tribal_village_env(config={
-    "max_steps": 5000,
-    "heart_reward": 1.0,
-    "ore_reward": 0.1,
-    "bar_reward": 0.5,
-    "wood_reward": 0.1,
-    "survival_penalty": -0.005,
-})
+env = make_tribal_village_env(
+    config=EnvironmentConfig(
+        max_steps=5000,
+        rewards={
+            "heart": 1.0,
+            "ore": 0.1,
+            "bar": 0.5,
+            "wood": 0.1,
+            "survival_penalty": -0.005,
+        },
+    )
+)
 ```
 
 ## Reference Files

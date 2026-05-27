@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from starlette.websockets import WebSocketDisconnect
 
 from tribal_village_env.build import get_runtime_project_root
+from tribal_village_env.config import EnvironmentConfig
 from tribal_village_env.environment import (
     ACTION_ARGUMENT_COUNT,
     TribalVillageEnv,
@@ -883,18 +884,18 @@ def materialize_replay_for_viewer(replay: dict[str, Any]) -> dict[str, Any]:
 
     initial_raw = replay.get("initial_state", {})
     initial = initial_raw if isinstance(initial_raw, dict) else {}
-    config = initial.get("config", {})
-    if not isinstance(config, dict):
-        config = {}
+    replay_config = initial.get("config", {})
+    if not isinstance(replay_config, dict):
+        replay_config = {}
     seed = int(initial.get("seed", replay.get("seed", 0)) or 0)
     rows = _decode_action_rows(replay)
     env = TribalVillageEnv(
-        config={
-            "max_steps": int(config.get("max_steps", max(1, len(rows) + 1))),
-            "victory_condition": int(config.get("victory_condition", 0)),
-            "ai_mode": "external",
-            "render_mode": "rgb_array",
-        }
+        config=EnvironmentConfig(
+            max_steps=int(replay_config.get("max_steps", max(1, len(rows) + 1))),
+            victory_condition=int(replay_config.get("victory_condition", 0)),
+            ai_mode="external",
+            render_mode="rgb_array",
+        )
     )
     replay_objects: dict[str, dict[str, Any]] = {}
     ordered_objects: list[dict[str, Any]] = []
@@ -1559,12 +1560,12 @@ class TribalCogCoworld:
         os.environ.pop("TV_REPLAY_DIR", None)
 
         self.env = TribalVillageEnv(
-            config={
-                "max_steps": config.max_steps,
-                "victory_condition": config.victory_condition,
-                "ai_mode": "builtin",
-                "render_mode": "rgb_array",
-            }
+            config=EnvironmentConfig(
+                max_steps=config.max_steps,
+                victory_condition=config.victory_condition,
+                ai_mode="builtin",
+                render_mode="rgb_array",
+            )
         )
         self.env.reset(seed=config.seed)
         self.actual_seed = self.env.game_seed() or config.seed
@@ -2024,19 +2025,16 @@ def healthz() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/client/global")
 @app.get("/clients/global")
 def global_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "global.html").read_text())
 
 
-@app.get("/client/player")
 @app.get("/clients/player")
 def player_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "player.html").read_text())
 
 
-@app.get("/client/replay")
 @app.get("/clients/replay")
 def replay_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())

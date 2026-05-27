@@ -12,6 +12,7 @@ import pytest
 from tribal_village_env.config import (
     DEFAULT_MAX_STEPS,
     DEFAULT_RENDER_SCALE,
+    EnvironmentConfig,
     OBS_MAX_VALUE,
     OBS_MIN_VALUE,
     OBS_NORMALIZATION_FACTOR,
@@ -102,11 +103,11 @@ class TestEnvironmentCreation:
 
     def test_create_with_config(self):
         """Create environment with custom config."""
-        config = {
-            "max_steps": 5000,
-            "victory_condition": 1,
-            "heart_reward": 10.0,
-        }
+        config = EnvironmentConfig(
+            max_steps=5000,
+            victory_condition=1,
+            rewards={"heart": 10.0},
+        )
         env = TribalVillageEnv(config=config)
         assert env.max_steps == 5000
         env.close()
@@ -238,7 +239,7 @@ class TestRenderModes:
 
     @pytest.fixture
     def env(self):
-        env = TribalVillageEnv(config={"render_mode": "rgb_array"})
+        env = TribalVillageEnv(config=EnvironmentConfig(render_mode="rgb_array"))
         yield env
         env.close()
 
@@ -261,7 +262,7 @@ class TestRenderModes:
 
     def test_render_ansi(self):
         """Test ANSI text rendering."""
-        env = TribalVillageEnv(config={"render_mode": "ansi"})
+        env = TribalVillageEnv(config=EnvironmentConfig(render_mode="ansi"))
         env.reset()
         env.step({f"agent_{i}": 0 for i in range(env.num_agents)})
 
@@ -385,7 +386,7 @@ class TestEndToEndScenarios:
 
     def test_full_game_loop(self):
         """Run a complete game loop with random actions."""
-        config = {"max_steps": 100}
+        config = EnvironmentConfig(max_steps=100)
         env = TribalVillageEnv(config=config)
 
         obs, info = env.reset()
@@ -415,8 +416,8 @@ class TestEndToEndScenarios:
 
     def test_config_affects_behavior(self):
         """Different configs should produce different behavior."""
-        config1 = {"max_steps": 50, "victory_condition": 0}
-        config2 = {"max_steps": 50, "victory_condition": 1}
+        config1 = EnvironmentConfig(max_steps=50, victory_condition=0)
+        config2 = EnvironmentConfig(max_steps=50, victory_condition=1)
 
         env1 = TribalVillageEnv(config=config1)
         env2 = TribalVillageEnv(config=config2)

@@ -101,31 +101,19 @@ class TribalVillageEnv(pufferlib.PufferEnv):
     that Nim reads/writes directly.
 
     Args:
-        config: Environment configuration. Can be either:
-            - EnvironmentConfig: Typed, validated configuration (recommended)
-            - Dict[str, Any]: Legacy dictionary format (backward compatible)
-            - None: Use default configuration
-        buf: Optional buffer for PufferLib integration
+        config: Typed, validated environment configuration. Defaults are used
+            when omitted.
+        buf: Optional buffer for PufferLib integration.
     """
 
     def __init__(
         self,
-        config: EnvironmentConfig | dict[str, Any] | None = None,
+        config: EnvironmentConfig | None = None,
         buf: Any = None,
     ):
-        # Convert config to typed EnvironmentConfig
-        if config is None:
-            self._typed_config = EnvironmentConfig()
-        elif isinstance(config, EnvironmentConfig):
-            self._typed_config = config
-        else:
-            # Legacy dict support
-            self._typed_config = EnvironmentConfig.from_legacy_dict(config)
-
-        # Legacy dict interface for backward compatibility
-        self.config = self._typed_config.to_legacy_dict()
-        self.max_steps = self._typed_config.max_steps
-        self._render_mode = self._typed_config.render_mode
+        self.config = config if config is not None else EnvironmentConfig()
+        self.max_steps = self.config.max_steps
+        self._render_mode = self.config.render_mode
 
         # Load the optimized Nim library - cross-platform
         self.lib = ctypes.CDLL(str(_find_library()))
@@ -141,7 +129,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
         try:
             self.map_width = int(self.lib.tribal_village_get_map_width())
             self.map_height = int(self.lib.tribal_village_get_map_height())
-            self.render_scale = max(1, self._typed_config.render_scale)
+            self.render_scale = max(1, self.config.render_scale)
             height = self.map_height * self.render_scale
             width = self.map_width * self.render_scale
             self._rgb_frame = np.zeros((height, width, 3), dtype=np.uint8)
@@ -203,6 +191,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
     @render_mode.setter
     def render_mode(self, value):
         self._render_mode = value
+        self.config.render_mode = value
 
     def render(self):
         """Render via Nim, avoiding duplication in Python.
@@ -229,7 +218,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
                 return self._rgb_frame
             # fall through to ansi if RGB export missing
 
-        buf_size = self._typed_config.ansi_buffer_size
+        buf_size = self.config.ansi_buffer_size
         cbuf = ctypes.create_string_buffer(buf_size)
         try:
             n_written = self.lib.tribal_village_render_ansi(
@@ -888,7 +877,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
 
     def _apply_ai_mode(self) -> None:
         """Set the AI controller mode in Nim based on config."""
-        mode_int = self.AI_MODE_MAP.get(self._typed_config.ai_mode, 0)
+        mode_int = self.AI_MODE_MAP.get(self.config.ai_mode, 0)
         self._optional_ffi(
             "tribal_village_set_ai_mode",
             ctypes.c_int32(mode_int),
@@ -897,7 +886,7 @@ class TribalVillageEnv(pufferlib.PufferEnv):
     def _apply_nim_config(self) -> None:
         if not hasattr(self.lib, "tribal_village_set_config"):
             return
-        cfg = NimConfig.from_config(self._typed_config)
+        cfg = NimConfig.from_config(self.config)
         ok = self.lib.tribal_village_set_config(self.env_ptr, ctypes.byref(cfg))
         if ok != 1:
             raise RuntimeError("Failed to apply Nim environment config")
@@ -995,10 +984,13 @@ class TribalVillageEnv(pufferlib.PufferEnv):
 
 
 def make_tribal_village_env(
-    config: dict[str, Any] | None = None, **kwargs
+    config: EnvironmentConfig | None = None, **kwargs
 ) -> TribalVillageEnv:
     """Factory function for ultra-fast tribal village environment."""
     if config is None:
-        config = {}
-    config.update(kwargs)
+        config = EnvironmentConfig(**kwargs)
+    elif kwargs:
+        values = config.model_dump()
+        values.update(kwargs)
+        config = EnvironmentConfig(**values)
     return TribalVillageEnv(config=config)

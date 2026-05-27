@@ -43,7 +43,6 @@
     <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
     <div class="stat"><span>Teams</span><strong id="players">0 / 8</strong></div>
     <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
-    <div class="stat"><span>Control</span><strong id="control">spectator</strong></div>
     <div class="stat"><span>Sprites</span><strong id="sprites">0</strong></div>
     <div class="tools">
       <button id="zoomOut" type="button">-</button>
@@ -59,14 +58,9 @@
     const stepEl = document.getElementById("step");
     const playersEl = document.getElementById("players");
     const statusEl = document.getElementById("status");
-    const controlEl = document.getElementById("control");
     const spritesEl = document.getElementById("sprites");
     const teamsEl = document.getElementById("teams");
     const params = new URLSearchParams(location.search);
-    const slotParam = params.get("slot");
-    const tokenParam = params.get("token");
-    const controlledSlot = slotParam !== null && tokenParam !== null ? Number(slotParam) : null;
-    const controlled = Number.isInteger(controlledSlot);
     const terrainColors = {
       empty: "#3f4a3b",
       water: "#3276a8",
@@ -91,25 +85,6 @@
     const teamColors = defaultTeamColors.slice();
     const spriteCache = new Map();
     const tintedSpriteCache = new Map();
-    const pressedKeys = new Set();
-    const keyMasks = {
-      w: 0x01,
-      arrowup: 0x01,
-      s: 0x02,
-      arrowdown: 0x02,
-      a: 0x04,
-      arrowleft: 0x04,
-      d: 0x08,
-      arrowright: 0x08,
-      q: 0x05,
-      e: 0x09,
-      z: 0x06,
-      c: 0x0A,
-      space: 0x20,
-      shift: 0x20,
-      f: 0x40,
-      alt: 0x10,
-    };
     let world = null;
     let latestState = null;
     let tileSize = clamp(Number(params.get("tile")) || 24, 6, 96);
@@ -120,14 +95,10 @@
     let dragging = false;
     let dragX = 0;
     let dragY = 0;
-    let playerWs = null;
-    let heldButtons = 0;
-    let lastSentButtons = -1;
     let drawScheduled = false;
 
     ctx.imageSmoothingEnabled = false;
     connectGlobal();
-    if (controlled) connectPlayer();
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
     if (window.ResizeObserver) new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
@@ -177,16 +148,10 @@
     }, { passive: false });
 
     document.addEventListener("keydown", (event) => {
-      if (handleControlKey(event, true)) {
+      if (handlePanKey(event)) {
         event.preventDefault();
-        return;
       }
-      if (!controlled && handlePanKey(event)) event.preventDefault();
     });
-    document.addEventListener("keyup", (event) => {
-      if (handleControlKey(event, false)) event.preventDefault();
-    });
-    setInterval(sendHeldButtons, 45);
 
     function connectGlobal() {
       const ws = new WebSocket(websocketUrl("/global"));
@@ -198,21 +163,6 @@
         }
       };
       ws.onclose = () => { statusEl.textContent = "closed"; };
-    }
-
-    function connectPlayer() {
-      const query = new URLSearchParams({ slot: slotParam, token: tokenParam });
-      playerWs = new WebSocket(websocketUrl("/player", query));
-      playerWs.binaryType = "arraybuffer";
-      playerWs.onopen = () => {
-        controlEl.textContent = `team ${controlledSlot}`;
-        sendHeldButtons(true);
-      };
-      playerWs.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        controlEl.textContent = message.done ? "done" : `team ${message.team_id}`;
-      };
-      playerWs.onclose = () => { controlEl.textContent = "closed"; };
     }
 
     function websocketUrl(path, query = new URLSearchParams()) {
@@ -579,16 +529,6 @@
       ].filter(Boolean).join(" ");
     }
 
-    function handleControlKey(event, down) {
-      if (!controlled) return false;
-      const key = normalizedKey(event);
-      if (!(key in keyMasks)) return false;
-      if (down) pressedKeys.add(key);
-      else pressedKeys.delete(key);
-      recomputeHeldButtons();
-      return true;
-    }
-
     function handlePanKey(event) {
       const amount = Math.max(32, tileSize * 4);
       if (event.key === "ArrowUp") offsetY += amount;
@@ -599,27 +539,6 @@
       autoFit = false;
       requestDraw();
       return true;
-    }
-
-    function normalizedKey(event) {
-      if (event.code === "Space") return "space";
-      return event.key.toLowerCase();
-    }
-
-    function recomputeHeldButtons() {
-      let nextButtons = 0;
-      pressedKeys.forEach(key => { nextButtons |= keyMasks[key] || 0; });
-      if (nextButtons !== heldButtons) {
-        heldButtons = nextButtons;
-        sendHeldButtons(true);
-      }
-    }
-
-    function sendHeldButtons(force = false) {
-      if (!playerWs || playerWs.readyState !== WebSocket.OPEN) return;
-      if (!force && heldButtons === lastSentButtons) return;
-      playerWs.send(new Uint8Array([0x84, heldButtons]));
-      lastSentButtons = heldButtons;
     }
 
     function viewWidth() {

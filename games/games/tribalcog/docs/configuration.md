@@ -25,9 +25,8 @@ config.rewards.death_penalty = -10.0
 env = TribalVillageEnv(config=config)
 ```
 
-Legacy flat dictionaries such as `{"max_steps": 5000, "heart_reward": 2.0}`
-are still accepted for backward compatibility. Configuration values are passed
-through the FFI layer to the Nim engine. The Python wrapper starts from
+Configuration values are passed through the FFI layer to the Nim engine. The
+Python wrapper starts from
 `tribal_village_env.config.EnvironmentConfig`; direct Nim runs start from
 `defaultEnvironmentConfig()` in `src/types.nim`.
 
@@ -61,9 +60,9 @@ outcomes. The default configuration uses the "arena_basic_easy_shaped" reward pr
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `heart_reward` | float | 1.0 | Reward for depositing bars at an altar (creates hearts). |
-| `ore_reward` | float | 0.1 | Reward for mining gold ore from deposits. |
-| `bar_reward` | float | 0.8 | Reward for smelting ore into bars at magma pools. |
+| `rewards.heart` | float | 1.0 | Reward for depositing bars at an altar (creates hearts). |
+| `rewards.ore` | float | 0.1 | Reward for mining gold ore from deposits. |
+| `rewards.bar` | float | 0.8 | Reward for smelting ore into bars at magma pools. |
 
 **Gameplay impact:** These rewards encourage the core resource loop: mine ore -> smelt bars ->
 deposit at altar. The relative weights (ore: 0.1, bar: 0.8, heart: 1.0) create increasing rewards
@@ -73,29 +72,30 @@ as resources are processed.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `wood_reward` | float | 0.0 | Reward for harvesting wood from trees. |
-| `water_reward` | float | 0.0 | Reward for collecting water (fishing, buckets). |
-| `wheat_reward` | float | 0.0 | Reward for harvesting wheat. |
-| `spear_reward` | float | 0.0 | Reward for crafting spears. |
-| `armor_reward` | float | 0.0 | Reward for crafting armor. |
-| `food_reward` | float | 0.0 | Reward for producing food (bread, cooked items). |
-| `cloth_reward` | float | 0.0 | Reward for producing cloth at weaving looms. |
-| `tumor_kill_reward` | float | 0.0 | Reward for destroying tumors. |
+| `rewards.wood` | float | 0.0 | Reward for harvesting wood from trees. |
+| `rewards.water` | float | 0.0 | Reward for collecting water (fishing, buckets). |
+| `rewards.wheat` | float | 0.0 | Reward for harvesting wheat. |
+| `rewards.spear` | float | 0.0 | Reward for crafting spears. |
+| `rewards.armor` | float | 0.0 | Reward for crafting armor. |
+| `rewards.food` | float | 0.0 | Reward for producing food (bread, cooked items). |
+| `rewards.cloth` | float | 0.0 | Reward for producing cloth at weaving looms. |
+| `rewards.tumor_kill` | float | 0.0 | Reward for destroying tumors. |
 
-**Usage:** Enable these rewards to encourage specific behaviors. For example, set `wood_reward: 0.1`
-to incentivize wood gathering for construction-focused training.
+**Usage:** Enable these rewards to encourage specific behaviors. For example,
+set `rewards.wood` to `0.1` to incentivize wood gathering for
+construction-focused training.
 
 #### Penalties
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `survival_penalty` | float | -0.01 | Per-step penalty applied to all alive agents. |
-| `death_penalty` | float | -5.0 | One-time penalty when an agent dies. |
+| `rewards.survival_penalty` | float | -0.01 | Per-step penalty applied to all alive agents. |
+| `rewards.death_penalty` | float | -5.0 | One-time penalty when an agent dies. |
 
 **Gameplay impact:**
-- `survival_penalty` creates time pressure, encouraging efficient action rather than idle behavior.
+- `rewards.survival_penalty` creates time pressure, encouraging efficient action rather than idle behavior.
   Stronger penalties (-0.05 to -0.1) push agents toward faster resource gathering.
-- `death_penalty` discourages risky behavior. Adjust based on whether you want cautious or
+- `rewards.death_penalty` discourages risky behavior. Adjust based on whether you want cautious or
   aggressive agents.
 
 ### Example Configurations
@@ -103,37 +103,43 @@ to incentivize wood gathering for construction-focused training.
 #### Peaceful Exploration
 
 ```python
-config = {
-    "max_steps": 10000,
-    "tumor_spawn_rate": 0.0,
-    "survival_penalty": 0.0,
-    "death_penalty": 0.0,
-}
+from tribal_village_env import EnvironmentConfig
+
+config = EnvironmentConfig(
+    max_steps=10000,
+    tumor_spawn_rate=0.0,
+    rewards={"survival_penalty": 0.0, "death_penalty": 0.0},
+)
 ```
 
 #### Aggressive Combat Training
 
 ```python
-config = {
-    "max_steps": 2000,
-    "tumor_spawn_rate": 0.3,
-    "tumor_kill_reward": 2.0,
-    "death_penalty": -2.0,
-}
+from tribal_village_env import EnvironmentConfig
+
+config = EnvironmentConfig(
+    max_steps=2000,
+    tumor_spawn_rate=0.3,
+    rewards={"tumor_kill": 2.0, "death_penalty": -2.0},
+)
 ```
 
 #### Full Economy
 
 ```python
-config = {
-    "max_steps": 5000,
-    "heart_reward": 1.0,
-    "ore_reward": 0.1,
-    "bar_reward": 0.5,
-    "wood_reward": 0.1,
-    "food_reward": 0.3,
-    "cloth_reward": 0.2,
-}
+from tribal_village_env import EnvironmentConfig
+
+config = EnvironmentConfig(
+    max_steps=5000,
+    rewards={
+        "heart": 1.0,
+        "ore": 0.1,
+        "bar": 0.5,
+        "wood": 0.1,
+        "food": 0.3,
+        "cloth": 0.2,
+    },
+)
 ```
 
 ## Compile-Time Constants

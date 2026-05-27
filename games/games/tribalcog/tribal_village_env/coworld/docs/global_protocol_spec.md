@@ -100,13 +100,11 @@ served `/assets/...` URLs.
 
 ## Browser clients
 
-`/client/global` and `/clients/global` serve the Coworld spectator client for
-the `/global` websocket. This is a thin JavaScript canvas client over the
-Coworld sprite/tint protocol, not the native Nim/Emscripten renderer.
-If opened with `?slot=<team>&token=<token>`, it also connects to `/player` for
-that team. The dedicated `/client/player` and `/clients/player` page is the
-richer town-control view and uses the same thin-client renderer; the global page
-remains primarily a spectator.
+`/clients/global` serves the Coworld spectator client for the `/global`
+websocket. This is a thin JavaScript canvas client over the Coworld sprite/tint
+protocol, not the native Nim/Emscripten renderer. `/clients/player` is the
+town-control view and uses the same thin-client renderer scoped to one team's
+fog-of-war.
 After running `nimble wasm` from the Tribal Cog package root, `/clients/wasm/`
 serves the native Emscripten build from `build/web/` for local browser checks.
 The WASM client is separate from the Coworld player protocol; player slots still

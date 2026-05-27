@@ -85,42 +85,6 @@ class TestEnvironmentConfig:
         with pytest.raises(ValueError, match="render_mode must be one of"):
             EnvironmentConfig(render_mode="invalid")
 
-    def test_to_legacy_dict(self):
-        """Test conversion to legacy dictionary format."""
-        env = EnvironmentConfig(max_steps=5000, render_mode="ansi")
-        env.rewards.heart = 1.5
-        legacy = env.to_legacy_dict()
-
-        assert legacy["max_steps"] == 5000
-        assert legacy["render_mode"] == "ansi"
-        assert legacy["heart_reward"] == 1.5
-
-    def test_from_legacy_dict(self):
-        """Test creation from legacy dictionary format."""
-        legacy = {
-            "max_steps": 3000,
-            "heart_reward": 2.0,
-            "render_mode": "ansi",
-        }
-        env = EnvironmentConfig.from_legacy_dict(legacy)
-
-        assert env.max_steps == 3000
-        assert env.rewards.heart == 2.0
-        assert env.render_mode == "ansi"
-
-    def test_legacy_roundtrip(self):
-        """Test that legacy dict conversion is reversible."""
-        original = EnvironmentConfig(max_steps=7500, render_scale=2)
-        original.rewards.ore = 0.5
-
-        legacy = original.to_legacy_dict()
-        restored = EnvironmentConfig.from_legacy_dict(legacy)
-
-        assert restored.max_steps == original.max_steps
-        assert restored.render_scale == original.render_scale
-        assert restored.rewards.ore == original.rewards.ore
-
-
 class TestPPOConfig:
     """Tests for PPOConfig."""
 
