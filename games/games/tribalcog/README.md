@@ -44,8 +44,18 @@ COGAME_RESULTS_URI=file:///tmp/tribalcog-results.json \
 COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
 tribalcog coworld-server
 
-# Build the optional native Emscripten client served at /clients/wasm/
+# Build the optional native Emscripten client served at /client/wasm/
 nimble wasm
+```
+
+Build the local Coworld images before running `coworld certify`:
+
+```bash
+docker build --platform=linux/amd64 -f games/tribalcog/Dockerfile \
+  -t coworld-tribalcog-game:latest games/tribalcog
+docker build --platform=linux/amd64 -f games/tribalcog/player/Dockerfile \
+  -t coworld-tribalcog-player:latest games/tribalcog
+uv run --package coworld coworld certify games/tribalcog/coworld_manifest.json
 ```
 
 **Controls:** Left-click (select), Right-click (command), WASD (move/pan), Space (pause/step), scroll (zoom), Ctrl+0-9 (control groups), Tab (cycle teams), F9 (weather), B (build menu)

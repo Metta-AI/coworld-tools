@@ -13,7 +13,7 @@ WEBSOCKET /replay?uri=<replay-uri>
 ```
 
 The hosted Coworld replay proxy must preserve the `uri` query parameter when it
-iframes `/clients/replay?uri=...` and opens `/replay?uri=...`.
+iframes `/client/replay?uri=...` and opens `/replay?uri=...`.
 
 ## View-plane messages
 
@@ -100,12 +100,12 @@ served `/assets/...` URLs.
 
 ## Browser clients
 
-`/clients/global` serves the Coworld spectator client for the `/global`
+`/client/global` serves the Coworld spectator client for the `/global`
 websocket. This is a thin JavaScript canvas client over the Coworld sprite/tint
-protocol, not the native Nim/Emscripten renderer. `/clients/player` is the
+protocol, not the native Nim/Emscripten renderer. `/client/player` is the
 town-control view and uses the same thin-client renderer scoped to one team's
 fog-of-war.
-After running `nimble wasm` from the Tribal Cog package root, `/clients/wasm/`
+After running `nimble wasm` from the Tribal Cog package root, `/client/wasm/`
 serves the native Emscripten build from `build/web/` for local browser checks.
 The WASM client is separate from the Coworld player protocol; player slots still
 connect through `/player`.

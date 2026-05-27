@@ -27,8 +27,7 @@
     <input id="scrub" type="range" min="0" max="0" value="0">
   </aside>
   <script>
-    const params = new URLSearchParams(location.search);
-    const replayUri = params.get("uri") || "";
+    const pageUrl = new URL(window.location.href);
     const canvas = document.getElementById("view");
     const ctx = canvas.getContext("2d");
     const statusEl = document.getElementById("status");
@@ -37,7 +36,7 @@
     const scrubEl = document.getElementById("scrub");
     let replay = null;
 
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/replay?uri=${encodeURIComponent(replayUri)}`);
+    const ws = new WebSocket(websocketAddress("/replay"));
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type !== "replay") return;
@@ -52,6 +51,16 @@
     };
     ws.onclose = () => { if (!replay) statusEl.textContent = "closed"; };
     scrubEl.oninput = () => drawStep(Number(scrubEl.value));
+
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/replay(\/.*)?$/, `${path}$1`);
+      target.hash = "";
+      return target.toString();
+    }
 
     function initCanvas(data) {
       const size = data.map_size || [306, 192];

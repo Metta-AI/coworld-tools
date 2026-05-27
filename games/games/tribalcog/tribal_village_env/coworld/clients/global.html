@@ -61,6 +61,7 @@
     const spritesEl = document.getElementById("sprites");
     const teamsEl = document.getElementById("teams");
     const params = new URLSearchParams(location.search);
+    const pageUrl = new URL(window.location.href);
     const terrainColors = {
       empty: "#3f4a3b",
       water: "#3276a8",
@@ -154,7 +155,7 @@
     });
 
     function connectGlobal() {
-      const ws = new WebSocket(websocketUrl("/global"));
+      const ws = new WebSocket(websocketAddress("/global"));
       ws.onmessage = (event) => {
         latestState = JSON.parse(event.data);
         updateStats(latestState);
@@ -165,11 +166,14 @@
       ws.onclose = () => { statusEl.textContent = "closed"; };
     }
 
-    function websocketUrl(path, query = new URLSearchParams()) {
-      const url = new URL(path, location.origin);
-      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      query.forEach((value, key) => url.searchParams.set(key, value));
-      return url.toString();
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/global$/, path);
+      target.hash = "";
+      return target.toString();
     }
 
     function updateStats(state) {

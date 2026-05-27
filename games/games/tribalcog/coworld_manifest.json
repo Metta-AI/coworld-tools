@@ -7,7 +7,7 @@
     "owner": "cogames@softmax.com",
     "runnable": {
       "type": "game",
-      "image": "ghcr.io/metta-ai/coworld-tribalcog-game:latest",
+      "image": "coworld-tribalcog-game:latest",
       "run": [
         "python",
         "-m",
@@ -161,7 +161,7 @@
       "id": "town-overseer-player",
       "name": "Town Overseer Player",
       "type": "player",
-      "image": "ghcr.io/metta-ai/coworld-tribalcog-player:latest",
+      "image": "coworld-tribalcog-player:latest",
       "run": [
         "python",
         "-m",

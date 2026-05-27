@@ -8,27 +8,54 @@ from typing import Any
 
 import websockets
 
+CONNECT_RETRY_INTERVAL_SECONDS = 0.25
+CONNECT_TIMEOUT_SECONDS = 8.0
+TRANSIENT_CONNECT_ERRORS = (
+    OSError,
+    asyncio.TimeoutError,
+    websockets.InvalidHandshake,
+    websockets.InvalidMessage,
+)
+
 
 def player_ws_url() -> str:
     return os.environ["COWORLD_PLAYER_WS_URL"]
+
+
+async def connect_with_retry(url: str):
+    timeout = float(
+        os.environ.get("TRIBALCOG_PLAYER_CONNECT_TIMEOUT_SECONDS", CONNECT_TIMEOUT_SECONDS)
+    )
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            return await websockets.connect(url, max_size=None)
+        except TRANSIENT_CONNECT_ERRORS:
+            if asyncio.get_running_loop().time() >= deadline:
+                return None
+            await asyncio.sleep(CONNECT_RETRY_INTERVAL_SECONDS)
 
 
 async def main() -> None:
     url = player_ws_url()
     rng = random.Random(int(os.environ.get("TRIBALCOG_PLAYER_SEED", "0")))
     mode = os.environ.get("TRIBALCOG_PLAYER_MODE", "overseer")
-    async with websockets.connect(url, max_size=None) as websocket:
-        try:
-            async for raw_message in websocket:
-                message = json.loads(raw_message)
-                if message["type"] == "final":
-                    return
-                if message["type"] == "observation":
-                    command = choose_overseer_command(message, mode, rng)
-                    if command is not None:
-                        await websocket.send(json.dumps(command))
-        except websockets.ConnectionClosed:
-            return
+    websocket = await connect_with_retry(url)
+    if websocket is None:
+        return
+    try:
+        async for raw_message in websocket:
+            message = json.loads(raw_message)
+            if message["type"] == "final":
+                return
+            if message["type"] == "observation":
+                command = choose_overseer_command(message, mode, rng)
+                if command is not None:
+                    await websocket.send(json.dumps(command))
+    except websockets.ConnectionClosed:
+        return
+    finally:
+        await websocket.close()
 
 
 def choose_overseer_command(

@@ -99,6 +99,16 @@ Tribal Cog now has a Coworld runtime in this repository:
 - `tribal_village_env/coworld/server.py` owns the game server.
 - `tribal_village_env/coworld/player.py` owns the bundled town-overseer player.
 
+Build the local Coworld images before running Metta Coworld certification:
+
+```bash
+docker build --platform=linux/amd64 -f games/tribalcog/Dockerfile \
+  -t coworld-tribalcog-game:latest games/tribalcog
+docker build --platform=linux/amd64 -f games/tribalcog/player/Dockerfile \
+  -t coworld-tribalcog-player:latest games/tribalcog
+uv run --package coworld coworld certify games/tribalcog/coworld_manifest.json
+```
+
 The implementation follows the canonical Metta Coworld game runtime contract:
 
 - Read concrete episode config from `COGAME_CONFIG_URI`.
@@ -150,13 +160,13 @@ make test-nim
 
 On Linux, use `timeout` instead of `gtimeout`.
 
-For Coworld contract checks from a Metta checkout, use:
+After building the local Coworld images, run this from a Metta checkout:
 
 ```bash
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
 ```
 
-The checked-in hosted manifest is fixed at 8 town slots because current Coworld
+The checked-in manifest is fixed at 8 town slots because current Coworld
 manifest validation requires `tokens.minItems == tokens.maxItems` and
 `certification.players` must match that count. Local runtime smoke tests can
 start with fewer connected controllers; the remaining towns use default

@@ -104,6 +104,7 @@
     const stockpileEl = document.getElementById("stockpile");
     const badgeEl = document.getElementById("badge");
     const params = new URLSearchParams(location.search);
+    const pageUrl = new URL(window.location.href);
     const slot = params.get("slot") || "0";
     const token = params.get("token") || "";
     const terrainColors = {
@@ -168,13 +169,19 @@
     document.getElementById("applyProgram").onclick = applyProgram;
 
     function connect(){
-      const url = new URL("/player", location.origin);
-      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("slot", slot);
-      url.searchParams.set("token", token);
-      ws = new WebSocket(url);
+      ws = new WebSocket(websocketAddress("/player"));
       ws.onmessage = event => handleMessage(JSON.parse(event.data));
       ws.onclose = () => { statusEl.textContent = "closed"; badgeEl.textContent = "closed"; };
+    }
+
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/player$/, path);
+      target.hash = "";
+      return target.toString();
     }
 
     function handleMessage(message){

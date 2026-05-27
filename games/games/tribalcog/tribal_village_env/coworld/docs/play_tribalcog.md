@@ -36,7 +36,7 @@ COGAME_SAVE_REPLAY_URI=file:///tmp/tribalcog-replay.json.z \
 uv run python -m tribal_village_env.coworld.server
 ```
 
-Open `/clients/global` for the live map. It connects to `/global` and renders
+Open `/client/global` for the live map. It connects to `/global` and renders
 the `tribalcog-view-plane-v1` terrain/object/tint stream in a thin
 JavaScript canvas client using the same PNG assets served from `/assets/...` as
 the player view. Team-owned citizens and lanterns are tinted with the active Nim
@@ -44,7 +44,7 @@ team palette, and the territory tint layer is drawn over terrain before sprites.
 Fogged map cells are rendered as gray terrain, without an additional moving
 citizen-vision overlay.
 
-Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
+Open `/client/player?slot=0&token=token-0` to control team 0 as a town
 overseer. The player page shows the team's fog-of-war global map, a
 picture-in-picture 11x11 `tribalcog-sprite-v1` view for the selected citizen,
 visible citizens/buildings, stockpiles, and the program editor for selected
@@ -60,7 +60,7 @@ nimble wasm
 
 That writes `tribal_village.js`, `tribal_village.wasm`, and
 `tribal_village.data` under `build/web/`. While the Coworld server is running,
-open `/clients/wasm/` to load those generated assets. This client is the native
+open `/client/wasm/` to load those generated assets. This client is the native
 standalone Tribal Cog browser build; `/global` and `/player` remain the Coworld
 spectator and player-control routes backed by thin JavaScript clients.
 
@@ -79,8 +79,17 @@ can. Set `TRIBALCOG_PLAYER_MODE=noop` for a deterministic passive controller.
 
 ## Certification
 
-From a Metta checkout with Coworld installed, the checked-in hosted manifest can
-be validated with:
+From the `Metta-AI/games` repository root, build the local Coworld game and
+reference-player images:
+
+```bash
+docker build --platform=linux/amd64 -f games/tribalcog/Dockerfile \
+  -t coworld-tribalcog-game:latest games/tribalcog
+docker build --platform=linux/amd64 -f games/tribalcog/player/Dockerfile \
+  -t coworld-tribalcog-player:latest games/tribalcog
+```
+
+Then certify from a Metta checkout with Coworld installed:
 
 ```bash
 uv run --package coworld coworld certify /Users/relh/Code/games/games/tribalcog/coworld_manifest.json
@@ -100,7 +109,7 @@ Completed episodes write the native Tribal Cog replay artifact to
 image with `COGAME_REPLAY_SERVER=1` and iframes:
 
 ```text
-/clients/replay?uri=<replay-uri>
+/client/replay?uri=<replay-uri>
 ```
 
 The replay artifact is an action log: initial deterministic setup plus one

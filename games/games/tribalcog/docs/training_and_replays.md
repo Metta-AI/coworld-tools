@@ -60,7 +60,7 @@ To enable during a run:
 This replay writer is the native Tribal Cog replay path. It is not the same
 thing as hosted Coworld replay serving. A future Coworld runtime would still
 need to read `COGAME_SAVE_REPLAY_URI` in rollout mode and serve
-`/clients/replay?uri=...` when `COGAME_REPLAY_SERVER=1`.
+`/client/replay?uri=...` when `COGAME_REPLAY_SERVER=1`.
 
 ## Common training issues seen in sessions
 - "SPS = 0" or no logs: check PufferLib versions and vector env wiring.

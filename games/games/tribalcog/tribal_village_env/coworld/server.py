@@ -2025,27 +2025,27 @@ def healthz() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/clients/global")
+@app.get("/client/global")
 def global_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "global.html").read_text())
 
 
-@app.get("/clients/player")
+@app.get("/client/player")
 def player_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "player.html").read_text())
 
 
-@app.get("/clients/replay")
+@app.get("/client/replay")
 def replay_client() -> HTMLResponse:
     return HTMLResponse((CLIENTS_DIR / "replay.html").read_text())
 
 
-@app.get("/clients/wasm")
+@app.get("/client/wasm")
 def wasm_client_redirect() -> RedirectResponse:
-    return RedirectResponse("/clients/wasm/")
+    return RedirectResponse("/client/wasm/")
 
 
-@app.get("/clients/wasm/")
+@app.get("/client/wasm/")
 def wasm_client() -> HTMLResponse:
     missing_assets = missing_wasm_assets()
     if missing_assets:
@@ -2053,7 +2053,7 @@ def wasm_client() -> HTMLResponse:
     return HTMLResponse(wasm_client_html())
 
 
-@app.get("/clients/wasm/{asset_path:path}")
+@app.get("/client/wasm/{asset_path:path}")
 def wasm_asset(asset_path: str) -> FileResponse:
     try:
         path = resolve_wasm_asset_path(WASM_DIR, asset_path)

@@ -6,8 +6,9 @@ import random
 import zlib
 from pathlib import Path
 
-import pytest
 import numpy as np
+import pytest
+from fastapi.testclient import TestClient
 
 from tribal_village_env.coworld.player import (
     choose_overseer_command,
@@ -43,6 +44,7 @@ from tribal_village_env.coworld.server import (
     DEFAULT_RENDER_EVERY_STEPS,
     TribalCogCoworld,
     _decode_action_rows,
+    app,
     asset_media_type,
     view_plane_from_cells,
     iter_view_plane_objects,
@@ -460,3 +462,20 @@ def test_reference_player_requires_coworld_player_url(monkeypatch: pytest.Monkey
     monkeypatch.delenv("COWORLD_PLAYER_WS_URL")
     with pytest.raises(KeyError):
         player_ws_url()
+
+
+def test_coworld_browser_routes_are_spec_canonical() -> None:
+    client = TestClient(app)
+
+    assert client.get("/client/global").status_code == 200
+    assert (
+        client.get("/client/player", params={"slot": 0, "token": "token-0"}).status_code
+        == 200
+    )
+    assert (
+        client.get("/client/replay", params={"uri": "file:///tmp/replay.json.z"}).status_code
+        == 200
+    )
+    assert client.get("/client/wasm", follow_redirects=False).status_code == 307
+    assert client.get("/clients/global").status_code == 404
+    assert client.get("/clients/wasm", follow_redirects=False).status_code == 404
