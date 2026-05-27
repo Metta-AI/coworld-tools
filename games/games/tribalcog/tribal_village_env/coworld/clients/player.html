@@ -113,7 +113,6 @@
       snow: "#d8e7e8", mud: "#685947", mountain: "#777b80",
       fog: "#5d6661",
     };
-    const fogOverlayColor = "rgba(150, 158, 154, 0.54)";
     const terrainSpriteMinTile = 8;
     const objectSpriteMinTile = 6;
     const defaultTeamColors = [
@@ -225,7 +224,6 @@
       world = {...view, objects: decodeObjects(view)};
       terrain = decodeTerrain(view.terrain);
       world.tint = decodeTint(view.tint, view.width, view.height);
-      world.visibility = decodeVisibility(view.visibility, view.width, view.height);
       if(!didFit || autoFit) fitWorld();
       didFit = true;
       requestDrawMap();
@@ -242,14 +240,6 @@
       const bytes = new Uint8Array(width * height * 4);
       if(!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
       const raw = atob(tintInfo.data || "");
-      for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
-      return bytes;
-    }
-
-    function decodeVisibility(visibilityInfo, width, height){
-      if(!visibilityInfo || visibilityInfo.encoding !== "u8-base64") return null;
-      const bytes = new Uint8Array(width * height);
-      const raw = atob(visibilityInfo.data || "");
       for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
       return bytes;
     }
@@ -428,7 +418,6 @@
         if(object.agent_id === latest?.selected_agent_id) ring(mapCtx, px, py, tileSize, "#f2f5de");
         if(selectedBuilding && object.x === selectedBuilding.x && object.y === selectedBuilding.y) ring(mapCtx, px, py, tileSize, "#9ee7ff");
       }
-      drawVisibilityOverlay(range);
       badgeEl.textContent = `team ${latest?.team_id ?? "-"} fog`;
     }
 
@@ -439,25 +428,6 @@
         endX: clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, world.width),
         endY: clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, world.height),
       };
-    }
-
-    function drawVisibilityOverlay(range){
-      if(!world?.visibility) return;
-      mapCtx.save();
-      mapCtx.fillStyle = fogOverlayColor;
-      for(let y=range.startY;y<range.endY;y++){
-        for(let x=range.startX;x<range.endX;x++){
-          const visible = world.visibility[y * world.width + x] || 0;
-          if(visible > 0 || terrainLabelAt(x, y) === "fog") continue;
-          mapCtx.fillRect(offsetX + x * tileSize, offsetY + y * tileSize, tileSize, tileSize);
-        }
-      }
-      mapCtx.restore();
-    }
-
-    function terrainLabelAt(x, y){
-      const id = terrain[y * world.width + x] || 0;
-      return ((world.terrain.sprites || [])[id] || {}).label || null;
     }
 
     function onPointerDown(event){

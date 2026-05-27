@@ -82,7 +82,6 @@
       mountain: "#777b80",
       fog: "#5d6661",
     };
-    const fogOverlayColor = "rgba(150, 158, 154, 0.54)";
     const terrainSpriteMinTile = 8;
     const objectSpriteMinTile = 6;
     const defaultTeamColors = [
@@ -236,7 +235,6 @@
         view,
         terrain: decodeTerrain(view.terrain),
         tint: decodeTint(view.tint, view.width, view.height),
-        visibility: decodeVisibility(view.visibility, view.width, view.height),
         terrainSprites: view.terrain.sprites || [],
         objects: decodeObjects(view),
       };
@@ -263,16 +261,6 @@
       const bytes = new Uint8Array(width * height * 4);
       if (!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
       const raw = atob(tintInfo.data || "");
-      for (let index = 0; index < Math.min(raw.length, bytes.length); index++) {
-        bytes[index] = raw.charCodeAt(index);
-      }
-      return bytes;
-    }
-
-    function decodeVisibility(visibilityInfo, width, height) {
-      if (!visibilityInfo || visibilityInfo.encoding !== "u8-base64") return null;
-      const raw = atob(visibilityInfo.data || "");
-      const bytes = new Uint8Array(width * height);
       for (let index = 0; index < Math.min(raw.length, bytes.length); index++) {
         bytes[index] = raw.charCodeAt(index);
       }
@@ -372,7 +360,6 @@
       if (!world) return;
       drawTerrain();
       drawObjects();
-      drawVisibilityOverlay();
       drawViewportBadge();
     }
 
@@ -446,31 +433,6 @@
         );
         if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize, tintColor);
       }
-    }
-
-    function drawVisibilityOverlay() {
-      if (!world?.visibility) return;
-      const view = world.view;
-      const startX = clamp(Math.floor((-offsetX) / tileSize) - 1, 0, view.width - 1);
-      const startY = clamp(Math.floor((-offsetY) / tileSize) - 1, 0, view.height - 1);
-      const endX = clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, view.width);
-      const endY = clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, view.height);
-      ctx.save();
-      ctx.fillStyle = fogOverlayColor;
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          const visibility = world.visibility[y * view.width + x] || 0;
-          if (visibility > 0 || terrainLabelAt(x, y) === "fog") continue;
-          ctx.fillRect(offsetX + x * tileSize, offsetY + y * tileSize, tileSize, tileSize);
-        }
-      }
-      ctx.restore();
-    }
-
-    function terrainLabelAt(x, y) {
-      if (!world) return null;
-      const terrainId = world.terrain[y * world.view.width + x] || 0;
-      return (world.terrainSprites[terrainId] || {}).label || null;
     }
 
     function territoryTintAt(x, y) {

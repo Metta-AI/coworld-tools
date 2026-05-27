@@ -37,12 +37,12 @@ uv run python -m tribal_village_env.coworld.server
 ```
 
 Open `/clients/global` for the live map. It connects to `/global` and renders
-the `tribalcog-global-sprite-v1` terrain/object/tint stream using the same PNG
-assets served from `/assets/...` as the player view. Team-owned citizens and
-lanterns are tinted with the active Nim team palette, and the territory tint
-layer is drawn over terrain before sprites. Tiles outside current citizen
-vision are dimmed with a gray overlay; the server still sends the underlying
-global terrain and object state.
+the `tribalcog-global-sprite-v1` terrain/object/tint stream in a thin
+JavaScript canvas client using the same PNG assets served from `/assets/...` as
+the player view. Team-owned citizens and lanterns are tinted with the active Nim
+team palette, and the territory tint layer is drawn over terrain before sprites.
+Fogged map cells are rendered as gray terrain, without an additional moving
+citizen-vision overlay.
 
 Open `/clients/player?slot=0&token=token-0` to control team 0 as a town
 overseer. The player page shows the team's fog-of-war global map, a
@@ -64,7 +64,7 @@ That writes `tribal_village.js`, `tribal_village.wasm`, and
 `tribal_village.data` under `build/web/`. While the Coworld server is running,
 open `/clients/wasm/` to load those generated assets. This client is the native
 standalone Tribal Cog browser build; `/global` and `/player` remain the Coworld
-spectator and player-control routes.
+spectator and player-control routes backed by thin JavaScript clients.
 
 ## Reference player
 

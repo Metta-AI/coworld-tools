@@ -216,39 +216,7 @@ def test_global_sprite_view_from_cells_exposes_terrain_and_objects() -> None:
     assert objects[1]["thing"] == "agent"
     assert objects[1]["agent_id"] == 7
     assert objects[1]["asset"] == "/assets/oriented/gatherer.n.png"
-    assert base64.b64decode(view["visibility"]["data"]) == bytes([1, 1, 1, 1, 1, 1])
-
-
-def test_global_sprite_view_visibility_mask_uses_current_agent_vision() -> None:
-    cells = np.full((30, 30, GLOBAL_CELL_FIELD_COUNT), -1, dtype=np.int16)
-    cells[:, :, GLOBAL_CELL_TERRAIN] = 6
-    cells[15, 15, GLOBAL_CELL_THING_KIND] = 0
-    cells[15, 15, GLOBAL_CELL_THING_TEAM] = 0
-    cells[15, 15, GLOBAL_CELL_THING_ORIENTATION] = 0
-    cells[15, 15, GLOBAL_CELL_THING_UNIT_CLASS] = 0
-    cells[15, 15, GLOBAL_CELL_THING_AGENT_ID] = 7
-
-    any_team = global_sprite_view_from_cells(cells)
-    team_zero = global_sprite_view_from_cells(cells, visibility_team_id=0)
-    team_one = global_sprite_view_from_cells(cells, visibility_team_id=1)
-
-    any_visibility = np.frombuffer(
-        base64.b64decode(any_team["visibility"]["data"]),
-        dtype=np.uint8,
-    ).reshape((30, 30))
-    team_zero_visibility = np.frombuffer(
-        base64.b64decode(team_zero["visibility"]["data"]),
-        dtype=np.uint8,
-    ).reshape((30, 30))
-    team_one_visibility = np.frombuffer(
-        base64.b64decode(team_one["visibility"]["data"]),
-        dtype=np.uint8,
-    ).reshape((30, 30))
-
-    assert any_visibility[15, 15] == 1
-    assert any_visibility[0, 0] == 0
-    assert team_zero_visibility[15, 15] == 1
-    assert team_one_visibility[15, 15] == 0
+    assert "visibility" not in view
 
 
 def test_sprite_view_from_global_cells_matches_global_sprite_protocol() -> None:

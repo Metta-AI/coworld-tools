@@ -64,11 +64,6 @@ The game server sends state snapshots:
       "columns": ["r", "g", "b", "a"],
       "data": "..."
     },
-    "visibility": {
-      "encoding": "u8-base64",
-      "labels": ["not_visible", "visible"],
-      "data": "..."
-    },
     "objects": {
       "encoding": "i16-base64",
       "columns": [
@@ -100,12 +95,6 @@ alpha channel is the per-tile tint intensity used for territory scoring. Render
 terrain first, then apply the territory tint over that terrain, then render
 objects by `z`.
 
-`visibility` is a row-major `uint8` mask at the same dimensions as terrain:
-`1` means at least one relevant citizen can currently see the tile, and `0`
-means the browser should dim the tile with a gray overlay rather than painting
-it black. The global route computes this from all citizens; team-scoped player
-views compute it from that team's citizens.
-
 Objects are also compact: decode the base64 as little-endian signed 16-bit rows
 using the listed columns, map ordinals through `legend.object_layer`,
 `legend.thing`, `legend.unit_class`, and `legend.orientation`, and map the
@@ -123,10 +112,12 @@ renderer through the Python FFI. New Coworld clients should prefer
 ## Browser clients
 
 `/client/global` and `/clients/global` serve the Coworld spectator client for
-the `/global` websocket.
+the `/global` websocket. This is a thin JavaScript canvas client over the
+Coworld sprite/tint protocol, not the native Nim/Emscripten renderer.
 If opened with `?slot=<team>&token=<token>`, it also connects to `/player` for
 that team. The dedicated `/client/player` and `/clients/player` page is the
-richer town-control view; the global page remains primarily a spectator.
+richer town-control view and uses the same thin-client renderer; the global page
+remains primarily a spectator.
 After running `nimble wasm` from the Tribal Cog package root, `/clients/wasm/`
 serves the native Emscripten build from `build/web/` for local browser checks.
 The WASM client is separate from the Coworld player protocol; player slots still
