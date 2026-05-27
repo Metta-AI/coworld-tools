@@ -30,11 +30,10 @@ graders/
 |-- pyproject.toml
 |-- docs/
 |   |-- COWORLD_REFERENCE.md
-|   |-- GRADER_DESIGN.md
-|   `-- GRADER_REPO_CORRECTION_PLAN.md
+|   `-- GRADER_DESIGN.md
 `-- graders/
-    |-- templates/
-    |   `-- grader_template/
+    |-- default/
+    |   `-- default_grader/
     |-- among_them/
     |   `-- among_them_grader/
     |-- paint_arena/
@@ -50,10 +49,10 @@ implementation.
 
 | Grader | Coworld | Status |
 | --- | --- | --- |
+| `default/default_grader` | Default / generic | Starter implementation; cataloged |
 | `among_them/among_them_grader` | Among Them | Starter implementation; cataloged |
 | `paint_arena/paint_arena_grader` | PaintArena | Starter implementation; cataloged |
 | `cogs_v_clips/cogs_v_clips_grader` | Cogs vs Clips | Starter implementation; cataloged |
-| `templates/grader_template` | template | Empty placeholder; not cataloged |
 
 ## Authoritative Coworld Sources
 
@@ -80,6 +79,9 @@ python3 -m unittest discover -s tests
 Build a starter image:
 
 ```bash
+cd graders/default/default_grader
+./build.sh
+
 cd graders/among_them/among_them_grader
 ./build.sh
 

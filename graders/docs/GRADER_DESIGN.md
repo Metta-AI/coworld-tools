@@ -21,9 +21,10 @@ The episode runner itself does not automatically launch graders.
 
 ## Input
 
-`COGAME_EPISODE_BUNDLE_URI` points at an episode bundle zip. Locally this is normally a local path or `file://` URI;
-hosted invocations may use HTTP(S). The bundle contains `manifest.json` at the zip root. Consumers should read that
-manifest to locate files such as `results.json` rather than hard-coding bundle paths.
+`COGAME_EPISODE_BUNDLE_URI` points at an episode bundle zip. The current Coworld role doc calls out `file://` for
+local runs and HTTP(S) for hosted runs. The starter graders in this repo also support plain local paths and `s3://` so
+the same URI helpers can be used for inputs and outputs. The bundle contains `manifest.json` at the zip root. Consumers
+should read that manifest to locate files such as `results.json` rather than hard-coding bundle paths.
 
 ## Output
 
@@ -61,7 +62,7 @@ These are Coworld contract questions, not repo-local decisions:
 ## Local Implementation Rules
 
 - Follow the current Metta contract; do not invent alternate env vars.
-- Keep one implementation per leaf directory under `graders/<game>/<name>/`.
+- Keep one implementation per leaf directory under `graders/<target>/<name>/`.
 - Add a root `CATALOG.yaml` entry only when an implementation is runnable and documented.
 - Leave empty scaffold directories uncataloged.
 - Update this file whenever the authoritative Coworld grader doc changes.
