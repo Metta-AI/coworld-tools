@@ -78,7 +78,8 @@ Each `sprite_view` cell includes the same visual information needed to match the
 map: `terrain_asset`, `thing_drawables` with per-object `team_id`, and
 `territory_tint` with `{rgba, color, alpha}`. Player clients should render this
 11x11 view as a crop of the fog-scoped map, not as a separate bitworld-style
-pixel protocol.
+pixel protocol. The `obscured` flag remains available for policies, but the
+human PIP should not add an extra per-cell visibility overlay.
 
 The final message has `"type": "final"` and the same shape as an observation.
 
