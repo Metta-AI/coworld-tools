@@ -1,34 +1,49 @@
 # Among Them Grader
 
-Minimal Coworld grader for Among Them episodes.
+Starter Coworld grader for Among Them episodes.
 
-Graders score how interesting or useful an episode was from the game creator's
-perspective. This starter consumes the episode results and emits a scalar JSON
-score so tournaments and local tools can rank episodes for review.
+This grader consumes a Coworld episode bundle, reads the episode results, and emits a small JSON grade that ranks how
+interesting the episode is likely to be for review.
 
 ## Runtime Contract
 
 Required environment variables:
 
-- `COGAME_RESULTS_URI`: JSON results artifact from the episode.
-- `COGAME_GRADE_OUTPUT_URI`: destination URI for the grade JSON.
+- `COGAME_EPISODE_BUNDLE_URI`: episode bundle zip. Supports local paths, `file://`, `http://`, `https://`, and `s3://`.
+- `COGAME_GRADE_URI`: destination URI for the grade JSON. Supports local paths, `file://`, `http://`, `https://`, and
+  `s3://`.
 
-Optional environment variables:
+For `s3://` reads or writes, the runtime needs `boto3` and AWS credentials in the environment. The Dockerfile installs
+`boto3`.
 
-- `COGAME_REPLAY_URI`: replay artifact for future richer scoring.
-- `COGAME_REPLAY_STATS_PARQUET_URI`: reporter-produced stats parquet.
+The grader reads `manifest.json` from the bundle and uses `manifest.files.results` to find the results file. If that
+field is absent, it falls back to `results.json`.
 
-The output is JSON:
+Output JSON:
 
 ```json
-{ "score": 0.75 }
+{
+  "grader_id": "among-them-grader",
+  "score": 0.75
+}
 ```
 
-URI values may be `file://` paths, plain local paths, or `http(s)://` URLs.
-HTTP outputs are written with `PUT`.
+`score` is a heuristic in the range `0.0` to `1.0`. Higher values mean the episode had more review-worthy signals:
+non-trivial win distribution, score spread, task progress, or kills. The score is not comparable with other graders
+unless their descriptions explicitly define compatible scales.
 
 ## Build
 
 ```bash
 ./build.sh
+```
+
+The default image is `among-them-grader:latest` for `linux/amd64`.
+
+## Local Test
+
+From the repository root:
+
+```bash
+python3 -m unittest tests.test_among_them_grader
 ```

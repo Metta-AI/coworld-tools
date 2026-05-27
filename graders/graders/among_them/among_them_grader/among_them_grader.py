@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from io import BytesIO
 import json
 import os
 import sys
 import urllib.request
+import zipfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
+
+GRADER_ID = "among-them-grader"
 
 
 def read_uri(uri: str) -> bytes:
@@ -13,7 +17,9 @@ def read_uri(uri: str) -> bytes:
     if parsed.scheme in ("http", "https"):
         with urllib.request.urlopen(uri) as response:
             return response.read()
-    path = Path(parsed.path if parsed.scheme == "file" else uri)
+    if parsed.scheme == "s3":
+        return read_s3_uri(parsed.netloc, parsed.path)
+    path = Path(unquote(parsed.path) if parsed.scheme == "file" else uri)
     return path.read_bytes()
 
 
@@ -30,9 +36,53 @@ def write_uri(uri: str, payload: dict[str, object]) -> None:
         with urllib.request.urlopen(request) as response:
             response.read()
         return
-    path = Path(parsed.path if parsed.scheme == "file" else uri)
+    if parsed.scheme == "s3":
+        write_s3_uri(parsed.netloc, parsed.path, encoded)
+        return
+    path = Path(unquote(parsed.path) if parsed.scheme == "file" else uri)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(encoded)
+
+
+def read_s3_uri(bucket: str, key_path: str) -> bytes:
+    if not bucket or not key_path.strip("/"):
+        raise ValueError("s3 URI must include a bucket and key")
+    try:
+        import boto3  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("s3 URI support requires boto3") from exc
+
+    response = boto3.client("s3").get_object(Bucket=bucket, Key=key_path.lstrip("/"))
+    return response["Body"].read()
+
+
+def write_s3_uri(bucket: str, key_path: str, content: bytes) -> None:
+    if not bucket or not key_path.strip("/"):
+        raise ValueError("s3 URI must include a bucket and key")
+    try:
+        import boto3  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("s3 URI support requires boto3") from exc
+
+    boto3.client("s3").put_object(
+        Bucket=bucket,
+        Key=key_path.lstrip("/"),
+        Body=content,
+        ContentType="application/json",
+    )
+
+
+def load_bundle_results(bundle_content: bytes) -> dict[str, object]:
+    with zipfile.ZipFile(BytesIO(bundle_content)) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+        results_path = "results.json"
+        files = manifest.get("files") if isinstance(manifest, dict) else None
+        if isinstance(files, dict) and isinstance(files.get("results"), str):
+            results_path = files["results"]
+        results = json.loads(bundle.read(results_path))
+    if not isinstance(results, dict):
+        raise TypeError("results.json must contain a JSON object")
+    return results
 
 
 def values(results: dict[str, object], key: str) -> list[object]:
@@ -56,9 +106,9 @@ def interestingness(results: dict[str, object]) -> float:
 
 
 def main() -> None:
-    results = json.loads(read_uri(os.environ["COGAME_RESULTS_URI"]))
+    results = load_bundle_results(read_uri(os.environ["COGAME_EPISODE_BUNDLE_URI"]))
     score = interestingness(results)
-    write_uri(os.environ["COGAME_GRADE_OUTPUT_URI"], {"score": score})
+    write_uri(os.environ["COGAME_GRADE_URI"], {"grader_id": GRADER_ID, "score": score})
     print(f"wrote Among Them grade {score}", file=sys.stderr, flush=True)
 
 

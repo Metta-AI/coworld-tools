@@ -1,52 +1,67 @@
 # Coworld Reference
 
-> Primary navigation guide for coding agents working in this `graders` project. This is not the authoritative coworld spec - it is an index. Treat the metta sources as the source of truth.
+> Navigation guide for coding agents working in this `graders` repo. This file is not the authoritative Coworld spec;
+> treat the Metta checkout as the source of truth.
 
-## 1. What this project is
+## Current Facts
 
-`graders` is a scaffolded implementation repo for the coworld `grader` role. A coworld bundles one game container, one or more player containers, and a `coworld_manifest.json`. The manifest can also declare optional roles, including `grader`.
-
-The grader role exists in the schema today, but it does not have a documented runtime contract and is not launched by the runner.
-
-## 2. TL;DR for a future agent
-
-- Canonical coworld package: `~/coding/metta/packages/coworld/`.
-- Manifest source of truth: `~/coding/metta/packages/coworld/src/coworld/types.py`.
+- Canonical Coworld package: `~/coding/metta/packages/coworld/`.
+- Grader role doc: `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md`.
+- Role overview: `~/coding/metta/packages/coworld/src/coworld/docs/roles/OVERVIEW.md`.
+- Episode bundle contract: `~/coding/metta/packages/coworld/src/coworld/EPISODE_BUNDLE_README.md`.
+- Manifest field reference: `~/coding/metta/packages/coworld/src/coworld/MANIFEST_README.md`.
 - Generated manifest schema: `~/coding/metta/packages/coworld/src/coworld/coworld_manifest_schema.json`.
-- Game runtime contract: `~/coding/metta/packages/coworld/src/coworld/GAME_RUNTIME_README.md`.
-- Role list: `player`, `grader`, `reporter`, `commissioner`, `diagnoser`, `optimizer`.
-- Shared runnable shape: image + optional `run` argv + optional public `env`.
-- `commissioner` has a documented protocol in metta; `grader`, `diagnoser`, and `optimizer` are still undefined stubs.
+- Role repo spec: `~/coding/metta/docs/specs/0045-coworld-role-repos.md`.
 
-## 3. Manifest role shape
+## Role Model
 
-All declared non-game roles use `CoworldDeclaredRoleSpec`:
+Coworld roles are `game`, `player`, `commissioner`, `reporter`, `grader`, `diagnoser`, and `optimizer`.
+`grader` is a post-episode supporting role declared under `manifest.grader[]`.
+
+The grader role is still marked `reserved`, and its contract is tentative. Even so, the current docs define the shape
+this repo should follow:
+
+- input: `COGAME_EPISODE_BUNDLE_URI`, pointing at a zip episode bundle;
+- output: `COGAME_GRADE_URI`, pointing at a JSON grade destination;
+- output body: a required `score`, plus recommended `grader_id`;
+- lifecycle: on-demand, not automatically run by the episode runner.
+
+## Manifest Shape
+
+Every declared role runnable uses the Coworld declared-role shape:
 
 ```python
 class CoworldDeclaredRoleSpec(CoworldDeclaredRunnableSpec):
-    type: Literal["player", "grader", "reporter", "commissioner", "diagnoser", "optimizer"]
+    type: Literal["player", "reporter", "commissioner", "grader", "diagnoser", "optimizer"]
 ```
 
-For graders, the top-level manifest field is:
+For graders, the manifest field is:
 
 ```python
-grader: list[CoworldDeclaredRoleSpec] = Field(default_factory=list)
+grader: list[CoworldDeclaredRoleSpec]
 ```
 
-Certification validates every declared role image is reachable, but the smoke-test episode currently launches only the game and certification players.
+The current prose docs say all supporting role sections should be declared in Coworld manifests. The current generated
+schema in Metta still accepts omitted non-player supporting role arrays during this transition. Do not treat that schema
+leniency as a license for this repo to define a different role contract.
 
-## 4. Useful metta paths
+## Role Repo Catalog
+
+`CATALOG.yaml` is the implementation index for this repo. Per `0045-coworld-role-repos.md`, source present on disk
+without a catalog entry is incomplete. Empty scaffold directories should remain uncataloged until they contain a real
+runtime implementation with a Dockerfile and README.
+
+## Useful Questions
 
 | Question | Start here |
 | --- | --- |
-| What is a coworld? | `packages/coworld/src/coworld/COWORLD_README.md` |
-| What must a game container do? | `packages/coworld/src/coworld/GAME_RUNTIME_README.md` |
-| What is in the manifest? | `packages/coworld/src/coworld/types.py` |
-| How are role images validated? | `packages/coworld/src/coworld/certifier.py` |
-| How does a local episode run? | `packages/coworld/src/coworld/runner/runner.py` |
-| What does a simple example look like? | `packages/coworld/src/coworld/examples/paintarena/` |
-| What does the runnable spec say? | `docs/specs/0043-user-container-management.md` |
+| What does a grader receive and write? | `packages/coworld/src/coworld/docs/roles/grader.md` |
+| What is an episode bundle? | `packages/coworld/src/coworld/EPISODE_BUNDLE_README.md` |
+| How do Coworld roles compose? | `packages/coworld/src/coworld/docs/roles/OVERVIEW.md` |
+| What belongs in a manifest entry? | `packages/coworld/src/coworld/MANIFEST_README.md` |
+| What is the role-repo structure? | `docs/specs/0045-coworld-role-repos.md` |
 
-## 5. Keep this file honest
+## Keep This File Honest
 
-Update this file when the metta repo gains a real grader runtime contract, new role fields, new example coworlds, or runner/certifier behavior that changes how graders are launched or validated.
+Update this file when the Metta Coworld docs change the grader env vars, output schema, lifecycle, manifest shape,
+or role-repo catalog requirements.

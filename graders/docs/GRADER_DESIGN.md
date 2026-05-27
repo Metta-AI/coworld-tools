@@ -1,33 +1,67 @@
 # Grader Design
 
-> **Status:** placeholder. The coworld `grader` role exists in the manifest schema, but there is no finalized runtime contract yet.
+> **Status:** local mirror of the current tentative Coworld grader contract. The authoritative role doc remains
+> `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md`.
 
 ## Purpose
 
-Graders are intended to evaluate coworld outputs, player behavior, submissions, or episode artifacts and produce grading results for tournament or Observatory workflows.
+Graders score how interesting or useful a Coworld episode was from the game creator's perspective. The output is a
+small ranking signal, not a full human-readable report.
 
-The exact trigger, inputs, output envelope, certification behavior, and Observatory/API surface are still undecided.
+## Current Contract From Metta
 
-## Current facts from metta
+The grader role is still `reserved`, but its current tentative process contract is defined:
 
-- `CoworldManifest.grader` is a list of `CoworldDeclaredRoleSpec`.
-- The allowed role type enum includes `"grader"`.
-- Certification checks declared grader images for reachability.
-- The episode runner does not currently launch graders.
-- There are no in-tree grader examples or grader tests yet.
+1. A CLI, hosted UI, or pipeline chooses a grader runnable from `manifest.grader[]`.
+2. The invoker assembles an episode bundle zip.
+3. The invoker starts the grader container with `COGAME_EPISODE_BUNDLE_URI` and `COGAME_GRADE_URI`.
+4. The grader reads the bundle, computes a score, writes grade JSON, and exits.
 
-## Open questions
+The episode runner itself does not automatically launch graders.
 
-1. Does a grader run per episode, per round, per submission, or on demand?
-2. What artifacts does it read: results, replay, logs, manifest, policy metadata, or commissioner state?
-3. Does it produce authoritative scores, advisory diagnostics, validation errors, or all of the above?
-4. Is failure fatal to the episode, fatal to certification only, or recorded as a separate grader status?
-5. Should grader outputs have a platform-enforced schema?
-6. How should grader outputs surface in Observatory and the coworld CLI?
+## Input
 
-## Scaffold rules
+`COGAME_EPISODE_BUNDLE_URI` points at an episode bundle zip. Locally this is normally a local path or `file://` URI;
+hosted invocations may use HTTP(S). The bundle contains `manifest.json` at the zip root. Consumers should read that
+manifest to locate files such as `results.json` rather than hard-coding bundle paths.
 
-- Keep each implementation in one leaf directory under `graders/<game>/<name>/`.
-- Use `graders/templates/grader_template/` as the starting point for new placeholders.
-- Do not add runtime assumptions to implementation code before the contract is documented in metta.
-- When the contract is defined, mirror the final runtime obligations into this file and into the metta coworld docs.
+## Output
+
+`COGAME_GRADE_URI` points at the grade JSON destination. Local implementations should support local paths and
+`file://`; hosted-compatible implementations should also support HTTP(S) and `s3://`.
+
+The grade JSON must include:
+
+```json
+{
+  "score": 0.85
+}
+```
+
+It should also include:
+
+```json
+{
+  "grader_id": "among-them-grader"
+}
+```
+
+`grader_id` conventionally matches the runnable id in `manifest.grader[]`.
+
+## Open Questions
+
+These are Coworld contract questions, not repo-local decisions:
+
+1. Whether `score` should stay grader-defined or move to a canonical range.
+2. How scores from different graders should be compared or normalized.
+3. How multiple graders scoring the same episode should be aggregated.
+4. The exact CLI and hosted UI surfaces for invoking graders.
+5. Whether future grader outputs need additional required provenance fields.
+
+## Local Implementation Rules
+
+- Follow the current Metta contract; do not invent alternate env vars.
+- Keep one implementation per leaf directory under `graders/<game>/<name>/`.
+- Add a root `CATALOG.yaml` entry only when an implementation is runnable and documented.
+- Leave empty scaffold directories uncataloged.
+- Update this file whenever the authoritative Coworld grader doc changes.
