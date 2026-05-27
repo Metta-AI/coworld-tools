@@ -1,26 +1,37 @@
 # graders
 
-Grader implementations for **coworlds** - containers that evaluate coworld runs, submissions, or artifacts and produce grading outputs for downstream tournament and Observatory workflows.
+Grader implementations for Coworld supporting runnables.
 
-> **Status:** canonical Coworld role repo. The Among Them minimal grader is implemented in [`graders/among_them/among_them_grader/`](graders/among_them/among_them_grader/). Hosted grader execution is still pending; see [`docs/GRADER_DESIGN.md`](docs/GRADER_DESIGN.md) for the current design placeholder and open questions.
+> **Status:** Coworld role repo under construction. The Coworld grader role is still `reserved`, but the current
+> tentative contract is documented in `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md`.
 
-## What is a coworld grader?
+## What Is A Coworld Grader?
 
-A **coworld** is a Softmax v2 tournament unit: one game container + one or more player containers + a `coworld_manifest.json`. A **grader** is an optional role declared in the manifest under `grader: [...]`.
+A Coworld is a Softmax v2 tournament unit: one game container, one or more player containers, a Coworld manifest,
+and supporting role runnables. A grader is a post-episode, on-demand supporting runnable declared under
+`manifest.grader[]`.
 
-The manifest schema already has the role, but today the platform only validates declared grader images during certification. It does not launch graders as part of the runner. This repo is the implementation home for grader containers once the contract is finalized.
+The current tentative grader contract is:
 
-Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Grader contract notes: [`docs/GRADER_DESIGN.md`](docs/GRADER_DESIGN.md).
+- read an episode bundle zip from `COGAME_EPISODE_BUNDLE_URI`;
+- inspect the bundle's `manifest.json` to find `results.json` and any other needed artifacts;
+- write one JSON grade file to `COGAME_GRADE_URI`;
+- include a required `score` and, by convention, a `grader_id`.
 
-## Repository layout
+The episode runner does not automatically launch graders. Grader invocation is owned by future CLI, hosted UI, or
+pipeline surfaces.
+
+## Repository Layout
 
 ```text
 graders/
+|-- CATALOG.yaml
 |-- README.md
 |-- pyproject.toml
 |-- docs/
 |   |-- COWORLD_REFERENCE.md
-|   `-- GRADER_DESIGN.md
+|   |-- GRADER_DESIGN.md
+|   `-- GRADER_REPO_CORRECTION_PLAN.md
 `-- graders/
     |-- templates/
     |   `-- grader_template/
@@ -32,35 +43,51 @@ graders/
         `-- cogs_v_clips_grader/
 ```
 
-Each leaf grader directory follows the same placeholder shape:
+`CATALOG.yaml` is the repo-level implementation index. Source on disk without a catalog entry is not a published
+implementation.
 
-| File | Purpose |
-| --- | --- |
-| `<grader_name>.py` | Grader entrypoint placeholder. Fill this in after the runtime contract is defined. |
-| `build.sh` | Builds the grader's Docker image. Each grader can be its own image unless a shared image pattern emerges. |
-| `README.md` | Grader-specific docs: what it grades, expected inputs/outputs, local test command, and dependencies. |
-
-## Status of each grader
+## Status Of Each Grader
 
 | Grader | Coworld | Status |
 | --- | --- | --- |
-| `templates/grader_template` | (template) | Scaffold only - no implementation |
-| `among_them/among_them_grader` | Among Them | Minimal implementation - emits a scalar JSON score from episode results |
-| `paint_arena/paint_arena_grader` | PaintArena | Scaffold only - no implementation |
-| `cogs_v_clips/cogs_v_clips_grader` | Cogs vs Clips | Scaffold only - no implementation |
+| `among_them/among_them_grader` | Among Them | Starter implementation; cataloged |
+| `paint_arena/paint_arena_grader` | PaintArena | Starter implementation; cataloged |
+| `cogs_v_clips/cogs_v_clips_grader` | Cogs vs Clips | Starter implementation; cataloged |
+| `templates/grader_template` | template | Empty placeholder; not cataloged |
 
-## Related metta repo locations
+## Authoritative Coworld Sources
 
-- `~/coding/metta/packages/coworld/` - coworld package: manifest schema, runner, certifier, and role types.
-- `~/coding/metta/packages/coworld/src/coworld/types.py` - source of truth for the `grader` manifest section.
-- `~/coding/metta/packages/coworld/src/coworld/GAME_RUNTIME_README.md` - canonical game runtime contract.
-- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, grader, reporter, commissioner, diagnoser, and optimizer roles.
-- `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` - simplest reference coworld.
+Treat the Metta checkout as the source of truth:
 
-## Conventions for new graders
+- `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md` - grader role contract.
+- `~/coding/metta/packages/coworld/src/coworld/docs/roles/OVERVIEW.md` - role composition and artifact flow.
+- `~/coding/metta/packages/coworld/src/coworld/EPISODE_BUNDLE_README.md` - bundle format consumed by graders.
+- `~/coding/metta/packages/coworld/src/coworld/MANIFEST_README.md` - manifest field reference.
+- `~/coding/metta/packages/coworld/src/coworld/coworld_manifest_schema.json` - generated manifest schema.
+- `~/coding/metta/docs/specs/0045-coworld-role-repos.md` - role-repo layout and `CATALOG.yaml` schema.
 
-- Keep concrete grader implementations under the top-level `graders/` tree.
-- Keep one leaf directory per runnable image or entrypoint.
-- Keep game-specific code under that game's directory.
-- Do not invent a runtime contract inside an implementation. Update `docs/GRADER_DESIGN.md` and the metta coworld contract first.
-- Keep game/runtime package code in its owning repo unless the file is genuinely grader source.
+This repo should not invent a different grader runtime contract. If the Coworld docs change, update the implementation
+and these docs together.
+
+## Development
+
+Run focused tests:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Build a starter image:
+
+```bash
+cd graders/among_them/among_them_grader
+./build.sh
+
+cd graders/paint_arena/paint_arena_grader
+./build.sh
+
+cd graders/cogs_v_clips/cogs_v_clips_grader
+./build.sh
+```
+
+Each build defaults to the cataloged local image name for `linux/amd64`.
