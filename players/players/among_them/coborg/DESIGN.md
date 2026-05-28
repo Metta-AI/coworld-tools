@@ -116,10 +116,17 @@ Per PLAN §8 and decision D3:
 
 ## 5. P0 scope and known limitations
 
-- Perception is a no-op; the frame bytes are not unpacked or parsed in P0.
-  As of S2.1 the 4-bpp unpacker lives at `perception.frame.unpack4bpp`;
-  the bridge will start invoking it once `perceive()` wires the percept
-  fields in S5.
+- Perception is a no-op at the bridge boundary; the frame bytes are not
+  unpacked or parsed during the per-tick `perceive()` call yet. As of
+  S2.1 the 4-bpp unpacker lives at `perception.frame.unpack4bpp`. S2.2
+  landed the vectorised `perception.sprite_match` kernels. S3 landed
+  the actor scan layer (`perception.actors` — role, self-color,
+  bodies, ghosts, crewmates) and the radar-dot half of
+  `perception.tasks`. All four modules are parity-pinned against the
+  Nim oracle on every checked-in fixture. The bridge will start
+  invoking the perception layer once S4 lands the remaining modules
+  (interstitial, ignore, localize, ocr, voting, plus the deferred
+  task-icon scan) and `perceive()` is wired through.
 - Belief carries only a tick counter. P1 introduces the
   self/world/entities/tasks/social/inferences sections per PLAN §4.
 - The bridge speaks `bitscreen_v1` binary only. Among Them never serves the

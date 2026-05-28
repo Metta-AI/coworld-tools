@@ -6,23 +6,27 @@ Owner: James (jmsboggs@gmail.com).
 Author of this plan: prior Claude Code session; record carried over for a fresh
 session to pick up cold.
 
-> **Current status (2026-05-22):** P0 deliverables in §6 are landed and
-> P1 (perception port) is in flight. The idle/noop runtime, action
-> resolver, stderr trace sinks, `bitscreen_v1` WebSocket bridge,
-> Dockerfile, `build.sh`, and `scripts/play_local.sh` are all in place;
-> `pytest players/among_them/coborg/tests` is green (17 tests including
-> an in-process Coworld bridge smoke). R1 toolchain flake (§10) was
-> root-caused and resolved 2026-05-13. §12 open items (D8, D9, P4 stop
-> point, parity-oracle source) were all confirmed 2026-05-22 — see §12
-> for the decision record. S1 baked-asset sub-stack landed 2026-05-22
-> (palette + sprite_atlas + map_pixels + walk_mask + wall_mask + font;
-> digest-pinned regenerator). P1 oracle = a small Nim oracle dumper at
-> `perception/parity/extract_nim_oracle/` that imports the upstream
-> `guided_bot` perception modules, runs them against each fixture, and
-> emits JSON sidecars next to each `.bin` (decision tightened 2026-05-22
-> from "parse `_test.nim` assertions"; see §12). See [`README.md`](./README.md) for the runnable surface
-> today and [`DESIGN.md`](./DESIGN.md) for the durable architecture
-> notes.
+> **Current status (2026-05-26):** P0 + P1 sub-stacks **S1** (baked
+> assets), **S2** (frame + sprite_match + parity rig), and **S3**
+> (actors + radar-dot scan) are landed; P1 sub-stack **S4** (the
+> remaining perception modules + deferred task-icon scan) is next.
+> The idle/noop runtime, action resolver, stderr trace sinks,
+> `bitscreen_v1` WebSocket bridge, Dockerfile, `build.sh`, and
+> `scripts/play_local.sh` are in place. `perception/frame.py`,
+> `perception/sprite_match.py`, `perception/actors.py`, and the
+> radar-dot half of `perception/tasks.py` are byte-exact against
+> the Nim oracle on all 10 fixtures (160 parity checks per run, all
+> green). The parity spine — 10 fixtures, Nim oracle dumper at
+> `perception/parity/extract_nim_oracle/` emitting JSON sidecars at
+> `schema_version=2`, `run_parity.py` CLI + library API, and CI gate
+> — covers every v2 sidecar key. `pytest players/among_them/coborg/tests`
+> is green (173 tests). R1 toolchain flake (§10) was root-caused and
+> resolved 2026-05-13. §12 items 1–4 (D8, D9, P4 stop point,
+> parity-oracle source) were all confirmed 2026-05-22; §12 item 5
+> (S3 scope tightening — defer task-icon scan to S4 alongside
+> localize) was recorded 2026-05-26. See [`README.md`](./README.md)
+> for the runnable surface today and [`DESIGN.md`](./DESIGN.md) for
+> the durable architecture notes.
 
 ---
 
@@ -512,16 +516,29 @@ mergeable unit.
 ### P1 — Perception port
 
 **Deliverables**: All §5.2 modules ported. Baked sprite atlas regenerated.
-Parity fixture set captured (50–100 frames). `test_perception_parity.py`
+Parity rig pinned against the 10 checked-in `.bin` fixtures with Nim
+oracle sidecars at the latest schema version. `test_perception_parity.py`
 green. Per-tick perception measured under 8 ms.
 
+**Sub-stack progress** (each is a Graphite stack entry; sidecar
+schema version bumps with each widening):
+
+| Sub-stack | Scope | Sidecar schema | Status |
+|---|---|---|---|
+| S1 | Baked assets: palette + sprite_atlas + map_pixels + walk/wall_mask + font + digest-pinned regenerator | n/a (data only) | Landed 2026-05-22 |
+| S2 | `perception/frame.py` + `perception/sprite_match.py`; Nim oracle dumper; 10 fixtures + sidecars; `run_parity.py` CLI + library + CI gate | v1 | Landed 2026-05-22 |
+| S3 | `perception/actors.py` (role / self-color / bodies / ghosts / crewmates) + `perception/tasks.py` (radar-dot scan only — task-icon scan deferred to S4 per §12 item 5); parity gate widened to all v2 keys | v2 | Landed 2026-05-26 |
+| **S4** | `perception/interstitial.py`, `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred task-icon half of `tasks.py` (needs localize's camera offset) | v3+ | **Next** |
+
 **Done when**:
-1. All parity tests pass.
+1. All parity tests pass at the highest landed schema version.
 2. Per-tick perception measured under 8 ms on the dev machine.
 3. `coworld play` smoke run still passes with live perception wired into
    the runtime (agent still emits noops, but parsed beliefs render in
    stderr traces).
-4. `DESIGN.md` updated with any deviations from the Nim semantics.
+4. `DESIGN.md` updated with any deviations from the Nim semantics, and
+   `DESIGN.md` §6 "State-vector taps" populated for any belief field
+   sourced from the structured state vector rather than from pixels.
 
 ### P2 — Crewmate
 
@@ -689,7 +706,7 @@ from §3.4, prefer the manifest values.
      recovery procedure (clear `~/.nimby/nimbylock/`, delete any
      `~/.nimby/pkgs/<name>/` missing `.git`, re-run sync). If it still
      fails, surface to James before writing any code.
-2. **Land P0 scaffold.** Mirror §4 layout. Get the noop agent through a full `coworld play` run with stderr traces visible. Don't move on until §6 P0 done-criteria are all green.
+2. **Land P0 scaffold.** Mirror §4 layout. Get the noop agent through a full `coworld play` run with stderr traces visible. Don't move on until §6 P0 done-criteria are all green. **Done 2026-05-19.**
 3. **Wire up the parity harness against the 10 existing `.bin`
    fixtures.** Fixtures originally live at
    `users/james/personal_cogs/among_them/guided_bot/test/fixtures/`;
@@ -700,12 +717,36 @@ from §3.4, prefer the manifest values.
    The dumper is a self-contained Nim program that imports the
    upstream `guided_bot` perception modules and emits JSON sidecars
    next to each fixture. Only land `perception/parity/capture_fixtures.py`
-   if a percept code path turns out to be uncovered by the 11
+   if a percept code path turns out to be uncovered by the 10
    fixtures — and even then, instrument the Coworld bridge inside a
    real `uv run coworld play` session, not a separate run path.
-4. **Start the perception port at `frame.py` then `sprite_match.py`.** Get
+   **Done 2026-05-22 (S2).**
+4. **Port the perception spine: `frame.py` then `sprite_match.py`.** Get
    parity-green on actor matches first; that proves the spine of the
-   port. Then ripple through `actors → tasks → localize → ocr → voting`.
+   port. **Done 2026-05-22 (S2).**
+5. **S3 — port `actors.py`, then radar-dot half of `tasks.py`.** Mirror
+   the upstream `scan_all` pipeline: interstitial short-circuit → role
+   (HUD ghost-icon / kill-button) → self-color → bodies → ghosts →
+   crewmates. Reuse `match_actor_sprite_all` and `actor_color_index_all`
+   from S2 for the vectorised actor scans; port the small HUD scalar
+   probes as tight numpy inner loops. Then port the radar-dot half of
+   `tasks.py` (border-ring palette-8 scan with Chebyshev-1 dedup;
+   HUD-layer, no camera dependency). The task-icon half of `tasks.py`
+   waits for S4 — it wraps `mb_scan_task_icons`, which only runs when
+   localized is true (see §12 item 5). Extend `extract_oracle.nim` to
+   emit schema_version=2 sidecars covering the new fields; regenerate
+   all 10 sidecars; extend `run_parity.py` and `test_perception_parity.py`
+   to gate the new check kinds. Commit shape mirrors S2: 5 commits
+   (S3.0 PLAN reconcile, S3.1 oracle extend + sidecar regen, S3.2
+   `actors.py`, S3.3 `tasks.py` radar-dot half, S3.4 parity harness +
+   gate update).
+6. **S4 — port the remaining perception modules.** `interstitial.py`,
+   `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred
+   task-icon half of `tasks.py` (now consumes a real camera offset from
+   `localize.py`). Sidecar schema bumps to v3 (and v4+ as needed) with
+   each module; tolerances may be introduced for sub-pixel fields per
+   §5.4. Wire live perception into the runtime for the P1 smoke `coworld
+   play` run with parsed beliefs in stderr traces.
 
 ---
 
@@ -732,6 +773,34 @@ James in the new session" were all resolved at the start of the
    assertion strings; rejected because many of those assertions
    carry no concrete value and the dumper extends trivially to
    S3/S4 percept fields. See §5.4 and §10 R8.
+5. **S3 scope tightening — task-icon scan deferred to S4.**
+   **Recorded 2026-05-26.** PLAN §0/§6 originally framed S3 as
+   "actors + tasks." S3 is now scoped to `perception/actors.py`
+   (full) + the radar-dot half of `perception/tasks.py` only.
+   The task-icon half of `tasks.py` is deferred to S4.
+
+   **Why:** `scanTaskIcons` wraps `mb_scan_task_icons` from
+   `common/perception_kernels/actors.nim` and only runs when
+   `localized` is true (camera offset known) — see the upstream
+   `guided_bot/perception/tasks.nim` header. Localize lands in S4,
+   not S3. Three options were considered:
+
+   - (a) **Chosen.** Defer task-icon scan to S4 alongside localize.
+     Clean dependency story; no synthetic camera offset travels
+     through the parity rig; sidecar schema for task-icon fields
+     waits until v3+ (where it lands naturally alongside
+     `localize.py` output).
+   - (b) Rejected. Inject a fixture-side camera offset into the
+     sidecar at schema v2 and parity-test task-icon scan now —
+     adds a temporary tap that has to be removed in S4.
+   - (c) Rejected. Pull localize forward into S3 — turns a
+     sub-stack into a mega-commit and breaks the established
+     S2-sized cadence.
+
+   Radar-dot scan is HUD-layer (border-ring palette-8 pixels,
+   Chebyshev-1 dedup) and is unaffected by camera state, so it
+   ships in S3 as the only `tasks.py` content. The §6 sub-stack
+   table and §11 items 5–6 reflect this scoping.
 
 ---
 

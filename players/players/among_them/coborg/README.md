@@ -6,12 +6,20 @@ a two-loop runtime (fast symbolic inner loop + slower outer strategy
 loop; architecture historically called "Cyborg"). This is the SDK's
 **first concrete in-repo game client**.
 
-> **Status (2026-05-19)**: **P0 scaffold landed.** Idle/noop agent wired
-> end-to-end through the BitWorld `bitscreen_v1` WebSocket bridge; 17 tests
-> green (`pytest players/among_them/coborg/tests`) including an in-process
-> Coworld bridge smoke. Build + local-play scripts are in place. No
-> perception, belief, or non-trivial modes yet. Next phase is P1
-> (perception port from Nim to numpy) — see [`PLAN.md` §6](./PLAN.md#6-phasing).
+> **Status (2026-05-26)**: **P0 + P1 sub-stacks S1, S2, and S3 landed;
+> S4 next.** Idle/noop agent runs end-to-end through the `bitscreen_v1`
+> WebSocket bridge. Baked perception data (palette, sprite atlas, map
+> rasters, walk/wall masks, font) is checked in with a digest-pinned
+> regenerator. `perception/{frame,sprite_match,actors,tasks}.py` are
+> byte-exact against the Nim oracle on all 10 fixtures — 160 parity
+> checks per run, all green (5 sprite_match + 5 actor_color_index + 5
+> orchestrated actor checks + 1 radar_dots, x 10 fixtures). The parity
+> rig (oracle dumper + v2 sidecars + `run_parity.py` CLI + CI gate)
+> covers every v2 sidecar key. 173 tests green
+> (`pytest players/among_them/coborg/tests`). **S4** brings localize,
+> ocr, voting, interstitial, ignore, and the deferred task-icon half
+> of `tasks.py` (see `PLAN.md` §12 item 5).
+> See [`PLAN.md` §6](./PLAN.md#6-phasing) for the phase tracker.
 
 ---
 
@@ -156,7 +164,7 @@ is for cogsguard-style JSON players.
 | Phase | Status | Deliverable | Done criterion (summary) |
 |---|---|---|---|
 | P0 | **Landed (2026-05-19)** | Scaffold + Coworld harness | Noop agent completes a 120s `coworld play` run, traces on stderr |
-| P1 | Next | Perception port | Parity tests green vs Nim; <8 ms perception per tick |
+| P1 | **In flight** (S1, S2 landed 2026-05-22; S3 in flight; S4 pending) | Perception port | Parity tests green vs Nim at the highest landed schema version; <8 ms perception per tick |
 | P2 | Planned | Crewmate | ≥3 tasks completed in a 120s match |
 | P3 | Planned | Meetings & voting | Full meeting cycle with legal vote |
 | P4 | Planned | Imposter | ≥1 kill on imposter-pinned seeds (50, 100) |

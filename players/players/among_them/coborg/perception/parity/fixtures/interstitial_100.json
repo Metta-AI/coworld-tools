@@ -1,6 +1,6 @@
 {
   "fixture": "interstitial_100.bin",
-  "schema_version": 1,
+  "schema_version": 2,
   "frame_length": 16384,
   "screen_width": 128,
   "screen_height": 128,
@@ -35,6 +35,102 @@
       "min_stable": 8,
       "min_tint": 8,
       "anchors": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          12,
+          48
+        ],
+        [
+          12,
+          70
+        ],
+        [
+          13,
+          48
+        ],
+        [
+          15,
+          62
+        ],
+        [
+          18,
+          47
+        ],
+        [
+          18,
+          48
+        ],
+        [
+          18,
+          49
+        ],
+        [
+          18,
+          68
+        ],
+        [
+          18,
+          69
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          42,
+          50
+        ],
+        [
+          42,
+          66
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          42,
+          54
+        ],
+        [
+          42,
+          55
+        ],
+        [
+          42,
+          70
+        ],
+        [
+          42,
+          71
+        ]
+      ]
     }
   ],
   "actor_color_index": [
@@ -64,6 +160,189 @@
       "sw": 12,
       "flip_h": true,
       "indices": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          12,
+          48,
+          15
+        ],
+        [
+          12,
+          70,
+          15
+        ],
+        [
+          13,
+          48,
+          15
+        ],
+        [
+          15,
+          62,
+          15
+        ],
+        [
+          18,
+          47,
+          15
+        ],
+        [
+          18,
+          48,
+          15
+        ],
+        [
+          18,
+          49,
+          15
+        ],
+        [
+          18,
+          68,
+          15
+        ],
+        [
+          18,
+          69,
+          15
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          42,
+          50,
+          0
+        ],
+        [
+          42,
+          66,
+          1
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": [
+        [
+          42,
+          54,
+          15
+        ],
+        [
+          42,
+          55,
+          15
+        ],
+        [
+          42,
+          70,
+          15
+        ],
+        [
+          42,
+          71,
+          15
+        ]
+      ]
     }
-  ]
+  ],
+  "role": {
+    "ghost_icon_frames": 0,
+    "kill_icon_frames": 0,
+    "is_ghost": false,
+    "kill_ready": false,
+    "role_updated": true,
+    "new_role": "crewmate"
+  },
+  "self_color": {
+    "updated": false,
+    "color_index": -1
+  },
+  "crewmates": [
+    {
+      "x": 50,
+      "y": 42,
+      "color_index": 0,
+      "flip_h": false
+    },
+    {
+      "x": 66,
+      "y": 42,
+      "color_index": 1,
+      "flip_h": false
+    }
+  ],
+  "bodies": [
+    {
+      "x": 48,
+      "y": 12,
+      "color_index": 15
+    },
+    {
+      "x": 70,
+      "y": 12,
+      "color_index": 15
+    },
+    {
+      "x": 62,
+      "y": 15,
+      "color_index": 15
+    },
+    {
+      "x": 47,
+      "y": 18,
+      "color_index": 15
+    },
+    {
+      "x": 49,
+      "y": 18,
+      "color_index": 15
+    },
+    {
+      "x": 68,
+      "y": 18,
+      "color_index": 15
+    }
+  ],
+  "ghosts": [
+    {
+      "x": 50,
+      "y": 42,
+      "flip_h": false
+    },
+    {
+      "x": 54,
+      "y": 42,
+      "flip_h": true
+    },
+    {
+      "x": 66,
+      "y": 42,
+      "flip_h": false
+    },
+    {
+      "x": 70,
+      "y": 42,
+      "flip_h": true
+    }
+  ],
+  "radar_dots": []
 }
