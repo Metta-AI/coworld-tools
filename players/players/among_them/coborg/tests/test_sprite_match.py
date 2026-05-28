@@ -23,15 +23,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from players.among_them.coborg.perception.data import load_sprite_atlas
+from players.among_them.coborg.perception.data import (
+    PLAYER_BODY_LUT,
+    PLAYER_COLORS,
+    SHADOW_MAP,
+    load_sprite_atlas,
+)
 from players.among_them.coborg.perception.frame import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
 from players.among_them.coborg.perception.sprite_match import (
-    PLAYER_BODY_LUT,
-    PLAYER_COLORS,
-    SHADOW_MAP,
     actor_color_index_all,
     match_actor_sprite_all,
 )

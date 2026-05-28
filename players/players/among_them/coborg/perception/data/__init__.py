@@ -23,8 +23,12 @@ from .palette import (
     MAP_WIDTH,
     PALETTE,
     PALETTE_COLOR_TABLE_SIZE,
+    PALETTE_TO_PLAYER_SLOT,
+    PLAYER_BODY_LUT,
+    PLAYER_COLORS,
     PRINTABLE_ASCII_COUNT,
     SHADE_TINT_COLOR,
+    SHADOW_MAP,
     SPACE_COLOR,
     SPRITE_DRAW_OFF_X,
     SPRITE_DRAW_OFF_Y,
@@ -32,11 +36,31 @@ from .palette import (
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
-from .sprites import SPRITE_COUNT, load_sprite_atlas, load_sprite_index
+from .sprites import (
+    ATLAS_BODY,
+    ATLAS_GHOST,
+    ATLAS_GHOST_ICON,
+    ATLAS_KILL_BUTTON,
+    ATLAS_PLAYER,
+    ATLAS_TASK,
+    SPRITE_COUNT,
+    load_sprite_atlas,
+    load_sprite_index,
+)
 
 verify_all()
+# Trigger the ATLAS_* invariant check in load_sprite_index (asserts the
+# JSON layout matches the named constants) at package import time, so a
+# drift fails loudly before any module that uses ATLAS_* runs.
+load_sprite_index()
 
 __all__ = [
+    "ATLAS_BODY",
+    "ATLAS_GHOST",
+    "ATLAS_GHOST_ICON",
+    "ATLAS_KILL_BUTTON",
+    "ATLAS_PLAYER",
+    "ATLAS_TASK",
     "BAKE_SCHEMA_VERSION",
     "BakeManifestMismatch",
     "DEFAULT_GLYPH_SPACING",
@@ -49,8 +73,12 @@ __all__ = [
     "MAP_WIDTH",
     "PALETTE",
     "PALETTE_COLOR_TABLE_SIZE",
+    "PALETTE_TO_PLAYER_SLOT",
+    "PLAYER_BODY_LUT",
+    "PLAYER_COLORS",
     "PRINTABLE_ASCII_COUNT",
     "SHADE_TINT_COLOR",
+    "SHADOW_MAP",
     "SPACE_COLOR",
     "SPRITE_COUNT",
     "SPRITE_DRAW_OFF_X",

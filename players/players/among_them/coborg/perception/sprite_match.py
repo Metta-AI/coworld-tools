@@ -21,66 +21,14 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 from .data.palette import (
+    PALETTE_TO_PLAYER_SLOT,
+    PLAYER_BODY_LUT,
+    PLAYER_COLORS,
     SHADE_TINT_COLOR,
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
 from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
-
-# Player color slots -> lit palette index. Must match
-# ``sim.nim``'s ``PlayerColors`` and
-# ``common/perception_kernels/sprite_match.nim``'s ``PlayerColors``. The
-# 16 slots cover every PICO-8 palette entry exactly once (a permutation),
-# which has implications for ``actor_color_index_all`` -- see below.
-PLAYER_COLORS: np.ndarray = np.array(
-    [3, 7, 8, 14, 4, 11, 13, 15, 1, 2, 5, 6, 9, 10, 12, 0], dtype=np.uint8
-)
-PLAYER_COLORS.flags.writeable = False
-
-# Palette index -> shadowed variant. Mirrors ``sim.nim``'s ``ShadowMap``.
-SHADOW_MAP: np.ndarray = np.array(
-    [0, 12, 9, 5, 5, 0, 5, 5, 5, 12, 9, 9, 0, 12, 12, 9], dtype=np.uint8
-)
-SHADOW_MAP.flags.writeable = False
-
-
-def _build_player_body_lut() -> np.ndarray:
-    """256-entry bool LUT: index ``c`` is True iff ``c`` is a plausible
-    player-body palette index (lit color OR its shadowed variant).
-
-    Mirrors ``isPlayerBodyColor`` in the Nim kernel. The Nim version does a
-    linear scan over PlayerColors per pixel; numpy prefers a precomputed LUT
-    for SIMD-friendly indexing.
-    """
-    lut = np.zeros(256, dtype=bool)
-    for pc in PLAYER_COLORS:
-        lut[int(pc)] = True
-        lut[int(SHADOW_MAP[int(pc) & 0x0F])] = True
-    return lut
-
-
-PLAYER_BODY_LUT: np.ndarray = _build_player_body_lut()
-PLAYER_BODY_LUT.flags.writeable = False
-
-
-def _build_palette_to_slot() -> np.ndarray:
-    """256-entry LUT: palette index -> player-color slot.
-
-    ``PLAYER_COLORS`` maps slot -> palette index; this is the inverse on
-    the lit-color path. Used by :func:`actor_color_index_all` to convert
-    per-tint frame samples into slot indices in one shot before the
-    per-anchor histogram. Palette indices outside the 0..15 range map to
-    a sentinel slot (``PLAYER_COLORS.size`` == 16) that drops out of the
-    argmax via ``minlength``.
-    """
-    lut = np.full(256, PLAYER_COLORS.size, dtype=np.int64)
-    for slot, c in enumerate(PLAYER_COLORS):
-        lut[int(c)] = slot
-    return lut
-
-
-_PALETTE_TO_SLOT: np.ndarray = _build_palette_to_slot()
-_PALETTE_TO_SLOT.flags.writeable = False
 
 
 def match_actor_sprite_all(
@@ -206,7 +154,7 @@ def actor_color_index_all(
     # is the meaningful perf win for the kernel.
     n_anchors = max_y * max_x
     n_slots = PLAYER_COLORS.size  # 16
-    slots = _PALETTE_TO_SLOT[tint_frame]  # (max_y, max_x, n_tint), int64 in [0, 16]
+    slots = PALETTE_TO_PLAYER_SLOT[tint_frame]  # (max_y, max_x, n_tint), int64 in [0, 16]
     anchor_offsets = np.arange(n_anchors, dtype=np.int64).reshape(max_y, max_x, 1)
     # (n_slots + 1) to give the out-of-range sentinel a parking slot.
     flat_idx = (anchor_offsets * (n_slots + 1) + slots).ravel()

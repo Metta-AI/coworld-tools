@@ -32,6 +32,26 @@ _INDEX_PATH = _DATA_DIR / "sprite_index.json"
 
 SPRITE_COUNT = 6
 
+# Atlas slot indices. The canonical mapping lives in ``sprite_index.json``;
+# these named constants exist so callers can write ``atlas[ATLAS_PLAYER]``
+# instead of magic numbers. A module-level invariant check (run at first
+# call to :func:`load_sprite_index`) asserts the two stay in sync.
+ATLAS_PLAYER = 0
+ATLAS_BODY = 1
+ATLAS_GHOST = 2
+ATLAS_TASK = 3
+ATLAS_KILL_BUTTON = 4
+ATLAS_GHOST_ICON = 5
+
+_EXPECTED_ATLAS_INDICES: dict[str, int] = {
+    "player": ATLAS_PLAYER,
+    "body": ATLAS_BODY,
+    "ghost": ATLAS_GHOST,
+    "task": ATLAS_TASK,
+    "kill_button": ATLAS_KILL_BUTTON,
+    "ghost_icon": ATLAS_GHOST_ICON,
+}
+
 
 @functools.lru_cache(maxsize=1)
 def load_sprite_atlas() -> np.ndarray:
@@ -51,7 +71,10 @@ def load_sprite_atlas() -> np.ndarray:
 
 @functools.lru_cache(maxsize=1)
 def load_sprite_index() -> dict[str, int]:
-    """Return the snake_case sprite-name -> atlas-index mapping."""
+    """Return the snake_case sprite-name -> atlas-index mapping. Asserts
+    the JSON agrees with the ``ATLAS_*`` named constants in this module
+    so a future spritesheet rotation can't silently break code that
+    indexes the atlas by name."""
     raw = json.loads(_INDEX_PATH.read_text())
     if not isinstance(raw, dict):
         raise RuntimeError("sprite_index.json must be a JSON object")
@@ -65,4 +88,13 @@ def load_sprite_index() -> dict[str, int]:
             f"sprite_index.json values must be 0..{SPRITE_COUNT - 1} with no duplicates; "
             f"got {sorted(index.values())}"
         )
+    for name, expected in _EXPECTED_ATLAS_INDICES.items():
+        actual = index.get(name)
+        if actual != expected:
+            raise RuntimeError(
+                f"sprite_index.json disagrees with ATLAS_* constants: "
+                f"expected {name}={expected}, got {actual!r}. Update the "
+                f"ATLAS_* constants in perception/data/sprites.py to match "
+                f"the new layout, or fix the JSON."
+            )
     return index

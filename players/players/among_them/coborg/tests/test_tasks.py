@@ -1,13 +1,24 @@
 """Unit tests for :mod:`players.among_them.coborg.perception.tasks`.
 
-The radar-dot scan's whole-fixture parity against the Nim oracle is
+Whole-fixture parity for ``scan_radar_dots`` against the Nim oracle is
 covered by ``tests/test_perception_parity.py`` (via ``run_parity``).
-This file focuses on:
+This file covers two distinct test surfaces:
 
-- periphery-mask geometry (the exact 2-pixel ring upstream uses);
-- Chebyshev-1 greedy dedup behaviour the fixture set may not exercise
-  exhaustively;
-- the ``scan_task_icons`` stub raising until S4 lands localize.
+1. **Public-API tests** — exercise the documented signatures of
+   :func:`scan_radar_dots` and the stubbed :func:`scan_task_icons`.
+   Hand-crafted frames for Chebyshev-1 dedup, periphery vs interior,
+   wrong-shape frame handling, type defaults.
+
+2. **White-box tests** — assert geometry properties of the
+   ``_PERIPHERY_MASK`` precomputed at module import. The mask is an
+   optimization specific to the current implementation; a rewrite that
+   scans the periphery without precomputing a mask is expected to
+   replace these tests as well. They earn their keep because the
+   periphery geometry is a subtle invariant of the upstream algorithm
+   (``isPeriphery`` with margin = 1 = two-pixel ring) and getting the
+   off-by-one wrong silently breaks radar detection.
+
+   Grouped under the ``# --- white-box ... ---`` header below.
 """
 
 from __future__ import annotations
@@ -37,7 +48,7 @@ _FIXTURES_DIR = (
 )
 
 
-# --- periphery mask shape -------------------------------------------------
+# --- white-box: periphery mask shape --------------------------------------
 
 
 def test_periphery_mask_is_two_pixel_border():
@@ -64,7 +75,7 @@ def test_periphery_mask_is_read_only():
     assert not _PERIPHERY_MASK.flags.writeable
 
 
-# --- scan_radar_dots ------------------------------------------------------
+# --- public API: scan_radar_dots ------------------------------------------
 
 
 def _empty_frame() -> np.ndarray:
@@ -151,7 +162,7 @@ def test_scan_radar_dots_smoke_on_fixture():
         assert isinstance(d, RadarDotMatch)
 
 
-# --- types ----------------------------------------------------------------
+# --- public API: types ----------------------------------------------------
 
 
 def test_task_percept_defaults_empty_lists():
@@ -167,7 +178,7 @@ def test_icon_match_and_radar_dot_match_dataclasses():
     assert (r.x, r.y) == (3, 4)
 
 
-# --- deferred task-icon scan ---------------------------------------------
+# --- public API: deferred task-icon scan stub -----------------------------
 
 
 def test_scan_task_icons_not_implemented_until_s4():
