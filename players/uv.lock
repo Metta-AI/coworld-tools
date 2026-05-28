@@ -306,8 +306,8 @@ wheels = [
 
 [[package]]
 name = "cogsguard"
-version = "0.0.0.post1.dev14"
-source = { git = "https://github.com/Metta-AI/coworld-cogs-vs-clips.git?branch=relh%2Fcogsguard-semantic-surface#a96bb266fc3f2577ee3d9bebd138b8a564ddf2ba" }
+version = "0.0.0.post1.dev15"
+source = { git = "https://github.com/Metta-AI/coworld-cogs-vs-clips.git?branch=relh%2Fcogsguard-semantic-surface#ff8f9c6d3b5f86f9f36401c05ce52fdea99734d7" }
 dependencies = [
     { name = "coworld" },
     { name = "fastapi" },
@@ -331,7 +331,7 @@ wheels = [
 [[package]]
 name = "coworld"
 version = "0.0.0"
-source = { git = "https://github.com/Metta-AI/coworld.git?rev=main#2787e42159889e8a26e6b42b32e26e27382bea1f" }
+source = { git = "https://github.com/Metta-AI/coworld.git?branch=main#2787e42159889e8a26e6b42b32e26e27382bea1f" }
 dependencies = [
     { name = "httpx" },
     { name = "jsonschema" },
