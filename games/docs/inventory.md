@@ -3,7 +3,8 @@
 This repo is the consolidated home for game definitions and runtime packages. The first import copied current source
 snapshots into this repo; it did not delete, archive, close, or mark any original source repository. The first
 certify-first migration wave now uses standalone `coworld-*` repos as source of truth for games that have been
-renamed and upgraded outside this aggregate checkout.
+renamed and upgraded outside this aggregate checkout. While the repo model is still being decided, the matching
+`games/<name>` subtrees are kept in parity with those standalone repos.
 
 ## Coworld Source Repos
 

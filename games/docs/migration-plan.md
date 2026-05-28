@@ -24,7 +24,8 @@ entrypoints, and dependency details.
 
 First-wave standalone Coworld migrations are complete for `amongcogs`, `hungercog`, `overcogged`, `diplomacog`, and
 `werecog`. Their renamed `Metta-AI/coworld-*` repositories are now the source of truth for certifiable runtime work;
-this aggregate repo keeps imported snapshots for inventory and cross-game navigation.
+this aggregate repo keeps matching snapshots while the standalone-per-game and aggregate-repo models are both under
+consideration.
 
 Follow-up work for Python games:
 
@@ -45,6 +46,10 @@ Follow-up work for Coworld games:
 3. Move shared Coworld protocol docs to `docs/` only after the package-local manifests link to stable public docs.
 4. For private `coworld-*` repos, use SSH `source_url` values for game/player runnables so certification does not rely
    on unauthenticated GitHub API access to private repositories.
+
+When testing the first-wave Coworld mirrors from this aggregate checkout, prefer isolated per-package `uv run` commands
+from inside the game directory. The root workspace still includes older games with older `cogames` pins, so its shared
+lock is not a reliable verification environment for these upgraded mirrors yet.
 
 ## Template Cleanup
 

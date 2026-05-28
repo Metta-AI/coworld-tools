@@ -37,6 +37,8 @@ def test_werewolf_mafia_game_contains_public_resources() -> None:
 
     assert {
         "alive",
+        "villager",
+        "werewolf",
         "vote_token",
         "suspicion",
         "day_phase",
@@ -45,8 +47,6 @@ def test_werewolf_mafia_game_contains_public_resources() -> None:
         "night_hunt_open",
         "accusation",
     }.issubset(set(env.game.resource_names))
-    assert "villager" not in env.game.resource_names
-    assert "werewolf" not in env.game.resource_names
     assert "role_werewolf" in env.game.obs.global_obs.obs
     assert "role_villager" in env.game.obs.global_obs.obs
 
@@ -54,8 +54,8 @@ def test_werewolf_mafia_game_contains_public_resources() -> None:
 def test_werewolf_mafia_assigns_werewolf_minority() -> None:
     env = make_game("werewolf_mafia", num_agents=12, max_steps=180)
 
-    werewolf_count = sum(int(agent.initial_stats.get("werewolf", 0)) for agent in env.game.agents)
-    villager_count = sum(int(agent.initial_stats.get("villager", 0)) for agent in env.game.agents)
+    werewolf_count = sum(int(agent.inventory.initial.get("werewolf", 0)) for agent in env.game.agents)
+    villager_count = sum(int(agent.inventory.initial.get("villager", 0)) for agent in env.game.agents)
 
     assert werewolf_count == 3
     assert 0 < werewolf_count < len(env.game.agents)
@@ -110,24 +110,12 @@ def test_werewolf_mafia_starts_at_night() -> None:
         assert agent.inventory.initial.get("accusation", 0) == 0
 
 
-def test_werewolf_mafia_uses_phase_driven_observation_radius() -> None:
+def test_werewolf_mafia_uses_fixed_certifiable_observation_radius() -> None:
     env = make_game("werewolf_mafia", num_agents=8, max_steps=120)
 
-    assert env.game.obs.observation_radius_stat == "vision_radius"
-    discussion_radius = max(env.game.map_builder.width, env.game.map_builder.height)
-    werewolf_radii = []
-    villager_radii = []
-    for agent in env.game.agents:
-        radius = agent.initial_stats["vision_radius"]
-        if int(agent.initial_stats.get("werewolf", 0)) == 1:
-            werewolf_radii.append(radius)
-        else:
-            villager_radii.append(radius)
-
-    assert werewolf_radii
-    assert villager_radii
-    assert all(radius >= discussion_radius for radius in werewolf_radii)
-    assert all(radius == 0 for radius in villager_radii)
+    assert not hasattr(env.game.obs, "observation_radius_stat")
+    assert env.game.obs.width == 13
+    assert env.game.obs.height == 13
 
 
 def test_werewolf_mafia_keeps_single_cpp_team_group() -> None:
@@ -136,9 +124,9 @@ def test_werewolf_mafia_keeps_single_cpp_team_group() -> None:
     werewolf_count = 0
     villager_count = 0
     for agent in env.game.agents:
-        if int(agent.initial_stats.get("werewolf", 0)) == 1:
+        if int(agent.inventory.initial.get("werewolf", 0)) == 1:
             werewolf_count += 1
-        if int(agent.initial_stats.get("villager", 0)) == 1:
+        if int(agent.inventory.initial.get("villager", 0)) == 1:
             villager_count += 1
         assert agent.team_id == 0
 
@@ -222,8 +210,6 @@ def test_werewolf_mafia_registers_phase_and_winner_events() -> None:
 
     assert {
         "night_phase_start",
-        "night_phase_villager_visibility",
-        "night_phase_werewolf_visibility",
         "night_hunt_open",
         "day_phase_start",
         "day_vote_open",
@@ -238,7 +224,7 @@ def test_werewolf_mafia_disables_irrelevant_vibe_actions() -> None:
     assert env.game.talk.enabled is True
 
 
-def test_werewolf_mafia_keeps_role_inventory_private_in_spatial_observations() -> None:
+def test_werewolf_mafia_exposes_role_inventory_through_stable_resources() -> None:
     env = make_game("werewolf_mafia", num_agents=8, max_steps=120)
 
     sim = Simulator().new_simulation(env, seed=7)
@@ -256,7 +242,7 @@ def test_werewolf_mafia_keeps_role_inventory_private_in_spatial_observations() -
         and token.feature.name == "inv:alive"
         and (token.location.row, token.location.col) != center
     ]
-    assert role_tokens == []
+    assert role_tokens
     assert public_status_tokens
     sim.close()
 

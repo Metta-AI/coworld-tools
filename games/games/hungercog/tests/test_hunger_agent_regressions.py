@@ -1,9 +1,6 @@
-from metta.games.games import make_game
 from hungercog.agent.hunger_agent.entity_map import Entity, EntityMap
 from hungercog.agent.hunger_agent.navigator import Navigator
-from hungercog.game import register_with_metta
-
-register_with_metta()
+from hungercog.game import make_game
 
 
 def test_hunger_mission_enables_local_position_tokens() -> None:

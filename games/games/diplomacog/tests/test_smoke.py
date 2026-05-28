@@ -1,3 +1,5 @@
+import pytest
+
 from cogames.game import get_game
 from mettagrid.policy.policy import PolicySpec
 from mettagrid.runner.rollout import run_episode_local
@@ -54,6 +56,8 @@ def test_random_policy_rollout_smoke() -> None:
 
 
 def test_scripted_policy_rollout_smoke() -> None:
+    pytest.importorskip("torch")
+
     env = make_diplomacog_env(num_agents=6, max_steps=10, variants=["discussion_sessions"])
     results, _ = run_episode_local(
         policy_specs=[PolicySpec(class_path="diplomacog.agent.diplomacy_agent.policy.DiplomacyPolicy")],

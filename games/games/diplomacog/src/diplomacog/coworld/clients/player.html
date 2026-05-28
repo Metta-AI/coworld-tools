@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coworld Player</title>
+<style>body{margin:0;font:14px system-ui;background:#111827;color:#f9fafb}main{height:100vh;display:grid;grid-template-rows:auto auto 1fr}header,.actions{padding:10px 14px;background:#1f2937;display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{border:1px solid #64748b;background:#0f172a;color:#f8fafc;border-radius:6px;padding:6px 9px}pre{margin:0;padding:14px;overflow:auto;white-space:pre-wrap}.pill{padding:3px 8px;background:#374151;border-radius:6px}</style></head>
+<body><main><header><strong id="game">Coworld Player</strong><span class="pill" id="status">connecting</span><span class="pill" id="slot">slot -</span><span class="pill" id="step">step -</span></header><div class="actions" id="actions"></div><pre id="state"></pre></main>
+<script>
+function websocketAddress(path) {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("address")) {
+    const direct = new URL(params.get("address"), window.location.href);
+    direct.protocol = direct.protocol === "https:" ? "wss:" : "ws:";
+    return direct.toString();
+  }
+  const url = new URL(window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = path;
+  return url.toString();
+}
+
+let actionNames = [];
+const actions = document.getElementById("actions");
+const state = document.getElementById("state");
+const status = document.getElementById("status");
+const slot = document.getElementById("slot");
+const step = document.getElementById("step");
+const game = document.getElementById("game");
+const ws = new WebSocket(websocketAddress("/player"));
+function sendAction(name){ ws.send(JSON.stringify({type:"action", action_name:name, policy_infos:{policy_name:"human"}})); }
+function renderActions(){ actions.replaceChildren(...actionNames.map(name => { const b=document.createElement("button"); b.textContent=name; b.onclick=()=>sendAction(name); return b; })); }
+ws.onopen = () => status.textContent = "connected";
+ws.onclose = () => status.textContent = "closed";
+ws.onmessage = event => { const msg = JSON.parse(event.data); game.textContent = msg.game || "Coworld Player"; if (msg.slot !== undefined) slot.textContent = "slot " + msg.slot; if (msg.step !== undefined) step.textContent = "step " + msg.step; if (msg.action_names) { actionNames = msg.action_names; renderActions(); } state.textContent = JSON.stringify(msg, null, 2); };
+</script></body></html>

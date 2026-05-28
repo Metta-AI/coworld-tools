@@ -59,8 +59,8 @@ def test_meetings_variant_auto_enables_roles() -> None:
     assert {"alive", "vote_token", "day_phase", "night_phase", "day_vote_open", "night_hunt_open"}.issubset(
         set(env.game.resource_names)
     )
-    assert "villager" not in env.game.resource_names
-    assert "werewolf" not in env.game.resource_names
+    assert "villager" in env.game.resource_names
+    assert "werewolf" in env.game.resource_names
     assert "meeting_bell" in env.game.objects
     assert "accusation" not in env.game.resource_names
 

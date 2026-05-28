@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import cast
 
 from pydantic import Field
 
 from cogames.core import CoGameMission
 from cogames.game import CoGame, register_game
-from cogames.games.cogs_vs_clips.missions.terrain import MachinaArena
 from hungercog.variants import VARIANTS
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.mettagrid_config import (
@@ -22,6 +22,7 @@ from mettagrid.config.mettagrid_config import (
 from mettagrid.config.obs_config import GlobalObsConfig, ObsConfig
 from mettagrid.config.render_config import RenderConfig
 from mettagrid.mapgen.mapgen import MapGen
+from mettagrid.mapgen.scenes.biome_arena import BiomeArena
 from mettagrid.mapgen.scenes.compound import Compound
 
 DEFAULT_NUM_AGENTS = 40
@@ -91,7 +92,7 @@ class HungerMission(CoGameMission):
         return MapGen.Config(
             width=88,
             height=88,
-            instance=MachinaArena.Config(
+            instance=BiomeArena.Config(
                 spawn_count=80,
                 base_biome="forest",
                 base_biome_config={"seed_prob": 0.015},
@@ -132,6 +133,23 @@ def register_with_metta() -> None:
         policy_uri=DEFAULT_POLICY_URI,
         policy_packages=DEFAULT_POLICY_PACKAGES,
     )
+
+
+def make_game(
+    name: str = "hungercog",
+    *,
+    num_agents: int,
+    max_steps: int,
+    variants: Sequence[str] | None = None,
+) -> MettaGridConfig:
+    if name != "hungercog":
+        raise ValueError(f"Unknown game {name!r}. Available: hungercog")
+
+    mission = HungerMission.create(num_agents, max_steps)
+    if variants is not None:
+        mission = mission.with_variants(list(variants))
+        mission.default_variant = None
+    return mission.make_env()
 
 
 register_game(HungerCogGame())
