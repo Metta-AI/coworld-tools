@@ -1,0 +1,17 @@
+entries:
+  - name: default-commissioner
+    source: commissioners/default/default_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/default/default_commissioner
+    image: ghcr.io/metta-ai/commissioners-default:latest
+    target: "*"
+    status: active
+    owner: Metta-AI
+    description: Game-agnostic round-robin commissioner with mean-score rankings.
+  - name: among-them-commissioner
+    source: commissioners/among_them/among_them_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/among_them/among_them_commissioner
+    image: ghcr.io/metta-ai/commissioners-among-them-commissioner:latest
+    target: among_them
+    status: active
+    owner: Metta-AI
+    description: Among Them seat-rotation commissioner with Dirt/Wood graduation semantics.
