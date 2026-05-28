@@ -12,7 +12,19 @@ from __future__ import annotations
 
 from .baked_manifest import BakeManifestMismatch, verify_all
 from .font import Font, load_font
-from .map import MAP_SHAPE, load_map_pixels, load_walk_mask, load_wall_mask
+from .map import (
+    BUTTON_H,
+    BUTTON_W,
+    BUTTON_X,
+    BUTTON_Y,
+    HOME_X,
+    HOME_Y,
+    MAP_SHAPE,
+    TASK_COORDS,
+    load_map_pixels,
+    load_walk_mask,
+    load_wall_mask,
+)
 from .palette import (
     BAKE_SCHEMA_VERSION,
     DEFAULT_GLYPH_SPACING,
@@ -27,6 +39,7 @@ from .palette import (
     PLAYER_BODY_LUT,
     PLAYER_COLORS,
     PRINTABLE_ASCII_COUNT,
+    RADAR_TASK_COLOR,
     SHADE_TINT_COLOR,
     SHADOW_MAP,
     SPACE_COLOR,
@@ -62,10 +75,16 @@ __all__ = [
     "ATLAS_PLAYER",
     "ATLAS_TASK",
     "BAKE_SCHEMA_VERSION",
+    "BUTTON_H",
+    "BUTTON_W",
+    "BUTTON_X",
+    "BUTTON_Y",
     "BakeManifestMismatch",
     "DEFAULT_GLYPH_SPACING",
     "FIRST_PRINTABLE_ASCII",
     "Font",
+    "HOME_X",
+    "HOME_Y",
     "LAST_PRINTABLE_ASCII",
     "MAP_HEIGHT",
     "MAP_SHAPE",
@@ -77,6 +96,7 @@ __all__ = [
     "PLAYER_BODY_LUT",
     "PLAYER_COLORS",
     "PRINTABLE_ASCII_COUNT",
+    "RADAR_TASK_COLOR",
     "SHADE_TINT_COLOR",
     "SHADOW_MAP",
     "SPACE_COLOR",
@@ -84,6 +104,7 @@ __all__ = [
     "SPRITE_DRAW_OFF_X",
     "SPRITE_DRAW_OFF_Y",
     "SPRITE_SIZE",
+    "TASK_COORDS",
     "TINT_COLOR",
     "TRANSPARENT_INDEX",
     "load_font",

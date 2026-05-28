@@ -29,9 +29,20 @@ Schema scope:
   emitted by the Nim oracle but **not yet checked here**; concrete
   check functions land alongside the matching Python ports in S3.2
   (``actors.py``) and S3.3 (``tasks.py`` radar-dot half).
-- **S4** will bump the schema again to add the deferred task-icon scan
-  plus ``ocr``, ``voting``, ``interstitial``, ``localize``, and
-  ``ignore`` percept fields.
+- **v3 (S4.1):** adds the upstream ``interstitial.detect_interstitial``
+  output (black-pixel count + is/is-not + kind). Checked by
+  ``_check_interstitial``. S4.2 extends v3 with
+  ``ignore_phase_1_0`` (stamped-pixel count + SHA-1 fingerprint).
+- **v4 (S4.3):** adds upstream localize output:
+  ``score_camera_probes`` (per-fixture at canonical seeds),
+  ``frame_patch_hashes`` (full 16x16 FNV grid + valid bools),
+  ``patch_vote_top_candidates`` (top-K from the vote kernel),
+  ``localize_first_frame`` (``update_location`` from a fresh state).
+  S4.4 extends v4 with ``task_icons``.
+- **v5 (S4.5):** adds upstream OCR output:
+  ``ocr_classify_interstitial`` (refined InterstitialKind via
+  banner text + game-over heuristic), ``ocr_best_glyph_probes``
+  (best_glyph at four canonical (x, y) positions).
 
 Tolerance policy: every assertion in S2 is **exact** equality. The Nim
 oracle and the Python port are both deterministic over integer
@@ -51,15 +62,29 @@ from typing import Iterable
 
 import numpy as np
 
+import hashlib
+
 from ..actors import ActorPercept, compute_actor_percept
-from ..data import load_sprite_atlas
+from ..data import load_map_pixels, load_sprite_atlas
 from ..frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from ..ignore import build_phase_1_0_ignore_mask
+from ..interstitial import InterstitialObservation, detect_interstitial
+from ..localize import (
+    FULL_FRAME_FIT_MAX_ERRORS,
+    PATCH_TOTAL_COUNT,
+    get_patch_index,
+    hash_frame_patches,
+    score_camera,
+    update_location,
+    vote_camera_candidates,
+)
+from ..ocr import best_glyph, classify_interstitial
 from ..sprite_match import actor_color_index_all, match_actor_sprite_all
-from ..tasks import scan_radar_dots
+from ..tasks import scan_radar_dots, scan_task_icons
 
 FIXTURES_DIR: Path = (Path(__file__).resolve().parent / "fixtures").resolve()
 
-_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
+_SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3, 4, 5})
 
 
 @dataclass
@@ -212,6 +237,216 @@ def _check_radar_dots(frame: np.ndarray, expected: list[dict]) -> CheckResult:
     )
 
 
+# --- v3 orchestrated checks (interstitial.py output) ----------------------
+
+
+def _check_interstitial(obs: InterstitialObservation, expected: dict) -> CheckResult:
+    actual = {
+        "is_interstitial": obs.is_interstitial,
+        "kind": obs.kind.value,
+        "black_pixel_count": obs.black_pixel_count,
+    }
+    if actual == expected:
+        return CheckResult(label="interstitial", ok=True)
+    return CheckResult(
+        label="interstitial", ok=False, detail=f"got {actual!r}, expected {expected!r}"
+    )
+
+
+def _check_ignore_phase_1_0(frame: np.ndarray, expected: dict) -> CheckResult:
+    """Build the phase-1.0 ignore mask in Python and compare against the
+    oracle's stamped-pixel count + SHA-1 fingerprint over the raw mask
+    bytes. The Nim side serialises ``IgnoreMask.data`` (uint8 0/1,
+    row-major); ``mask.tobytes()`` on a numpy bool ndarray produces the
+    same 16384-byte sequence, so the SHA-1 strings match exactly."""
+    mask = build_phase_1_0_ignore_mask(frame)
+    actual = {
+        "stamped_pixel_count": int(mask.sum()),
+        "sha1": hashlib.sha1(mask.tobytes()).hexdigest().upper(),
+    }
+    if actual == expected:
+        return CheckResult(label="ignore_phase_1_0", ok=True)
+    return CheckResult(
+        label="ignore_phase_1_0",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
+# --- v4 orchestrated checks (localize.py output) --------------------------
+
+
+def _check_score_camera_probes(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Run ``score_camera`` at the oracle-recorded probe positions and
+    compare the full ``(score, errors, compared)`` triple per probe."""
+    map_pixels = load_map_pixels()
+    mismatches: list[str] = []
+    for exp in expected_list:
+        cx = int(exp["cam_x"])
+        cy = int(exp["cam_y"])
+        sc = score_camera(
+            frame, map_pixels, ignore_mask, cx, cy, FULL_FRAME_FIT_MAX_ERRORS
+        )
+        actual = {
+            "cam_x": cx,
+            "cam_y": cy,
+            "score": sc.score,
+            "errors": sc.errors,
+            "compared": sc.compared,
+        }
+        if actual != exp:
+            mismatches.append(f"at ({cx},{cy}): got {actual!r} vs {exp!r}")
+    if not mismatches:
+        return CheckResult(label="score_camera_probes", ok=True)
+    return CheckResult(
+        label="score_camera_probes", ok=False, detail="; ".join(mismatches)
+    )
+
+
+def _check_frame_patch_hashes(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected: dict
+) -> CheckResult:
+    """Compare the full 16x16 grid of FNV patch hashes (as uint64 hex
+    strings) plus the parallel validity bool array."""
+    py_hashes, py_valid = hash_frame_patches(frame, ignore_mask)
+    expected_hashes = [int(h, 16) for h in expected["hashes"]]
+    expected_valid = [bool(v) for v in expected["valid"]]
+    actual_hashes = [int(h) for h in py_hashes.tolist()]
+    actual_valid = [bool(v) for v in py_valid.tolist()]
+    if actual_hashes == expected_hashes and actual_valid == expected_valid:
+        return CheckResult(label="frame_patch_hashes", ok=True)
+    # Find the first mismatch for a concise diff.
+    for i in range(PATCH_TOTAL_COUNT):
+        if actual_hashes[i] != expected_hashes[i] or actual_valid[i] != expected_valid[i]:
+            return CheckResult(
+                label="frame_patch_hashes",
+                ok=False,
+                detail=(
+                    f"first mismatch at patch {i}: "
+                    f"got (hash={actual_hashes[i]:016X}, valid={actual_valid[i]}), "
+                    f"expected (hash={expected_hashes[i]:016X}, valid={expected_valid[i]})"
+                ),
+            )
+    return CheckResult(label="frame_patch_hashes", ok=False, detail="unknown mismatch")
+
+
+def _check_patch_vote_top_candidates(
+    frame: np.ndarray, ignore_mask: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Compare the top-K output of the patch-vote kernel byte-for-byte."""
+    frame_hashes, frame_valid = hash_frame_patches(frame, ignore_mask)
+    candidates = vote_camera_candidates(frame_hashes, frame_valid, get_patch_index())
+    actual_list = [
+        {"cam_x": c.cx, "cam_y": c.cy, "votes": c.votes} for c in candidates
+    ]
+    if actual_list == expected_list:
+        return CheckResult(label="patch_vote_top_candidates", ok=True)
+    return CheckResult(
+        label="patch_vote_top_candidates",
+        ok=False,
+        detail=(
+            f"got {len(actual_list)} entries {actual_list!r}, "
+            f"expected {len(expected_list)} entries {expected_list!r}"
+        ),
+    )
+
+
+def _check_localize_first_frame(
+    state, expected: dict
+) -> CheckResult:
+    """Compare a pre-computed :class:`LocalizerState` against the oracle's
+    camera-related fields. ``state`` is the result of one
+    ``update_location`` call; the caller computed it so the same state
+    can be threaded into the task-icon check that follows."""
+    actual = {
+        "camera_x": state.camera_x,
+        "camera_y": state.camera_y,
+        "camera_score": state.camera_score,
+        "camera_lock": state.camera_lock.value,
+        "localized": state.localized,
+        "self_x": state.self_x,
+        "self_y": state.self_y,
+    }
+    if actual == expected:
+        return CheckResult(label="localize_first_frame", ok=True)
+    return CheckResult(
+        label="localize_first_frame",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
+def _check_task_icons(
+    atlas: np.ndarray, frame: np.ndarray, state, expected: list[dict]
+) -> CheckResult:
+    """Compare the task-icon scan output. The upstream oracle skips the
+    scan when ``state.localized`` is False (camera offset isn't valid),
+    so the Python check mirrors that gating: empty list when unlocalised,
+    otherwise the full ``scan_task_icons`` output."""
+    if not state.localized:
+        actual = []
+    else:
+        actual = [
+            {"x": m.x, "y": m.y}
+            for m in scan_task_icons(atlas, frame, state.camera_x, state.camera_y)
+        ]
+    if actual == expected:
+        return CheckResult(label="task_icons", ok=True)
+    return CheckResult(
+        label="task_icons",
+        ok=False,
+        detail=f"got {len(actual)} {actual!r}, expected {len(expected)} {expected!r}",
+    )
+
+
+# --- v5 orchestrated checks (ocr.py outputs) -----------------------------
+
+
+def _check_ocr_classify_interstitial(
+    frame: np.ndarray, expected: dict
+) -> CheckResult:
+    """Compare the refined :class:`InterstitialKind` against the oracle.
+    The oracle emits the kind as a lowercase string; the Python enum's
+    ``.value`` is the same string, so a direct compare suffices."""
+    kind = classify_interstitial(frame)
+    actual = {"kind": kind.value}
+    if actual == expected:
+        return CheckResult(label="ocr_classify_interstitial", ok=True)
+    return CheckResult(
+        label="ocr_classify_interstitial",
+        ok=False,
+        detail=f"got {actual!r}, expected {expected!r}",
+    )
+
+
+def _check_ocr_best_glyph_probes(
+    frame: np.ndarray, expected_list: list[dict]
+) -> CheckResult:
+    """Per-probe ``best_glyph`` result equality. Each entry has
+    ``(x, y, char, errors, advance)`` — full byte-exact compare."""
+    mismatches: list[str] = []
+    for exp in expected_list:
+        x = int(exp["x"])
+        y = int(exp["y"])
+        m = best_glyph(frame, x, y, 0)
+        actual = {
+            "x": x,
+            "y": y,
+            "char": m.char,
+            "errors": m.errors,
+            "advance": m.advance,
+        }
+        if actual != exp:
+            mismatches.append(f"at ({x},{y}): got {actual!r} vs {exp!r}")
+    if not mismatches:
+        return CheckResult(label="ocr_best_glyph_probes", ok=True)
+    return CheckResult(
+        label="ocr_best_glyph_probes", ok=False, detail="; ".join(mismatches)
+    )
+
+
 def check_fixture(bin_path: Path) -> FixtureResult:
     """Run every supported kernel against ``bin_path`` and compare to the
     sibling JSON sidecar. Returns a structured result; never raises on
@@ -249,6 +484,47 @@ def check_fixture(bin_path: Path) -> FixtureResult:
         result.checks.append(_check_bodies(percept, sidecar["bodies"]))
         result.checks.append(_check_ghosts(percept, sidecar["ghosts"]))
         result.checks.append(_check_radar_dots(frame, sidecar["radar_dots"]))
+    if schema_version >= 3:
+        result.checks.append(
+            _check_interstitial(detect_interstitial(frame), sidecar["interstitial"])
+        )
+        if "ignore_phase_1_0" in sidecar:  # additive within v3; S4.2+ sidecars carry it
+            result.checks.append(
+                _check_ignore_phase_1_0(frame, sidecar["ignore_phase_1_0"])
+            )
+    if schema_version >= 4:
+        # The localize kernels consume the phase-1.0 ignore mask. Build
+        # it once here; also reuse the resulting LocalizerState for the
+        # task-icon check below.
+        ignore_mask = build_phase_1_0_ignore_mask(frame)
+        result.checks.append(
+            _check_score_camera_probes(frame, ignore_mask, sidecar["score_camera_probes"])
+        )
+        result.checks.append(
+            _check_frame_patch_hashes(frame, ignore_mask, sidecar["frame_patch_hashes"])
+        )
+        result.checks.append(
+            _check_patch_vote_top_candidates(
+                frame, ignore_mask, sidecar["patch_vote_top_candidates"]
+            )
+        )
+        loc_state = update_location(None, frame, ignore_mask, tick=0)
+        result.checks.append(
+            _check_localize_first_frame(loc_state, sidecar["localize_first_frame"])
+        )
+        if "task_icons" in sidecar:  # additive within v4; S4.4+ sidecars carry it
+            result.checks.append(
+                _check_task_icons(atlas, frame, loc_state, sidecar["task_icons"])
+            )
+    if schema_version >= 5:
+        result.checks.append(
+            _check_ocr_classify_interstitial(
+                frame, sidecar["ocr_classify_interstitial"]
+            )
+        )
+        result.checks.append(
+            _check_ocr_best_glyph_probes(frame, sidecar["ocr_best_glyph_probes"])
+        )
     return result
 
 

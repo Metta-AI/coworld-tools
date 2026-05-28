@@ -1,25 +1,27 @@
-"""Task-icon and radar-dot scanning. Partial port of
+"""Task-icon and radar-dot scanning. Port of
 ``users/james/personal_cogs/among_them/guided_bot/perception/tasks.nim``.
 
-Two independent scans live in the upstream module:
+Two independent scans live in the module:
 
 1. **Radar-dot scan** — collects yellow (palette index 8) pixels in the
-   screen-edge periphery ring and deduplicates them by Chebyshev distance
-   1. HUD-layer, camera-independent. Ports here as :func:`scan_radar_dots`.
+   screen-edge periphery ring and deduplicates them by Chebyshev
+   distance 1. HUD-layer, camera-independent. Implemented as
+   :func:`scan_radar_dots`.
 
-2. **Task-icon scan** — wraps the upstream Nim kernel
-   ``mb_scan_task_icons`` which sweeps a small neighbourhood around each
-   task station's expected on-screen position. Needs the current camera
-   offset (``camX``, ``camY``) so the station's world-space anchor can be
-   projected to screen space. **Deferred to S4 alongside localize per
-   PLAN.md section 12 item 5.** :func:`scan_task_icons` is reserved as a
-   stub here so S4 fills it in without churning the public surface.
+2. **Task-icon scan** — for each task-station rect, project its world
+   position to screen space via the current camera offset, then probe
+   a 3-bob × ``(2r+1)²`` neighbourhood around the expected icon anchor.
+   Strict-match the task sprite at each probe; dedup hits with
+   Chebyshev distance 1. Implemented as :func:`scan_task_icons`. Needs
+   :class:`localize.LocalizerState`'s camera position to project,
+   which is why this half waits for S4.3 (localize) before S4.4
+   (here).
 
 Both scans normally emit into a single :class:`TaskPercept`. The
 orchestrating ``scanTasksAndRadar`` in the upstream module gates on
-interstitial state and the live role; that gating is part of the S4
-top-level perception orchestrator (which itself needs the interstitial
-detector), so it isn't reproduced here.
+interstitial state, role, and localized status; that gating belongs
+in the S5+ perception orchestrator (which composes interstitial
+detection + localize + actor scans), not in this module.
 """
 
 from __future__ import annotations
@@ -28,19 +30,18 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from .data import ATLAS_TASK, RADAR_TASK_COLOR, TASK_COORDS, TRANSPARENT_INDEX
+from .frame import SCREEN_HEIGHT, SCREEN_WIDTH, oob_filled_patch
 
 
-# --- constants (mirror upstream tasks.nim + ignore.nim) -------------------
-
-# Palette index of radar-dot hits (yellow). Matches ``RadarTaskColor``
-# in upstream ``guided_bot/perception/ignore.nim``.
-RADAR_TASK_COLOR: int = 8
+# --- constants (mirror upstream tasks.nim) --------------------------------
 
 # Pixel margin defining the screen-edge periphery ring where radar dots
 # may appear. Matches ``RadarPeripheryMargin`` in upstream
 # ``guided_bot/perception/tasks.nim``. With margin=1 the ring is two
-# pixels deep on each edge.
+# pixels deep on each edge. ``RADAR_TASK_COLOR`` (palette index of the
+# yellow radar pixel) is imported from ``data.palette`` — both this
+# module and ``perception.ignore`` consume it.
 RADAR_PERIPHERY_MARGIN: int = 1
 
 # Forward-compat task-icon constants. Used by the deferred S4 work; kept
@@ -142,11 +143,82 @@ def scan_radar_dots(frame: np.ndarray) -> list[RadarDotMatch]:
     return kept
 
 
-def scan_task_icons(*_args: object, **_kwargs: object) -> list[IconMatch]:
-    """Reserved for S4. The upstream task-icon scan wraps
-    ``mb_scan_task_icons`` and requires a localized camera offset which
-    only lands in S4 (PLAN.md section 12 item 5). Calling this in S3 is
-    a programmer error."""
-    raise NotImplementedError(
-        "scan_task_icons is deferred to S4 alongside perception/localize.py"
-    )
+# Vertical-anchor offset used by the task-icon scan. The icon is drawn
+# above its station, anchored at `task.y - SPRITE_SIZE - 2` in world Y.
+# Mirrors upstream `mb_scan_task_icons`'s `baseY = ty - SpriteSize - 2`.
+_TASK_ICON_Y_OFFSET: int = -10  # = -(SPRITE_SIZE + 2)
+# 3-bob pattern: the icon visually bobs ±1 pixel each frame.
+_TASK_ICON_BOBS: tuple[int, int, int] = (-1, 0, 1)
+
+
+def scan_task_icons(
+    atlas: np.ndarray,
+    frame: np.ndarray,
+    camera_x: int,
+    camera_y: int,
+) -> list[IconMatch]:
+    """Detect task icons by probing the expected on-screen position of
+    every task station's icon. Mirrors upstream
+    ``tasks.scanTaskIcons`` / ``mb_scan_task_icons``.
+
+    For each task at world rect ``(tx, ty, tw, th)``:
+
+    - The expected screen anchor is
+      ``(tx + tw//2 - SPRITE_SIZE//2 - camera_x, ty - SPRITE_SIZE - 2 - camera_y)``.
+      ``th`` is unused — the icon is anchored to the top of the station,
+      not its centre.
+    - Probe 3-bob (±1 px in Y) × ``(2 * TASK_ICON_SEARCH_RADIUS + 1)²``
+      anchors around that position. ``TASK_ICON_SEARCH_RADIUS = 3``.
+    - Strict-match the task sprite at each probe (no flip, no tint, ≤4
+      misses). OOB pixels count as misses per the upstream rule.
+    - Dedup hits within Chebyshev distance 1 via a flat scan over the
+      already-kept list (matches upstream ``addMatchDedup``).
+    - Stop after :data:`TASK_ICON_MAX_MATCHES` hits.
+
+    Callers must have a valid camera offset (i.e.
+    :class:`localize.LocalizerState.localized` is True). The upstream
+    convention is to skip the scan entirely on interstitial frames or
+    when localization failed; this function does *not* enforce that —
+    the S5+ perception orchestrator does.
+    """
+    sprite = atlas[ATLAS_TASK]
+    opaque_mask = sprite != TRANSPARENT_INDEX
+    sh, sw = sprite.shape
+    kept: list[IconMatch] = []
+
+    for tx, ty, tw, _th in TASK_COORDS:
+        base_x = tx + tw // 2 - sw // 2 - camera_x
+        base_y = ty + _TASK_ICON_Y_OFFSET - camera_y
+        # Cheap reject: if the whole probe region is off-screen, skip.
+        # The probe rect in pixel space spans roughly
+        # [base_x - r, base_x + r + sw) × [base_y - bob - r, ...].
+        if (
+            base_x + TASK_ICON_SEARCH_RADIUS + sw < 0
+            or base_x - TASK_ICON_SEARCH_RADIUS >= SCREEN_WIDTH
+            or base_y + TASK_ICON_SEARCH_RADIUS + 1 + sh < 0
+            or base_y - TASK_ICON_SEARCH_RADIUS - 1 >= SCREEN_HEIGHT
+        ):
+            continue
+
+        for bob in _TASK_ICON_BOBS:
+            expected_y = base_y + bob
+            for dy in range(-TASK_ICON_SEARCH_RADIUS, TASK_ICON_SEARCH_RADIUS + 1):
+                for dx in range(-TASK_ICON_SEARCH_RADIUS, TASK_ICON_SEARCH_RADIUS + 1):
+                    x = base_x + dx
+                    y = expected_y + dy
+                    patch = oob_filled_patch(frame, x, y, (sh, sw))
+                    misses = int(np.count_nonzero(opaque_mask & (patch != sprite)))
+                    if misses > TASK_ICON_MAX_MISSES:
+                        continue
+                    # Chebyshev-1 dedup against already-kept hits.
+                    duplicate = False
+                    for k in kept:
+                        if abs(k.x - x) <= 1 and abs(k.y - y) <= 1:
+                            duplicate = True
+                            break
+                    if duplicate:
+                        continue
+                    if len(kept) >= TASK_ICON_MAX_MATCHES:
+                        return kept
+                    kept.append(IconMatch(x=int(x), y=int(y)))
+    return kept

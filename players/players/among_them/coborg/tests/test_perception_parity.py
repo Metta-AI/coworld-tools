@@ -7,9 +7,9 @@ human iterating on the port can run the exact same checks locally::
 
     uv run python -m players.among_them.coborg.perception.parity.run_parity
 
-With S3 closed (sidecar ``schema_version == 2``) the oracle emits and
-the gate checks **16 parity checks per fixture x 10 fixtures = 160
-checks total**:
+With S4.5 landed (sidecar ``schema_version == 5``) the oracle emits
+and the gate checks **25 parity checks per fixture x 10 fixtures =
+250 checks total**:
 
 - 5 ``sprite_match`` entries (player x {flip=False, True} + body x
   {flip=False} + ghost x {flip=False, True}, each at its actor-type
@@ -18,11 +18,28 @@ checks total**:
 - 5 orchestrated checks (``role``, ``self_color``, ``crewmates``,
   ``bodies``, ``ghosts``) against the S3.2 port (``actors.py``);
 - 1 orchestrated check (``radar_dots``) against the S3.3 port
-  (``tasks.py`` radar-dot half).
+  (``tasks.py`` radar-dot half);
+- 1 orchestrated check (``interstitial``) against the S4.1 port
+  (``interstitial.py``);
+- 1 orchestrated check (``ignore_phase_1_0``) against the S4.2
+  port (``ignore.py``): stamped-pixel count + SHA-1 over the
+  16384-byte mask;
+- 4 orchestrated checks against the S4.3 port (``localize.py``):
+  ``score_camera_probes`` (4 fixed (cx,cy) seeds per fixture),
+  ``frame_patch_hashes`` (full 16x16 uint64 grid + valid bools),
+  ``patch_vote_top_candidates`` (top-16 from the patch-vote kernel),
+  ``localize_first_frame`` (full ``update_location`` from a fresh
+  state).
+- 1 orchestrated check against the S4.4 port (``tasks.scan_task_icons``):
+  ``task_icons`` — list of detected on-screen icons at the camera
+  offset produced by ``localize_first_frame``. Empty when the
+  fixture didn't localize.
+- 2 orchestrated checks against the S4.5 port (``ocr.py``):
+  ``ocr_classify_interstitial`` (refined InterstitialKind), and
+  ``ocr_best_glyph_probes`` (best_glyph result at 4 canonical (x, y)
+  positions).
 
-S4 widens to ``schema_version == 3`` for the deferred task-icon scan
-plus the remaining perception modules (interstitial, ignore, localize,
-ocr, voting).
+S4.6 widens to v5+ with voting.
 """
 
 from __future__ import annotations
@@ -60,7 +77,7 @@ def test_each_fixture_parity_green(fixture_name: str) -> None:
     anything mismatches. Equivalent to a per-row of ``run_parity`` CLI.
     """
     result = check_fixture(FIXTURES_DIR / fixture_name)
-    assert result.schema_version == 2, (
+    assert result.schema_version == 5, (
         f"{fixture_name}: schema_version {result.schema_version} not supported"
     )
     assert result.ok, "; ".join(

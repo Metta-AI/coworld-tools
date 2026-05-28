@@ -51,15 +51,13 @@ from .data import (
     TINT_COLOR,
     TRANSPARENT_INDEX,
 )
-from .frame import SCREEN_HEIGHT, SCREEN_WIDTH
+from .frame import SCREEN_HEIGHT, SCREEN_WIDTH, oob_filled_patch
+from .ignore import (
+    PLAYER_IGNORE_RADIUS,
+    PLAYER_SPRITE_ANCHOR_X,
+    PLAYER_SPRITE_ANCHOR_Y,
+)
 from .sprite_match import match_actor_sprite_all
-
-# Sentinel palette value for out-of-screen pixels in patches built by
-# :func:`_oob_filled_patch`. 255 is safe to use as an in-band sentinel
-# because real frames are 4-bpp (palette indices 0..15) so 255 never
-# appears in a legitimate frame pixel. PLAYER_BODY_LUT[255] and
-# PALETTE_TO_PLAYER_SLOT[255] are both "not a player color".
-_OOB_SENTINEL = np.uint8(255)
 
 
 # --- actor scan budgets (mirror actors.nim constants) ---------------------
@@ -99,15 +97,11 @@ KILL_ICON_X = 1
 KILL_ICON_Y = SCREEN_HEIGHT - SPRITE_SIZE - 1  # = 115
 
 
-# --- self-colour and player-ignore zone -----------------------------------
+# --- self-colour search radius -------------------------------------------
 
-# Screen position where the player's own sprite is rendered. Distinct from
-# the collision-box centre used by geometry.nim (upstream comment), and
-# offset from the bare ``ScreenWidth/2 - SpriteSize/2`` self-colour search
-# centre by one pixel in X and four pixels in Y.
-PLAYER_SPRITE_ANCHOR_X = (SCREEN_WIDTH // 2) - 1   # = 63
-PLAYER_SPRITE_ANCHOR_Y = (SCREEN_HEIGHT // 2) - 4  # = 60
-PLAYER_IGNORE_RADIUS = 9
+# `PLAYER_SPRITE_ANCHOR_X`, `PLAYER_SPRITE_ANCHOR_Y`, and
+# `PLAYER_IGNORE_RADIUS` live in `perception.ignore` — the canonical
+# upstream home (`guided_bot/perception/ignore.nim`). Imported above.
 
 SELF_COLOR_SEARCH_RADIUS = 2
 
@@ -223,31 +217,6 @@ def _dedup_anchors(anchors: list[tuple[int, int, bool]], radius: int) -> list[tu
     return kept
 
 
-def _oob_filled_patch(
-    frame: np.ndarray, x: int, y: int, shape: tuple[int, int]
-) -> np.ndarray:
-    """Return a ``shape``-sized uint8 patch of ``frame`` anchored at
-    ``(x, y)``, with out-of-screen pixels filled with :data:`_OOB_SENTINEL`
-    (255). Real frame pixels are palette indices 0..15, so 255 is safe to
-    use as an in-band sentinel — ``PLAYER_BODY_LUT[255]`` and
-    ``PALETTE_TO_PLAYER_SLOT[255]`` both report "not a player color".
-
-    Lets the vectorised match helpers skip the per-pixel OOB branch by
-    making the OOB rule fall out of the same boolean-mask arithmetic the
-    in-bounds rule already uses.
-    """
-    sh, sw = shape
-    patch = np.full((sh, sw), _OOB_SENTINEL, dtype=np.uint8)
-    fy0, fx0 = max(0, y), max(0, x)
-    fy1 = min(SCREEN_HEIGHT, y + sh)
-    fx1 = min(SCREEN_WIDTH, x + sw)
-    if fy0 < fy1 and fx0 < fx1:
-        py0, px0 = fy0 - y, fx0 - x
-        py1, px1 = fy1 - y, fx1 - x
-        patch[py0:py1, px0:px1] = frame[fy0:fy1, fx0:fx1]
-    return patch
-
-
 def _ignore_zone_mask(max_y: int, max_x: int, sh: int, sw: int) -> np.ndarray:
     """``(max_y, max_x)`` bool mask: True iff a sprite anchored at
     ``(ay, ax)`` would have its centre inside the player-render
@@ -312,7 +281,7 @@ def _scan_actor(
 def _sprite_misses(frame: np.ndarray, sprite: np.ndarray, x: int, y: int) -> tuple[int, int]:
     """Count ``(misses, opaque)`` for ``sprite`` placed at frame-space
     anchor ``(x, y)``. Mirrors ``actors.nim::spriteMisses``."""
-    patch = _oob_filled_patch(frame, x, y, sprite.shape)
+    patch = oob_filled_patch(frame, x, y, sprite.shape)
     opaque = sprite != TRANSPARENT_INDEX
     misses = int(np.count_nonzero(opaque & (patch != sprite)))
     return misses, int(opaque.sum())
@@ -330,7 +299,7 @@ def _matches_sprite_shadowed(frame: np.ndarray, sprite: np.ndarray, x: int, y: i
     for the unlit kill-button check. Mirrors
     ``actors.nim::matchesSpriteShadowed`` (miss budget =
     ``KILL_ICON_MAX_MISSES``)."""
-    patch = _oob_filled_patch(frame, x, y, sprite.shape)
+    patch = oob_filled_patch(frame, x, y, sprite.shape)
     opaque = sprite != TRANSPARENT_INDEX
     shadow = SHADOW_MAP[sprite & 0x0F]
     misses = int(np.count_nonzero(opaque & (patch != shadow)))
@@ -350,7 +319,7 @@ def _matches_crewmate(
     add to ``misses``, but never to ``matched_stable`` /
     ``body_matched``."""
     spr = sprite[:, ::-1] if flip_h else sprite
-    patch = _oob_filled_patch(frame, x, y, spr.shape)
+    patch = oob_filled_patch(frame, x, y, spr.shape)
     opaque = spr != TRANSPARENT_INDEX
     body = (spr == TINT_COLOR) | (spr == SHADE_TINT_COLOR)
     stable = opaque & ~body
@@ -383,7 +352,7 @@ def _crewmate_color_index(
     tint_mask = spr == TINT_COLOR
     if not tint_mask.any():
         return -1
-    patch = _oob_filled_patch(frame, x, y, spr.shape)
+    patch = oob_filled_patch(frame, x, y, spr.shape)
     slots = PALETTE_TO_PLAYER_SLOT[patch[tint_mask]]
     in_range = slots < PLAYER_COLORS.size
     if not in_range.any():

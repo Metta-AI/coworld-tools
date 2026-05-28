@@ -9,18 +9,18 @@ session to pick up cold.
 > **Current status (2026-05-26):** P0 + P1 sub-stacks **S1** (baked
 > assets), **S2** (frame + sprite_match + parity rig), and **S3**
 > (actors + radar-dot scan) are landed; P1 sub-stack **S4** (the
-> remaining perception modules + deferred task-icon scan) is next.
-> The idle/noop runtime, action resolver, stderr trace sinks,
-> `bitscreen_v1` WebSocket bridge, Dockerfile, `build.sh`, and
-> `scripts/play_local.sh` are in place. `perception/frame.py`,
-> `perception/sprite_match.py`, `perception/actors.py`, and the
-> radar-dot half of `perception/tasks.py` are byte-exact against
-> the Nim oracle on all 10 fixtures (160 parity checks per run, all
-> green). The parity spine — 10 fixtures, Nim oracle dumper at
-> `perception/parity/extract_nim_oracle/` emitting JSON sidecars at
-> `schema_version=2`, `run_parity.py` CLI + library API, and CI gate
-> — covers every v2 sidecar key. `pytest players/among_them/coborg/tests`
-> is green (173 tests). R1 toolchain flake (§10) was root-caused and
+> remaining perception modules + deferred task-icon scan) is in
+> flight. The idle/noop runtime, action resolver, stderr trace
+> sinks, `bitscreen_v1` WebSocket bridge, Dockerfile, `build.sh`,
+> and `scripts/play_local.sh` are in place.
+> `perception/{frame,sprite_match,actors,tasks}.py` are byte-exact
+> against the Nim oracle on all 10 fixtures (160 parity checks per
+> run, all green) and have been audited / tightened for swappability
+> and Pythonic style — see §14. S4 plans six modules in dependency
+> order: interstitial, ignore, localize, the deferred task-icon
+> half of tasks, ocr, voting; sidecar schema rolls forward v3 → v5
+> as the corresponding fields land. `pytest players/among_them/coborg/tests`
+> is green (176 tests). R1 toolchain flake (§10) was root-caused and
 > resolved 2026-05-13. §12 items 1–4 (D8, D9, P4 stop point,
 > parity-oracle source) were all confirmed 2026-05-22; §12 item 5
 > (S3 scope tightening — defer task-icon scan to S4 alongside
@@ -527,8 +527,24 @@ schema version bumps with each widening):
 |---|---|---|---|
 | S1 | Baked assets: palette + sprite_atlas + map_pixels + walk/wall_mask + font + digest-pinned regenerator | n/a (data only) | Landed 2026-05-22 |
 | S2 | `perception/frame.py` + `perception/sprite_match.py`; Nim oracle dumper; 10 fixtures + sidecars; `run_parity.py` CLI + library + CI gate | v1 | Landed 2026-05-22 |
-| S3 | `perception/actors.py` (role / self-color / bodies / ghosts / crewmates) + `perception/tasks.py` (radar-dot scan only — task-icon scan deferred to S4 per §12 item 5); parity gate widened to all v2 keys | v2 | Landed 2026-05-26 |
-| **S4** | `perception/interstitial.py`, `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred task-icon half of `tasks.py` (needs localize's camera offset) | v3+ | **Next** |
+| S3 | `perception/actors.py` (role / self-color / bodies / ghosts / crewmates) + `perception/tasks.py` (radar-dot scan only — task-icon scan deferred to S4 per §12 item 5); parity gate widened to all v2 keys. Followed by a swappability + Pythonic-port audit pass (§15). | v2 | Landed 2026-05-26 |
+| **S4** | Remaining perception modules in dependency order — see breakdown below. | v3 → v5 | **In flight** |
+
+S4 is broken into its own sub-stack of commits, each a clean Graphite
+stack entry. Order is dictated by inter-module dependencies (localize
+gates ocr / voting / task-icons; interstitial and ignore are
+independent and cheap to land first):
+
+| Sub-commit | Scope | Nim source (lines) | Sidecar schema | Status |
+|---|---|---|---|---|
+| S4.0 | PLAN reconcile (this commit) | — | n/a | In flight |
+| S4.1 | `perception/interstitial.py` — black-screen / role-reveal detector. Pure pixel-count primitives over `frame.py`. | ~80 | v3 |  Pending |
+| S4.2 | `perception/ignore.py` — ignore-mask stamping helpers (player-centre zone, radar pixels, sprite rects, nameplate rects, phase-1.0 whole-frame mask). Migrates `PLAYER_SPRITE_ANCHOR_*` / `PLAYER_IGNORE_RADIUS` from `actors.py` to their canonical home in `ignore.py`. | ~130 | v3 | Pending |
+| S4.3 | `perception/localize.py` — camera-fit / map localization against the baked `map_pixels` + `walk_mask` rasters. Largest single module; may introduce a sub-pixel field with explicit numeric tolerance in the parity harness. | ~1,035 | v4 | Pending |
+| S4.4 | `perception/tasks.py` — fill the deferred task-icon half (`scan_task_icons`) now that localize is available. Wraps `mb_scan_task_icons` from the shared Nim kernel. | ~50 + ~110 | v4 | Pending |
+| S4.5 | `perception/ocr.py` — pixel-font OCR for HUD / role-reveal / meeting text. Depends on the baked `font.npz` and (probably) localize for text-region positioning. | ~570 | v5 | Pending |
+| S4.6 | `perception/voting.py` — meeting + voting screen parser. Depends on `ocr.py` + `sprite_match.py`. | ~500 | v5 | Pending |
+| S4.7 | S4 closeout: harness label polish, status doc bump, sub-stack table marked landed. | — | n/a | Pending |
 
 **Done when**:
 1. All parity tests pass at the highest landed schema version.
@@ -740,13 +756,19 @@ from §3.4, prefer the manifest values.
    (S3.0 PLAN reconcile, S3.1 oracle extend + sidecar regen, S3.2
    `actors.py`, S3.3 `tasks.py` radar-dot half, S3.4 parity harness +
    gate update).
-6. **S4 — port the remaining perception modules.** `interstitial.py`,
-   `ignore.py`, `localize.py`, `ocr.py`, `voting.py`, plus the deferred
-   task-icon half of `tasks.py` (now consumes a real camera offset from
-   `localize.py`). Sidecar schema bumps to v3 (and v4+ as needed) with
-   each module; tolerances may be introduced for sub-pixel fields per
-   §5.4. Wire live perception into the runtime for the P1 smoke `coworld
-   play` run with parsed beliefs in stderr traces.
+6. **S4 — port the remaining perception modules.** **In flight as of
+   2026-05-26.** The work is broken into S4.0..S4.7 sub-commits in
+   §6's expanded sub-stack table; ordering is dictated by dependencies
+   (localize blocks ocr / voting / task-icons; interstitial and ignore
+   are independent and land first). Sidecar schema rolls v3 → v5 as
+   each module's percept fields land; sub-pixel localize fields may
+   introduce explicit numeric tolerances per §5.4 step 4. Each module
+   ports Pythonically from the start (§14.3) — no literal-then-clean
+   transliterations.
+7. **(P1 close, post-S4)** — wire perception into the runtime for the
+   P1 smoke `coworld play` run with parsed beliefs in stderr traces.
+   This belongs in its own commit after S4.7 lands; the bridge's
+   `perceive()` hook still emits noops in S4.
 
 ---
 
@@ -830,7 +852,81 @@ James in the new session" were all resolved at the start of the
 
 ---
 
-## 14. Pointer summary (cheat-sheet)
+## 14. Swappability + Pythonic-port audit (2026-05-26)
+
+After S3 closed, the perception layer was audited for two distinct
+quality concerns. Both passes preserved parity (all 10 fixtures
+still byte-exact); they only changed the **encoding** of the code,
+not its behavior.
+
+### 14.1 Swappability audit
+
+Goal: rewriting any one perception module should require touching
+only that module's `.py` file. Findings + fixes:
+
+- **Orchestration must live with the module.** The actor scan
+  pipeline was orchestrated in `run_parity.py`, not in `actors.py`.
+  Fixed by adding `compute_actor_percept(atlas, frame, *, prev=None)`
+  in `actors.py` and flipping the five `scan_*` / `update_*` procs
+  to return their own outputs instead of mutating an
+  `ActorPercept` out-parameter. (Commit `5b9e8b6`.)
+- **Game-palette constants belong in `data/`, not in a kernel
+  module.** Moved `PLAYER_COLORS` / `SHADOW_MAP` / `PLAYER_BODY_LUT`
+  from `sprite_match.py` to `data/palette.py`; both kernel and
+  actor layer import from `data`. (Commit `25dd325`.)
+- **Atlas slot indices belong with the atlas loader.** Moved
+  `ATLAS_PLAYER` / `ATLAS_BODY` / etc. from `actors.py` to
+  `data/sprites.py`; `load_sprite_index` now asserts the JSON
+  layout matches the named constants at package import time.
+  (Commit `8173713`.)
+- **White-box vs public-API tests are now explicitly labelled.**
+  `test_actors.py` and `test_tasks.py` use `# --- white-box: ... ---`
+  vs `# --- public API: ... ---` section headers so future swappers
+  can see which tests are tied to a specific implementation
+  strategy. (Commit `ee5ea44`.)
+
+### 14.2 Pythonic-port audit
+
+Goal: no perception module reads like a literal Nim transliteration.
+Codex (`codex exec`) audited the four modules and flagged the
+patterns that should be vectorised. Findings + fixes:
+
+- **Per-pixel scalar helpers vectorised.** `_sprite_misses`,
+  `_matches_sprite_shadowed`, `_matches_crewmate`,
+  `_crewmate_color_index`, and the `_scan_actor` ignore-zone /
+  claimed-mask logic were all `for sy in range(sh): for sx in range(sw):`
+  loops with manual OOB branches and per-pixel `int()` casts. Replaced
+  with `_oob_filled_patch` (in-band sentinel) + boolean-mask numpy
+  arithmetic. `_crewmate_color_index` now uses `PALETTE_TO_PLAYER_SLOT`
+  + `np.bincount` (the same trick `sprite_match.actor_color_index_all`
+  uses), promoted from a `sprite_match.py` private to a public
+  `data/palette.py` constant. (Commit `9ebe440`.)
+- **Nested-loop dedup → occupancy-mask dedup.** Both
+  `actors._dedup_anchors` and `tasks.scan_radar_dots` had O(n²)
+  nested Python loops mirroring the upstream Nim. Replaced with
+  a boolean occupancy mask that each kept hit stamps with its
+  `(2r+1)`-square neighborhood. (Commit `03dee52`.)
+- **Skipped:** `update_role`'s branchy `result` mutation was
+  flagged as halfway-cleaned Nim, but the state machine reads
+  more clearly in the current form than as six branch-local
+  returns — the shared `kill_icon_frames` / `kill_ready` fields
+  would have to be re-stated in every branch. Skipped on
+  judgement.
+
+### 14.3 Rule for future S4+ ports
+
+When porting a Nim module into Python here, **write the Python
+form first**: vectorise, boolean-mask, idiomatic primitives
+(`np.bincount`, `np.argmax`, `np.where`, `sliding_window_view`,
+in-band OOB sentinels). The parity oracle catches algorithmic
+drift; it does not catch un-Pythonic encoding. Do not ship a
+literal transliteration intending to clean it up later — the
+S2/S3 → audit → rewrite history of this leaf is the case study
+of doing it twice when once would have sufficed.
+
+---
+
+## 15. Pointer summary (cheat-sheet)
 
 Paths without a leading `~/` or `/` are relative to this repo root
 (`~/coding/players_checkouts/players_main/` on James's machine).
