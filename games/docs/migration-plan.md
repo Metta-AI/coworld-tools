@@ -22,11 +22,15 @@ Python game packages are listed in the root `uv` workspace when their package la
 workspace is for repository-level discovery and lightweight package checks; each game still owns its own tests,
 entrypoints, and dependency details.
 
+First-wave standalone Coworld migrations are complete for `amongcogs`, `hungercog`, `overcogged`, `diplomacog`, and
+`werecog`. Their renamed `Metta-AI/coworld-*` repositories are now the source of truth for certifiable runtime work;
+this aggregate repo keeps imported snapshots for inventory and cross-game navigation.
+
 Follow-up work for Python games:
 
-1. Update package URLs from old standalone repos to `Metta-AI/games`.
+1. Update remaining package URLs from old standalone repos to their current source-of-truth location.
 2. Move shared template docs and skills out of individual game packages when they are duplicated.
-3. Update `Metta-AI/metta` and `Metta-AI/cogames` optional game metadata to point at this repo's subdirectories.
+3. Update `Metta-AI/metta` and `Metta-AI/cogames` optional game metadata to point at current game sources.
 4. Add targeted smoke tests per game from inside this repo.
 5. Rename template-shaped imports that still expose `src/cogame` before adding them to the root `uv` workspace.
 
@@ -36,10 +40,11 @@ Coworld games are kept as container-first packages. They do not need to be Pytho
 
 Follow-up work for Coworld games:
 
-1. Normalize manifests to the current `coworld_manifest_schema.json` shape.
-2. Keep `certification.game_config` short and separate from production league variants.
-3. Build and certify images from each game directory before uploading or seeding leagues.
-4. Move shared Coworld protocol docs to `docs/` only after the package-local manifests link to stable public docs.
+1. Keep `certification.game_config` short and separate from production league variants.
+2. Build and certify images from each game directory before uploading or seeding leagues.
+3. Move shared Coworld protocol docs to `docs/` only after the package-local manifests link to stable public docs.
+4. For private `coworld-*` repos, use SSH `source_url` values for game/player runnables so certification does not rely
+   on unauthenticated GitHub API access to private repositories.
 
 ## Template Cleanup
 
