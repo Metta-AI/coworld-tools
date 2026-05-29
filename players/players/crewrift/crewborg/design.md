@@ -1,0 +1,492 @@
+# Crewborg — Design Specification
+
+Crewborg is a [Player-SDK](../player_sdk/) agent that plays **Crewrift**, a
+Coworld social-deduction game (Among Us–style: crewmates do tasks and vote;
+imposters kill, vent, and blend in). This document is the implementation spec.
+For codebase orientation, game constants, and source pointers, see
+[`AGENTS.md`](./AGENTS.md).
+
+> **Status:** not yet implemented. The architecture below is settled. Three
+> behavior parameters are left to tune during implementation — see
+> [§12](#12-open-tuning-parameters).
+
+Conventions: paths like `sim:2464` cite the Crewrift Nim source (`sim` =
+`src/crewrift/sim.nim`, `global` = `src/crewrift/global.nim`, `protocols.nim` =
+`players/notsus/notsus/protocols.nim`), all under
+`~/coding/games/coworld-crewrift/`.
+
+---
+
+## 1. Architecture
+
+Crewborg plugs game-specific code into the Player SDK's two-loop runtime. Control
+flows through three tiers:
+
+```
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │ STRATEGY (mode selector)   rules over belief → which mode is active   │
+   │        │ ModeDirective                                                │
+   │        ▼                                                              │
+   │ MODE (behavioral stance)   one Intent per tick, from belief           │
+   │        │ Intent ("what to do now")                                    │
+   │        ▼                                                              │
+   │ ACTION LAYER (executor)    Intent → wire Command, stateful over ticks │
+   └─────────────────────────────────────────────────────────────────────┘
+```
+
+The SDK drives this every tick via `AgentRuntime.step(observation)`
+(`runtime.py:120`), under one shared-memory write lock:
+
+```
+perceive(obs, tick) → update_belief(belief, percept) → strategy.observe/poll
+   → mode.decide(belief, action_state) → resolve_action(intent, belief, action_state) → Command
+```
+
+The inner loop never blocks on the strategy: the mode runs every tick from the
+latest belief, while the strategy publishes mode directives asynchronously and
+the runtime applies a default directive if none is ready.
+
+**Tier responsibilities**
+
+| Tier | SDK surface | Decides | Owns |
+|---|---|---|---|
+| Strategy | `Strategy` → `ModeDirective` | *which mode* | role/phase rules over belief |
+| Mode | `Mode.decide` → `Intent` | *what to do now* | intent selection, "done" detection |
+| Action layer | `resolve_action` + `ActionState` | *how, over time* | pathing, momentum, button timing |
+
+**Invariants (non-negotiable, from the SDK):**
+
+- Raw scene data — especially sprite pixels — never enters belief. Belief is the
+  only interface the strategy and modes see.
+- Modes emit symbolic intents, never wire actions. All movement, button/cursor
+  timing, chat buffering, and momentum control live in the action layer.
+- The agent stays live under strategy stall via a default directive + directive
+  TTLs.
+
+---
+
+## 2. Types
+
+Crewborg supplies the six `AgentRuntime` type parameters and three functions:
+
+| Type | Role | Mutability |
+|---|---|---|
+| `Observation` | reference to the bridge's live `SceneState` + tick | frozen ref |
+| `Percept` | resolved per-tick view (entities, HUD, phase signals) | frozen |
+| `Belief` | persistent world model | mutable |
+| `ActionState` | action-layer execution state | mutable |
+| `Intent` | symbolic "what to do now" | frozen |
+| `Command` | wire payload (input ± chat packet) | frozen |
+
+| Function | Contract |
+|---|---|
+| `perceive(observation, tick) -> Percept` | interpret the scene tables into entities/labels/world-coords |
+| `update_belief(belief, percept) -> None` | fold the percept into belief in place |
+| `resolve_action(intent, belief, action_state) -> Command` | execute the intent into wire packets |
+
+**Type style:** all SDK-facing types are **pydantic** models — frozen where the
+value is immutable (`Percept`, `Intent`, `Command`), non-frozen where the loop
+mutates them in place (`Belief`, `ActionState`). The sole exception is
+`SceneState` (§3), a plain dataclass holding numpy/byte buffers that never reach
+the strategy.
+
+---
+
+## 3. Transport & bridge
+
+Crewrift speaks **binary Sprite v1**: a structured scene protocol, **not** a
+framebuffer. The server streams object placements with exact coordinates and
+sprites carrying **text labels** — agents read state from structured data, with
+no computer vision. The only image decode crewborg performs is the `walkability
+map` sprite's alpha channel.
+
+Crewborg writes its own websocket bridge (`coworld/policy_player.py`):
+
+1. Read `COGAMES_ENGINE_WS_URL` (runner fills `?slot=N&token=…`);
+   `websockets.connect(url, max_size=None)` — token validation is at HTTP upgrade.
+2. Maintain a **`SceneState`** (a plain dataclass, owned by the bridge): three
+   retained tables plus the decoded camera and walkability mask.
+3. Per tick: block for one message, drain any immediately-available messages into
+   `SceneState`, then run `runtime.step(observation)` and send the result.
+4. Close the socket ⇒ game over; exit cleanly.
+
+`Observation` is a thin pydantic wrapper holding a reference to the live
+`SceneState` + the tick. Byte-level decoding happens in the bridge; `perceive`
+does interpretation only.
+
+### 3.1 Scene tables
+
+The three tables are stateful and incremental — there is no "frame" message; each
+update mutates the tables, which are then read as the current scene.
+
+| Table | Keyed by | Holds |
+|---|---|---|
+| Layers | `u8` layer id | type, flags, viewport |
+| Sprites | `u16` sprite id | width, height, **label**, RGBA pixels |
+| Objects | `u16` object id | **x, y** (`i16`, camera-relative), z, layer, sprite id |
+
+**Message types** (byte layout per `protocols.nim:408-523`):
+
+| Byte | Message | Payload |
+|---|---|---|
+| `0x01` | define-sprite | id `u16`, w `u16`, h `u16`, compressedLen `u32`, snappy RGBA, labelLen `u16`, label |
+| `0x02` | define-object | id `u16`, x `i16`, y `i16`, z `i16`, layer `u8`, sprite id `u16` (11 bytes) |
+| `0x03` | delete-object | id `u16` |
+| `0x04` | clear-objects | (marks all objects absent; keeps sprite defs) |
+| `0x05` | set-viewport | 5 bytes |
+| `0x06` | define-layer | 3 bytes |
+
+The first message is an init burst (clear, define-layer 0, set-viewport 128×128,
+define all static sprites including `walkability map`); thereafter one message per
+24 Hz tick carries only changed objects.
+
+### 3.2 Camera & self position
+
+The world-map object has **object id 1, sprite id 1**, placed at
+`(−cameraX, −cameraY)`. Recover the camera as `cameraX = −mapObject.x`; world
+coords are `worldX = obj.x + cameraX` (`protocols.nim:496-499`). World coords are
+unavailable until the map object arrives — degrade gracefully on the first ticks.
+
+**Self is not an object** — it is the implicit camera center. Self world position
+≈ `camera + fixed center offset`; self role/state comes from HUD labels (§4).
+
+### 3.3 Input & output
+
+Input packet: `[0x84, mask & 0x7f]`. Bits: up/down/left/right =
+`0x01/0x02/0x04/0x08`, A = `0x20`, B = `0x40` (bit 7 reserved). **Send only when
+the held mask changes**; omitted bits are released. Chat: `0x81 + u16 len + ASCII`,
+accepted **only during Voting**.
+
+The action layer computes the desired held mask; the bridge owns the last-sent
+mask and the send-only-on-change comparison.
+
+Input semantics (handler `applyInput`, `sim:2751`):
+
+- **A is edge-triggered** (`freshA`): on a fresh press during `Playing`, the game
+  tries report → emergency button → kill (imposter), in that order. To repeat A,
+  release then re-press.
+- **Task completion** = hold A while standing still inside an assigned task rect
+  for `TaskCompleteTicks` (72); any d-pad input resets progress.
+- **B** = vent (imposter), level-triggered, gated by `VentRange` + cooldown.
+- **Voting**: d-pad steps a cursor (up/left = −1, down/right = +1; skip = last
+  cell), A confirms.
+
+Inputs do anything only during `Playing` and `Voting`; all other phases ignore them.
+
+---
+
+## 4. Perception
+
+`perceive` iterates the Objects table, joins each object to its Sprite's **label**,
+converts camera-relative coords to world coords, and classifies by `(label,
+object-id range)`. No pixels are retained.
+
+### 4.1 Percept fields
+
+The entity arrays contain **only what is currently in the agent's vision**; a
+player/body absent from an array is *not visible*, which is not the same as *not
+present*.
+
+| Field | Source (label / id range) | Notes |
+|---|---|---|
+| `tick`, `camera_ready`, `camera_x/y` | map object id 1 / sprite 1 | gates world coords |
+| `self_role` | `imposter icon`/`imposter icon cooldown` ⇒ imposter; `ghost icon` ⇒ dead; neither ⇒ crewmate | HUD (`global:2484-2506`) |
+| `self_kill_ready` | `imposter icon` (ready) vs `imposter icon cooldown` | imposter only |
+| `self_world_xy` | camera + fixed center offset | approximate |
+| `visible_players[]` | `player <color> left/right`; ids `1000+joinOrder` | id, color, facing, world xy. Visible & alive only — a living agent never sees ghost objects (`global:2389-2398`) |
+| `visible_bodies[]` | `body <color>`; ids `2000+i` | id, color, world xy |
+| `task_signals[]` | `task bubble` (ids `3000+idx`) and `task arrow` (ids `7000+idx`) | one per incomplete assigned task; crewmate-only. See §4.2 |
+| `active_task_progress_pct` | `progress bar N%` | **per-task** progress of *your current* task; present only while in progress (`global:2441-2464`) |
+| `crew_tasks_remaining` | `task counter N` | **crew-wide** incomplete-task count (`totalTasksRemaining`, `sim:3175`); visible to both roles |
+| `phase_signals` | interstitial text + presence of voting objects | raw signals; the phase machine lives in belief (§5) |
+| `voting` | `vote cursor`, `vote skip cursor`, `vote self marker <color>`, `vote dot <color>` (ids `10100+voter*MaxPlayers+target`), `vote timer` | cursor, tally, timer |
+
+Color names (16) and the full label vocabulary are listed in `AGENTS.md` §2.
+
+### 4.2 Task bubbles vs. arrows
+
+For each incomplete assigned task the renderer emits exactly one signal per tick,
+chosen by an on/off-screen test (`global:2202-2274`, `:2410-2440`):
+
+- **Bubble** (`3000+idx`) — emitted only when the task is **on/near-screen**, at
+  the task's location. Gives an exact world position (`screen + camera`).
+- **Arrow** (`7000+idx`) — emitted only when the task is **off-screen** (and only
+  if `showTaskArrows` is enabled): a 1×1 pixel on the screen edge along the ray to
+  the task. Gives **bearing only**, no location.
+
+---
+
+## 5. Belief
+
+`update_belief` folds each percept into the persistent `Belief`. Sections:
+
+- **self** — role, alive/dead, world xy, kill-ready + cooldown estimate, active
+  task + progress, vote cast this meeting, emergency-button-used flag.
+- **map / nav** — the static map (§6): task rects (by index), vent rects + groups,
+  rooms, emergency-button location, walkability grid, and a nav graph built over it.
+- **roster** — total player count (see below) and, per stable object id: color,
+  last-known world xy, facing, **alive/dead** (no ghost-state tracking), last-seen
+  tick.
+- **bodies** — by id: color, world xy, reported flag.
+- **tasks** — assigned task indices (from `task_signals` ids), per-task world
+  location (from the map), per-task completion; `crew_tasks_remaining`;
+  `task_arrows_enabled` (below).
+- **phase** — current phase + start tick + the phase state machine, advanced from
+  `phase_signals` (emit a `phase_change` trace on transition).
+- **voting** — live tally, cursor, timer, who has voted.
+- **social / evidence** — reserved (P3+): sightings, suspicion. Empty initially.
+- **inferences** — reserved slot for strategy-produced facts.
+
+**Total player count.** Players appear as objects only when visible, but the
+roster spawns co-located at the first `Playing` tick, so the visible set ≈ the
+full roster. Seed `total_player_count` from the max distinct player object ids
+seen; thereafter we know how many players exist and how many are currently unseen.
+(Relies on a co-located spawn — a strong estimate, not a guarantee.)
+
+**Staleness / stillness.** Per player, keep last-known position + last-seen tick;
+comparing against the current tick yields staleness and stillness. Position
+history is deferred to P3 social reasoning.
+
+**`task_arrows_enabled`** (tri-state `None`/`True`/`False`). Discovered by
+observation — the `task arrow` sprite is always *defined* in init; what's gated is
+whether arrow *objects* (`7000+idx`) are emitted. Once a crewmate in `Playing` has
+a known off-screen incomplete task: set `True` on the first `7000+idx` object seen,
+`False` if several ticks pass with off-screen tasks and no arrow. Behavior fork:
+
+- **On** — follow arrow bearings to off-screen tasks.
+- **Off** — no off-screen task signal; task-finding becomes a baked-map
+  room-by-room sweep until each station's bubble appears.
+
+---
+
+## 6. Static map (resource-file bake)
+
+Vent, emergency-button, and task locations are **not in the stream** (the `map`
+object is a flat prerendered picture, `global:701-707`; only object positions and
+the walkability alpha mask are structured). They live in the game's map resource
+file, which is server-side data and never delivered to a player. Crewborg bakes
+them.
+
+**Source & format.** `data/croatoan.resources` in the game repo — a CSS-like list
+of named rectangles (parser `resources.nim:140-230`). Each block is a `/* name */`
+comment followed by `width/height/left/top` (px) and a `background` color; a rect
+is kept only if it has all of those. Classification (`sim:744-775`):
+
+- `task` → task list **in file order** — this order *is* the `3000/7000+idx`
+  stream index, so it maps a task signal to a world rect.
+- `ventN` → a vent whose **group is the trailing digit** (same-group vents
+  teleport together).
+- named rooms → rooms.
+- **emergency button** — *derived*: a 28×34 rect centered on the **bridge** room's
+  center (`sim:789`).
+
+**Mechanism.** Vendor the raw `croatoan.resources` into the `map/` package and port
+the ~40-line parser to Python. Parse it **at container startup** into belief's map
+section (never per-tick — the map is static for an episode).
+
+**Walkability & validation.** The walkability grid comes from the stream's
+`walkability map` alpha (decoded once); the nav graph is built over it. The decoded
+walkability also validates the bake: if it doesn't match `croatoan`, the server is
+running a different map — fail loud / fall back. (`mapPath` is config-overridable,
+`sim:1320-1321`; today only `croatoan` exists.)
+
+> Building crewborg requires the game repo (or the vendored `croatoan.resources`)
+> present.
+
+---
+
+## 7. Modes
+
+A mode is a coarse **behavioral stance** (a handful per role), selected by the
+strategy (§10). Each tick the active mode reads belief and emits **one intent**
+(§8) — possibly the same intent for many ticks, or a new one. A mode's logic is:
+*which intent best serves this stance now*, including detecting from belief that
+the current intent is finished and switching. Modes never touch buttons, paths, or
+momentum. Modes may report `ModeDecision.complete/.stalled` so the strategy
+re-decides.
+
+### 7.1 Crewmate modes
+
+| Mode | Active when | Intents emitted |
+|---|---|---|
+| **Normal** | default while `Playing` | `complete_task(T)` (pick → emit until belief shows T done → pick next); `idle`/`loiter` if none left |
+| **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote(choice)` before the timer |
+| **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
+| **Flee** | a believed-imposter is approaching | `flee_from(player)`, or a strategic `navigate_to(point)` |
+
+### 7.2 Imposter modes
+
+| Mode | Active when | Intents emitted |
+|---|---|---|
+| **Pretend** | kill on cooldown | `idle`/`loiter` near task stations and crew; fake task stops |
+| **Hunt** | kill ready | `navigate_to(target)`; `kill(target)` in range |
+| **Flee** | just killed | `flee_from` / `navigate_to` away from the body |
+| **Attend Meeting** | phase = `Voting` | `chat(text)`, `vote(choice)` — bluff/deflect |
+
+### 7.3 Division of labour
+
+The **action layer executes**; it does not decide when work is done. The **mode**
+watches belief — task icon gone, `active_task_progress_pct` at 100%, meeting
+opened, target dead — and changes the intent. A ghost crewmate keeps Normal mode +
+`complete_task` (it can still finish its own tasks).
+
+### 7.4 Planned refinements (later phases)
+
+Mode-level enhancements to keep in view: arrow-bearing **task triangulation** under
+arrows-only; **travelling-salesman** task ordering over the nav graph; **safety in
+numbers** (prefer routes/tasks near other crewmates); **strategic flee targets**
+(toward a trusted player / the button / a sightline-breaking corner).
+
+---
+
+## 8. Intents
+
+An intent is "what to do now" — above a button press, below a behavior. One
+**shared vocabulary** serves both roles; modes differ only in which they emit.
+
+| Intent | Carries | Meaning |
+|---|---|---|
+| `idle` / `loiter` | (optional anchor) | stand still / wander to blend in |
+| `navigate_to` | world point | go to a point |
+| `flee_from` | player id | maximize distance from a player |
+| `complete_task` | task index | go to the task rect and complete it |
+| `report` | body id | go to a body and report |
+| `vote` | choice (player id / skip) | cast a meeting vote |
+| `chat` | text | speak in a meeting |
+| `kill` | target player id | go to a crewmate and kill (imposter) |
+| `vent` | vent / group target | go to a vent and use it (imposter) |
+
+`flee_from` is the simple keep-away primitive (geometry owned by the action
+layer). Situational fleeing — toward a trusted player, the button, or around a
+corner — is the Flee mode emitting `navigate_to` instead.
+
+---
+
+## 9. Action layer
+
+`resolve_action(intent, belief, action_state) -> Command` is the only place
+transport mechanics live, and it is **stateful across ticks** (state in
+`ActionState`). Each tick:
+
+1. **Diff** the incoming intent against the stored one.
+2. **Unchanged** → continue executing (advance the nav route, keep holding A, step
+   the vote cursor).
+3. **Changed** → discard in-progress execution (route, button FSM) and start the
+   new intent fresh.
+4. Compute and return this tick's `Command`.
+
+**Composite intents** internally sequence *navigate-then-interact*, reusing one
+"move toward a world point" routine (follows the nav route, does momentum control):
+
+- `complete_task` → navigate to the rect, then **hold A while standing still**
+  (movement suppressed — d-pad resets the 72-tick progress).
+- `report` / `kill` → navigate to the body/target, then edge-press A.
+- `vent` → navigate to the vent, then press B.
+
+**Transport mechanics owned here:**
+
+- Button bitmask encoding and the `[0x84, mask&0x7f]` packet.
+- The edge-triggered A press FSM (release then re-press to refire).
+- Momentum control / nav-route following (the `nav` helper plans over the baked
+  graph; the action layer follows).
+- Vote-cursor stepping then A-confirm.
+- Chat buffering + ASCII validation (emit only during Voting).
+- Hand the held mask to the bridge, which de-dups (send-only-on-change).
+
+**`ActionState` holds:** the current intent (for the diff), the active nav route +
+progress cursor, the A-press FSM state, and the pending-chat buffer.
+
+`Command` carries the per-tick wire payload (input packet ± chat); an empty payload
+means "send nothing this tick."
+
+---
+
+## 10. Strategy (mode selector)
+
+The strategy **selects the mode** (modes pick intents). For v1 it is a
+deterministic `Strategy.decide(snapshot) -> ModeDirective` run via
+`SynchronousStrategyRunner` **every tick** — pure rules over belief. The
+`AsyncStrategyRunner` LLM seam stays in place but unused.
+
+Because the selector runs every tick, **v1 uses no reflexes** — transitions ("body
+sighted → Report", "Voting → Attend Meeting") are re-evaluated each cycle. The
+default directive is `idle` mode (the stall/TTL fallback, rarely reached).
+
+**Crewmate selection** (priority order):
+
+1. phase = `Voting` → **Attend Meeting**; `RoleReveal`/`Lobby`/`GameOver` → **idle**
+2. believed-imposter approaching → **Flee**
+3. body in view → **Report Body**
+4. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
+
+**Imposter selection** (priority order):
+
+1. phase = `Voting` → **Attend Meeting**
+2. just killed → **Flee**
+3. kill ready + a reachable isolated crewmate → **Hunt**
+4. otherwise → **Pretend** (watch `crew_tasks_remaining` to escalate as the crew
+   nears a task win)
+
+---
+
+## 11. Package layout, phasing, tracing
+
+```
+crewborg/
+  __init__.py        # build_runtime(): assemble AgentRuntime
+  types.py           # the six types + perceive/update_belief
+  action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
+  nav.py             # baked-map nav graph + route planning (used by the action layer)
+  trace.py           # stderr JSON trace + metrics sinks
+  modes/             # idle, normal, attend_meeting, report_body, flee, pretend, hunt
+  strategy/          # rule_based.py: the mode selector
+  perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
+  map/               # vendored croatoan.resources + ported parser (§6)
+  coworld/           # policy_player.py (bridge), Dockerfile, entrypoint.sh
+  scripts/play_local.sh
+  build.sh
+  tests/             # action/modes/strategy/trace/runtime + bridge smoke + scene-decode tests
+  PLAN.md  design.md  README.md
+```
+
+**Phasing**
+
+| Phase | Deliverable |
+|---|---|
+| P0 | noop/idle end-to-end through the bridge; trace sinks; Docker; local play smoke |
+| P1 | Sprite-v1 scene decoder + static-map bake (§6); tested against recorded message sequences |
+| P2 | crewmate Normal mode; `navigate_to`/`complete_task`; `nav` module; action layer + movement controller; mode selector |
+| P3 | Attend Meeting / Report Body / Flee modes; `vote`/`chat`/`report`/`flee_from`; evidence-ledger stub |
+| P4 | imposter Pretend / Hunt / Flee modes; `kill`/`vent`; role-aware selection |
+| Later | LLM strategy behind `AsyncStrategyRunner` |
+
+**Tracing.** Stdout = protocol channel, stderr = logs/traces. Use the SDK's
+canonical events (`perception`, `belief_updated`,
+`mode_entered/exited/completed/stalled`, `action_intent`, `act_command`,
+`snapshot_submitted`, `strategy_evaluated`, `directive_*`, `fallback_activated`)
+plus crewborg extensions: `phase_change`, `body_sighted`, `task_started`,
+`task_completed`, `kill_attempted`, `vote_cast`, `chat_received`, `chat_sent`.
+
+---
+
+## 12. Open tuning parameters
+
+Three behavior parameters are deferred to their implementation phase. Each has a
+proposed starting default; none is structural.
+
+| Parameter | Phase | Starting default |
+|---|---|---|
+| Movement-controller style | P2 | bang-bang + a release-near-target deadband; tune against a local server (predictive stop if it overshoots) |
+| Voting policy | P3 | always cast — start with **skip** (must always vote before the timer; not voting costs −10) |
+| Report policy | P3 | **always report** a visible body; suspicion-aware reporting is a later refinement |
+
+---
+
+## 13. Operational notes
+
+- Confirm `showTaskArrows` is enabled in the target episode config; if not,
+  off-screen task tracking uses the room-by-room sweep (§5).
+- Vent and emergency-button locations are not exposed over the protocol (no stream
+  message, no HTTP endpoint — the manifest only names the server-side resource
+  path). A bot author without game-repo access cannot obtain them. Worth
+  surfacing upstream to Crewrift (e.g. emit them as labeled zero-size objects).
