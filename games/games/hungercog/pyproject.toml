@@ -11,6 +11,9 @@ license = { text = "MIT" }
 authors = [{ name = "Metta AI", email = "info@metta.ai" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "websockets>=15.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "fastapi>=0.115.0",
   "mettagrid",
   "pydantic>=2.11.5",
 ]
@@ -19,8 +22,8 @@ dependencies = [
 test = ["pytest>=8.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/Metta-AI/cogame-hungercog"
-Repository = "https://github.com/Metta-AI/cogame-hungercog.git"
+Homepage = "https://github.com/Metta-AI/coworld-hungercog"
+Repository = "https://github.com/Metta-AI/coworld-hungercog.git"
 
 [tool.setuptools]
 include-package-data = true
@@ -30,7 +33,7 @@ where = ["src"]
 include = ["hungercog", "hungercog.*"]
 
 [tool.setuptools.package-data]
-hungercog = ["rules.md"]
+hungercog = ["rules.md", "coworld/clients/*", "coworld/docs/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

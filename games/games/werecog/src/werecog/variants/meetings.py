@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from mettagrid.cogame.core import CoGameMissionVariant, Deps
-from werecog.compat import require_obs_fields
+from werecog.compat import require_obs_fields  # noqa: F401  # imported by main; unused locally
 from werecog.variants.common import (
     DAY_EXECUTION_USED_STAT,
     DAY_PHASE,
@@ -11,28 +11,19 @@ from werecog.variants.common import (
     NIGHT_KILL_USED_STAT,
     NIGHT_HUNT_OPEN,
     NIGHT_PHASE,
-    ROLE_VILLAGER,
-    ROLE_WEREWOLF,
-    VISION_RADIUS_STAT,
     VOTE_TOKEN,
-    agent_is_werewolf,
     append_unique,
-    blind_vision_radius,
     day_vote_open_step,
-    discussion_radius,
     meeting_bell,
     night_hunt_open_step,
     night_steps,
     phase_period,
     reset_game_stat,
-    target_has_role,
 )
 from werecog.variants.roles import RolesVariant
 from mettagrid.config.event_config import EventConfig, periodic
-from mettagrid.config.game_value import val
 from mettagrid.config.handler_config import updateTarget
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig
-from mettagrid.config.mutation.stats_mutation import StatsEntity, StatsMutation, StatsTarget
 from mettagrid.config.query import query
 from mettagrid.config.tag import typeTag
 
@@ -45,13 +36,11 @@ class MeetingsVariant(CoGameMissionVariant):
         return Deps(required=[RolesVariant])
 
     def modify_env(self, mission, env: MettaGridConfig) -> None:
-        require_obs_fields("observation_radius_stat")
         append_unique(env.game.resource_names, VOTE_TOKEN)
         append_unique(env.game.resource_names, DAY_PHASE)
         append_unique(env.game.resource_names, NIGHT_PHASE)
         append_unique(env.game.resource_names, DAY_VOTE_OPEN)
         append_unique(env.game.resource_names, NIGHT_HUNT_OPEN)
-        env.game.obs.observation_radius_stat = VISION_RADIUS_STAT
 
         for agent in env.game.agents:
             inv = agent.inventory
@@ -65,9 +54,6 @@ class MeetingsVariant(CoGameMissionVariant):
             inv.limits["night_phase"] = ResourceLimitsConfig(base=1, max=1, resources=[NIGHT_PHASE])
             inv.limits["day_vote_open"] = ResourceLimitsConfig(base=1, max=1, resources=[DAY_VOTE_OPEN])
             inv.limits["night_hunt_open"] = ResourceLimitsConfig(base=1, max=1, resources=[NIGHT_HUNT_OPEN])
-            agent.initial_stats[VISION_RADIUS_STAT] = (
-                discussion_radius(mission) if agent_is_werewolf(agent) else blind_vision_radius(mission)
-            )
 
         env.game.objects["meeting_bell"] = meeting_bell()
 
@@ -96,32 +82,6 @@ class MeetingsVariant(CoGameMissionVariant):
             timesteps=periodic(start=night_hunt_open_step(mission), period=phase_period(mission), end=env.game.max_steps),
             mutations=[updateTarget({NIGHT_HUNT_OPEN: 1})],
         )
-        env.game.events["night_phase_werewolf_visibility"] = EventConfig(
-            name="night_phase_werewolf_visibility",
-            target_query=query(typeTag("agent"), [target_has_role(ROLE_WEREWOLF)]),
-            timesteps=periodic(start=0, period=phase_period(mission), end=env.game.max_steps),
-            mutations=[
-                StatsMutation(
-                    stat=VISION_RADIUS_STAT,
-                    target=StatsTarget.AGENT,
-                    entity=StatsEntity.TARGET,
-                    source=val(discussion_radius(mission)),
-                )
-            ],
-        )
-        env.game.events["night_phase_villager_visibility"] = EventConfig(
-            name="night_phase_villager_visibility",
-            target_query=query(typeTag("agent"), [target_has_role(ROLE_VILLAGER)]),
-            timesteps=periodic(start=0, period=phase_period(mission), end=env.game.max_steps),
-            mutations=[
-                StatsMutation(
-                    stat=VISION_RADIUS_STAT,
-                    target=StatsTarget.AGENT,
-                    entity=StatsEntity.TARGET,
-                    source=val(blind_vision_radius(mission)),
-                )
-            ],
-        )
         env.game.events["day_phase_start"] = EventConfig(
             name="day_phase_start",
             target_query=query(typeTag("agent")),
@@ -129,11 +89,5 @@ class MeetingsVariant(CoGameMissionVariant):
             mutations=[
                 updateTarget({DAY_PHASE: 1, NIGHT_PHASE: -1, VOTE_TOKEN: 1, DAY_VOTE_OPEN: -1, NIGHT_HUNT_OPEN: -1}),
                 reset_game_stat(DAY_EXECUTION_USED_STAT),
-                StatsMutation(
-                    stat=VISION_RADIUS_STAT,
-                    target=StatsTarget.AGENT,
-                    entity=StatsEntity.TARGET,
-                    source=val(discussion_radius(mission)),
-                ),
             ],
         )

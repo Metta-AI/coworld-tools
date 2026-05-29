@@ -11,6 +11,9 @@ license = { text = "MIT" }
 authors = [{ name = "Metta AI", email = "info@metta.ai" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "websockets>=15.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "fastapi>=0.115.0",
   "mettagrid",
   "pydantic>=2.11.5",
 ]
@@ -26,8 +29,8 @@ dev = [
 werecog = "werecog.main:main"
 
 [project.urls]
-Homepage = "https://github.com/Metta-AI/cogame-werecog"
-Repository = "https://github.com/Metta-AI/cogame-werecog.git"
+Homepage = "https://github.com/Metta-AI/coworld-werecog"
+Repository = "https://github.com/Metta-AI/coworld-werecog.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -37,7 +40,7 @@ include = ["werecog", "werecog.*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-werecog = ["py.typed", "assets/**/*"]
+werecog = ["py.typed", "assets/**/*", "coworld/clients/*", "coworld/docs/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

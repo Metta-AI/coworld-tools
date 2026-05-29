@@ -13,7 +13,7 @@ from werecog.defaults import (
     DEFAULT_NIGHT_STEPS,
 )
 from mettagrid.config.filter import GameValueFilter, HandlerTarget, actorHas, anyOf, isNot, query, targetHas
-from mettagrid.config.game_value import QueryCountValue, SumGameValue, stat, val
+from mettagrid.config.game_value import QueryCountValue, SumGameValue, inv, stat, val
 from mettagrid.config.handler_config import Handler, updateActor
 from mettagrid.config.mettagrid_config import GridObjectConfig
 from mettagrid.config.mutation.stats_mutation import StatsMutation, StatsTarget, logStatToGame
@@ -118,15 +118,15 @@ def append_unique(values: list[str], value: str) -> None:
 
 
 def agent_is_werewolf(agent: Any) -> bool:
-    return int(agent.initial_stats[ROLE_WEREWOLF]) >= 1
+    return int(agent.inventory.initial.get(ROLE_WEREWOLF, 0)) >= 1
 
 
 def actor_has_role(role_name: str) -> GameValueFilter:
-    return GameValueFilter(target=HandlerTarget.ACTOR, value=stat(role_name), min=1)
+    return GameValueFilter(target=HandlerTarget.ACTOR, value=inv(role_name), min=1)
 
 
 def target_has_role(role_name: str) -> GameValueFilter:
-    return GameValueFilter(target=HandlerTarget.TARGET, value=stat(role_name), min=1)
+    return GameValueFilter(target=HandlerTarget.TARGET, value=inv(role_name), min=1)
 
 
 def actor_has_any_role() -> Any:

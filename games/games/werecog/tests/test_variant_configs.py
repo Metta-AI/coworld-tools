@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from werecog.defaults import DEFAULT_DAY_STEPS, DEFAULT_NIGHT_STEPS
 from werecog import WerecogMission
-from werecog.variants.common import ROLE_VILLAGER, ROLE_WEREWOLF
 from werecog.variants.full import FullVariant
 from werecog.variants.meetings import MeetingsVariant
 from werecog.variants.render import RenderVariant
@@ -12,8 +11,6 @@ from werecog.variants.survival_rewards import SurvivalRewardsVariant
 from werecog.variants.timing import LONG_NIGHT_STEPS, SHORT_DAY_STEPS, SHORT_NIGHT_STEPS
 from werecog.variants.voting import VotingVariant
 from werecog.variants.win_conditions import WinConditionsVariant
-from mettagrid.config.filter.filter import HandlerTarget
-from mettagrid.config.game_value import StatValue
 from mettagrid.config.handler_config import AllOf, FirstMatch, Handler
 
 
@@ -39,8 +36,8 @@ def test_roles_variant_adds_private_role_observations() -> None:
     env = _make_env([RolesVariant()])
 
     assert "alive" in env.game.resource_names
-    assert "villager" not in env.game.resource_names
-    assert "werewolf" not in env.game.resource_names
+    assert "villager" in env.game.resource_names
+    assert "werewolf" in env.game.resource_names
     assert "role_werewolf" in env.game.obs.global_obs.obs
     assert "role_villager" in env.game.obs.global_obs.obs
 
@@ -122,18 +119,9 @@ def test_short_day_variant_reschedules_phase_period() -> None:
     assert env.game.events["day_vote_open"].timesteps[0] == DEFAULT_NIGHT_STEPS + max(1, min(SHORT_DAY_STEPS - 1, SHORT_DAY_STEPS // 3))
 
 
-def test_meetings_variant_uses_role_stats_for_night_visibility_filters() -> None:
+def test_meetings_variant_uses_fixed_observation_window() -> None:
     env = _make_env([MeetingsVariant()])
 
-    werewolf_filter = env.game.events["night_phase_werewolf_visibility"].target_query.filters
-    villager_filter = env.game.events["night_phase_villager_visibility"].target_query.filters
-
-    assert len(werewolf_filter) == 1
-    assert werewolf_filter[0].filter_type == "game_value"
-    assert werewolf_filter[0].target == HandlerTarget.TARGET
-    assert werewolf_filter[0].value == StatValue(name=ROLE_WEREWOLF)
-
-    assert len(villager_filter) == 1
-    assert villager_filter[0].filter_type == "game_value"
-    assert villager_filter[0].target == HandlerTarget.TARGET
-    assert villager_filter[0].value == StatValue(name=ROLE_VILLAGER)
+    assert "night_phase_werewolf_visibility" not in env.game.events
+    assert "night_phase_villager_visibility" not in env.game.events
+    assert {"night_phase_start", "day_phase_start"}.issubset(env.game.events)

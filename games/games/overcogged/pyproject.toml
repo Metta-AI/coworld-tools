@@ -21,6 +21,9 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+  "websockets>=15.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "fastapi>=0.115.0",
   "mettagrid>=0.25.4",
   "pydantic>=2.11.5",
   "rich>=13.7.0",
@@ -36,8 +39,8 @@ test = ["pytest>=8.0.0"]
 overcogged = "overcogged.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/Metta-AI/cogame-overcogged"
-Repository = "https://github.com/Metta-AI/cogame-overcogged.git"
+Homepage = "https://github.com/Metta-AI/coworld-overcogged"
+Repository = "https://github.com/Metta-AI/coworld-overcogged.git"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/overcogged"]

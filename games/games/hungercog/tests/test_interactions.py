@@ -5,8 +5,7 @@ Tests each game rule individually using minimal environments with deterministic 
 
 from dataclasses import dataclass
 
-from metta.games.games import make_game
-from hungercog.game import register_with_metta
+from hungercog.game import make_game
 from hungercog.variants.carnivore import CarnivoreVariant
 from hungercog.variants.herbivore import herbivore_station_config
 from hungercog.variants.plants import (
@@ -49,8 +48,6 @@ from mettagrid.config.query import query
 from mettagrid.config.tag import typeTag
 from mettagrid.map_builder.ascii import AsciiMapBuilder
 from mettagrid.simulator import Simulation
-
-register_with_metta()
 
 BASE_RESOURCES = ["food", "egg", "kid"]
 RESOURCES_WITH_HERBIVORE = BASE_RESOURCES + ["energy", "herbivore"]

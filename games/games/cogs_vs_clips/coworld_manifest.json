@@ -102,6 +102,16 @@
       "description": "Cogs vs Clips Coworld reference player over coworld.player.v1."
     }
   ],
+  "grader": [
+    {
+      "id": "cogs-v-clips-grader",
+      "type": "grader",
+      "name": "Cogs vs Clips Grader",
+      "description": "Reference Cogs vs Clips grader: consumes replay/results artifacts and emits a scalar creator-interest score for ranking useful episodes.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/cogs_v_clips/cogs_v_clips_grader",
+      "image": "ghcr.io/metta-ai/graders-cogs-v-clips:latest"
+    }
+  ],
   "variants": [
     {
       "id": "machina-1-daily",

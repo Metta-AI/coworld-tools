@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coworld Replay</title>
+<style>body{margin:0;font:14px system-ui;background:#111827;color:#f9fafb}header{padding:10px 14px;background:#1f2937;display:flex;gap:8px}pre{margin:0;padding:14px;overflow:auto;white-space:pre-wrap;height:calc(100vh - 42px)}.pill{padding:3px 8px;background:#374151;border-radius:6px}</style></head>
+<body><header><strong id="game">Coworld Replay</strong><span class="pill" id="status">connecting</span></header><pre id="state"></pre>
+<script>
+function websocketAddress(path) {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("address")) {
+    const direct = new URL(params.get("address"), window.location.href);
+    direct.protocol = direct.protocol === "https:" ? "wss:" : "ws:";
+    return direct.toString();
+  }
+  const url = new URL(window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = path;
+  return url.toString();
+}
+
+const state = document.getElementById("state");
+const status = document.getElementById("status");
+const game = document.getElementById("game");
+const ws = new WebSocket(websocketAddress("/replay"));
+ws.onopen = () => status.textContent = "connected";
+ws.onclose = () => status.textContent = "closed";
+ws.onmessage = event => { const msg = JSON.parse(event.data); game.textContent = (msg.game || "Coworld") + " Replay"; state.textContent = JSON.stringify(msg, null, 2); };
+</script></body></html>

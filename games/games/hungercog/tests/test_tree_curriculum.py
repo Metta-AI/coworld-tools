@@ -1,16 +1,18 @@
+import pytest
 from mettagrid.cogame.variants import VariantRegistry
-from metta.games.games import make_game
-from hungercog.tree_curriculum import (
+
+from hungercog.game import make_game
+
+pytest.importorskip("metta.rl.curriculum.tree_curriculum")
+
+from hungercog.tree_curriculum import (  # noqa: E402
     HUNGER_MECHANICS,
     HungerTreeTaskGenerator,
 )
-from hungercog.game import register_with_metta
-from metta.rl.curriculum.curriculum import DiscreteRandomConfig
-from metta.rl.curriculum.tree_curriculum import build_tree_nodes, make_tree_curriculum
+from metta.rl.curriculum.curriculum import DiscreteRandomConfig  # noqa: E402
+from metta.rl.curriculum.tree_curriculum import build_tree_nodes, make_tree_curriculum  # noqa: E402
 
 _HUNGER_PREFIXES = ("hungercog.",)
-
-register_with_metta()
 
 
 def test_hunger_tree_nodes_are_dependency_closed_and_multi_depth() -> None:

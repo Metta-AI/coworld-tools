@@ -132,6 +132,16 @@
       "description": "Shares visible manual pieces to their targets and solves modules from received canonical JSON hints."
     }
   ],
+  "grader": [
+    {
+      "id": "liarliar-grader",
+      "name": "Liar Liar Grader",
+      "type": "grader",
+      "description": "Reference Liar Liar grader that scores module outcomes, survival, detonations, score spread, and communication signals.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/liarliar/liarliar_grader",
+      "image": "ghcr.io/metta-ai/graders-liarliar:latest"
+    }
+  ],
   "variants": [
     {
       "id": "default-5m",

@@ -79,9 +79,12 @@ version = "0.1.0"
 source = { editable = "games/amongcogs" }
 dependencies = [
     { name = "anthropic" },
+    { name = "fastapi" },
     { name = "mettagrid" },
     { name = "pydantic" },
     { name = "typing-extensions" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -94,12 +97,15 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.64.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gymnasium", marker = "extra == 'test'", specifier = ">=1.1.1" },
     { name = "mettagrid", git = "https://github.com/Metta-AI/mettagrid.git?tag=mettagrid-v0.26.24" },
     { name = "pillow", marker = "extra == 'test'", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=15.0.0" },
 ]
 provides-extras = ["test"]
 
@@ -442,10 +448,13 @@ name = "diplomacog"
 version = "0.1.0"
 source = { editable = "games/diplomacog" }
 dependencies = [
+    { name = "fastapi" },
     { name = "mettagrid" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "typing-extensions" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -460,6 +469,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "mettagrid", git = "https://github.com/Metta-AI/mettagrid.git?tag=mettagrid-v0.26.24" },
     { name = "numpy", specifier = ">=2.0.0,<3" },
     { name = "pydantic", specifier = ">=2.11.5" },
@@ -468,6 +478,8 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12.0" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.12.0" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=15.0.0" },
 ]
 provides-extras = ["dev", "test"]
 
@@ -652,8 +664,11 @@ name = "hungercog"
 version = "0.1.0"
 source = { editable = "games/hungercog" }
 dependencies = [
+    { name = "fastapi" },
     { name = "mettagrid" },
     { name = "pydantic" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -663,9 +678,12 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "mettagrid", git = "https://github.com/Metta-AI/mettagrid.git?tag=mettagrid-v0.26.24" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=15.0.0" },
 ]
 provides-extras = ["test"]
 
@@ -1093,11 +1111,14 @@ name = "overcogged"
 version = "0.1.0"
 source = { editable = "games/overcogged" }
 dependencies = [
+    { name = "fastapi" },
     { name = "mettagrid" },
     { name = "pydantic" },
     { name = "rich" },
     { name = "typer" },
     { name = "typing-extensions" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1111,6 +1132,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "mettagrid", git = "https://github.com/Metta-AI/mettagrid.git?tag=mettagrid-v0.26.24" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
@@ -1119,6 +1141,8 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "typer", specifier = ">=0.19.2" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=15.0.0" },
 ]
 provides-extras = ["dev", "test"]
 
@@ -1827,8 +1851,11 @@ name = "werecog"
 version = "0.1.0"
 source = { editable = "games/werecog" }
 dependencies = [
+    { name = "fastapi" },
     { name = "mettagrid" },
     { name = "pydantic" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1840,11 +1867,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "mettagrid", git = "https://github.com/Metta-AI/mettagrid.git?tag=mettagrid-v0.26.24" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=15.0.0" },
 ]
 provides-extras = ["dev"]
 

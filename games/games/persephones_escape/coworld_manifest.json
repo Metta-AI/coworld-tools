@@ -240,6 +240,16 @@
       ]
     }
   ],
+  "grader": [
+    {
+      "id": "persephones-escape-grader",
+      "name": "Persephone's Escape Grader",
+      "type": "grader",
+      "description": "Reference Persephone's Escape grader that scores decisive team outcomes, score spread, elapsed ticks, and populated player results.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/persephones_escape/persephones_escape_grader",
+      "image": "ghcr.io/metta-ai/graders-persephones-escape:latest"
+    }
+  ],
   "variants": [
     {
       "id": "tournament-smoke",
