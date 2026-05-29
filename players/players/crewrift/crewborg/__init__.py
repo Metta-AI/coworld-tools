@@ -8,6 +8,7 @@ parameters, three pure functions, modes, and the rule-based strategy. See
 from __future__ import annotations
 
 from players.crewrift.crewborg.action import resolve_action
+from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.map import MapData, load_croatoan_map
 from players.crewrift.crewborg.modes import (
     AttendMeetingMode,
@@ -55,7 +56,10 @@ def build_runtime(
     via ``SynchronousStrategyRunner``. The static map is baked once here (design
     §6) — ``map_data`` overrides the vendored ``croatoan`` bake (used in tests).
     Registers all modes: idle / normal / attend_meeting / report_body / flee
-    (crewmate) and hunt / pretend / evade (imposter).
+    (crewmate) and hunt / pretend / evade (imposter). A ``CrewborgEventTracer``
+    is wired as the runtime's ``on_step_complete`` hook so crewborg emits its
+    ``domain.*`` trace events (phase / sighting / objective / kill / vote)
+    through the configured sinks (design §11).
     """
 
     registry: ModeRegistry[Belief, ActionState, Intent] = ModeRegistry()
@@ -84,6 +88,7 @@ def build_runtime(
             trace_sink=trace_sink,
             metrics_sink=metrics_sink,
         ),
+        on_step_complete=CrewborgEventTracer(),
         trace_sink=trace_sink,
         metrics_sink=metrics_sink,
     )
