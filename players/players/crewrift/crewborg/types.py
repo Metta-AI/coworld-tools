@@ -152,6 +152,13 @@ class Belief(BaseModel):
     # Social / evidence (design §5). Reserved and empty until P3+ reasoning fills
     # them; ``believed_imposters`` drives the Flee mode (dormant while empty).
     believed_imposters: set[int] = Field(default_factory=set)
+    # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
+    # so Hunt never targets a fellow imposter (the server's kill skips them).
+    teammate_colors: set[str] = Field(default_factory=set)
+
+    # Imposter: tick of the most recent self kill (kill-ready → cooldown edge),
+    # used to evade the fresh body briefly (design §7.2).
+    last_kill_tick: int | None = None
 
 
 class Intent(BaseModel):
@@ -254,6 +261,7 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     """Fold the percept into belief in place (design §5)."""
 
     resolved = percept.resolved
+    previous_phase = belief.phase  # before this tick's phase derivation
     belief.last_tick = percept.tick
     belief.ticks_observed += 1
     belief.messages_applied = percept.messages_applied
@@ -309,11 +317,29 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.phase = phase
         belief.phase_start_tick = percept.tick
 
+    # The role-reveal "IMPS" interstitial confirms we are an imposter and shows
+    # only our teammates' icons; record their colors so Hunt never targets them.
+    if belief.phase == "RoleReveal" and "IMPS" in resolved.phase_texts:
+        belief.self_role = "imposter"
+        belief.teammate_colors |= resolved.reveal_player_colors
+
     # Self role/state (design §4-§5). The HUD shows an imposter/ghost icon for
     # those roles; an alive crewmate has neither, so once we know we are Playing
     # and no such marker is present, the role is crewmate. Role is fixed for the
     # game (a crewmate only changes to "dead" on death, via the ghost icon).
     if resolved.self_role is not None:
+        # A kill-ready → cooldown edge for an imposter means we just killed
+        # someone (the icon flips to "imposter icon cooldown"); note it to evade.
+        # Gate on continuous Playing: a meeting also resets killCooldown, which
+        # would otherwise look like a kill on the first Playing frame afterward.
+        if (
+            resolved.self_role == "imposter"
+            and belief.self_kill_ready is True
+            and resolved.self_kill_ready is False
+            and previous_phase == "Playing"
+            and belief.phase == "Playing"
+        ):
+            belief.last_kill_tick = percept.tick
         belief.self_role = resolved.self_role
         belief.self_kill_ready = resolved.self_kill_ready
     elif belief.self_role is None and belief.phase == "Playing":

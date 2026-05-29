@@ -6,9 +6,11 @@ imposters kill, vent, and blend in). This document is the implementation spec.
 For codebase orientation, game constants, and source pointers, see
 [`AGENTS.md`](./AGENTS.md).
 
-> **Status:** not yet implemented. The architecture below is settled. Three
-> behavior parameters are left to tune during implementation — see
-> [§12](#12-open-tuning-parameters).
+> **Status:** P0–P4 implemented (idle bridge → Sprite-v1 decoder + map bake →
+> crewmate Normal/nav/action → meetings/report/flee → imposter modes). The LLM
+> strategy seam ([§10](#10-strategy-mode-selector)) remains unused, and the three
+> tuning parameters in [§12](#12-open-tuning-parameters) await tuning against a
+> live server.
 
 Conventions: paths like `sim:2464` cite the Crewrift Nim source (`sim` =
 `src/crewrift/sim.nim`, `global` = `src/crewrift/global.nim`, `protocols.nim` =

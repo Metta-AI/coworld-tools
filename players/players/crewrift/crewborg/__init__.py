@@ -11,9 +11,12 @@ from players.crewrift.crewborg.action import resolve_action
 from players.crewrift.crewborg.map import MapData, load_croatoan_map
 from players.crewrift.crewborg.modes import (
     AttendMeetingMode,
+    EvadeMode,
     FleeMode,
+    HuntMode,
     IdleMode,
     NormalMode,
+    PretendMode,
     ReportBodyMode,
 )
 from players.crewrift.crewborg.strategy import RuleBasedStrategy
@@ -51,7 +54,8 @@ def build_runtime(
     resolve_action`` each tick; the rule-based strategy publishes mode directives
     via ``SynchronousStrategyRunner``. The static map is baked once here (design
     §6) — ``map_data`` overrides the vendored ``croatoan`` bake (used in tests).
-    P3 registers idle / normal / attend_meeting / report_body / flee.
+    P4 registers all modes: idle / normal / attend_meeting / report_body / flee
+    (crewmate) and hunt / pretend / evade (imposter).
     """
 
     registry: ModeRegistry[Belief, ActionState, Intent] = ModeRegistry()
@@ -60,6 +64,9 @@ def build_runtime(
     registry.register(AttendMeetingMode)
     registry.register(ReportBodyMode)
     registry.register(FleeMode)
+    registry.register(HuntMode)
+    registry.register(PretendMode)
+    registry.register(EvadeMode)
 
     if map_data is None:
         map_data = load_croatoan_map()

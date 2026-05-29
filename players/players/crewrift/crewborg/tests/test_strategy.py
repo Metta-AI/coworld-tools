@@ -62,6 +62,34 @@ def test_non_playing_phases_idle() -> None:
     assert _select(Belief(phase="GameOver")) == "idle"
 
 
-def test_imposter_idles_until_p4() -> None:
-    # Imposter behaviour lands in P4; until then it falls through to idle.
-    assert _select(Belief(phase="Playing", self_role="imposter")) == "idle"
+def _imposter_with_visible_target(**kwargs) -> Belief:
+    from players.crewrift.crewborg.types import RosterEntry
+
+    belief = Belief(phase="Playing", self_role="imposter", last_tick=10, **kwargs)
+    belief.roster[1004] = RosterEntry(
+        object_id=1004, color="red", facing="left", world_x=50, world_y=50, last_seen_tick=10
+    )
+    return belief
+
+
+def test_imposter_pretends_by_default() -> None:
+    assert _select(Belief(phase="Playing", self_role="imposter", last_tick=10)) == "pretend"
+
+
+def test_imposter_hunts_when_kill_ready_with_target() -> None:
+    assert _select(_imposter_with_visible_target(self_kill_ready=True)) == "hunt"
+    # Kill ready but no target in view ⇒ pretend.
+    no_target = Belief(phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10)
+    assert _select(no_target) == "pretend"
+
+
+def test_imposter_evades_right_after_a_kill() -> None:
+    belief = _imposter_with_visible_target(self_kill_ready=False, last_kill_tick=8)
+    assert _select(belief) == "evade"  # last_tick 10 − last_kill_tick 8 < EVADE_TICKS
+
+
+def test_imposter_pretends_when_only_teammate_visible() -> None:
+    # Kill ready but the only visible player is a teammate ⇒ no target ⇒ pretend.
+    belief = _imposter_with_visible_target(self_kill_ready=True)
+    belief.teammate_colors = {"red"}  # the visible target is red (see helper)
+    assert _select(belief) == "pretend"

@@ -25,6 +25,9 @@ from players.player_sdk.types import BeliefSnapshot
 # "approaching" and triggers Flee.
 FLEE_APPROACH_SQ = 60**2
 
+# Ticks after a kill during which the imposter prefers to Evade (≈ 3s at 24 Hz).
+EVADE_TICKS = 72
+
 
 class RuleBasedStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
@@ -44,16 +47,35 @@ class RuleBasedStrategy:
             # own tasks (design §7.3), so it goes straight to Normal.
             if belief.self_role == "dead":
                 return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
+            if belief.self_role == "imposter":
+                return self._select_imposter(belief)
             # Live crewmate (or not-yet-known role): full field priority.
-            if belief.self_role in (None, "crewmate"):
-                if _threat_approaching(belief):
-                    return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
-                if any(bid in belief.bodies for bid in belief.visible_body_ids):
-                    return ModeDirective(mode="report_body", source="strategy", reason="body in view")
-                return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
+            if _threat_approaching(belief):
+                return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
+            if any(bid in belief.bodies for bid in belief.visible_body_ids):
+                return ModeDirective(mode="report_body", source="strategy", reason="body in view")
+            return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
-        # Imposter behaviour (P4) and all non-play phases idle.
+        # All non-play phases (RoleReveal / Lobby / VoteResult / GameOver / unknown).
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
+
+    def _select_imposter(self, belief: Belief) -> ModeDirective:
+        # Imposter priority (design §10): just killed -> Evade; kill ready with a
+        # target -> Hunt; else Pretend.
+        if belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS:
+            return ModeDirective(mode="evade", source="strategy", reason="just killed: lay low")
+        if belief.self_kill_ready and _has_visible_target(belief):
+            return ModeDirective(mode="hunt", source="strategy", reason="kill ready: hunt")
+        return ModeDirective(mode="pretend", source="strategy", reason="blend in")
+
+
+def _has_visible_target(belief: Belief) -> bool:
+    """Whether a killable (non-teammate) player is currently in view."""
+
+    return any(
+        entry.last_seen_tick == belief.last_tick and entry.color not in belief.teammate_colors
+        for entry in belief.roster.values()
+    )
 
 
 def _threat_approaching(belief: Belief) -> bool:

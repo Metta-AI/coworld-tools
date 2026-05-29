@@ -31,6 +31,7 @@ from players.crewrift.crewborg.perception.constants import (
     PREFIX_TASK_COUNTER,
     PREFIX_VOTE_DOT,
     PREFIX_VOTE_SELF_MARKER,
+    ROLE_ICON_OBJECT_BASE,
     SELF_OFFSET_X,
     SELF_OFFSET_Y,
     TASK_ARROW_OBJECT_BASE,
@@ -82,6 +83,7 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     phase_texts: set[str] = set()
     cursor = skip_cursor = timer = False
     self_marker_color: str | None = None
+    reveal_colors: set[str] = set()
 
     for object_id, obj in scene.objects.items():
         sprite = scene.sprites.get(obj.sprite_id)
@@ -167,6 +169,13 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
         ):
             # Skip votes share the "vote dot" sprite but a separate id range.
             dots.append(VoteDot(target=SKIP_VOTE_TARGET, voter=object_id - VOTE_SKIP_DOT_OBJECT_BASE))
+        elif (
+            ROLE_ICON_OBJECT_BASE <= object_id < ROLE_ICON_OBJECT_BASE + MAX_PLAYERS
+            and label.startswith(PREFIX_PLAYER)
+        ):
+            # Role-reveal icons: for an imposter viewer these are the teammates.
+            color, _ = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
+            reveal_colors.add(color)
 
     self_world_x = camera_x + SELF_OFFSET_X if scene.camera_ready else None
     self_world_y = camera_y + SELF_OFFSET_Y if scene.camera_ready else None
@@ -193,4 +202,5 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             dots=tuple(dots),
         ),
         phase_texts=frozenset(phase_texts),
+        reveal_player_colors=frozenset(reveal_colors),
     )
