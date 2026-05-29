@@ -6,7 +6,7 @@ import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.modes import EvadeMode, HuntMode, PretendMode
-from players.crewrift.crewborg.nav import build_nav_grid
+from players.crewrift.crewborg.nav import build_nav_graph
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, RosterEntry
 
 
@@ -49,7 +49,7 @@ def test_hunt_prefers_reachable_over_unreachable_isolated() -> None:
     mask = np.ones((24, 120), dtype=bool)
     mask[:, 56:64] = False  # wall splits the map; right side is unreachable from the left
     belief = Belief(self_world_x=8, self_world_y=12, last_tick=5)
-    belief.nav = build_nav_grid(mask, cell_size=8)
+    belief.nav = build_nav_graph(mask, cell_size=8)
     _visible(belief, 1001, (110, 12), color="green")  # right side: isolated but UNREACHABLE
     _visible(belief, 1002, (10, 12), color="blue")  # left: reachable, near 1003
     _visible(belief, 1003, (14, 12), color="white")  # left: reachable, near 1002

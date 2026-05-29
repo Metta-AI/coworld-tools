@@ -358,8 +358,9 @@ read their positions from the stream; get them from the static map /
 **Walkability** = the alpha channel of the one sprite labeled `walkability map`
 (alpha > 0 ⇒ walkable), sized to the full 1235×659 map. Built server-side at
 `buildWalkabilitySpritePixels` `global:709`; decoded by `notsus` at `np:389-406`
-(alpha-only mask). Snappy-decompress it once and use it as the A* grid — the
-*only* image decoding crewborg needs; ignore every other sprite's pixels.
+(alpha-only mask). Snappy-decompress it once; `nav.py` builds the pixel-validated
+nav graph over it (§6) — the *only* image decoding crewborg needs; ignore every
+other sprite's pixels.
 
 **Client → server (input).** Player input is `0x84` + one **byte** bitmask
 (`[0x84, mask & 0x7f]`; encoder `np:194`, server masks bit 7 at `global:501`,

@@ -297,10 +297,29 @@ the ~40-line parser to Python. Parse it **at container startup** into belief's m
 section (never per-tick — the map is static for an episode).
 
 **Walkability & validation.** The walkability grid comes from the stream's
-`walkability map` alpha (decoded once); the nav graph is built over it. The decoded
-walkability also validates the bake: if it doesn't match `croatoan`, the server is
-running a different map — fail loud / fall back. (`mapPath` is config-overridable,
-`sim:1320-1321`; today only `croatoan` exists.)
+`walkability map` alpha (decoded once); the nav graph is built over it (`nav.py`,
+once per episode). Because Crewrift collides the player as a **1×1 point**
+(`sim.nim` `CollisionW=CollisionH=1`), every walkable pixel is a legal position, so
+the graph is coarsened (8px cells) only for A* speed while **correctness is
+enforced at pixel resolution**:
+
+- A cell is a routable **node** iff it contains a *reachable* walkable pixel; the
+  node's point is the reachable pixel nearest the cell center (so a cell that only
+  clips a corridor still routes — the old "all pixels walkable" rule discarded it).
+- **Edges** join 8-neighbour nodes whose connecting pixel segment is fully walkable
+  (no diagonal corner squeeze), so A* and the line-of-sight smoother are sound on
+  the real mask, not the coarse approximation.
+- **Reachability** is a pixel flood from `home` (spawn) — ground truth, immune to a
+  thin wall passing *through* a cell.
+- **Destination anchors:** for every baked task / vent / button, the reachable
+  pixel satisfying its interaction condition (inside the task/button rect; within
+  VentRange of a vent) is precomputed, so navigation targets a known-good point
+  instead of a rect center that may sit in a wall. A destination with no reachable
+  anchor is logged at build — surfaced on frame 1, not as a silent mid-game stall.
+
+The decoded walkability also validates the bake: if it doesn't match `croatoan`,
+the server is running a different map — fail loud / fall back. (`mapPath` is
+config-overridable, `sim:1320-1321`; today only `croatoan` exists.)
 
 > Building crewborg requires the game repo (or the vendored `croatoan.resources`)
 > present.
@@ -390,10 +409,18 @@ transport mechanics live, and it is **stateful across ticks** (state in
 **Composite intents** internally sequence *navigate-then-interact*, reusing one
 "move toward a world point" routine (follows the nav route, does momentum control):
 
-- `complete_task` → navigate to the rect, then **hold A while standing still**
-  (movement suppressed — d-pad resets the 72-tick progress).
-- `report` / `kill` → navigate to the body/target, then edge-press A.
-- `vent` → navigate to the vent, then press B.
+- `complete_task` → navigate to the station's **baked anchor**, then **hold A while
+  standing still** (movement suppressed — d-pad resets the 72-tick progress).
+- `report` / `kill` → navigate to the body/target (a dynamic point, no anchor),
+  then edge-press A.
+- `vent` → navigate to the vent's **baked anchor**, then press B (the trigger gate
+  stays on the true vent center — `sim.nim` VentRange — even though nav aims at the
+  anchor).
+
+Static destinations (tasks, vents, button) navigate to their **baked anchor** — a
+reachable walkable pixel satisfying the interaction condition (§6) — so a rect
+center that sits in a wall never strands the agent; dynamic targets (bodies, kill
+targets) use their live position.
 
 **Transport mechanics owned here:**
 

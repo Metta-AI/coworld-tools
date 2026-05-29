@@ -228,9 +228,11 @@ def _resolve_complete_task(
         # On the station: hold A with no d-pad (any d-pad resets task progress);
         # residual momentum settles via friction while progress accrues.
         return Command(held_mask=BTN_A)
-    # Otherwise drive onto the station's center.
-    center = (task.center.x, task.center.y)
-    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, center))
+    # Otherwise drive onto the station's baked anchor (a reachable pixel inside the
+    # rect), falling back to the geometric center before the nav graph exists.
+    anchor = belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
+    goal = anchor if anchor is not None else (task.center.x, task.center.y)
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
 
 
 def _resolve_report(
@@ -298,20 +300,26 @@ def _resolve_kill(
 def _resolve_vent(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    vent = _select_vent(belief, intent.target_id, self_xy)
-    if vent is None:
+    index = _select_vent_index(belief, intent.target_id, self_xy)
+    if index is None:
         return Command(held_mask=0)
-    vent_xy = (vent.center.x, vent.center.y)
-    if _dist2(self_xy, vent_xy) <= VENT_RANGE_SQ:
-        return Command(held_mask=BTN_B)  # B is level-triggered (sim.nim tryVent)
-    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, vent_xy))
+    vent = belief.map.vents[index]
+    center_xy = (vent.center.x, vent.center.y)
+    # Vent fires within VentRange of the vent center (sim.nim tryVent), so the trigger
+    # gate stays on the center; navigation aims at the baked anchor (a reachable pixel
+    # within range), falling back to the center before the nav graph exists.
+    if _dist2(self_xy, center_xy) <= VENT_RANGE_SQ:
+        return Command(held_mask=BTN_B)  # B is level-triggered
+    anchor = belief.nav.vent_anchor(index) if belief.nav is not None else None
+    goal = anchor if anchor is not None else center_xy
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
 
 
-def _select_vent(belief: Belief, target_id: int | None, self_xy: tuple[int, int]):
+def _select_vent_index(belief: Belief, target_id: int | None, self_xy: tuple[int, int]) -> int | None:
     if belief.map is None or not belief.map.vents:
         return None
     vents = belief.map.vents
     if target_id is not None and 0 <= target_id < len(vents):
-        return vents[target_id]
-    # Default: the nearest vent.
-    return min(vents, key=lambda v: _dist2(self_xy, (v.center.x, v.center.y)))
+        return target_id
+    # Default: the nearest vent by center distance.
+    return min(range(len(vents)), key=lambda i: _dist2(self_xy, (vents[i].center.x, vents[i].center.y)))

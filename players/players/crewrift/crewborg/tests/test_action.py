@@ -18,7 +18,7 @@ from players.crewrift.crewborg.action import (
     resolve_action,
 )
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
-from players.crewrift.crewborg.nav import build_nav_grid
+from players.crewrift.crewborg.nav import build_nav_graph
 from players.crewrift.crewborg.perception.entities import VotingState
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, RosterEntry
 
@@ -91,7 +91,7 @@ def test_navigate_holds_still_when_nav_route_unreachable() -> None:
     mask = np.ones((24, 48), dtype=bool)
     mask[:, 24:32] = False
     belief = Belief(self_world_x=8, self_world_y=12)  # left of the wall
-    belief.nav = build_nav_grid(mask, cell_size=8)
+    belief.nav = build_nav_graph(mask, cell_size=8)
     command = resolve_action(Intent(kind="navigate_to", point=(40, 12)), belief, ActionState())
     # nav present + no path ⇒ hold still rather than steer into the wall.
     assert command.held_mask == 0
