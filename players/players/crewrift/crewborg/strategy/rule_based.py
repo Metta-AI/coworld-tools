@@ -39,13 +39,18 @@ class RuleBasedStrategy:
         if phase == "Voting":
             return ModeDirective(mode="attend_meeting", source="strategy", reason="meeting open")
 
-        # Crewmate (or not-yet-known / ghost) field behaviour during play.
-        if phase == "Playing" and belief.self_role in (None, "crewmate", "dead"):
-            if _threat_approaching(belief):
-                return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
-            if any(bid in belief.bodies for bid in belief.visible_body_ids):
-                return ModeDirective(mode="report_body", source="strategy", reason="body in view")
-            return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
+        if phase == "Playing":
+            # A crewmate ghost can't report or be threatened; it only finishes its
+            # own tasks (design §7.3), so it goes straight to Normal.
+            if belief.self_role == "dead":
+                return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
+            # Live crewmate (or not-yet-known role): full field priority.
+            if belief.self_role in (None, "crewmate"):
+                if _threat_approaching(belief):
+                    return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
+                if any(bid in belief.bodies for bid in belief.visible_body_ids):
+                    return ModeDirective(mode="report_body", source="strategy", reason="body in view")
+                return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
         # Imposter behaviour (P4) and all non-play phases idle.
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")

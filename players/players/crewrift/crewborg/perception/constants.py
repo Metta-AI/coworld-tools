@@ -42,6 +42,14 @@ MAX_PLAYERS = 16
 SELF_OFFSET_X = 60
 SELF_OFFSET_Y = 66
 
+# A visible player/body object is *drawn* at (entity.x - SpriteDrawOffX - 1,
+# entity.y - SpriteDrawOffY - 1) (global.nim:2376,2403), but the server's
+# collision / report / kill point is entity.x/y (CollisionW/H = 1). Add this
+# offset to a decoded object world position to recover the collision point, so
+# range checks match the server.
+ENTITY_COLLISION_DX = 3  # SpriteDrawOffX + 1
+ENTITY_COLLISION_DY = 9  # SpriteDrawOffY + 1
+
 # The 16 player color names, in palette order (global.nim PlayerColorNames).
 PLAYER_COLOR_NAMES: tuple[str, ...] = (
     "red",

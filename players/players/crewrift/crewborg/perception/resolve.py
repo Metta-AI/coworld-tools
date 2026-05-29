@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from players.crewrift.crewborg.perception.constants import (
     BODY_OBJECT_BASE,
+    ENTITY_COLLISION_DX,
+    ENTITY_COLLISION_DY,
     LABEL_GHOST_ICON,
     LABEL_IMPOSTER_ICON,
     LABEL_IMPOSTER_ICON_COOLDOWN,
@@ -115,19 +117,24 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
         elif label in PHASE_TEXTS:
             phase_texts.add(label)
 
+        # Player/body objects are drawn offset from their collision point; recover
+        # the collision point so range checks (report, kill) match the server.
+        coll_x = world_x + ENTITY_COLLISION_DX
+        coll_y = world_y + ENTITY_COLLISION_DY
+
         # Entities, classified by both id range and label.
         if PLAYER_OBJECT_BASE <= object_id < BODY_OBJECT_BASE and label.startswith(PREFIX_PLAYER):
             color, facing = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
             if facing in ("left", "right"):
                 players.append(
                     VisiblePlayer(
-                        object_id=object_id, color=color, facing=facing, world_x=world_x, world_y=world_y
+                        object_id=object_id, color=color, facing=facing, world_x=coll_x, world_y=coll_y
                     )
                 )
         elif BODY_OBJECT_BASE <= object_id < TASK_BUBBLE_OBJECT_BASE and label.startswith(PREFIX_BODY):
             bodies.append(
                 VisibleBody(
-                    object_id=object_id, color=label[len(PREFIX_BODY) :], world_x=world_x, world_y=world_y
+                    object_id=object_id, color=label[len(PREFIX_BODY) :], world_x=coll_x, world_y=coll_y
                 )
             )
         elif TASK_BUBBLE_OBJECT_BASE <= object_id < TASK_ARROW_OBJECT_BASE and label == LABEL_TASK_BUBBLE:
