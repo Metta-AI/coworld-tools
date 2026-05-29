@@ -10,13 +10,16 @@ from players.crewrift.crewborg.action import (
     BTN_LEFT,
     BTN_RIGHT,
     BTN_UP,
+    CHAT_HEADER,
     INPUT_HEADER,
+    encode_chat,
     encode_input,
     resolve_action,
 )
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
 from players.crewrift.crewborg.nav import build_nav_grid
-from players.crewrift.crewborg.types import ActionState, Belief, Intent
+from players.crewrift.crewborg.perception.entities import VotingState
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, RosterEntry
 
 
 def _one_task_map() -> MapData:
@@ -110,3 +113,67 @@ def test_complete_task_holds_a_inside_rect_and_navigates_outside() -> None:
     belief_outside = Belief(map=_one_task_map(), self_world_x=0, self_world_y=0)
     command = resolve_action(Intent(kind="complete_task", task_index=0), belief_outside, ActionState())
     assert command.held_mask == BTN_RIGHT | BTN_DOWN  # drive toward center (110, 110)
+
+
+def test_encode_chat_wire_format() -> None:
+    assert encode_chat("hi") == bytes([CHAT_HEADER, 0x02, 0x00]) + b"hi"
+    # Non-ASCII is dropped; length is the ASCII byte count.
+    packet = encode_chat("héllo")
+    assert packet == bytes([CHAT_HEADER, 0x04, 0x00]) + b"hllo"
+
+
+def _belief_with_body(self_xy: tuple[int, int], body_xy: tuple[int, int]) -> Belief:
+    belief = Belief(self_world_x=self_xy[0], self_world_y=self_xy[1])
+    belief.bodies[2003] = BodyEntry(
+        object_id=2003, color="green", world_x=body_xy[0], world_y=body_xy[1], first_seen_tick=1
+    )
+    return belief
+
+
+def test_report_in_range_edge_presses_a_refiring_requires_release() -> None:
+    belief = _belief_with_body((10, 10), (10, 10))  # on top of the body
+    action_state = ActionState()
+    intent = Intent(kind="report", target_id=2003)
+
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_A  # fresh press
+    assert resolve_action(intent, belief, action_state).held_mask == 0  # release to reset edge
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_A  # re-press
+
+
+def test_report_out_of_range_navigates_to_body() -> None:
+    belief = _belief_with_body((200, 200), (10, 10))
+    command = resolve_action(Intent(kind="report", target_id=2003), belief, ActionState())
+    assert command.held_mask == BTN_UP | BTN_LEFT  # toward (10, 10) from (200, 200)
+
+
+def test_vote_skip_steps_to_skip_then_confirms_once() -> None:
+    belief = Belief()
+    belief.voting = VotingState(cursor_present=True)  # on a player cell, not skip
+    action_state = ActionState()
+    intent = Intent(kind="vote")
+
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_DOWN  # step toward skip
+    assert resolve_action(intent, belief, action_state).held_mask == 0  # release (edge)
+
+    belief.voting = VotingState(skip_cursor_present=True)  # cursor now on skip
+    confirm = resolve_action(intent, belief, action_state)
+    assert confirm.held_mask == BTN_A and action_state.vote_confirmed
+    # Vote is cast: no further input.
+    assert resolve_action(intent, belief, action_state).held_mask == 0
+
+
+def test_chat_emitted_once() -> None:
+    action_state = ActionState()
+    intent = Intent(kind="chat", text="gg")
+    first = resolve_action(intent, Belief(), action_state)
+    assert first.chat == "gg" and first.held_mask == 0
+    assert resolve_action(intent, Belief(), action_state).chat is None  # not resent
+
+
+def test_flee_moves_away_from_threat() -> None:
+    belief = Belief(self_world_x=100, self_world_y=100)
+    belief.roster[1004] = RosterEntry(
+        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1
+    )
+    command = resolve_action(Intent(kind="flee_from", target_id=1004), belief, ActionState())
+    assert command.held_mask == BTN_LEFT  # threat is to our right ⇒ flee left

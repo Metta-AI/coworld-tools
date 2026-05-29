@@ -11,12 +11,13 @@ state in place (``Belief``/``ActionState``). ``SceneState`` is the lone exceptio
 a plain dataclass owned by the bridge holding raw buffers that never reach the
 strategy.
 
-**P2 scope.** ``perceive`` resolves the scene into a structured
+**P3 scope.** ``perceive`` resolves the scene into a structured
 :class:`~.perception.entities.ResolvedScene` (including self world position), and
 ``update_belief`` folds it into belief's self / roster / bodies / tasks / phase /
-voting sections and builds the nav grid once from the walkability mask
-(design §4-§6). The crewmate Normal mode + action layer drive task completion;
-meetings/report/flee (P3) and imposter behaviour (P4) are still to come.
+voting / evidence sections and builds the nav grid once from the walkability mask
+(design §4-§6). The crewmate modes (Normal / Attend Meeting / Report Body / Flee)
++ action layer drive tasks, meetings, voting, reporting, and fleeing; imposter
+behaviour (P4) is still to come.
 """
 
 from __future__ import annotations
@@ -139,6 +140,7 @@ class Belief(BaseModel):
     roster: dict[int, RosterEntry] = Field(default_factory=dict)
     total_player_count: int = 0
     bodies: dict[int, BodyEntry] = Field(default_factory=dict)
+    visible_body_ids: set[int] = Field(default_factory=set)  # bodies in view this tick
 
     # Phase machine (design §5 phase).
     phase: Phase = "unknown"
@@ -146,6 +148,10 @@ class Belief(BaseModel):
 
     # Voting (design §5 voting).
     voting: VotingState = Field(default_factory=VotingState)
+
+    # Social / evidence (design §5). Reserved and empty until P3+ reasoning fills
+    # them; ``believed_imposters`` drives the Flee mode (dormant while empty).
+    believed_imposters: set[int] = Field(default_factory=set)
 
 
 class Intent(BaseModel):
@@ -176,6 +182,11 @@ class ActionState(BaseModel):
     # Last observed self world position, for estimating velocity (predictive stop).
     last_self_x: int | None = None
     last_self_y: int | None = None
+    # Whether the current vote intent has been confirmed (A pressed on the choice),
+    # so we don't re-press once the vote is cast.
+    vote_confirmed: bool = False
+    # Whether the current chat intent's text has been emitted (sent once).
+    chat_sent: bool = False
 
 
 class Command(BaseModel):
@@ -282,6 +293,7 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     # ids seen so far estimate the full player count (design §5).
     belief.total_player_count = max(belief.total_player_count, len(belief.roster))
 
+    belief.visible_body_ids = {body.object_id for body in resolved.visible_bodies}
     for body in resolved.visible_bodies:
         if body.object_id not in belief.bodies:
             belief.bodies[body.object_id] = BodyEntry(

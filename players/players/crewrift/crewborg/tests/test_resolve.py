@@ -28,11 +28,12 @@ def test_players_and_bodies_resolve_with_world_coords() -> None:
     assert len(resolved.visible_players) == 1
     player = resolved.visible_players[0]
     assert (player.color, player.facing) == ("light blue", "right")
-    assert (player.world_x, player.world_y) == (1030, 540)
+    # Draw pos (1030, 540) + collision offset (3, 9) = the server's collision point.
+    assert (player.world_x, player.world_y) == (1033, 549)
 
     assert len(resolved.visible_bodies) == 1
     body = resolved.visible_bodies[0]
-    assert body.color == "green" and (body.world_x, body.world_y) == (995, 508)
+    assert body.color == "green" and (body.world_x, body.world_y) == (998, 517)
 
 
 def test_task_bubble_and_arrow_distinguished() -> None:
