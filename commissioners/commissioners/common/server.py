@@ -37,7 +37,6 @@ def create_app(commissioner: Commissioner) -> FastAPI:
         round_start: RoundStart | None = None
         expected_request_ids: set[str] = set()
         results_by_request_id: dict[str, EpisodeResult] = {}
-        failed_request_ids: set[str] = set()
 
         try:
             while True:
@@ -91,7 +90,14 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     results_by_request_id[result.request_id] = result
                 elif msg_type == "episode_failed":
                     failed = EpisodeFailed.model_validate({key: value for key, value in data.items() if key != "type"})
-                    failed_request_ids.add(failed.request_id)
+                    if round_start is None:
+                        await websocket.close(code=1008, reason="episode_failed received before round_start")
+                        return
+                    if expected_request_ids and failed.request_id not in expected_request_ids:
+                        await websocket.close(code=1008, reason=f"unknown episode request id: {failed.request_id!r}")
+                        return
+                    await websocket.close(code=1011, reason=f"scheduled episode failed: {failed.request_id}")
+                    return
                 elif msg_type == "episodes_accepted":
                     continue
                 elif msg_type == "episodes_rejected":
@@ -105,7 +111,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     await websocket.close(code=1008, reason=f"unknown message type: {msg_type!r}")
                     return
 
-                completed_request_ids = set(results_by_request_id) | failed_request_ids
+                completed_request_ids = set(results_by_request_id)
                 if round_start is not None and expected_request_ids and expected_request_ids <= completed_request_ids:
                     ordered_results = [
                         results_by_request_id[request_id]

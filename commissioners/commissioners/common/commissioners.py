@@ -53,7 +53,7 @@ from commissioners.common.protocol import (
 from pydantic import BaseModel, Field, model_validator
 
 PlayerId = str
-RoundId = UUID
+RoundId = str
 SubmissionId = str
 
 DIVISION_TYPE_COMPETITION = "competition"
@@ -1305,7 +1305,7 @@ def _round_start_round(round_start: CommissionerRoundStart) -> Round:
     division = _current_division(round_start)
     return Round(
         id=round_start.round_id,
-        public_id=round_start.round_id,
+        public_id=str(round_start.round_id),
         division_id=division.id,
         round_number=round_start.round_number,
         commissioner_key=round_start.league.commissioner_key or "container",
@@ -1349,7 +1349,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
 def _round_snapshot(info: RoundInfo) -> RoundSnapshot:
     return RoundSnapshot(
         id=info.id,
-        public_id=info.public_id or info.id,
+        public_id=info.public_id or str(info.id),
         division_id=info.division_id,
         round_number=info.round_number,
         status=info.status,

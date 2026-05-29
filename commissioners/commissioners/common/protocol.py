@@ -4,7 +4,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _STATE_MAX_BYTES = 10 * 1024 * 1024
 
@@ -101,7 +101,7 @@ class RoundConfig(BaseModel):
 
 class RoundInfo(BaseModel):
     id: UUID
-    public_id: UUID | None = None
+    public_id: str | None = None
     division_id: UUID
     round_number: int
     status: str
@@ -327,6 +327,25 @@ class RoundCompletedRequest(BaseModel):
         return data
 
 
+class EpisodeCompletedRequest(BaseModel):
+    round_start: RoundStart
+    episode_result: EpisodeResult | None = None
+    episode_failed: EpisodeFailed | None = None
+    completed_episode_results: list[EpisodeResult] = Field(default_factory=list)
+    failed_episodes: list[EpisodeFailed] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_completed_event(self) -> "EpisodeCompletedRequest":
+        if (self.episode_result is None) == (self.episode_failed is None):
+            raise ValueError("exactly one of episode_result or episode_failed must be set")
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        data = self.model_dump(mode="json")
+        data["type"] = "episode_completed_request"
+        return data
+
+
 class RoundCompletedResponse(BaseModel):
     membership_changes: list[MembershipChange] = Field(default_factory=list)
     follow_up_rounds: list[RoundSpec] = Field(default_factory=list)
@@ -334,6 +353,15 @@ class RoundCompletedResponse(BaseModel):
     def to_json(self) -> dict[str, Any]:
         data = self.model_dump(mode="json")
         data["type"] = "round_completed_response"
+        return data
+
+
+class EpisodeCompletedResponse(BaseModel):
+    episodes: list[EpisodeRequest] = Field(default_factory=list)
+
+    def to_json(self) -> dict[str, Any]:
+        data = self.model_dump(mode="json")
+        data["type"] = "episode_completed_response"
         return data
 
 
@@ -348,6 +376,7 @@ PlatformMessage = (
     | RankDivisionRequest
     | DescribeDivisionRequest
     | RoundCompletedRequest
+    | EpisodeCompletedRequest
 )
 
 CommissionerMessageType = (
@@ -357,6 +386,7 @@ CommissionerMessageType = (
     | RankDivisionResponse
     | DescribeDivisionResponse
     | RoundCompletedResponse
+    | EpisodeCompletedResponse
 )
 
 _COMMISSIONER_MESSAGE_TYPES: dict[str, type[CommissionerMessageType]] = {
@@ -366,6 +396,7 @@ _COMMISSIONER_MESSAGE_TYPES: dict[str, type[CommissionerMessageType]] = {
     "rank_division_response": RankDivisionResponse,
     "describe_division_response": DescribeDivisionResponse,
     "round_completed_response": RoundCompletedResponse,
+    "episode_completed_response": EpisodeCompletedResponse,
 }
 
 
