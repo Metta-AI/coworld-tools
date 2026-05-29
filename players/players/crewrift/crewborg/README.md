@@ -10,14 +10,13 @@ as a Docker image the Coworld runner launches.
 
 ## Status
 
-**P1 — scene decoder + static-map bake (current).** On top of P0's idle
-end-to-end loop, crewborg now decodes the binary Sprite-v1 stream into structured
-state — the three retained tables, camera recovery, the walkability mask, and
-objects resolved to `(label, world xy)` and classified into players / bodies /
-task signals / voting / phase — and folds it into belief. The vent / room / task /
-emergency-button locations (not in the stream) are baked from the vendored
-`croatoan.resources` at startup. Behavior is still idle; modes, nav, and the
-action layer arrive in P2 (see `design.md` §11 for the phase plan).
+**P2 — crewmate Normal mode + nav + action layer (current).** On top of P1's
+perception, crewborg now *plays* as a crewmate: during `Playing` the mode selector
+runs Normal mode, which picks the nearest incomplete assigned task and emits
+`complete_task`; the action layer plans an A\* route over the walkability grid and
+drives there with a bang-bang + predictive-stop movement controller, then holds A
+on the station to complete it. Meetings/report/flee (P3) and imposter behaviour
+(P4) are still to come (see `design.md` §11 for the phase plan).
 
 ## Layout
 
@@ -25,10 +24,11 @@ action layer arrive in P2 (see `design.md` §11 for the phase plan).
 crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
   types.py           the six SDK types + perceive/update_belief + phase machine
-  action.py          action layer: resolve_action + wire encoding
+  action.py          action layer: stateful resolve_action + movement controller
+  nav.py             nav grid + A* route planning over the walkability mask
   trace.py           stderr-JSON trace & metrics sinks
-  modes/             behavioral stances (P1: idle)
-  strategy/          rule_based.py: the mode selector (P1: always idle)
+  modes/             behavioral stances (P2: idle, normal)
+  strategy/          rule_based.py: the mode selector (P2: Normal during Playing)
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh

@@ -11,21 +11,24 @@ state in place (``Belief``/``ActionState``). ``SceneState`` is the lone exceptio
 a plain dataclass owned by the bridge holding raw buffers that never reach the
 strategy.
 
-**P1 scope.** Perception is wired through: ``perceive`` resolves the scene into a
-structured :class:`~.perception.entities.ResolvedScene`, and ``update_belief``
-folds it into belief's self / roster / bodies / tasks / phase / voting sections
-(design §4-§5). The static map is baked once at startup (see ``build_runtime``).
-Behavior stays idle — modes, nav, and the action layer arrive in P2.
+**P2 scope.** ``perceive`` resolves the scene into a structured
+:class:`~.perception.entities.ResolvedScene` (including self world position), and
+``update_belief`` folds it into belief's self / roster / bodies / tasks / phase /
+voting sections and builds the nav grid once from the walkability mask
+(design §4-§6). The crewmate Normal mode + action layer drive task completion;
+meetings/report/flee (P3) and imposter behaviour (P4) are still to come.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map.types import MapData
+from players.crewrift.crewborg.nav import NavGrid, build_nav_grid
 from players.crewrift.crewborg.perception.entities import ResolvedScene, VotingState
 from players.crewrift.crewborg.perception.resolve import resolve_scene
 
@@ -62,13 +65,18 @@ class Observation(BaseModel):
 
 
 class Percept(BaseModel):
-    """Resolved per-tick view of the scene (design §4)."""
+    """Resolved per-tick view of the scene (design §4).
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    ``walkability`` is the decoded mask held by reference (not copied): it is
+    static for the episode, so ``update_belief`` builds the nav grid from it once.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     tick: int
     messages_applied: int
     resolved: ResolvedScene
+    walkability: np.ndarray | None = None
 
 
 class RosterEntry(BaseModel):
@@ -99,7 +107,7 @@ class BodyEntry(BaseModel):
 class Belief(BaseModel):
     """Persistent world model — the only interface the strategy and modes see."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     # Loop bookkeeping.
     last_tick: int = 0
@@ -108,6 +116,8 @@ class Belief(BaseModel):
 
     # Static map, baked once at startup (design §6).
     map: MapData | None = None
+    # Navigation grid over the streamed walkability mask, built once (design §6).
+    nav: NavGrid | None = None
 
     # Self / camera (design §5 self).
     camera_ready: bool = False
@@ -115,9 +125,13 @@ class Belief(BaseModel):
     camera_y: int = 0
     self_role: str | None = None
     self_kill_ready: bool | None = None
+    self_world_x: int | None = None
+    self_world_y: int | None = None
 
     # Tasks (design §5 tasks).
     assigned_task_indices: set[int] = Field(default_factory=set)
+    visible_task_indices: set[int] = Field(default_factory=set)
+    completed_task_indices: set[int] = Field(default_factory=set)
     crew_tasks_remaining: int | None = None
     active_task_progress_pct: int | None = None
 
@@ -134,20 +148,8 @@ class Belief(BaseModel):
     voting: VotingState = Field(default_factory=VotingState)
 
 
-class ActionState(BaseModel):
-    """Action-layer execution state, mutated in place across ticks (design §9).
-
-    P1 still only tracks the last desired button mask; the nav route, A-press FSM,
-    and chat buffer arrive with the action layer in P2.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    held_mask: int = 0
-
-
 class Intent(BaseModel):
-    """Symbolic "what to do now" (design §8). P1 only ever emits ``idle``."""
+    """Symbolic "what to do now" (design §8). P2 emits idle/navigate_to/complete_task."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -157,6 +159,23 @@ class Intent(BaseModel):
     task_index: int | None = None
     text: str | None = None
     reason: str = ""
+
+
+class ActionState(BaseModel):
+    """Action-layer execution state, mutated in place across ticks (design §9)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    held_mask: int = 0
+    # The intent currently being executed, for diffing against the next tick's.
+    current_intent: Intent | None = None
+    # Active nav route (world waypoints) + cursor to the next unreached waypoint.
+    route: list[tuple[int, int]] = Field(default_factory=list)
+    route_cursor: int = 0
+    route_goal: tuple[int, int] | None = None
+    # Last observed self world position, for estimating velocity (predictive stop).
+    last_self_x: int | None = None
+    last_self_y: int | None = None
 
 
 class Command(BaseModel):
@@ -216,6 +235,7 @@ def perceive(observation: Observation, tick: int) -> Percept:
         tick=tick,
         messages_applied=scene.messages_applied,
         resolved=resolve_scene(scene, tick),
+        walkability=scene.walkability,
     )
 
 
@@ -230,9 +250,21 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     belief.camera_ready = resolved.camera_ready
     belief.camera_x = resolved.camera_x
     belief.camera_y = resolved.camera_y
+    belief.self_world_x = resolved.self_world_x
+    belief.self_world_y = resolved.self_world_y
 
-    for signal in resolved.task_signals:
-        belief.assigned_task_indices.add(signal.task_index)
+    # Build the navigation grid once from the static walkability mask (design §6).
+    if belief.nav is None and percept.walkability is not None:
+        width = belief.map.width if belief.map is not None else None
+        height = belief.map.height if belief.map is not None else None
+        belief.nav = build_nav_grid(percept.walkability, map_width=width, map_height=height)
+
+    # Tasks. The renderer emits a signal per incomplete assigned task. We only
+    # accumulate which tasks are assigned and which are visible this tick;
+    # completion is concluded by Normal mode (which knows the task it is standing
+    # on), since a task also leaves the visible set merely by going off-screen.
+    belief.visible_task_indices = {signal.task_index for signal in resolved.task_signals}
+    belief.assigned_task_indices |= belief.visible_task_indices
     if resolved.crew_tasks_remaining is not None:
         belief.crew_tasks_remaining = resolved.crew_tasks_remaining
     belief.active_task_progress_pct = resolved.active_task_progress_pct

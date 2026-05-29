@@ -35,6 +35,13 @@ VOTE_SKIP_DOT_OBJECT_BASE = 10400
 # normal range spans VOTE_DOT_OBJECT_BASE .. + MAX_PLAYERS*MAX_PLAYERS.
 MAX_PLAYERS = 16
 
+# Self-world-position offset (design §3.2). Self is the camera center, not an
+# object; inverting playerView's camera math (sim.nim ~2879) with SpriteSize=12,
+# SpriteDrawOffX/Y=2/8 and a 128×128 screen gives
+# self_world = (camera_x + SELF_OFFSET_X, camera_y + SELF_OFFSET_Y).
+SELF_OFFSET_X = 60
+SELF_OFFSET_Y = 66
+
 # The 16 player color names, in palette order (global.nim PlayerColorNames).
 PLAYER_COLOR_NAMES: tuple[str, ...] = (
     "red",

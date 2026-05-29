@@ -29,6 +29,8 @@ from players.crewrift.crewborg.perception.constants import (
     PREFIX_TASK_COUNTER,
     PREFIX_VOTE_DOT,
     PREFIX_VOTE_SELF_MARKER,
+    SELF_OFFSET_X,
+    SELF_OFFSET_Y,
     TASK_ARROW_OBJECT_BASE,
     TASK_BUBBLE_OBJECT_BASE,
     VOTE_DOT_OBJECT_BASE,
@@ -159,6 +161,9 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             # Skip votes share the "vote dot" sprite but a separate id range.
             dots.append(VoteDot(target=SKIP_VOTE_TARGET, voter=object_id - VOTE_SKIP_DOT_OBJECT_BASE))
 
+    self_world_x = camera_x + SELF_OFFSET_X if scene.camera_ready else None
+    self_world_y = camera_y + SELF_OFFSET_Y if scene.camera_ready else None
+
     return ResolvedScene(
         tick=tick,
         camera_ready=scene.camera_ready,
@@ -166,6 +171,8 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
         camera_y=camera_y,
         self_role=self_role,
         self_kill_ready=self_kill_ready,
+        self_world_x=self_world_x,
+        self_world_y=self_world_y,
         visible_players=tuple(players),
         visible_bodies=tuple(bodies),
         task_signals=tuple(tasks),

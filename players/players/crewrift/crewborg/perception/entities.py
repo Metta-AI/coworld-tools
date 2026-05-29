@@ -94,6 +94,10 @@ class ResolvedScene(BaseModel):
 
     self_role: SelfRole | None = None
     self_kill_ready: bool | None = None
+    # Self is the camera center, not an object; world position is the camera plus
+    # a fixed offset (design §3.2). Valid only when ``camera_ready``.
+    self_world_x: int | None = None
+    self_world_y: int | None = None
 
     visible_players: tuple[VisiblePlayer, ...] = ()
     visible_bodies: tuple[VisibleBody, ...] = ()

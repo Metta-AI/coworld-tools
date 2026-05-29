@@ -1,10 +1,12 @@
 """Rule-based mode selector (design §10).
 
-For v1 the strategy is a deterministic ``decide(snapshot) -> ModeDirective`` run
-every tick via ``SynchronousStrategyRunner`` — pure rules over belief. The
-role/phase-aware selection in design §10 lands in P2+ (crewmate) and P4
-(imposter). In P0 it always selects ``idle``, exercising the strategy seam
-end-to-end.
+A deterministic ``decide(snapshot) -> ModeDirective`` run every tick via
+``SynchronousStrategyRunner`` — pure rules over belief. Because it runs every
+tick, transitions are re-evaluated each cycle (no reflexes).
+
+P2 covers the crewmate task loop: ``Normal`` during ``Playing``, ``idle``
+otherwise. Meetings / report / flee (P3) and imposter selection (P4) extend the
+priority order in design §10.
 """
 
 from __future__ import annotations
@@ -16,5 +18,15 @@ from players.player_sdk.types import BeliefSnapshot
 
 class RuleBasedStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
-        del snapshot  # P0 selection is belief-independent
-        return ModeDirective(mode="idle", source="strategy", reason="P0 idle policy")
+        with snapshot.read() as memory:
+            belief = memory.belief
+            phase = belief.phase
+            role = belief.self_role
+
+        # Crewmate task loop. Imposters fall through to idle until P4; a dead
+        # crewmate ghost still runs Normal to finish its own tasks (design §7.3).
+        if phase == "Playing" and role in (None, "crewmate", "dead"):
+            return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
+
+        # Meetings, report, and flee are added in P3; everything else idles.
+        return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
