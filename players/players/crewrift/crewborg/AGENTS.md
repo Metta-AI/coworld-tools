@@ -432,6 +432,12 @@ Browser clients: `/client/player`, `/client/global`, `/client/replay`,
 `evidencebot_v2`, `nottoodumb`) with guides `how_to_make_a_bot.md`,
 `SMART_BOT_GUIDE.md`, `how_to_submit_coworld_policy.md`.
 
+**Watching a `.bitreplay` locally:** do **not** use `coworld replay` — it's broken
+for the Crewrift image (it relies on `COGAME_REPLAY_SERVER` + a client `?uri=`,
+neither of which the game honors, so it shows a live "waiting for players" game).
+Launch the game image directly with `COGAME_LOAD_REPLAY_URI` instead. Full,
+source-verified recipe: [`docs/crewrift-replays.md`](./docs/crewrift-replays.md).
+
 ### Packaging & submission (the Coworld path)
 
 Crewborg ships as a Linux/amd64 Docker image; **stdout = protocol channel,
