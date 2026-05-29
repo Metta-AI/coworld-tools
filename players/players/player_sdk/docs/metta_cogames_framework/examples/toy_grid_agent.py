@@ -70,6 +70,10 @@ class MoveToMode(Mode[Belief, ActionState, ActionIntent]):
         del action_state
         params = self.params
         assert isinstance(params, MoveParams)
+        self.emit.event(
+            "move_target_chosen",
+            {"position": belief.position, "target": params.target},
+        )
         return ActionIntent(
             semantic="move_to",
             target=(params.target, 0),

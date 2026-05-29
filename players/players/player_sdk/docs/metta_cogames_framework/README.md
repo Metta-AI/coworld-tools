@@ -147,7 +147,8 @@ It provides:
 - Synchronous, threaded, async, and manual strategy runners.
 - Latest-value buffers for async strategy communication.
 - Priority-ordered reflex hooks for urgent local overrides.
-- Trace events, metrics sinks, logging adapters, and W&B metric adapter hooks.
+- Trace events, metrics sinks, domain-event emitters, logging adapters, and W&B
+  metric adapter hooks.
 - Generic intent/command models for examples and simple agents.
 
 ### Core Runtime
@@ -164,8 +165,8 @@ is the inner-loop orchestrator. A game supplies:
 - `mode_registry`: registered symbolic modes.
 - `default_directive`: a fallback `ModeDirective`, or a function that builds
   one from belief.
-- Optionally: `strategy_runner`, `reflexes`, `trace_sink`,
-  `metrics_sink`, and `apply_inferences`.
+- Optionally: `strategy_runner`, `reflexes`, `trace_sink`, `metrics_sink`,
+  `apply_inferences`, and `on_step_complete`.
 
 Each call to `step(observation)` performs:
 
@@ -183,11 +184,14 @@ decision = active_mode.decide(belief, action_state)
 intent = decision.intent
 command = resolve_action(intent, belief, action_state)
 if decision marks complete/stalled, trace status, fall back, and wake strategy
+call on_step_complete with intent, command, belief, action state, mode, and emitter
 return command
 ```
 
 The runtime does not know any game rules. Game-specific behavior lives in
 perception, belief update, modes, reflexes, strategy, and action resolution.
+Game-specific trace and metric events live in mode emitters or
+`on_step_complete` observers.
 
 ### Typed Directives
 
@@ -205,6 +209,8 @@ The strategy layer talks to the runtime through models in
   the shared memory.
 - `ModeDecision`: optional status envelope returned by modes to mark running,
   complete, or stalled.
+- `StepContext`: frozen end-of-tick observer context containing tick, belief,
+  action state, intent, command, active mode name, and an event emitter.
 - `ActionIntent` and `ActionCommand`: generic base shapes for small agents and
   examples.
 
@@ -297,6 +303,8 @@ defines:
 - `ListMetricsSink`: in-memory metric sink for tests.
 - `LoggingMetricsSink`: structured logging metric adapter.
 - `WandbMetricsSink`: W&B run adapter without adding a package dependency.
+- `EventEmitter`: domain-event handle that writes to the runtime's configured
+  trace and metrics sinks.
 
 The runtime emits events for mode entry and exit, perception, belief update,
 snapshot submission, directive rejection, directive reaffirmation, strategy
@@ -308,6 +316,44 @@ directive age, fallback rate, strategy observe/decide latency, and step latency.
 These traces and metrics should let a developer answer whether bad behavior came
 from perception, belief update, strategy, mode logic, action lowering, or slow
 outer-loop reasoning.
+
+Game-specific code can emit its own events through `EventEmitter` without
+threading sinks through the pure `perceive`, `update_belief`, or
+`resolve_action` functions. Every `Mode` has `self.emit`, which defaults to a
+no-op emitter when the mode is constructed outside a runtime and is rebound to
+the runtime emitter when the mode becomes active. Unqualified event and metric
+names are prefixed with `domain.` so they are easy to separate from framework
+events in a shared sink. Names that already start with `domain.` are left as-is:
+
+```python
+class CaptureMode(Mode[Belief, ActionState, ActionIntent]):
+    name = "capture"
+
+    def decide(self, belief: Belief, action_state: ActionState) -> ActionIntent:
+        self.emit.event("objective_committed", {"objective_id": belief.target_id})
+        self.emit.counter("objective_attempts", tags={"objective": belief.target_id})
+        return ActionIntent(semantic="capture")
+```
+
+Use `AgentRuntime(on_step_complete=...)` when an event needs end-of-tick facts
+that only coexist after action resolution. The hook runs once per `step()` while
+the shared-memory write scope is still held, after `resolve_action` and
+mode-completion handling. Its `StepContext` includes the runtime tick, live
+belief, live action state, selected intent, resolved command, mode name that
+made the decision, and the same emitter:
+
+```python
+def observe_step(context: StepContext[Belief, ActionState, ActionIntent, ActionCommand]) -> None:
+    if context.intent.semantic == "attack":
+        context.emit.event(
+            "attack_attempted",
+            {"command": context.command.action, "mode": context.active_mode_name},
+        )
+```
+
+On completion or stall ticks, the hook sees final end-of-tick state: the
+completed/stalled mode's intent and command, the mode name that made the
+decision, and live belief/action state after fallback handling has run.
 
 ### Building A New Game Agent
 
@@ -321,7 +367,7 @@ A new game-specific agent should usually be assembled in this order:
 6. Register modes in `ModeRegistry`.
 7. Implement `resolve_action`.
 8. Add a default rule-based strategy that emits directives.
-9. Add traces at every boundary.
+9. Add domain events and metrics for game-specific boundaries.
 10. Add reflexes and fallback directives for urgent state changes.
 11. Add structured snapshots and validators for future LLM use.
 12. Enable LLM strategy only after deterministic replay and trace review.
@@ -348,6 +394,7 @@ tick(raw_observation):
   intent = decision.intent
   command = action_layer.resolve(intent, belief, action_state)
   handle_mode_completion_or_stall(decision)
+  on_step_complete(tick, belief, action_state, intent, command, mode)
   emit(command)
   trace(percept, belief, directive, intent, command)
 ```
@@ -363,7 +410,8 @@ Important properties:
 - Fast safety overrides: reflexes, legality checks, and fallback modes run
   inside the inner loop because they cannot wait for strategy.
 - Trace every boundary: perception, belief diffs, mode changes, intents,
-  outgoing actions, and outer-loop decisions should be visible in logs.
+  outgoing actions, outer-loop decisions, and game-specific phase/objective
+  outcomes should be visible in logs.
 
 ## Mode Parameters
 

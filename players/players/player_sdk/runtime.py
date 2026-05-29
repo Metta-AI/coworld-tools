@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Generic, TypeAlias, TypeVar
 
-from players.player_sdk.modes import ModeRegistry
+from players.player_sdk.modes import Mode, ModeRegistry
 from players.player_sdk.strategy import StrategyRunner
-from players.player_sdk.trace import MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
+from players.player_sdk.trace import EventEmitter, MetricsSink, NullMetricsSink, NullTraceSink, TraceEvent, TraceSink
 from players.player_sdk.types import (
     BeliefSnapshot,
     ModeDecision,
@@ -37,6 +37,22 @@ class RuntimeContext(Generic[BeliefT, ActionStateT]):
 
 
 Reflex: TypeAlias = Callable[[RuntimeContext[BeliefT, ActionStateT]], ModeDirective | None]
+
+
+@dataclass(frozen=True)
+class StepContext(Generic[BeliefT, ActionStateT, IntentT, CommandT]):
+    """Read-only end-of-tick context passed to game-specific observers."""
+
+    tick: int
+    belief: BeliefT
+    action_state: ActionStateT
+    intent: IntentT
+    command: CommandT
+    active_mode_name: str
+    emit: EventEmitter
+
+
+StepCompleteHook: TypeAlias = Callable[[StepContext[BeliefT, ActionStateT, IntentT, CommandT]], None]
 
 
 @dataclass(frozen=True)
@@ -70,6 +86,7 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
         trace_sink: TraceSink | None = None,
         metrics_sink: MetricsSink | None = None,
         apply_inferences: Callable[[BeliefT, dict], None] | None = None,
+        on_step_complete: StepCompleteHook[BeliefT, ActionStateT, IntentT, CommandT] | None = None,
     ) -> None:
         self.belief = belief
         self.action_state = action_state
@@ -86,16 +103,19 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
                 key=lambda item: (-item[1].priority, item[0]),
             )
         )
+        self.tick = 0
         self.trace_sink = trace_sink if trace_sink is not None else NullTraceSink()
         self.metrics_sink = metrics_sink if metrics_sink is not None else NullMetricsSink()
+        self.emit = EventEmitter(self.trace_sink, self.metrics_sink, tick=self.tick)
         self.apply_inferences = apply_inferences
+        self.on_step_complete = on_step_complete
         self.latest_inferences: dict = {}
-        self.tick = 0
 
         initial = self._default_directive().issued(self.tick)
         self.mode_registry.validate(initial)
         self.active_directive = initial
         self.active_mode = self.mode_registry.create(initial)
+        self._attach_emitter(self.active_mode)
         self.active_mode_entered_at_tick = self.tick
         self.shared_memory = SharedMemory(
             belief=self.belief,
@@ -122,6 +142,7 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
 
         step_started = perf_counter()
         self.tick += 1
+        self.emit.tick = self.tick
         percept = self.perceive(observation, self.tick)
         self._trace("perception", {"percept_type": type(percept).__name__})
 
@@ -155,6 +176,7 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
                 {"command_type": type(command).__name__, "command": repr(command)},
             )
             self._handle_mode_status(decision)
+            self._notify_step_complete(ran_mode_name, intent, command)
 
         self._histogram("cyborg.step.latency_ms", self._elapsed_ms(step_started), {"mode": ran_mode_name})
         return command
@@ -204,6 +226,7 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
         self.active_directive = issued
         self.shared_memory.set_active_directive(issued)
         self.active_mode = self.mode_registry.create(issued)
+        self._attach_emitter(self.active_mode)
         self.active_mode_entered_at_tick = self.tick
         self.active_mode.on_enter(self.belief, self.action_state)
         self._trace(
@@ -334,10 +357,28 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
     def _trace(self, name: str, data: dict) -> None:
         self.trace_sink.record(TraceEvent(tick=self.tick, name=name, data=data))
 
+    def _attach_emitter(self, mode: Mode[BeliefT, ActionStateT, IntentT]) -> None:
+        mode.emit = self.emit
+
     def _normalize_mode_decision(self, result: IntentT | ModeDecision[IntentT]) -> ModeDecision[IntentT]:
         if isinstance(result, ModeDecision):
             return result
         return ModeDecision.running(result)
+
+    def _notify_step_complete(self, mode_name: str, intent: IntentT, command: CommandT) -> None:
+        if self.on_step_complete is None:
+            return
+        self.on_step_complete(
+            StepContext(
+                tick=self.tick,
+                belief=self.belief,
+                action_state=self.action_state,
+                intent=intent,
+                command=command,
+                active_mode_name=mode_name,
+                emit=self.emit,
+            )
+        )
 
     def _handle_mode_status(self, decision: ModeDecision[IntentT]) -> None:
         if decision.status == "running":

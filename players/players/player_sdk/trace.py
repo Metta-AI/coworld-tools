@@ -43,6 +43,58 @@ class MetricsSink(Protocol):
     def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None: ...
 
 
+DOMAIN_EVENT_PREFIX = "domain."
+
+
+class EventEmitter:
+    """Domain-event emitter bound to the runtime's current tick.
+
+    Emitters are intended for use on the runtime's single-threaded inner loop.
+    Unqualified names are prefixed with ``domain.`` so game-specific events stay
+    distinguishable from framework events without changing the canonical
+    framework event names.
+    """
+
+    def __init__(
+        self,
+        trace_sink: TraceSink | None = None,
+        metrics_sink: MetricsSink | None = None,
+        *,
+        tick: int = 0,
+    ) -> None:
+        self.trace_sink = trace_sink if trace_sink is not None else NullTraceSink()
+        self.metrics_sink = metrics_sink if metrics_sink is not None else NullMetricsSink()
+        self.tick = tick
+
+    def event(self, name: str, data: dict[str, Any] | None = None) -> None:
+        """Emit a domain trace event at the current runtime tick."""
+
+        self.trace_sink.record(TraceEvent(tick=self.tick, name=self._name(name), data=dict(data or {})))
+
+    def counter(self, name: str, value: float = 1.0, tags: dict[str, Any] | None = None) -> None:
+        """Emit a domain counter sample."""
+
+        self.metrics_sink.counter(self._name(name), value, self._tags(tags))
+
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
+        """Emit a domain gauge sample."""
+
+        self.metrics_sink.gauge(self._name(name), value, self._tags(tags))
+
+    def histogram(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
+        """Emit a domain histogram sample."""
+
+        self.metrics_sink.histogram(self._name(name), value, self._tags(tags))
+
+    def _name(self, name: str) -> str:
+        if name.startswith(DOMAIN_EVENT_PREFIX):
+            return name
+        return f"{DOMAIN_EVENT_PREFIX}{name}"
+
+    def _tags(self, tags: dict[str, Any] | None) -> dict[str, Any]:
+        return dict(tags or {})
+
+
 class NullTraceSink:
     """Trace sink that drops events."""
 
