@@ -1,66 +1,121 @@
-# commissioners
+# Commissioners
 
-Commissioner implementations for **coworlds** - containers and tooling that orchestrate tournament rounds, schedule episodes, carry round state, and return scoring or graduation decisions to the platform.
+This repo is the intended implementation home for Coworld commissioner runnables. It is intentionally empty right now:
+there are no runnable commissioner containers, examples, templates, or package metadata in this checkout.
 
-> **Status:** canonical Coworld role repo. The Among Them reference descriptor is implemented in [`commissioners/among_them/among_them_commissioner/`](commissioners/among_them/among_them_commissioner/); hosted scheduling still lives in Observatory's `AmongThemCommissioner`. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
+That emptiness is deliberate. The previous contents were stale scaffolding, including an Among Them image that wrote a
+descriptor file instead of implementing the Coworld commissioner protocol. Do not recreate descriptor-output contracts
+such as `COGAME_COMMISSIONER_OUTPUT_URI`; they are not part of the current commissioner runtime.
 
-## What is a coworld commissioner?
+## Goal
 
-A **coworld** is a Softmax v2 tournament unit: one game container + one or more player containers + a `coworld_manifest.json`. A **commissioner** is an optional role declared in the manifest under `commissioner: [...]` that participates in tournament round orchestration.
+A commissioner decides what happens inside a hosted league round:
 
-The canonical protocol lives in the metta repo at `packages/coworld/src/coworld/commissioner/protocol.py`. This repo is for commissioner implementations and scaffolding, not for redefining that protocol.
+- which episodes to schedule;
+- which submitted policy versions play in each episode and in which slots;
+- how completed episode scores become per-division rankings;
+- which memberships move between divisions;
+- what opaque commissioner state should be carried into the next round.
 
-Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Commissioner protocol notes: [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md).
+The commissioner is not the game, not a player, and not a post-episode artifact consumer. It is a per-round control-loop
+role that tells the platform which episodes to run. The platform runs the game and player containers, captures episode
+outputs, and routes completed episode results back to the commissioner.
 
-## Repository layout
+## Current Status
+
+The authoritative Metta docs currently mark the commissioner role as:
 
 ```text
-commissioners/
-|-- README.md
-|-- pyproject.toml
-|-- docs/
-|   |-- COWORLD_REFERENCE.md
-|   `-- COMMISSIONER_DESIGN.md
-`-- commissioners/
-    |-- templates/
-    |   `-- commissioner_template/
-    |-- among_them/
-    |   `-- among_them_commissioner/
-    |-- paint_arena/
-    |   `-- paint_arena_commissioner/
-    `-- cogs_v_clips/
-        `-- cogs_v_clips_commissioner/
+contract defined, runtime pending
 ```
 
-Each leaf commissioner directory follows the same placeholder shape:
+That means the protocol is written down and has in-process backend implementations, but the platform does not yet invoke
+containerized commissioner runnables from this repo automatically. Until that changes in `Metta-AI/metta`, this repo
+should not carry placeholder images that look deployable.
 
-| File | Purpose |
+## Source Of Truth
+
+This repo must not redefine Coworld contracts. Check `Metta-AI/metta` first, especially:
+
+| Need | Authoritative Metta path |
 | --- | --- |
-| `<commissioner_name>.py` | Commissioner entrypoint placeholder. Implement against the metta commissioner protocol. |
-| `build.sh` | Builds the commissioner's Docker image. Each commissioner can be its own image unless a shared image pattern emerges. |
-| `README.md` | Commissioner-specific docs: scheduling policy, state shape, local test command, and dependencies. |
+| Commissioner role contract and status | `packages/coworld/src/coworld/docs/roles/COMMISSIONER.md` |
+| Protocol message models | `packages/coworld/src/coworld/commissioner/protocol.py` |
+| Coworld role model and artifact flow | `packages/coworld/src/coworld/docs/README.md` |
+| Manifest semantics | `packages/coworld/src/coworld/docs/COWORLD_MANIFEST.md` |
+| Manifest Pydantic models and generated schema source | `packages/coworld/src/coworld/types.py` |
+| Round decisions artifact | `packages/coworld/src/coworld/docs/artifacts/ROUND_DECISIONS.md` |
+| Results object feeding commissioner scores | `packages/coworld/src/coworld/docs/artifacts/RESULTS.md` |
+| Role-repo structure and catalog expectations | `docs/specs/0045-coworld-role-repos.md` |
+| Existing in-process Among Them reference | `app_backend/src/metta/app_backend/v2/AMONGTHEM_COMMISSIONER.md` and `app_backend/src/metta/app_backend/v2/commissioners.py` |
 
-## Status of each commissioner
+Also read `packages/coworld/AGENTS.md` before changing public Coworld behavior or docs in Metta. It points at the
+current Coworld documentation map and validation commands.
 
-| Commissioner | Coworld | Status |
-| --- | --- | --- |
-| `templates/commissioner_template` | (template) | Scaffold only - no implementation |
-| `among_them/among_them_commissioner` | Among Them | Reference descriptor - points manifest consumers at the hosted Observatory `AmongThemCommissioner` |
-| `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
-| `cogs_v_clips/cogs_v_clips_commissioner` | Cogs vs Clips | Scaffold only - no implementation |
+## Contract Snapshot
 
-## Related metta repo locations
+This is only an orientation summary. If it disagrees with Metta, Metta wins.
 
-- `~/coding/metta/packages/coworld/` - coworld package: manifest schema, runner, certifier, and role types.
-- `~/coding/metta/packages/coworld/src/coworld/types.py` - source of truth for the `commissioner` manifest section.
-- `~/coding/metta/packages/coworld/src/coworld/commissioner/protocol.py` - canonical commissioner protocol.
-- `~/coding/metta/docs/specs/0043-user-container-management.md` - shared runnable shape behind game, player, reporter, commissioner, diagnoser, and optimizer roles.
-- `~/coding/metta/packages/coworld/src/coworld/examples/paintarena/` - simplest reference coworld.
+A real commissioner container is expected to:
 
-## Conventions for new commissioners
+- listen on `0.0.0.0:8080`;
+- serve `GET /healthz` with HTTP 200 when ready for the round WebSocket;
+- serve `WEBSOCKET /round`;
+- receive platform messages including `round_start`, `episodes_accepted`, `episodes_rejected`, `episode_result`,
+  `episode_failed`, and `round_abort`;
+- send commissioner messages including `schedule_episodes` and `round_complete`;
+- close cleanly on `round_abort` without sending `round_complete`;
+- finish the round by sending `round_complete` with per-division rankings, optional graduation changes, optional display
+  data, and optional opaque state;
+- keep cross-round memory only through the platform-provided `state` blob, which is limited to 10 MB.
 
-- Keep concrete commissioner implementations under the top-level `commissioners/` tree.
-- Keep one leaf directory per runnable image or entrypoint.
-- Keep game-specific code under that game's directory.
-- Treat `packages/coworld/src/coworld/commissioner/protocol.py` as canonical. If the protocol needs to change, change it in metta first.
-- Keep game/runtime package code in its owning repo unless the file is genuinely commissioner source.
+The current protocol models name the important shapes:
+
+- `RoundStart`: round id and number, league config, divisions, active memberships, recent results, variants, and previous
+  state;
+- `EpisodeRequest`: commissioner-generated request id, variant id, ordered policy-version ids, optional seed, and tags;
+- `EpisodeResult`: completed request id, extracted per-policy scores, and the full game results object;
+- `RoundComplete`: per-division rankings, graduation changes, optional `round_display`, and optional next-round state.
+
+The commissioner does not receive episode bundles in the protocol. Bundles are for post-episode roles such as reporters,
+graders, and diagnosers. Commissioners consume the round-level `episode_result` / `episode_failed` stream.
+
+## Manifest Expectations
+
+Commissioners are declared in `coworld_manifest.json` under `commissioner[]`. The section is optional in the current
+schema and marked future-required metadata in Metta. Every entry must use `type: "commissioner"` and the normal runnable
+shape from `CoworldManifestRoleSpec`: `id`, `name`, `description`, `image`, optional `run`, optional public `env`, and
+optional `source_url`.
+
+`source_url` should point at the real implementation source, not a README-only placeholder. `coworld certify` checks
+declared role image reachability and validates GitHub `source_url` paths for non-empty contents and a Dockerfile at that
+path or an ancestor build root.
+
+## Boundaries
+
+Keep these boundaries intact:
+
+- Runtime contracts, schemas, CLI behavior, tournament dispatch, and Observatory integration belong in
+  `Metta-AI/metta`.
+- This repo should contain commissioner implementation source, implementation-specific tests, Dockerfiles, and
+  implementation docs once real commissioner containers exist.
+- Role-specific tools can live here if they are only useful for commissioners.
+- Cross-role tooling belongs in the Coworld package, not here.
+- Game-specific runtime logic belongs with the game unless the code is genuinely commissioner scheduling/ranking logic.
+
+## Adding The First Real Commissioner
+
+Before adding files here:
+
+1. Re-read the Metta source-of-truth files above.
+2. Confirm the containerized commissioner runtime is actually supported or explicitly accept that the implementation is
+   ahead of the platform.
+3. Implement the `/healthz` and `/round` WebSocket contract, not a file-output descriptor contract.
+4. Add a Dockerfile for the runtime image.
+5. Add implementation docs that describe scheduling policy, ranking policy, graduation policy, state shape, config, and
+   local test commands.
+6. Add tests for protocol parsing, scheduling decisions, ranking decisions, state persistence, and abort/failure paths.
+7. Add or update `CATALOG.yaml` when the implementation should be discoverable as a repo-provided commissioner.
+8. Update the relevant Coworld manifest in Metta only after the implementation source, image, and source URL are real.
+
+Until those conditions are met, prefer no implementation files over placeholders.
