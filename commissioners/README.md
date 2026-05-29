@@ -1,11 +1,12 @@
 # Commissioners
 
-This repo is the intended implementation home for Coworld commissioner runnables. It is intentionally empty right now:
-there are no runnable commissioner containers, examples, templates, or package metadata in this checkout.
+This repo is the implementation home for Coworld commissioner runnables. It currently ships only its baseline structure
+— this README, a `CATALOG.yaml`, and package metadata — and **no commissioner implementations yet**. There are no
+runnable commissioner containers, examples, or templates in this checkout.
 
-That emptiness is deliberate. The previous contents were stale scaffolding, including an Among Them image that wrote a
-descriptor file instead of implementing the Coworld commissioner protocol. Do not recreate descriptor-output contracts
-such as `COGAME_COMMISSIONER_OUTPUT_URI`; they are not part of the current commissioner runtime.
+That is deliberate. The previous contents were stale scaffolding, including an Among Them image that wrote a descriptor
+file instead of implementing the Coworld commissioner protocol. Do not recreate descriptor-output contracts such as
+`COGAME_COMMISSIONER_OUTPUT_URI`; they are not part of the current commissioner runtime.
 
 ## Goal
 
@@ -32,6 +33,24 @@ contract defined, runtime pending
 That means the protocol is written down and has in-process backend implementations, but the platform does not yet invoke
 containerized commissioner runnables from this repo automatically. Until that changes in `Metta-AI/metta`, this repo
 should not carry placeholder images that look deployable.
+
+## Repository Layout
+
+| Path | Purpose |
+| --- | --- |
+| `README.md` | This orientation doc. |
+| `CATALOG.yaml` | Canonical list of commissioner implementations this repo provides (currently empty). |
+| `pyproject.toml` | Python package metadata for shared tooling and tests. |
+| `commissioners/<game>/<name>/` | One directory per commissioner implementation (none yet). |
+
+## Catalog
+
+`CATALOG.yaml` is the source of truth for which commissioners this repo provides. Per `Metta-AI/metta` spec
+`docs/specs/0045-coworld-role-repos.md`, an implementation exists in a role repo **if and only if** it has an entry in
+`CATALOG.yaml`: source on disk without a catalog entry is incomplete, and a catalog entry without source is broken. Each
+entry carries the `image` and `source_url` that get copied into a Coworld manifest's `commissioner[]` section. The
+catalog is intentionally empty (`entries: []`) until the first real commissioner lands; the file documents the full
+entry schema inline.
 
 ## Source Of Truth
 
@@ -115,7 +134,8 @@ Before adding files here:
 5. Add implementation docs that describe scheduling policy, ranking policy, graduation policy, state shape, config, and
    local test commands.
 6. Add tests for protocol parsing, scheduling decisions, ranking decisions, state persistence, and abort/failure paths.
-7. Add or update `CATALOG.yaml` when the implementation should be discoverable as a repo-provided commissioner.
+7. Add a `CATALOG.yaml` entry. This is required, not optional: an implementation only "exists" in this repo once it is
+   cataloged with an `image` and `source_url`.
 8. Update the relevant Coworld manifest in Metta only after the implementation source, image, and source URL are real.
 
 Until those conditions are met, prefer no implementation files over placeholders.
