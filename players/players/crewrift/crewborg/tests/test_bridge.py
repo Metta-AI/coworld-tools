@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 from websockets.asyncio.server import serve
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
 from players.crewrift.crewborg.action import INPUT_HEADER, encode_chat
 from players.crewrift.crewborg.coworld.policy_player import run_bridge
@@ -45,6 +45,62 @@ async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:
     # Idle holds mask 0; the bridge sends the neutral packet once and nothing
     # after, since the held mask never changes.
     assert bridge_packets == [bytes([INPUT_HEADER, 0x00])]
+
+
+async def test_bridge_treats_unclean_close_as_game_end() -> None:
+    """The Crewrift Nim server drops the ``/player`` socket without a close
+    handshake (code 1006, "no close frame received or sent") at game end. The
+    bridge must treat that unclean close as normal termination — return without
+    raising so the container exits 0 — and still close the runtime. (The
+    websockets async iterator swallows a *clean* close but re-raises
+    ``ConnectionClosedError`` on an unclean one, which is what this guards.)"""
+
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def step(self, _observation) -> Command:
+            return Command(held_mask=0)
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_runtime = FakeRuntime()
+
+    class UncleanConnection:
+        """Async context manager + iterator: yields one scene frame, then raises
+        ``ConnectionClosedError`` exactly as the real server's abrupt close does."""
+
+        def __init__(self) -> None:
+            self._frame_sent = False
+
+        async def __aenter__(self) -> UncleanConnection:
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        def __aiter__(self) -> UncleanConnection:
+            return self
+
+        async def __anext__(self) -> bytes:
+            if not self._frame_sent:
+                self._frame_sent = True
+                return w.clear_objects()
+            raise ConnectionClosedError(None, None)
+
+        async def send(self, _data: bytes) -> None:
+            pass
+
+    def fake_connect(*_args: object, **_kwargs: object) -> UncleanConnection:
+        return UncleanConnection()
+
+    # Must return (not raise) despite the unclean close, and still close the runtime.
+    await asyncio.wait_for(
+        run_bridge("ws://unused", connect=fake_connect, build=lambda **_: fake_runtime),
+        timeout=5.0,
+    )
+    assert fake_runtime.closed
 
 
 async def test_bridge_closes_runtime_when_connect_raises() -> None:
