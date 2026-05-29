@@ -6,6 +6,10 @@
 
 Commissioners orchestrate tournament rounds. They receive league/division/membership context and recent results, then return episode schedules or round-complete decisions.
 
+A commissioner container session is scoped to a single round. The platform sends `round_start`, keeps the websocket open while the round is active, and ends the session after `round_complete` or `round_abort`. Cross-round continuity belongs in the explicit opaque state passed by the platform, not in process lifetime assumptions.
+
+Within that round lifetime, the commissioner can schedule episodes more than once. Initial work comes from `schedule_episodes`; after every `episode_result` or `episode_failed`, the platform calls `on_episode_completed`, and the commissioner may return additional episodes to schedule before the round can complete. This is the intended mechanism for retries, replacement episodes, and failure-responsive scheduling.
+
 This repo should hold commissioner implementations and scaffolding. It should not fork or redefine the protocol.
 
 ## Current facts from metta

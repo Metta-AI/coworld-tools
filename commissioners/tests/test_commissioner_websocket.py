@@ -5,7 +5,18 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from commissioners.common.protocol import DivisionInfo, EpisodeScore, LeagueInfo, MembershipInfo, RoundStart, VariantInfo
+from commissioners.common.commissioners import BaselineCommissioner, OnEpisodeCompletedContext, OnEpisodeCompletedResult
+from commissioners.common.protocol import (
+    DivisionInfo,
+    EpisodeRequest,
+    EpisodeScore,
+    LeagueInfo,
+    MembershipInfo,
+    RoundStart,
+    VariantInfo,
+)
+from commissioners.common.server import create_app
+
 app = import_module("commissioners.default.default_commissioner.default_commissioner").app
 
 
@@ -63,3 +74,63 @@ def test_round_websocket_schedules_and_completes() -> None:
     rankings = complete["results"][0]["rankings"]
     assert [ranking["policy_version_id"] for ranking in rankings] == [policy_version_ids[1], policy_version_ids[0]]
     assert [ranking["rank"] for ranking in rankings] == [1, 2]
+
+
+class RetryFailedEpisodeCommissioner(BaselineCommissioner):
+    def on_episode_completed(self, ctx: OnEpisodeCompletedContext) -> OnEpisodeCompletedResult:
+        if ctx.episode_failed is None:
+            return OnEpisodeCompletedResult()
+        if any(failed.request_id == "retry-1" for failed in ctx.failed_episodes):
+            return OnEpisodeCompletedResult()
+        return OnEpisodeCompletedResult(
+            episodes=[
+                EpisodeRequest(
+                    request_id="retry-1",
+                    variant_id=ctx.variant_id,
+                    policy_version_ids=[entry.policy_version_id for entry in ctx.entries[: ctx.num_agents]],
+                    seed=17,
+                    tags={"retry_for": ctx.episode_failed.request_id},
+                )
+            ]
+        )
+
+
+def test_round_websocket_can_schedule_follow_up_episode_after_failure() -> None:
+    client = TestClient(create_app(RetryFailedEpisodeCommissioner()))
+    round_start, policy_version_ids = _round_start_json()
+
+    with client.websocket_connect("/round") as websocket:
+        websocket.send_json(round_start)
+        schedule = websocket.receive_json()
+        assert schedule["type"] == "schedule_episodes"
+
+        websocket.send_json(
+            {
+                "type": "episode_failed",
+                "request_id": schedule["episodes"][0]["request_id"],
+                "error": "container exited",
+            }
+        )
+        retry_schedule = websocket.receive_json()
+
+        assert retry_schedule["type"] == "schedule_episodes"
+        assert retry_schedule["episodes"][0]["request_id"] == "retry-1"
+        assert retry_schedule["episodes"][0]["policy_version_ids"] == policy_version_ids
+
+        websocket.send_json(
+            {
+                "type": "episode_result",
+                "request_id": "retry-1",
+                "scores": [
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=3.0).model_dump(mode="json"),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=4.0).model_dump(mode="json"),
+                ],
+            }
+        )
+        complete = websocket.receive_json()
+
+    assert complete["type"] == "round_complete"
+    assert [ranking["policy_version_id"] for ranking in complete["results"][0]["rankings"]] == [
+        policy_version_ids[1],
+        policy_version_ids[0],
+    ]
