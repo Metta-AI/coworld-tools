@@ -14,7 +14,7 @@ strategy.
 ``perceive`` resolves the scene into a structured
 :class:`~.perception.entities.ResolvedScene` (including self world position), and
 ``update_belief`` folds it into belief's self / roster / bodies / tasks / phase /
-voting / evidence sections and builds the nav grid once from the walkability mask
+voting / evidence sections and builds the nav graph once from the walkability mask
 (design §4-§6). The modes + action layer drive both roles: crewmate tasks,
 meetings, voting, reporting, and fleeing, plus imposter hunting, venting, and
 blending in.
@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map.types import MapData
-from players.crewrift.crewborg.nav import NavGrid, build_nav_grid
+from players.crewrift.crewborg.nav import NavGraph, build_nav_graph
 from players.crewrift.crewborg.perception.entities import ResolvedScene, VotingState
 from players.crewrift.crewborg.perception.resolve import resolve_scene
 
@@ -69,7 +69,7 @@ class Percept(BaseModel):
     """Resolved per-tick view of the scene (design §4).
 
     ``walkability`` is the decoded mask held by reference (not copied): it is
-    static for the episode, so ``update_belief`` builds the nav grid from it once.
+    static for the episode, so ``update_belief`` builds the nav graph from it once.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
@@ -117,8 +117,8 @@ class Belief(BaseModel):
 
     # Static map, baked once at startup (design §6).
     map: MapData | None = None
-    # Navigation grid over the streamed walkability mask, built once (design §6).
-    nav: NavGrid | None = None
+    # Navigation graph over the streamed walkability mask, built once (design §6).
+    nav: NavGraph | None = None
 
     # Self / camera (design §5 self).
     camera_ready: bool = False
@@ -271,11 +271,11 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     belief.self_world_x = resolved.self_world_x
     belief.self_world_y = resolved.self_world_y
 
-    # Build the navigation grid once from the static walkability mask (design §6).
+    # Build the navigation graph once from the static walkability mask + baked map
+    # (design §6): nodes/edges validated at pixel resolution, reachable flood from
+    # home, and precomputed reachable anchors for every task / vent / button.
     if belief.nav is None and percept.walkability is not None:
-        width = belief.map.width if belief.map is not None else None
-        height = belief.map.height if belief.map is not None else None
-        belief.nav = build_nav_grid(percept.walkability, map_width=width, map_height=height)
+        belief.nav = build_nav_graph(percept.walkability, map_data=belief.map)
 
     # Tasks. The renderer emits a signal per incomplete assigned task. We only
     # accumulate which tasks are assigned and which are visible this tick;

@@ -22,7 +22,6 @@ off-screen, so "bubble gone" alone is ambiguous — but a task whose rect we are
 from __future__ import annotations
 
 from players.crewrift.crewborg.map.types import TaskStation
-from players.crewrift.crewborg.nav import plan_route
 from players.crewrift.crewborg.types import ActionState, Belief, Intent
 from players.player_sdk import EmptyModeParams, Mode
 
@@ -77,10 +76,10 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             return None
 
         self_xy = _self_xy(belief)
-        # Prefer tasks the nav graph can route to; fall back to all if none are
-        # reachable (rare — the action layer then holds still rather than wall-drive).
-        if belief.nav is not None and self_xy is not None:
-            reachable = [i for i in candidates if plan_route(belief.nav, self_xy, _center(tasks[i]))]
+        # Prefer tasks with a baked reachable anchor; fall back to all if none have
+        # one (rare — the action layer then holds still rather than wall-drive).
+        if belief.nav is not None:
+            reachable = [i for i in candidates if belief.nav.task_anchor(i) is not None]
             if reachable:
                 candidates = reachable
 
@@ -88,7 +87,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             return self._target  # keep the current target to avoid thrashing
         if self_xy is None:
             return min(candidates)
-        return min(candidates, key=lambda i: _dist2(self_xy, _center(tasks[i])))
+        return min(candidates, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
 
     def _sweep_intent(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> Intent | None:
         """Sweep baked stations to discover assigned tasks (arrows-disabled, §5)."""
@@ -109,8 +108,8 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         remaining = [i for i in range(len(tasks)) if i not in self._swept]
         if not remaining:
             return None  # checked every station and found no assigned tasks
-        nearest = min(remaining, key=lambda i: _dist2(self_xy, _center(tasks[i])))
-        return Intent(kind="navigate_to", point=_center(tasks[nearest]), reason="sweeping for tasks")
+        nearest = min(remaining, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
+        return Intent(kind="navigate_to", point=_nav_point(belief, tasks[nearest], nearest), reason="sweeping for tasks")
 
 
 def _inside(task: TaskStation, x: int | None, y: int | None) -> bool:
@@ -120,6 +119,16 @@ def _inside(task: TaskStation, x: int | None, y: int | None) -> bool:
 
 
 def _center(task: TaskStation) -> tuple[int, int]:
+    return task.center.x, task.center.y
+
+
+def _nav_point(belief: Belief, task: TaskStation, index: int) -> tuple[int, int]:
+    """The station's baked reachable anchor, or its center before the graph exists."""
+
+    if belief.nav is not None:
+        anchor = belief.nav.task_anchor(index)
+        if anchor is not None:
+            return anchor
     return task.center.x, task.center.y
 
 

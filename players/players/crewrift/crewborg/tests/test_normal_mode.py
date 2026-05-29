@@ -6,7 +6,7 @@ import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
 from players.crewrift.crewborg.modes import NormalMode
-from players.crewrift.crewborg.nav import build_nav_grid
+from players.crewrift.crewborg.nav import build_nav_graph
 from players.crewrift.crewborg.types import ActionState, Belief
 
 
@@ -105,6 +105,6 @@ def test_picks_reachable_task_over_nearer_unreachable_one() -> None:
         self_world_x=8,
         self_world_y=12,  # left of the wall
     )
-    belief.nav = build_nav_grid(mask, cell_size=8)
+    belief.nav = build_nav_graph(mask, map_data=belief.map, cell_size=8)
     intent = NormalMode().decide(belief, ActionState())
     assert intent.kind == "complete_task" and intent.task_index == 0  # task 1 is unreachable

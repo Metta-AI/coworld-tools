@@ -27,7 +27,7 @@ crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
-  nav.py             nav grid + A* route planning over the walkability mask
+  nav.py             baked nav graph: pixel-validated A* + reachability + anchors
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade

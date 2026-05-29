@@ -24,11 +24,21 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         if not tasks or self_xy is None:
             return Intent(kind="idle", reason="loitering")
 
-        nearest = min(tasks, key=lambda t: _dist2(self_xy, (t.center.x, t.center.y)))
-        target = (nearest.center.x, nearest.center.y)
+        nearest = min(range(len(tasks)), key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
+        target = _nav_point(belief, tasks[nearest], nearest)
         if _dist2(self_xy, target) <= LOITER_RADIUS_SQ:
             return Intent(kind="idle", reason="faking a task at a station")
         return Intent(kind="navigate_to", point=target, reason="loitering near a task station")
+
+
+def _nav_point(belief: Belief, task, index: int) -> tuple[int, int]:
+    """The station's baked reachable anchor, or its center before the graph exists."""
+
+    if belief.nav is not None:
+        anchor = belief.nav.task_anchor(index)
+        if anchor is not None:
+            return anchor
+    return task.center.x, task.center.y
 
 
 def _self_xy(belief: Belief) -> tuple[int, int] | None:
