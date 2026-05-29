@@ -5,14 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "amongcogs"
 version = "0.1.0"
-description = "Standalone AmongCogs game package built on cogames and mettagrid"
+description = "Standalone AmongCogs game package built on mettagrid"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Metta-AI" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "anthropic>=0.64.0",
-  "cogames",
   "mettagrid",
   "pydantic>=2.11.5",
   "typing-extensions>=4.12.0",

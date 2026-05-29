@@ -36,7 +36,7 @@ def play(
     render: RenderMode | None = None,
 ):
     from cogames.cli.mission import resolve_mission
-    from cogames.game import get_game
+    from mettagrid.cogame.game import get_game
     from metta.sim.simulation_config import SimulationConfig
     from metta.tools.play import PlayTool
 

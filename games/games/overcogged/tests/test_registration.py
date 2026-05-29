@@ -1,4 +1,4 @@
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 
 import overcogged  # noqa: F401
 

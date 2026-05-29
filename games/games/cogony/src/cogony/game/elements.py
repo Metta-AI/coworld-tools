@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig
 
 if TYPE_CHECKING:

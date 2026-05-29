@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from cogames.game import CoGame, register_game as register_cogame
+from mettagrid.cogame.game import CoGame, register_game as register_cogame
 from mettagrid.config.mettagrid_config import MettaGridConfig
 
 from werecog.defaults import DEFAULT_MAX_STEPS

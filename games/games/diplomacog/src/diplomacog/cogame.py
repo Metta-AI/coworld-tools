@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.game import CoGame, register_game
+from mettagrid.cogame.game import CoGame, register_game
 
 from diplomacog.game import make_diplomacog_mission
 from diplomacog.variants import VARIANTS

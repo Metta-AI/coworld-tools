@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from hungercog.variants.carnivore import CarnivoreVariant
 from hungercog.variants.digest import DigestVariant
 from hungercog.variants.herbivore import HerbivoreVariant

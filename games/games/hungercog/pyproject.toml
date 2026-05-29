@@ -5,13 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hungercog"
 version = "0.1.0"
-description = "Standalone HungerCog game built on cogames and mettagrid"
+description = "Standalone HungerCog game built on mettagrid"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Metta AI", email = "info@metta.ai" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "cogames",
   "mettagrid",
   "pydantic>=2.11.5",
 ]

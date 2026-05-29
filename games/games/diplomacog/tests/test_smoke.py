@@ -1,4 +1,4 @@
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 from mettagrid.policy.policy import PolicySpec
 from mettagrid.runner.rollout import run_episode_local
 

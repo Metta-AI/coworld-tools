@@ -93,7 +93,7 @@ def play_cmd(
     from cogames.cli.mission import resolve_mission
     from cogames.cli.policy import parse_policy_spec
     from cogames.device import resolve_training_device
-    from cogames.game import get_game
+    from mettagrid.cogame.game import get_game
     from cogames.play import play
 
     game = get_game("overcogged")
@@ -122,7 +122,7 @@ def play_cmd(
 
 @app.command("missions")
 def missions_cmd() -> None:
-    from cogames.game import get_game
+    from mettagrid.cogame.game import get_game
 
     game = get_game("overcogged")
     for mission in game.missions:
@@ -131,7 +131,7 @@ def missions_cmd() -> None:
 
 @app.command("variants")
 def variants_cmd() -> None:
-    from cogames.game import get_game
+    from mettagrid.cogame.game import get_game
 
     game = get_game("overcogged")
     public = tuple(variant.name for variant in game.variant_registry.all() if not variant.name.startswith("reset_"))

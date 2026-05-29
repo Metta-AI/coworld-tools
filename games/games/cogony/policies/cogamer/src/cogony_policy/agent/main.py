@@ -26,7 +26,7 @@ from cogony_policy.agent.roles import RolesMixin
 from cogony_policy.agent.targeting import TargetingMixin
 from cogony_policy.agent.tick_context import TickContext, build_tick_context
 from cogony_policy.agent.world_model import WorldModel
-from cogames.sdk.cogsguard import CogsguardSemanticSurface
+from mettagrid.sdk.cogsguard import CogsguardSemanticSurface
 from mettagrid.policy.policy import AgentPolicy
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.sdk.agent import MacroDirective, MettagridState

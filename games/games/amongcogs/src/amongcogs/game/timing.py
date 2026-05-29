@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from amongcogs.defaults import (
     DEFAULT_INITIAL_KILL_COOLDOWN_STEPS,
     DEFAULT_KILL_COOLDOWN_STEPS,

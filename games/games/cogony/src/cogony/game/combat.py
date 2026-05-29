@@ -21,7 +21,7 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.game.channels import CHANNEL_GEAR, CHANNEL_STATS, DMG_STATS, SYS_DAMAGE_STATS, ChannelsVariant
 from cogony.game.coherence import CoherenceVariant
 from cogony.game.elements import ElementsVariant

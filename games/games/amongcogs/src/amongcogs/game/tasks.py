@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from amongcogs.constants import TASK_STATION_NAMES, task_station_config
 from amongcogs.game.roles import RolesVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig

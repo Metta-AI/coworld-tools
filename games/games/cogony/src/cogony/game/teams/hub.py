@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import hasTag
 from mettagrid.config.handler_config import Handler

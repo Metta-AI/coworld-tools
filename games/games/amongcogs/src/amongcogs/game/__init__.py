@@ -7,8 +7,8 @@ available for explicit CLI usage and targeted regression coverage.
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.core import CoGameMissionVariant
+from mettagrid.cogame.variants import VariantRegistry
 from amongcogs.constants import (
     ALIVE_RESOURCE,
     AGENT_ID_RESOURCE_PREFIX,

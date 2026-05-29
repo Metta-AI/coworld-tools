@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.game import CoGame, register_game
+from mettagrid.cogame.game import CoGame, register_game
 from amongcogs.game import ALL_VARIANTS, parse_variants
 from amongcogs.missions import AmongUsGame, make_basic_mission
 from amongcogs.runtime import register

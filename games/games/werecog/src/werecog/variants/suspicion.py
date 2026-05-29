@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from werecog.variants.common import SUSPICION, append_unique
 from werecog.variants.meetings import MeetingsVariant
 from mettagrid.config.handler_config import updateTarget

@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.terrain import ArenaVariant, find_arena
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.variants import ResolvedDeps
 from mettagrid.config.mettagrid_config import MettaGridConfig
 from mettagrid.map_builder.map_builder import MapBuilderConfig
 from mettagrid.mapgen.mapgen import MapGen

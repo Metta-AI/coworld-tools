@@ -6,8 +6,8 @@ from typing import cast
 
 from pydantic import Field
 
-from cogames.core import CoGameMission
-from cogames.game import CoGame, register_game
+from mettagrid.cogame.core import CoGameMission
+from mettagrid.cogame.game import CoGame, register_game
 from cogames.games.cogs_vs_clips.missions.terrain import MachinaArena
 from hungercog.variants import VARIANTS
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig

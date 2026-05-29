@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from cogames.core import CoGameMissionVariant
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.core import CoGameMissionVariant
+from mettagrid.cogame.variants import VariantRegistry
 from werecog.variants.full import FullVariant
 from werecog.variants.hunt import HuntVariant
 from werecog.variants.meetings import MeetingsVariant

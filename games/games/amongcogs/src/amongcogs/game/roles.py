@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 from amongcogs.constants import (
     FORCE_ROLE_ASSIGN_STEP,
     KILL_COOLDOWN_RESOURCE,

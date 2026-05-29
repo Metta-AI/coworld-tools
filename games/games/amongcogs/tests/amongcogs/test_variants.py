@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from cogames.game import get_game
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.game import get_game
+from mettagrid.cogame.variants import VariantRegistry
 from amongcogs.game import (
     ALL_VARIANTS,
     AMONG_US_INTERFACE_VARIANTS,

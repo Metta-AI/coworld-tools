@@ -9,7 +9,7 @@ from typing import cast
 from pydantic import Field
 from typing_extensions import Self
 
-from cogames.core import CoGameMission, CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMission, CoGameMissionVariant
 from mettagrid.config.action_config import ActionsConfig, ChangeVibeActionConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.mettagrid_config import (
     AgentConfig,

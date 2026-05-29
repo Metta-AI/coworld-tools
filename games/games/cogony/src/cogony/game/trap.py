@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.game.vibes import VibesVariant
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import TargetLocEmptyFilter, targetHas, isNot

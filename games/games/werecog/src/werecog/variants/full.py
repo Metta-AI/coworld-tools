@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from werecog.variants.hunt import HuntVariant
 from werecog.variants.render import RenderVariant
 from werecog.variants.role_action_rewards import RoleActionRewardsVariant

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from werecog.compat import require_obs_fields
 from werecog.variants.common import (
     DAY_EXECUTION_USED_STAT,

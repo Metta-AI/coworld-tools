@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from amongcogs.constants import VENT_COOLDOWN_RESOURCE, VENT_NETWORK_BY_NAME, vent_station_config
 from amongcogs.game.common import vent_cooldown_steps
 from amongcogs.game.roles import RolesVariant

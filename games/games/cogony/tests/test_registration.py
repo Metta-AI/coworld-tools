@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 
 import cogony  # noqa: F401 (side-effect import under test)
 

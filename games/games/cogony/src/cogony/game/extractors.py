@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, CvCStationConfig, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, CvCStationConfig, Deps
 from cogony.game.channels import DMG_STATS, RES_STATS, SYS_DAMAGE_STATS
 from cogony.game.elements import ElementsVariant
 from cogony.game.terrain import BuildingsVariant
 from cogony.terrain import find_arena
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.variants import ResolvedDeps
 from mettagrid.config.filter import isNot, targetHas
 from mettagrid.config.handler_config import (
     Handler,

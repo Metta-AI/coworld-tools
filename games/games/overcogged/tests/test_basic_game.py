@@ -1,6 +1,6 @@
 import numpy as np
 from cogames.cli.mission import resolve_mission
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 
 import overcogged  # noqa: F401
 from overcogged.game.game import (

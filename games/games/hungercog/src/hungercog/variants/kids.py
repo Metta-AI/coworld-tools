@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from hungercog.variants.food import FoodVariant
 from hungercog.variants.seasons import (
     FOOD_DRAIN_PERIOD,

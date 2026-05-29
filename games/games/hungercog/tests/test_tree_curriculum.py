@@ -1,4 +1,4 @@
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.variants import VariantRegistry
 from metta.games.games import make_game
 from hungercog.tree_curriculum import (
     HUNGER_MECHANICS,

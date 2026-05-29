@@ -4,7 +4,7 @@ import sys
 
 from cogames.cli.base import console
 from cogames.cli.mission import list_variants, print_variant_graph
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 from mettagrid.policy.loader import discover_and_register_policies
 
 from werecog.cogame import register_game

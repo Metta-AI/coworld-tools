@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.action_config import ChangeVibeActionConfig
 from mettagrid.config.mettagrid_config import MettaGridConfig
 from mettagrid.config.vibes import Vibe

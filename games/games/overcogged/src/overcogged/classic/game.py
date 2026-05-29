@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from cogames.core import CoGameMission
+from mettagrid.cogame.core import CoGameMission
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import (

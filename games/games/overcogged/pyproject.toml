@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "overcogged"
 version = "0.1.0"
-description = "Standalone Overcogged game built on cogames and mettagrid"
+description = "Standalone Overcogged game built on mettagrid"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Metta AI", email = "info@metta.ai" }]
@@ -29,9 +29,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "ruff>=0.4", "cogames[neural]>=0.25.0"]
-standalone = ["cogames[neural]>=0.25.0"]
-test = ["pytest>=8.0.0", "cogames[neural]>=0.25.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.4"]
+test = ["pytest>=8.0.0"]
 
 [project.scripts]
 overcogged = "overcogged.cli:app"

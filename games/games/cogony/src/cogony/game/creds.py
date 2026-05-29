@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig
 
 if TYPE_CHECKING:

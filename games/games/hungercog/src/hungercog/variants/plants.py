@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from hungercog.variants.food import FoodVariant
 from mettagrid.config.filter.filter import isNot
 from mettagrid.config.handler_config import Handler, actorHas, firstMatch, targetHas, withdraw

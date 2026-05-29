@@ -2,7 +2,7 @@ from rich.console import Console
 
 from cogames.cli.policy import parse_policy_spec
 from cogames.cli.mission import resolve_mission
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 from cogames.play import play
 
 import overcogged  # noqa: F401

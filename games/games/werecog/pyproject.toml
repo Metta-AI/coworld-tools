@@ -11,7 +11,6 @@ license = { text = "MIT" }
 authors = [{ name = "Metta AI", email = "info@metta.ai" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "cogames",
   "mettagrid",
   "pydantic>=2.11.5",
 ]

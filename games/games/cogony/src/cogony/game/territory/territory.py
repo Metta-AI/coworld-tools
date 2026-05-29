@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.game.junction import JunctionVariant
 from cogony.game.teams.hub import TeamHubVariant
 from cogony.game.teams.team import TeamVariant

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.game import CoGame, register_game
+from mettagrid.cogame.game import CoGame, register_game
 
 from cogony.game import _get_all_variants
 from cogony.mission import CogonyMission

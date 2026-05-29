@@ -7,9 +7,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, Self, cast
 
-from cogames.core import CoGameMission, CoGameMissionVariant
-from cogames.game import CoGame, register_game
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.core import CoGameMission, CoGameMissionVariant
+from mettagrid.cogame.game import CoGame, register_game
+from mettagrid.cogame.variants import VariantRegistry
 from mettagrid.config.action_config import (
     ActionsConfig,
     ChangeVibeActionConfig,

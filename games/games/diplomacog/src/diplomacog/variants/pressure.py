@@ -1,6 +1,6 @@
 """Pressure and conflict profile modifiers for diplomacy."""
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.handler_config import updateTarget
 from mettagrid.config.mettagrid_config import MettaGridConfig
