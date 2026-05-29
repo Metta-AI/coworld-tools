@@ -1,8 +1,7 @@
 """Idle mode: stand still. The default stance and the stall/TTL fallback.
 
 Idle is active during non-actionable phases (``RoleReveal``/``Lobby``/``GameOver``)
-and is the runtime's default directive (design §7.1, §10). In P0 it is the only
-mode — the whole agent runs idle end-to-end.
+and is the runtime's default directive (design §7.1, §10).
 """
 
 from __future__ import annotations

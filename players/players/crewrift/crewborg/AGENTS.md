@@ -9,16 +9,12 @@ Everything below was read from source on **2026-05-28**. These repos are in
 active development; **verify any specific symbol, path, or constant against the
 cited file before relying on it.**
 
-> **Status:** crewborg is **not built yet** — this directory currently holds
-> only these notes. It sits at `players/players/crewrift/crewborg/` inside the
-> `players` uv workspace. There is no other content under
-> `players/players/crewrift/` yet.
->
-> When I set this up I cleared out a junk subtree that had been left here:
-> directories misnamed as files (`AGENTS.md/`, `docs/architecture.md/`) each
-> containing only an empty `.git` file — a botched copy artifact, untracked by
-> git, with zero real content. If anything like that reappears, it's safe to
-> delete.
+> **Status:** Implemented end-to-end — the agent plays both roles (crewmate
+> tasks / meetings / voting / report / flee, plus imposter Hunt / Pretend / Evade
+> and the `kill`/`vent` intents). The LLM strategy seam stays in place but
+> unused. See [`README.md`](./README.md) for a capability summary and
+> [`design.md`](./design.md) for the settled architecture. crewborg sits at
+> `players/players/crewrift/crewborg/` inside the `players` uv workspace.
 
 ---
 
@@ -203,9 +199,13 @@ So crewborg must **write its own websocket bridge** that:
    packets (a button packet, optionally a chat packet);
 4. exits cleanly when the server closes the socket (= game end).
 
-The proven loop shape is `notsus`' `receiveLatestFrameInto` (`np:611`): block for
-one message, drain any immediately-available messages into the scene tables, then
-run one `perceive→…→resolve` cycle and send input only if the mask changed.
+Each incoming binary message is a complete frame (the decoder applies all of its
+concatenated sub-messages), so the bridge applies one message, runs one
+`perceive→…→resolve` cycle, and sends input only if the mask changed. `notsus`'
+`receiveLatestFrameInto` (`np:611`) additionally drains any already-queued
+messages and acts only on the freshest — a latency optimization (skip stale
+intermediate frames) that crewborg does not currently need, since it has no rate
+limiter and self-corrects from any transient backlog.
 
 ---
 
@@ -402,13 +402,16 @@ maintenance**, not computer vision; there is no framebuffer parser and no pixel
 atlas (the lone image step is Snappy-decoding the `walkability map` sprite).
 
 **Step cadence (a crewborg design choice, grounded in the server).** The server
-emits one binary message per 24 Hz tick (send loop `server:1012`, rate-limited by
-`runFrameLimiter` `server:578`); there is no "frame complete" marker. The working
-pattern (`notsus`, `receiveLatestFrameInto` `np:611`): block for one message, then
-drain any immediately-available messages into the tables, then run one
-`perceive→…→resolve` cycle and send input *only if the mask changed*. Tolerate
-partial startup frames — don't assume the map object / walkability sprite have
-arrived yet on the first ticks.
+emits exactly one binary message per socket per 24 Hz tick (one `sim.step` per
+loop, send loop, rate-limited by `runFrameLimiter` `server:578`). There is no
+"frame complete" sub-message marker, but each WebSocket message is itself one
+complete frame: the decoder applies all of its concatenated sub-messages. So the
+bridge blocks for one message, applies it, runs one `perceive→…→resolve` cycle,
+and sends input *only if the mask changed*. `notsus`' `receiveLatestFrameInto`
+(`np:611`) also drains any already-queued messages to act on the freshest frame —
+a latency optimization crewborg skips (it has no rate limiter and self-corrects
+from transient backlog). Tolerate partial startup frames — don't assume the map
+object / walkability sprite have arrived yet on the first ticks.
 
 ### Connecting / running locally (`coworld-crewrift/README.md`)
 
@@ -444,14 +447,13 @@ game's `coworld_manifest.json`. Full platform contract:
 
 ---
 
-## 3. Layout, phasing, and references
+## 3. Layout and references
 
 The durable architecture and the full set of design decisions live in
-[`design.md`](./design.md) — read it before writing code. It owns the proposed
-package layout (`__init__.py`/`types.py`/`action.py`/`nav.py`/`modes/`/
-`strategy/`/`perception/`/`map/`/`coworld/`/`tests/`), the type contracts, and the
-phasing (P0 noop end-to-end → P1 Sprite-v1 scene decoder **+ baked-map extractor**
-→ P2 crewmate → P3 meetings/voting → P4 imposter; LLM strategy deferred).
+[`design.md`](./design.md) — read it before writing code. It owns the package
+layout (`__init__.py`/`types.py`/`action.py`/`nav.py`/`modes/`/`strategy/`/
+`perception/`/`map/`/`coworld/`/`tests/`), the type contracts, and the
+mode/intent/strategy design (the LLM strategy seam remains in place but unused).
 
 Perception is **structured-scene maintenance**, not computer vision: there is no
 framebuffer parser, no pixel atlas, and no CV parity oracle. The lone image step
@@ -475,7 +477,7 @@ Behavior & parsing references:
 ```sh
 # repo root: ~/coding/players_checkouts/players
 uv sync
-uv run pytest players/crewrift/crewborg/tests      # crewborg tests, once they exist
+uv run pytest players/crewrift/crewborg/tests      # crewborg tests
 uv run ruff check players/crewrift/crewborg
 ```
 Tests use `pytest-asyncio` (strict mode) and a `docker` marker for image-driven

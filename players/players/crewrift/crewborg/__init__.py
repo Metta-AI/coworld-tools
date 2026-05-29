@@ -54,7 +54,7 @@ def build_runtime(
     resolve_action`` each tick; the rule-based strategy publishes mode directives
     via ``SynchronousStrategyRunner``. The static map is baked once here (design
     §6) — ``map_data`` overrides the vendored ``croatoan`` bake (used in tests).
-    P4 registers all modes: idle / normal / attend_meeting / report_body / flee
+    Registers all modes: idle / normal / attend_meeting / report_body / flee
     (crewmate) and hunt / pretend / evade (imposter).
     """
 

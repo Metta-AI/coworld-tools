@@ -8,17 +8,17 @@ as a Docker image the Coworld runner launches.
 - **Design spec:** [`design.md`](./design.md) — the settled architecture.
 - **Orientation:** [`AGENTS.md`](./AGENTS.md) — codebases, protocol, source pointers.
 
-## Status
+## What it does
 
-**P4 — imposter modes (current; P0–P4 complete).** The agent now plays both
-roles. On top of the crewmate behaviour (tasks, meetings, voting, report, flee),
-the role-aware selector runs the imposter priority order during `Playing`:
-**Hunt** (kill ready → navigate to the nearest isolated crewmate and kill in
-range), **Evade** (just killed → vanish via a vent or move off the body), and
-**Pretend** (otherwise → loiter near task stations to blend in); meetings reuse
-**Attend Meeting**. The action layer gained the `kill` (edge-A in KillRange) and
-`vent` (level-B in VentRange) intents. The full P0–P4 design (`design.md` §11) is
-implemented; the LLM strategy seam remains for later.
+Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
+meetings, votes, reports bodies, and flees believed imposters. As an imposter the
+role-aware selector runs a priority order during `Playing`: **Hunt** (kill ready →
+navigate to the nearest isolated crewmate and kill in range), **Evade** (just
+killed → vanish via a vent or move off the body), and **Pretend** (otherwise →
+loiter near task stations to blend in); meetings reuse **Attend Meeting**. The
+action layer covers the `kill` (edge-A in KillRange) and `vent` (level-B in
+VentRange) intents. The LLM strategy seam (`design.md` §10) remains in place but
+unused.
 
 ## Layout
 

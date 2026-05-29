@@ -5,7 +5,7 @@ the action layer maximizes distance from it. ``flee_from`` is the simple keep-aw
 primitive — situational fleeing (toward a trusted player, the button, or around a
 corner) is a later refinement that emits ``navigate_to`` instead (design §8).
 
-In P3 the evidence ledger (``belief.believed_imposters``) is an empty stub, so
+The evidence ledger (``belief.believed_imposters``) is currently unpopulated, so
 this mode is wired but dormant until suspicion reasoning fills it.
 """
 

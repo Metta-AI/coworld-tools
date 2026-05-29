@@ -1,4 +1,4 @@
-"""Runtime smoke: the assembled idle agent steps cleanly (design §1, P0)."""
+"""Runtime smoke: the assembled idle agent steps cleanly (design §1)."""
 
 from __future__ import annotations
 

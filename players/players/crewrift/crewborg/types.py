@@ -11,13 +11,13 @@ state in place (``Belief``/``ActionState``). ``SceneState`` is the lone exceptio
 a plain dataclass owned by the bridge holding raw buffers that never reach the
 strategy.
 
-**P3 scope.** ``perceive`` resolves the scene into a structured
+``perceive`` resolves the scene into a structured
 :class:`~.perception.entities.ResolvedScene` (including self world position), and
 ``update_belief`` folds it into belief's self / roster / bodies / tasks / phase /
 voting / evidence sections and builds the nav grid once from the walkability mask
-(design §4-§6). The crewmate modes (Normal / Attend Meeting / Report Body / Flee)
-+ action layer drive tasks, meetings, voting, reporting, and fleeing; imposter
-behaviour (P4) is still to come.
+(design §4-§6). The modes + action layer drive both roles: crewmate tasks,
+meetings, voting, reporting, and fleeing, plus imposter hunting, venting, and
+blending in.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from players.crewrift.crewborg.perception.entities import ResolvedScene, VotingS
 from players.crewrift.crewborg.perception.resolve import resolve_scene
 
 # The shared intent vocabulary (design §8). One vocabulary serves both roles;
-# modes differ only in which they emit. P1 still only emits/handles ``idle``.
+# modes differ only in which they emit.
 IntentKind = Literal[
     "idle",
     "loiter",
@@ -149,8 +149,8 @@ class Belief(BaseModel):
     # Voting (design §5 voting).
     voting: VotingState = Field(default_factory=VotingState)
 
-    # Social / evidence (design §5). Reserved and empty until P3+ reasoning fills
-    # them; ``believed_imposters`` drives the Flee mode (dormant while empty).
+    # Social / evidence (design §5). Currently unpopulated; ``believed_imposters``
+    # drives the Flee mode (dormant until suspicion reasoning fills it).
     believed_imposters: set[int] = Field(default_factory=set)
     # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
     # so Hunt never targets a fellow imposter (the server's kill skips them).
@@ -162,7 +162,7 @@ class Belief(BaseModel):
 
 
 class Intent(BaseModel):
-    """Symbolic "what to do now" (design §8). P2 emits idle/navigate_to/complete_task."""
+    """Symbolic "what to do now" (design §8)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -201,8 +201,7 @@ class Command(BaseModel):
 
     ``held_mask`` is the button bitmask the action layer wants held this tick; the
     bridge owns the last-sent mask and the send-only-on-change comparison
-    (design §3.3). ``chat`` is reserved for meeting speech (emitted only during
-    Voting); chat emission lands in P3.
+    (design §3.3). ``chat`` is meeting speech, emitted only during Voting.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -218,7 +217,7 @@ def derive_phase(resolved: ResolvedScene, current: Phase) -> Phase:
     subtlety (design §5) is ``Playing``: during ordinary play there is usually *no*
     interstitial and no voting UI, so the machine must infer ``Playing`` from a
     live scene once a reveal/meeting clears — otherwise belief stays stuck at
-    ``RoleReveal`` and P2's Normal mode (keyed on ``Playing``) never activates.
+    ``RoleReveal`` and the Normal mode (keyed on ``Playing``) never activates.
     """
 
     texts = resolved.phase_texts

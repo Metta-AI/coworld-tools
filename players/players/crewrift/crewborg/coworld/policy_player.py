@@ -5,10 +5,9 @@ binary messages arrive, drives ``runtime.step`` once per tick, and sends an inpu
 packet only when the held button mask changes. It exits cleanly when the server
 closes the socket (= game over).
 
-**P0 scope.** Each incoming binary message is treated as one tick trigger with a
-placeholder ``SceneState.apply`` (the full Sprite-v1 decoder and the
-drain-to-latest-frame coalescing land in P1). The idle policy holds mask 0, so
-after the initial neutral packet the bridge sends nothing.
+Each incoming binary message is decoded into the ``SceneState`` and drives one
+``runtime.step``; the held button mask is sent only when it changes, and meeting
+chat is sent during Voting.
 
 Environment:
 

@@ -12,7 +12,12 @@ Crewmate priority order (design §10):
 4. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
 5. otherwise → idle
 
-Imposter selection lands in P4; until then an imposter falls through to idle.
+Imposter priority order (design §10):
+
+1. ``phase == Voting`` → Attend Meeting
+2. just killed → Evade
+3. kill ready + a killable target in view → Hunt
+4. otherwise → Pretend
 """
 
 from __future__ import annotations

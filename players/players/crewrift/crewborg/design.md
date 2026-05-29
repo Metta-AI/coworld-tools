@@ -6,11 +6,10 @@ imposters kill, vent, and blend in). This document is the implementation spec.
 For codebase orientation, game constants, and source pointers, see
 [`AGENTS.md`](./AGENTS.md).
 
-> **Status:** P0–P4 implemented (idle bridge → Sprite-v1 decoder + map bake →
-> crewmate Normal/nav/action → meetings/report/flee → imposter modes). The LLM
-> strategy seam ([§10](#10-strategy-mode-selector)) remains unused, and the three
-> tuning parameters in [§12](#12-open-tuning-parameters) await tuning against a
-> live server.
+> **Status:** This spec is implemented end-to-end for both roles. The LLM
+> strategy seam ([§10](#10-strategy-mode-selector)) remains in place but unused,
+> and the three tuning parameters in [§12](#12-tuning-parameters) await tuning
+> against a live server.
 
 Conventions: paths like `sim:2464` cite the Crewrift Nim source (`sim` =
 `src/crewrift/sim.nim`, `global` = `src/crewrift/global.nim`, `protocols.nim` =
@@ -108,9 +107,18 @@ Crewborg writes its own websocket bridge (`coworld/policy_player.py`):
    `websockets.connect(url, max_size=None)` — token validation is at HTTP upgrade.
 2. Maintain a **`SceneState`** (a plain dataclass, owned by the bridge): three
    retained tables plus the decoded camera and walkability mask.
-3. Per tick: block for one message, drain any immediately-available messages into
+3. Per tick: block for one binary message — each message is a complete frame (the
+   decoder applies all of its concatenated sub-packets) — apply it to
    `SceneState`, then run `runtime.step(observation)` and send the result.
 4. Close the socket ⇒ game over; exit cleanly.
+
+The server sends exactly one message per tick per socket, paced to 24 Hz, so the
+bridge processes one message per `step`. It has no rate limiter of its own and a
+step is sub-millisecond, so if frames ever transiently queue (a scheduler or
+GC hiccup), it burns through the backlog faster than 24 Hz and self-corrects
+rather than lagging. Coalescing multiple queued frames into one `step` (acting
+only on the freshest, as `notsus`' `receiveLatestFrameInto` does) is a latency
+optimization, not a correctness requirement, and is not currently implemented.
 
 `Observation` is a thin pydantic wrapper holding a reference to the live
 `SceneState` + the tick. Byte-level decoding happens in the bridge; `perceive`
@@ -236,7 +244,9 @@ chosen by an on/off-screen test (`global:2202-2274`, `:2410-2440`):
 - **phase** — current phase + start tick + the phase state machine, advanced from
   `phase_signals` (emit a `phase_change` trace on transition).
 - **voting** — live tally, cursor, timer, who has voted.
-- **social / evidence** — reserved (P3+): sightings, suspicion. Empty initially.
+- **social / evidence** — extension point for sightings/suspicion; currently
+  unpopulated (`believed_imposters` exists and drives Flee, but nothing fills it
+  yet, so Flee stays dormant).
 - **inferences** — reserved slot for strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
@@ -247,7 +257,7 @@ seen; thereafter we know how many players exist and how many are currently unsee
 
 **Staleness / stillness.** Per player, keep last-known position + last-seen tick;
 comparing against the current tick yields staleness and stillness. Position
-history is deferred to P3 social reasoning.
+history (for social reasoning) is not yet tracked.
 
 **`task_arrows_enabled`** (tri-state `None`/`True`/`False`). Discovered by
 observation — the `task arrow` sprite is always *defined* in init; what's gated is
@@ -322,7 +332,7 @@ re-decides.
 |---|---|---|
 | **Pretend** | kill on cooldown | `idle`/`loiter` near task stations and crew; fake task stops |
 | **Hunt** | kill ready | `navigate_to(target)`; `kill(target)` in range |
-| **Flee** | just killed | `flee_from` / `navigate_to` away from the body |
+| **Evade** | just killed | `flee_from` / `navigate_to` away from the body (or `vent` to vanish) |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, `vote(choice)` — bluff/deflect |
 
 ### 7.3 Division of labour
@@ -332,7 +342,7 @@ watches belief — task icon gone, `active_task_progress_pct` at 100%, meeting
 opened, target dead — and changes the intent. A ghost crewmate keeps Normal mode +
 `complete_task` (it can still finish its own tasks).
 
-### 7.4 Planned refinements (later phases)
+### 7.4 Possible refinements
 
 Mode-level enhancements to keep in view: arrow-bearing **task triangulation** under
 arrows-only; **travelling-salesman** task ordering over the nav graph; **safety in
@@ -424,14 +434,14 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 **Imposter selection** (priority order):
 
 1. phase = `Voting` → **Attend Meeting**
-2. just killed → **Flee**
+2. just killed → **Evade**
 3. kill ready + a reachable isolated crewmate → **Hunt**
 4. otherwise → **Pretend** (watch `crew_tasks_remaining` to escalate as the crew
    nears a task win)
 
 ---
 
-## 11. Package layout, phasing, tracing
+## 11. Package layout and tracing
 
 ```
 crewborg/
@@ -440,7 +450,7 @@ crewborg/
   action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
-  modes/             # idle, normal, attend_meeting, report_body, flee, pretend, hunt
+  modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
   strategy/          # rule_based.py: the mode selector
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
@@ -448,19 +458,8 @@ crewborg/
   scripts/play_local.sh
   build.sh
   tests/             # action/modes/strategy/trace/runtime + bridge smoke + scene-decode tests
-  PLAN.md  design.md  README.md
+  AGENTS.md  design.md  README.md
 ```
-
-**Phasing**
-
-| Phase | Deliverable |
-|---|---|
-| P0 | noop/idle end-to-end through the bridge; trace sinks; Docker; local play smoke |
-| P1 | Sprite-v1 scene decoder + static-map bake (§6); tested against recorded message sequences |
-| P2 | crewmate Normal mode; `navigate_to`/`complete_task`; `nav` module; action layer + movement controller; mode selector |
-| P3 | Attend Meeting / Report Body / Flee modes; `vote`/`chat`/`report`/`flee_from`; evidence-ledger stub |
-| P4 | imposter Pretend / Hunt / Flee modes; `kill`/`vent`; role-aware selection |
-| Later | LLM strategy behind `AsyncStrategyRunner` |
 
 **Tracing.** Stdout = protocol channel, stderr = logs/traces. Use the SDK's
 canonical events (`perception`, `belief_updated`,
@@ -471,16 +470,16 @@ plus crewborg extensions: `phase_change`, `body_sighted`, `task_started`,
 
 ---
 
-## 12. Open tuning parameters
+## 12. Tuning parameters
 
-Three behavior parameters are deferred to their implementation phase. Each has a
-proposed starting default; none is structural.
+Three behavior parameters are implemented with the defaults below; none is
+structural, and each still awaits tuning against a live server.
 
-| Parameter | Phase | Starting default |
-|---|---|---|
-| Movement-controller style | P2 | bang-bang + a release-near-target deadband; tune against a local server (predictive stop if it overshoots) |
-| Voting policy | P3 | always cast — start with **skip** (must always vote before the timer; not voting costs −10) |
-| Report policy | P3 | **always report** a visible body; suspicion-aware reporting is a later refinement |
+| Parameter | Current default |
+|---|---|
+| Movement-controller style | bang-bang + a release-near-target deadband with a predictive stop — release an axis within the estimated momentum stopping distance so the agent coasts onto the target instead of overshooting |
+| Voting policy | always cast, defaulting to **skip** (must vote before the timer; not voting costs −10) |
+| Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
 
 ---
 

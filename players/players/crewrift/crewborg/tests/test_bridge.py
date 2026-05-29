@@ -1,4 +1,4 @@
-"""In-process bridge smoke (design §3, P0).
+"""In-process bridge smoke (design §3).
 
 Stands up a real websocket server, streams a few binary "scene" frames, and
 asserts the bridge connects, drives the idle runtime, sends the neutral input
