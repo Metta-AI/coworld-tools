@@ -158,7 +158,11 @@ The [default commissioner](commissioners/default/) is the worked example to copy
 5. Add tests for scheduling decisions, ranking decisions, state handling, and abort/failure paths.
 6. Add a `CATALOG.yaml` entry. This is required, not optional: an implementation only "exists" in this repo once it is
    cataloged with an `image` and `source_url`.
-7. Update the relevant Coworld manifest in Metta only after the implementation source, image, and source URL are real.
+7. Build and publish the runtime image to GHCR (`ghcr.io/metta-ai/<image>`), then **make the package public**. GHCR
+   packages are created private by default, and Coworld manifests reference commissioner images by pull URL, so the
+   platform cannot pull a private image. Every uploaded commissioner image must be set to Public (GitHub → org Packages →
+   the package → Package settings → Danger Zone → Change visibility → Public).
+8. Update the relevant Coworld manifest in Metta only after the implementation source, image, and source URL are real.
 
 Note that the platform's container-driven commissioner runtime is still pending (the role is "contract defined, runtime
 pending"), so an implementation here may be ahead of the platform that will eventually invoke it.
