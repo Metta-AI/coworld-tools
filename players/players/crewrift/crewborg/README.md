@@ -29,6 +29,7 @@ crewborg/
   action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             nav grid + A* route planning over the walkability mask
   trace.py           stderr-JSON trace & metrics sinks
+  events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade
   strategy/          rule_based.py: role-aware mode selector (crewmate + imposter)
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)

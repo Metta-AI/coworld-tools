@@ -450,6 +450,7 @@ crewborg/
   action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
+  events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
   modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
   strategy/          # rule_based.py: the mode selector
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
@@ -461,12 +462,32 @@ crewborg/
   AGENTS.md  design.md  README.md
 ```
 
-**Tracing.** Stdout = protocol channel, stderr = logs/traces. Use the SDK's
-canonical events (`perception`, `belief_updated`,
-`mode_entered/exited/completed/stalled`, `action_intent`, `act_command`,
-`snapshot_submitted`, `strategy_evaluated`, `directive_*`, `fallback_activated`)
-plus crewborg extensions: `phase_change`, `body_sighted`, `task_started`,
-`task_completed`, `kill_attempted`, `vote_cast`, `chat_received`, `chat_sent`.
+**Tracing.** Stdout = protocol channel, stderr = logs/traces. The SDK runtime
+emits the canonical *framework* events automatically (`perception`,
+`belief_updated`, `mode_entered/exited/completed/stalled`, `action_intent`,
+`act_command`, `snapshot_submitted`, `strategy_evaluated`, `directive_*`,
+`fallback_activated`).
+
+Crewborg's own game-level events are emitted through the SDK's **domain-event
+seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTracer`
+(`events.py`) is wired as the `on_step_complete` hook and, from each tick's
+`StepContext` (finalized belief + chosen intent + produced command), emits these
+`domain.`-prefixed events:
+
+- *state / outcome* (belief & action-state deltas): `phase_change`,
+  `role_resolved`, `body_sighted`, `task_completed`, `kill_landed`, `vote_cast`.
+- *attempt* (keyed on the wire command's button edge): `task_started`,
+  `kill_attempted`, `report_attempted`, `vent_attempted`, `chat_sent`.
+
+Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
+`kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
+seen as the kill-ready→cooldown edge). There is no `chat_received` event —
+crewborg does not decode incoming meeting chat.
+
+Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
+events key on the produced `command`, which modes never see, and `task_completed`
+is concluded inside Normal mode's `decide`, so both are only observable after the
+mode has run (§7.3).
 
 ---
 
