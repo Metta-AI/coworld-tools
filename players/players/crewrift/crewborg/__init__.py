@@ -8,6 +8,7 @@ parameters, three pure functions, modes, and the rule-based strategy. See
 from __future__ import annotations
 
 from players.crewrift.crewborg.action import resolve_action
+from players.crewrift.crewborg.map import MapData, load_croatoan_map
 from players.crewrift.crewborg.modes import IdleMode
 from players.crewrift.crewborg.strategy import RuleBasedStrategy
 from players.crewrift.crewborg.types import (
@@ -36,19 +37,25 @@ def build_runtime(
     *,
     trace_sink: TraceSink | None = None,
     metrics_sink: MetricsSink | None = None,
+    map_data: MapData | None = None,
 ) -> AgentRuntime[Observation, Percept, Belief, ActionState, Intent, Command]:
     """Assemble the crewborg ``AgentRuntime``.
 
     The inner loop runs ``perceive -> update_belief -> mode.decide ->
     resolve_action`` each tick; the rule-based strategy publishes mode directives
-    via ``SynchronousStrategyRunner``. P0 registers only :class:`IdleMode`.
+    via ``SynchronousStrategyRunner``. The static map is baked once here (design
+    §6) — ``map_data`` overrides the vendored ``croatoan`` bake (used in tests).
+    P1 registers only :class:`IdleMode`.
     """
 
     registry: ModeRegistry[Belief, ActionState, Intent] = ModeRegistry()
     registry.register(IdleMode)
 
+    if map_data is None:
+        map_data = load_croatoan_map()
+
     return AgentRuntime(
-        belief=Belief(),
+        belief=Belief(map=map_data),
         action_state=ActionState(),
         perceive=perceive,
         update_belief=update_belief,

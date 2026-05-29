@@ -1,0 +1,97 @@
+"""Resolved per-tick entities produced by :mod:`.resolve` (design §4).
+
+Frozen pydantic models. These are the structured, vision-free view of the scene:
+each carries a stable object id, world coordinates (valid when ``camera_ready``),
+and the classified label fields. ``Percept`` (in ``types.py``) embeds these.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+Facing = Literal["left", "right"]
+SelfRole = Literal["crewmate", "imposter", "dead"]
+
+
+class VisiblePlayer(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    object_id: int
+    color: str
+    facing: Facing
+    world_x: int
+    world_y: int
+
+
+class VisibleBody(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    object_id: int
+    color: str
+    world_x: int
+    world_y: int
+
+
+class TaskSignal(BaseModel):
+    """One incomplete assigned task's signal (crewmate-only; design §4.2).
+
+    A ``bubble`` is on/near-screen and gives an exact ``world`` position; an
+    ``arrow`` is off-screen and gives bearing only via its screen-edge pixel
+    (``screen``), with no world position.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    task_index: int
+    kind: Literal["bubble", "arrow"]
+    world: tuple[int, int] | None = None
+    screen: tuple[int, int]
+
+
+class VoteDot(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    voter: int
+    target: int
+
+
+class VotingState(BaseModel):
+    """Voting-UI presence and tally (design §4.1)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    cursor_present: bool = False
+    skip_cursor_present: bool = False
+    timer_present: bool = False
+    self_marker_color: str | None = None
+    dots: tuple[VoteDot, ...] = ()
+
+    @property
+    def active(self) -> bool:
+        return self.cursor_present or self.skip_cursor_present or self.timer_present or bool(self.dots)
+
+
+class ResolvedScene(BaseModel):
+    """The fully resolved per-tick view assembled from the scene tables."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tick: int
+    camera_ready: bool
+    camera_x: int
+    camera_y: int
+
+    self_role: SelfRole | None = None
+    self_kill_ready: bool | None = None
+
+    visible_players: tuple[VisiblePlayer, ...] = ()
+    visible_bodies: tuple[VisibleBody, ...] = ()
+    task_signals: tuple[TaskSignal, ...] = ()
+
+    active_task_progress_pct: int | None = None
+    crew_tasks_remaining: int | None = None
+
+    voting: VotingState = Field(default_factory=VotingState)
+    phase_texts: frozenset[str] = frozenset()

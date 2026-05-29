@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed
 
 from players.crewrift.crewborg.action import INPUT_HEADER
 from players.crewrift.crewborg.coworld.policy_player import run_bridge
+from players.crewrift.crewborg.tests import sprite_wire as w
 
 pytestmark = pytest.mark.asyncio
 
@@ -24,10 +25,10 @@ async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:
     bridge_packets: list[bytes] = []
 
     async def handler(websocket) -> None:
-        # Stream three scene frames, then drain whatever the bridge replies with
-        # and close (returning from the handler closes the connection).
+        # Stream three valid scene frames, then drain whatever the bridge replies
+        # with and close (returning from the handler closes the connection).
         for _ in range(3):
-            await websocket.send(bytes([0x02, 0x00, 0x00, 0x00]))
+            await websocket.send(w.clear_objects())
         try:
             while True:
                 bridge_packets.append(await asyncio.wait_for(websocket.recv(), timeout=0.25))
