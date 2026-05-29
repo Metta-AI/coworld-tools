@@ -19,7 +19,7 @@ nimcache/
 **/.claude/scheduled_tasks.lock
 
 # Coworld manifest/image cache downloaded by `coworld download` (see e.g.
-# players/among_them/coborg/scripts/play_local.sh).
+# archive/players/among_them/coborg/scripts/play_local.sh).
 /coworld/
 
 # Nimby-generated FFI bindings and path-config for Nim builds in

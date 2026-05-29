@@ -253,8 +253,9 @@ expected to be:
 
 The Coworld Player SDK under `players/player_sdk/` already wires the
 websocket loop, stdout-trace pattern, and entrypoint shape; new players
-should prefer it over an ad-hoc scaffold, and the Among Them Coborg player
-at `players/among_them/coborg/` is the worked example.
+should prefer it over an ad-hoc scaffold. A retired worked example, the
+Among Them Coborg player, is preserved under
+`archive/players/among_them/coborg/`.
 
 ## 10. Reference: source-of-truth files in `metta`
 

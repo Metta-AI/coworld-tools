@@ -8,7 +8,6 @@ The tree is flat: one subdirectory per game, plus `player_sdk/`.
 
 ```
 players/
-├── among_them/      # BitWorld Among Them policies
 ├── cogsguard/       # Cogs vs Clips (CogsGuard) policies
 ├── infinite_blocks/ # Reserved (no policies yet)
 ├── paintarena/      # Reserved (no policies yet)
@@ -30,6 +29,4 @@ into this curated tree.
 from players.cogsguard.scripted_registry import list_scripted_agent_names
 from players.cogsguard.role import CogsguardPolicy
 from players.cogsguard.baseline import BaselinePolicy
-from players.among_them.scripted import BitWorldAmongThemCyborgPolicy
-from players.among_them.coborg import build_runtime
 ```
