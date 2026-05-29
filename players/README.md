@@ -46,7 +46,9 @@ docs/                # Workspace-level documentation
 The `players/` tree is flat: one directory per game, then one directory
 per concrete policy inside that game. The single explicit exception to
 per-policy self-containment is `players/cogsguard/_shared/`, which holds
-helpers used by multiple Cogsguard policies.
+helpers used by multiple Cogsguard policies, including policy-facing semantic
+prompt and planner support layered on the public `cogsguard.semantic` game
+surface.
 
 ## Documentation
 

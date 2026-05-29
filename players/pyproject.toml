@@ -22,6 +22,7 @@ test = [
 ]
 cogsguard = [
     "cogsguard",
+    "mettagrid",
 ]
 
 [tool.setuptools]
@@ -50,7 +51,7 @@ players = [
 ]
 
 [tool.uv.sources]
-cogsguard = { git = "https://github.com/Metta-AI/cogame-cogsguard.git" }
+cogsguard = { git = "https://github.com/Metta-AI/coworld-cogs-vs-clips.git", branch = "relh/cogsguard-semantic-surface" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

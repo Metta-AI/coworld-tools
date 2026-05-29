@@ -12,6 +12,7 @@ players/cogsguard/
 ├── scripted_registry.py        # Discovers short_names from sibling dirs
 ├── _shared/                    # Helpers shared across multiple policies
 │   ├── common/                 # geometry, context, entity_map, goal, roles, …
+│   ├── semantic/               # LLM/player semantic helpers over cogsguard.semantic
 │   ├── pathfinding.py
 │   ├── types.py
 │   └── utils.py
@@ -34,7 +35,10 @@ players/cogsguard/
 
 The `_shared/` directory is the one explicit exception to the "each policy
 wholly self-contained" rule for `players/`. It is consumed by `baseline/`,
-`tiny_baseline/`, `role/`, `buggy/`, and `cranky/`.
+`tiny_baseline/`, `role/`, `buggy/`, and `cranky/`. Game-owned semantic
+decoding lives in `cogsguard.semantic` in `Metta-AI/coworld-cogs-vs-clips`;
+`_shared/semantic/` contains the policy-facing prompt, planner, learning, and
+progress helpers that build on that public surface.
 
 ## Importing
 
@@ -71,7 +75,7 @@ players/cogsguard/<leaf>/build.sh        # → docker image + manifest snippet
 The image hosts the policy inside
 [`players.player_sdk.coworld_json_bridge`](../player_sdk/coworld_json_bridge.py),
 which speaks the `coworld.player.v1` JSON protocol over the websocket the
-Coworld runner supplies in `COGAMES_ENGINE_WS_URL`. See
+Coworld runner supplies in `COWORLD_PLAYER_WS_URL`. See
 [`docs/coworld-player-packaging.md`](../../docs/coworld-player-packaging.md)
 for the player contract and each leaf's README for policy-specific notes:
 
