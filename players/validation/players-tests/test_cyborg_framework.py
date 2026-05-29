@@ -19,6 +19,7 @@ from players.player_sdk import (
     OverwriteBuffer,
     ReflexRule,
     RuntimeContext,
+    StepContext,
     StrategyResult,
     SynchronousStrategyRunner,
 )
@@ -167,6 +168,30 @@ class CompleteWhenArrivedMode(Mode[Belief, ActionState, ActionIntent]):
         return ModeDecision.running(ActionIntent(semantic="move", target=(params.target, 0)))
 
 
+class EmitMode(Mode[Belief, ActionState, ActionIntent]):
+    name = "emit"
+    params_type = EmptyModeParams
+
+    def decide(self, belief: Belief, action_state: ActionState) -> ActionIntent:
+        del belief, action_state
+        self.emit.event("attack_attempted", {"target": "blue"})
+        self.emit.event("domain.attack_landed", {"target": "blue"})
+        self.emit.counter("attack_attempts", tags={"target": "blue"})
+        self.emit.gauge("threat_level", 2.0, tags={"phase": "combat"})
+        self.emit.histogram("decision_ms", 4.5)
+        return ActionIntent(semantic="emit")
+
+
+class PostStepMode(Mode[Belief, ActionState, ActionIntent]):
+    name = "post_step"
+    params_type = EmptyModeParams
+
+    def decide(self, belief: Belief, action_state: ActionState) -> ActionIntent:
+        del action_state
+        belief.inferences["post_decide"] = "available"
+        return ActionIntent(semantic="flee", reason="post-step context")
+
+
 class AsyncMoveStrategy:
     async def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
         await asyncio.sleep(0)
@@ -217,6 +242,8 @@ def registry() -> ModeRegistry[Belief, ActionState, ActionIntent]:
     result.register(MoveMode)
     result.register(FleeMode)
     result.register(CompleteWhenArrivedMode)
+    result.register(EmitMode)
+    result.register(PostStepMode)
     return result
 
 
@@ -227,6 +254,7 @@ def runtime(
     trace=None,
     metrics=None,
     apply_inferences=None,
+    on_step_complete=None,
 ) -> AgentRuntime[Observation, Percept, Belief, ActionState, ActionIntent, ActionCommand]:
     return AgentRuntime(
         belief=Belief(),
@@ -241,6 +269,7 @@ def runtime(
         trace_sink=trace,
         metrics_sink=metrics,
         apply_inferences=apply_inferences,
+        on_step_complete=on_step_complete,
     )
 
 
@@ -383,6 +412,104 @@ def test_mode_decision_completion_traces_and_falls_back() -> None:
     completed = [event for event in trace.events if event.name == "mode_completed"]
     assert completed
     assert completed[0].data["reason"] == "target reached"
+
+
+def test_mode_emits_domain_trace_and_metrics() -> None:
+    trace = ListTraceSink()
+    metrics = ListMetricsSink()
+    manual: ManualStrategyRunner[Belief, ActionState] = ManualStrategyRunner()
+    agent = runtime(strategy_runner=manual, trace=trace, metrics=metrics)
+    manual.publish(ModeDirective(mode="emit", source="manual"))
+
+    agent.step(Observation())
+
+    domain_events = [event for event in trace.events if event.name == "domain.attack_attempted"]
+    assert domain_events
+    assert domain_events[0].tick == 1
+    assert domain_events[0].data == {"target": "blue"}
+    already_prefixed = [event for event in trace.events if event.name == "domain.attack_landed"]
+    assert already_prefixed
+    assert already_prefixed[0].tick == 1
+
+    domain_metrics = [sample for sample in metrics.samples if sample.name == "domain.attack_attempts"]
+    assert domain_metrics
+    assert domain_metrics[0].value == 1.0
+    assert domain_metrics[0].tags == {"target": "blue"}
+
+    gauges = [sample for sample in metrics.samples if sample.name == "domain.threat_level"]
+    assert gauges
+    assert gauges[0].kind == "gauge"
+    assert gauges[0].value == 2.0
+    assert gauges[0].tags == {"phase": "combat"}
+
+    histograms = [sample for sample in metrics.samples if sample.name == "domain.decision_ms"]
+    assert histograms
+    assert histograms[0].kind == "histogram"
+    assert histograms[0].value == 4.5
+    assert histograms[0].tags == {}
+
+
+def test_mode_emitter_defaults_to_noop_outside_runtime() -> None:
+    mode = EmitMode()
+
+    intent = mode.decide(Belief(), ActionState())
+
+    assert intent.semantic == "emit"
+
+
+def test_on_step_complete_receives_resolved_end_of_tick_context() -> None:
+    contexts: list[StepContext[Belief, ActionState, ActionIntent, ActionCommand]] = []
+    trace = ListTraceSink()
+    manual: ManualStrategyRunner[Belief, ActionState] = ManualStrategyRunner()
+    agent = runtime(
+        strategy_runner=manual,
+        trace=trace,
+        on_step_complete=contexts.append,
+    )
+    manual.publish(ModeDirective(mode="post_step", source="manual"))
+
+    command = agent.step(Observation())
+
+    assert command.action == "flee"
+    assert len(contexts) == 1
+    context = contexts[0]
+    assert context.tick == 1
+    assert context.intent.semantic == "flee"
+    assert context.command.action == "flee"
+    assert context.belief.inferences["post_decide"] == "available"
+    assert context.action_state.last_action == "flee"
+    assert context.active_mode_name == "post_step"
+
+    context.emit.event("step_observed")
+    observed = [event for event in trace.events if event.name == "domain.step_observed"]
+    assert observed
+    assert observed[0].tick == 1
+
+
+def test_on_step_complete_completion_tick_sees_post_fallback_state() -> None:
+    contexts: list[StepContext[Belief, ActionState, ActionIntent, ActionCommand]] = []
+    manual: ManualStrategyRunner[Belief, ActionState] = ManualStrategyRunner()
+    agent = runtime(strategy_runner=manual, on_step_complete=contexts.append)
+    manual.publish(
+        ModeDirective(
+            mode="complete_when_arrived",
+            params=MoveParams(target=0),
+            source="manual",
+        )
+    )
+
+    command = agent.step(Observation(position=0, target=0))
+
+    assert command.action == "noop"
+    assert agent.active_mode_name == "idle"
+    assert len(contexts) == 1
+    context = contexts[0]
+    assert context.active_mode_name == "complete_when_arrived"
+    assert context.intent.reason == "arrived"
+    assert context.command.action == "noop"
+    assert context.action_state.enters[-1] == "idle"
+    assert context.action_state is agent.action_state
+    assert context.belief is agent.belief
 
 
 def test_reflex_priority_wins_and_records_evaluation_order() -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import ClassVar, Generic, TypeVar
 
+from players.player_sdk.trace import EventEmitter
 from players.player_sdk.types import EmptyModeParams, ModeDecision, ModeDirective, ModeParams
 
 BeliefT = TypeVar("BeliefT")
@@ -27,6 +28,7 @@ class Mode(ABC, Generic[BeliefT, ActionStateT, IntentT]):
 
     def __init__(self, params: ModeParams | None = None) -> None:
         self.params = params if params is not None else EmptyModeParams()
+        self.emit = EventEmitter()
         expected = self.params_type
         if not isinstance(self.params, expected):
             raise DirectiveValidationError(

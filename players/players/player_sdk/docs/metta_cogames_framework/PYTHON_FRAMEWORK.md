@@ -22,6 +22,9 @@ perceive -> update belief -> mode decide -> action resolve
 - `ModeDecision`: optional mode return wrapper for completion or stalling.
 - `ModeRegistry`: validates directives and instantiates modes.
 - `AgentRuntime`: non-blocking per-tick inner-loop orchestrator.
+- `EventEmitter`: domain trace/metric emitter exposed as `mode.emit` and on
+  `StepContext`.
+- `StepContext`: end-of-tick context for optional `on_step_complete` observers.
 - `SynchronousStrategyRunner`: deterministic rule/LLM-adapter runner for tests
   and simple agents.
 - `ThreadedStrategyRunner`: background latest-snapshot strategy runner for
@@ -80,6 +83,7 @@ class MoveMode(Mode[Belief, ActionState, ActionIntent]):
     def decide(self, belief: Belief, action_state: ActionState) -> ActionIntent:
         params = self.params
         assert isinstance(params, MoveParams)
+        self.emit.event("move_target_chosen", {"target": params.target})
         return ActionIntent(semantic="move", target=(params.target, 0))
 ```
 
@@ -88,6 +92,16 @@ The game supplies three functions:
 - `perceive(observation, tick) -> percept`
 - `update_belief(belief, percept) -> None`
 - `resolve_action(intent, belief, action_state) -> command`
+
+Modes may emit game-specific trace events and metrics with `self.emit`.
+Unqualified names are prefixed with `domain.`; names that already start with
+`domain.` are left as-is. Trace events carry the runtime tick, while metrics
+keep only the tags the caller supplies:
+
+```python
+self.emit.event("phase_changed", {"phase": belief.phase})
+self.emit.counter("attack_attempts", tags={"phase": belief.phase})
+```
 
 The strategy supplies directives:
 
@@ -110,6 +124,16 @@ See
 [`examples/toy_grid_agent.py`](examples/toy_grid_agent.py)
 for a complete runnable example.
 
+If an event depends on the selected intent, resolved command, and any belief
+mutation made inside `decide`, pass `on_step_complete` to `AgentRuntime`. The
+hook receives a `StepContext` once per `step()` after action resolution:
+
+```python
+def observe_step(context):
+    if context.intent.semantic == "attack":
+        context.emit.event("attack_attempted", {"command": context.command.action})
+```
+
 For the full API-level breakdown of runtime, directives, modes, strategy
 runners, reflexes, fallbacks, and tracing, see the Framework Reference section
 in
@@ -131,4 +155,5 @@ in
   has finished or cannot make progress.
 - Validate directives in `ModeRegistry` before installing them.
 - Trace every boundary and emit metrics for mode runs, fallbacks, strategy
-  latency, directive age, and step latency while developing a new game agent.
+  latency, directive age, step latency, and game-specific phase/objective
+  outcomes while developing a new game agent.

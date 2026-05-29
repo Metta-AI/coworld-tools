@@ -8,7 +8,14 @@ directives.
 
 from players.player_sdk.buffers import OverwriteBuffer
 from players.player_sdk.modes import DirectiveValidationError, Mode, ModeRegistry
-from players.player_sdk.runtime import AgentRuntime, Reflex, ReflexRule, RuntimeContext
+from players.player_sdk.runtime import (
+    AgentRuntime,
+    Reflex,
+    ReflexRule,
+    RuntimeContext,
+    StepCompleteHook,
+    StepContext,
+)
 from players.player_sdk.strategy import (
     AsyncStrategy,
     AsyncStrategyRunner,
@@ -19,6 +26,7 @@ from players.player_sdk.strategy import (
     ThreadedStrategyRunner,
 )
 from players.player_sdk.trace import (
+    EventEmitter,
     ListMetricsSink,
     ListTraceSink,
     LoggingMetricsSink,
@@ -53,6 +61,7 @@ __all__ = [
     "BeliefSnapshot",
     "DirectiveValidationError",
     "EmptyModeParams",
+    "EventEmitter",
     "ListMetricsSink",
     "ListTraceSink",
     "LoggingMetricsSink",
@@ -73,6 +82,8 @@ __all__ = [
     "RuntimeContext",
     "SharedMemory",
     "SharedMemoryView",
+    "StepCompleteHook",
+    "StepContext",
     "Strategy",
     "StrategyResult",
     "StrategyRunner",
