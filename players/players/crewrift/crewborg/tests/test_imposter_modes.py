@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.modes import EvadeMode, HuntMode, PretendMode
+from players.crewrift.crewborg.nav import build_nav_grid
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, RosterEntry
 
 
-def _visible(belief: Belief, object_id: int, xy: tuple[int, int]) -> None:
+def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "red") -> None:
     belief.roster[object_id] = RosterEntry(
-        object_id=object_id, color="red", facing="left", world_x=xy[0], world_y=xy[1],
+        object_id=object_id, color=color, facing="left", world_x=xy[0], world_y=xy[1],
         last_seen_tick=belief.last_tick,
     )
 
@@ -29,6 +32,29 @@ def test_hunt_idles_with_no_target_in_view() -> None:
         object_id=1004, color="red", facing="left", world_x=120, world_y=100, last_seen_tick=1
     )
     assert HuntMode().decide(belief, ActionState()).kind == "idle"
+
+
+def test_hunt_skips_teammates() -> None:
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
+    belief.teammate_colors = {"red"}
+    _visible(belief, 1004, (110, 100), color="red")  # teammate — never a target
+    assert HuntMode().decide(belief, ActionState()).kind == "idle"
+
+    _visible(belief, 1007, (140, 100), color="green")  # a crewmate is killable
+    intent = HuntMode().decide(belief, ActionState())
+    assert intent.kind == "kill" and intent.target_id == 1007
+
+
+def test_hunt_prefers_reachable_over_unreachable_isolated() -> None:
+    mask = np.ones((24, 120), dtype=bool)
+    mask[:, 56:64] = False  # wall splits the map; right side is unreachable from the left
+    belief = Belief(self_world_x=8, self_world_y=12, last_tick=5)
+    belief.nav = build_nav_grid(mask, cell_size=8)
+    _visible(belief, 1001, (110, 12), color="green")  # right side: isolated but UNREACHABLE
+    _visible(belief, 1002, (10, 12), color="blue")  # left: reachable, near 1003
+    _visible(belief, 1003, (14, 12), color="white")  # left: reachable, near 1002
+    intent = HuntMode().decide(belief, ActionState())
+    assert intent.kind == "kill" and intent.target_id in (1002, 1003)  # not the unreachable 1001
 
 
 def _map_with_task() -> MapData:

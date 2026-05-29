@@ -70,9 +70,12 @@ class RuleBasedStrategy:
 
 
 def _has_visible_target(belief: Belief) -> bool:
-    """Whether another player is currently in view (a candidate kill target)."""
+    """Whether a killable (non-teammate) player is currently in view."""
 
-    return any(entry.last_seen_tick == belief.last_tick for entry in belief.roster.values())
+    return any(
+        entry.last_seen_tick == belief.last_tick and entry.color not in belief.teammate_colors
+        for entry in belief.roster.values()
+    )
 
 
 def _threat_approaching(belief: Belief) -> bool:

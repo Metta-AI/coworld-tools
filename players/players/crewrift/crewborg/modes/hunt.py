@@ -25,18 +25,27 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
         if self_xy is None:
             return Intent(kind="idle", reason="no self position")
 
-        # Currently-visible other players (roster refreshed this tick).
-        visible = [e for e in belief.roster.values() if e.last_seen_tick == belief.last_tick]
-        if not visible:
-            return Intent(kind="idle", reason="no target in view")
+        # Currently-visible players who are not known teammates (the server's
+        # tryKill skips fellow imposters, so targeting one would loop forever).
+        crew = [
+            e
+            for e in belief.roster.values()
+            if e.last_seen_tick == belief.last_tick and e.color not in belief.teammate_colors
+        ]
+        if not crew:
+            return Intent(kind="idle", reason="no killable target in view")
 
-        isolated = [t for t in visible if _is_isolated(t, visible)]
-        pool = isolated or visible
+        # Reachability first (an empty nav route makes the action layer hold
+        # still), then prefer an isolated target within the reachable set —
+        # witnesses are judged against every visible crewmate, reachable or not.
+        candidates = crew
         if belief.nav is not None:
-            reachable = [t for t in pool if plan_route(belief.nav, self_xy, (t.world_x, t.world_y))]
+            reachable = [t for t in crew if plan_route(belief.nav, self_xy, (t.world_x, t.world_y))]
             if reachable:
-                pool = reachable
+                candidates = reachable
 
+        isolated = [t for t in candidates if _is_isolated(t, crew)]
+        pool = isolated or candidates
         target = min(pool, key=lambda t: _dist2(self_xy, (t.world_x, t.world_y)))
         return Intent(kind="kill", target_id=target.object_id, reason="hunting isolated crewmate")
 

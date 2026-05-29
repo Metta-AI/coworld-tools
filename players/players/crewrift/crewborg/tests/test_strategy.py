@@ -86,3 +86,10 @@ def test_imposter_hunts_when_kill_ready_with_target() -> None:
 def test_imposter_evades_right_after_a_kill() -> None:
     belief = _imposter_with_visible_target(self_kill_ready=False, last_kill_tick=8)
     assert _select(belief) == "evade"  # last_tick 10 − last_kill_tick 8 < EVADE_TICKS
+
+
+def test_imposter_pretends_when_only_teammate_visible() -> None:
+    # Kill ready but the only visible player is a teammate ⇒ no target ⇒ pretend.
+    belief = _imposter_with_visible_target(self_kill_ready=True)
+    belief.teammate_colors = {"red"}  # the visible target is red (see helper)
+    assert _select(belief) == "pretend"

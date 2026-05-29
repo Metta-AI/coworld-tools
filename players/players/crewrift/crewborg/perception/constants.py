@@ -25,6 +25,11 @@ PLAYER_OBJECT_BASE = 1000
 BODY_OBJECT_BASE = 2000
 TASK_BUBBLE_OBJECT_BASE = 3000
 TASK_ARROW_OBJECT_BASE = 7000
+# Role-reveal icons (global.nim:106). During RoleReveal an imposter viewer is
+# shown ONLY its teammates' icons here (object id base + slot), using the normal
+# "player <color>" sprites — so these reveal the imposter team.
+ROLE_ICON_OBJECT_BASE = 9500
+
 VOTE_DOT_OBJECT_BASE = 10100
 # Skip votes use a SEPARATE base and the same "vote dot <color>" sprite: object id
 # is VOTE_SKIP_DOT_OBJECT_BASE + voter (global.nim:95,1212). Split by id range.
