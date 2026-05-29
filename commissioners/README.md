@@ -10,8 +10,6 @@ A **coworld** is a Softmax v2 tournament unit: one game container + one or more 
 
 The canonical protocol lives in the metta repo at `packages/coworld/src/coworld/commissioner/protocol.py`. This repo is for commissioner implementations and scaffolding, not for redefining that protocol.
 
-Commissioner lifetime is the lifetime of one round. The platform starts a commissioner round session by opening `/round` and sending `round_start`; the commissioner schedules episodes, receives `episode_result` or `episode_failed` messages, and eventually sends `round_complete`. A commissioner may schedule additional episodes from `on_episode_completed` in response to completed or failed episodes, so failures can trigger retries, replacements, or other adaptive round-local work before the round is closed.
-
 Coworld background: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md). Commissioner protocol notes: [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md).
 
 ## Repository layout

@@ -13,10 +13,7 @@ from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DescribeDivisionResponse,
     DivisionRanking as CommissionerDivisionRanking,
-    EpisodeCompletedRequest,
-    EpisodeCompletedResponse,
 )
-from commissioners.common.protocol import EpisodeFailed as CommissionerProtocolEpisodeFailed
 from commissioners.common.protocol import (
     EpisodeRequest as CommissionerEpisodeRequest,
 )
@@ -440,23 +437,6 @@ class OnRoundCompletedResult(BaseModel):
     follow_up_rounds: list[RoundSpec] = Field(default_factory=list)
 
 
-class OnEpisodeCompletedContext(BaseModel):
-    round_row: Round
-    pool: PolicyPool
-    entries: list[PolicyPoolEntry]
-    num_agents: int
-    variant_id: str
-    episode_result: CommissionerProtocolEpisodeResult | None = None
-    episode_failed: CommissionerProtocolEpisodeFailed | None = None
-    completed_episode_results: list[CommissionerProtocolEpisodeResult] = Field(default_factory=list)
-    failed_episodes: list[CommissionerProtocolEpisodeFailed] = Field(default_factory=list)
-    episode_results: list[EpisodeResult] = Field(default_factory=list)
-
-
-class OnEpisodeCompletedResult(BaseModel):
-    episodes: list[CommissionerEpisodeRequest] = Field(default_factory=list)
-
-
 class DivisionDescriptionContext(BaseModel):
     league: LeagueSnapshot
     division: DivisionSnapshot
@@ -689,9 +669,6 @@ class Commissioner(ABC):
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         return OnRoundCompletedResult()
-
-    def on_episode_completed(self, ctx: OnEpisodeCompletedContext) -> OnEpisodeCompletedResult:
-        return OnEpisodeCompletedResult()
 
     @abstractmethod
     def schedule_episodes(
@@ -1396,10 +1373,12 @@ def schedule_episodes_for_round_start(
     )
 
 
-def _protocol_episode_results_to_local(
+def complete_round_for_round_start(
+    commissioner: Commissioner,
+    round_start: CommissionerRoundStart,
     episode_results: list[CommissionerProtocolEpisodeResult],
-) -> list[EpisodeResult]:
-    return [
+) -> CommissionerRoundComplete:
+    local_episode_results = [
         EpisodeResult(
             episode_request_id=UUID(int=index + 1),
             scores=[
@@ -1414,46 +1393,6 @@ def _protocol_episode_results_to_local(
         )
         for index, result in enumerate(episode_results)
     ]
-
-
-def on_episode_completed_for_round_start(
-    commissioner: Commissioner,
-    round_start: CommissionerRoundStart,
-    *,
-    episode_result: CommissionerProtocolEpisodeResult | None = None,
-    episode_failed: CommissionerProtocolEpisodeFailed | None = None,
-    completed_episode_results: list[CommissionerProtocolEpisodeResult] | None = None,
-    failed_episodes: list[CommissionerProtocolEpisodeFailed] | None = None,
-) -> EpisodeCompletedResponse:
-    if (episode_result is None) == (episode_failed is None):
-        raise ValueError("exactly one of episode_result or episode_failed must be set")
-
-    completed_episode_results = completed_episode_results or []
-    failed_episodes = failed_episodes or []
-    variant_id, num_agents = _round_start_variant(round_start)
-    result = commissioner.on_episode_completed(
-        OnEpisodeCompletedContext(
-            round_row=_round_start_round(round_start),
-            pool=_round_start_pool(round_start),
-            entries=_round_start_entries(round_start),
-            num_agents=num_agents,
-            variant_id=variant_id,
-            episode_result=episode_result,
-            episode_failed=episode_failed,
-            completed_episode_results=completed_episode_results,
-            failed_episodes=failed_episodes,
-            episode_results=_protocol_episode_results_to_local(completed_episode_results),
-        )
-    )
-    return EpisodeCompletedResponse(episodes=result.episodes)
-
-
-def complete_round_for_round_start(
-    commissioner: Commissioner,
-    round_start: CommissionerRoundStart,
-    episode_results: list[CommissionerProtocolEpisodeResult],
-) -> CommissionerRoundComplete:
-    local_episode_results = _protocol_episode_results_to_local(episode_results)
     round_row = _round_start_round(round_start)
     pool = _round_start_pool(round_start)
     entries = _round_start_entries(round_start)
@@ -1678,18 +1617,4 @@ def round_completed_for_request(
     return RoundCompletedResponse(
         membership_changes=result.membership_changes,
         follow_up_rounds=result.follow_up_rounds,
-    )
-
-
-def episode_completed_for_request(
-    commissioner: Commissioner,
-    request: EpisodeCompletedRequest,
-) -> EpisodeCompletedResponse:
-    return on_episode_completed_for_round_start(
-        commissioner,
-        request.round_start,
-        episode_result=request.episode_result,
-        episode_failed=request.episode_failed,
-        completed_episode_results=request.completed_episode_results,
-        failed_episodes=request.failed_episodes,
     )
