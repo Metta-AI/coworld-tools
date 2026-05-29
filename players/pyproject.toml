@@ -7,6 +7,7 @@ name = "players"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+  "cramjam>=2.8.0",
   "numpy>=2.0.0",
   "pydantic>=2.12.2",
   "websockets>=16.0",
@@ -45,6 +46,7 @@ players = [
   "**/*.nim",
   "**/*.nims",
   "**/*.npz",
+  "**/*.resources",
   "**/*.txt",
   "**/.nim-version",
   "**/.nimby-version",

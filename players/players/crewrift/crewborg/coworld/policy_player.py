@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,7 @@ import websockets
 from players.crewrift.crewborg import build_runtime
 from players.crewrift.crewborg.action import encode_input
 from players.crewrift.crewborg.coworld.scene import SceneState
+from players.crewrift.crewborg.map import walkability_matches
 from players.crewrift.crewborg.trace import StderrJsonMetricsSink, StderrJsonTraceSink
 from players.crewrift.crewborg.types import Observation
 
@@ -46,6 +48,7 @@ async def run_bridge(
         metrics_sink=StderrJsonMetricsSink(),
     )
     last_sent_mask: int | None = None
+    walkability_checked = False
 
     # Guarantee runtime cleanup (the strategy runner may own background
     # threads/tasks) even if connect, a step, or a shutdown-race send raises.
@@ -57,6 +60,24 @@ async def run_bridge(
                     continue
                 scene.apply(message)
                 scene.tick += 1
+
+                # Validate the baked map against the streamed walkability mask
+                # once it arrives (design §6); a size mismatch means a different
+                # map than croatoan. Warn loudly rather than misnavigate later.
+                if not walkability_checked and scene.walkability is not None:
+                    walkability_checked = True
+                    map_data = runtime.belief.map
+                    if map_data is not None and not walkability_matches(
+                        map_data, scene.walkability_width, scene.walkability_height
+                    ):
+                        print(
+                            "WARNING: walkability map "
+                            f"{scene.walkability_width}x{scene.walkability_height} does not match "
+                            f"baked map {map_data.width}x{map_data.height}; server may be running "
+                            "a different map than croatoan.",
+                            file=sys.stderr,
+                            flush=True,
+                        )
 
                 command = runtime.step(Observation(scene=scene, tick=scene.tick))
 

@@ -10,24 +10,27 @@ as a Docker image the Coworld runner launches.
 
 ## Status
 
-**P0 — idle end-to-end (current).** The package skeleton, the six SDK type
-parameters, an idle mode + rule-based mode selector, stderr-JSON trace/metrics
-sinks, and the Sprite-v1 websocket bridge are in place. The agent connects, runs
-the `perceive → update_belief → mode.decide → resolve_action` loop once per tick,
-and sends the neutral input packet (it holds no buttons). The full Sprite-v1
-scene decoder and the static-map bake land in P1 (see `design.md` §11 for the
-phase plan).
+**P1 — scene decoder + static-map bake (current).** On top of P0's idle
+end-to-end loop, crewborg now decodes the binary Sprite-v1 stream into structured
+state — the three retained tables, camera recovery, the walkability mask, and
+objects resolved to `(label, world xy)` and classified into players / bodies /
+task signals / voting / phase — and folds it into belief. The vent / room / task /
+emergency-button locations (not in the stream) are baked from the vendored
+`croatoan.resources` at startup. Behavior is still idle; modes, nav, and the
+action layer arrive in P2 (see `design.md` §11 for the phase plan).
 
 ## Layout
 
 ```
 crewborg/
-  __init__.py        build_runtime(): assemble the AgentRuntime
-  types.py           the six SDK types + perceive/update_belief
+  __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
+  types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: resolve_action + wire encoding
   trace.py           stderr-JSON trace & metrics sinks
-  modes/             behavioral stances (P0: idle)
-  strategy/          rule_based.py: the mode selector (P0: always idle)
+  modes/             behavioral stances (P1: idle)
+  strategy/          rule_based.py: the mode selector (P1: always idle)
+  perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
+  map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
   scripts/play_local.sh
   build.sh
