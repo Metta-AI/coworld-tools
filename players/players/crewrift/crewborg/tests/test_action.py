@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from players.crewrift.crewborg.action import (
     BTN_A,
     BTN_DOWN,
@@ -13,6 +15,7 @@ from players.crewrift.crewborg.action import (
     resolve_action,
 )
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
+from players.crewrift.crewborg.nav import build_nav_grid
 from players.crewrift.crewborg.types import ActionState, Belief, Intent
 
 
@@ -76,6 +79,17 @@ def test_navigate_predictive_stop_coasts_when_close_and_moving() -> None:
 
 def test_navigate_without_self_position_holds_still() -> None:
     command = resolve_action(Intent(kind="navigate_to", point=(100, 0)), Belief(), ActionState())
+    assert command.held_mask == 0
+
+
+def test_navigate_holds_still_when_nav_route_unreachable() -> None:
+    # A full-height wall splits the map; the goal across it is unreachable.
+    mask = np.ones((24, 48), dtype=bool)
+    mask[:, 24:32] = False
+    belief = Belief(self_world_x=8, self_world_y=12)  # left of the wall
+    belief.nav = build_nav_grid(mask, cell_size=8)
+    command = resolve_action(Intent(kind="navigate_to", point=(40, 12)), belief, ActionState())
+    # nav present + no path ⇒ hold still rather than steer into the wall.
     assert command.held_mask == 0
 
 

@@ -107,15 +107,21 @@ def _navigate_mask(
 
     velocity = _velocity(action_state, self_xy)
 
-    # (Re)plan when we have no route or the goal changed.
-    if not action_state.route or action_state.route_goal != goal:
+    # (Re)plan only when the goal changes (an unreachable goal leaves an empty
+    # route — we must not re-run A* every tick, nor wall-drive toward it).
+    if action_state.route_goal != goal:
         action_state.route_goal = goal
         action_state.route_cursor = 0
-        route: list[tuple[int, int]] = []
-        if belief.nav is not None:
-            route = list(plan_route(belief.nav, self_xy, goal))
-        # No graph or no path: steer straight at the goal.
-        action_state.route = route if route else [goal]
+        if belief.nav is None:
+            # No nav graph yet: steer straight at the goal.
+            action_state.route = [goal]
+        else:
+            # nav present: an empty route means genuinely unreachable — hold
+            # still (a stall the mode can react to) rather than steering at a wall.
+            action_state.route = list(plan_route(belief.nav, self_xy, goal))
+
+    if not action_state.route:
+        return 0  # unreachable under the nav graph: hold still
 
     # Advance past any waypoints we have already reached.
     while (
