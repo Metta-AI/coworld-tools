@@ -43,3 +43,25 @@ async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:
     # Idle holds mask 0; the bridge sends the neutral packet once and nothing
     # after, since the held mask never changes.
     assert bridge_packets == [bytes([INPUT_HEADER, 0x00])]
+
+
+async def test_bridge_closes_runtime_when_connect_raises() -> None:
+    """A failure anywhere in connect/loop/send must still close the runtime
+    (the strategy runner may own background threads/tasks)."""
+
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake = FakeRuntime()
+
+    def failing_connect(*args, **kwargs):
+        raise RuntimeError("connect failed")
+
+    with pytest.raises(RuntimeError, match="connect failed"):
+        await run_bridge("ws://unused", connect=failing_connect, build=lambda **_: fake)
+
+    assert fake.closed

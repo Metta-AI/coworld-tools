@@ -47,23 +47,26 @@ async def run_bridge(
     )
     last_sent_mask: int | None = None
 
-    async with connect(engine_ws_url, max_size=None) as websocket:
-        async for message in websocket:
-            if isinstance(message, str):
-                # The /player stream is binary Sprite-v1; ignore stray text.
-                continue
-            scene.apply(message)
-            scene.tick += 1
+    # Guarantee runtime cleanup (the strategy runner may own background
+    # threads/tasks) even if connect, a step, or a shutdown-race send raises.
+    try:
+        async with connect(engine_ws_url, max_size=None) as websocket:
+            async for message in websocket:
+                if isinstance(message, str):
+                    # The /player stream is binary Sprite-v1; ignore stray text.
+                    continue
+                scene.apply(message)
+                scene.tick += 1
 
-            command = runtime.step(Observation(scene=scene, tick=scene.tick))
+                command = runtime.step(Observation(scene=scene, tick=scene.tick))
 
-            # Send only when the held mask changes (design §3.3). The first tick
-            # sends the neutral mask once, establishing "all buttons released".
-            if command.held_mask != last_sent_mask:
-                await websocket.send(encode_input(command.held_mask))
-                last_sent_mask = command.held_mask
-
-    runtime.close()
+                # Send only when the held mask changes (design §3.3). The first
+                # tick sends the neutral mask once, establishing "all released".
+                if command.held_mask != last_sent_mask:
+                    await websocket.send(encode_input(command.held_mask))
+                    last_sent_mask = command.held_mask
+    finally:
+        runtime.close()
 
 
 def main() -> None:

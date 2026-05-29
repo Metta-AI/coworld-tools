@@ -55,7 +55,11 @@ def build_runtime(
         resolve_action=resolve_action,
         mode_registry=registry,
         default_directive=ModeDirective(mode="idle", source="default", reason="default idle"),
-        strategy_runner=SynchronousStrategyRunner(RuleBasedStrategy()),
+        strategy_runner=SynchronousStrategyRunner(
+            RuleBasedStrategy(),
+            trace_sink=trace_sink,
+            metrics_sink=metrics_sink,
+        ),
         trace_sink=trace_sink,
         metrics_sink=metrics_sink,
     )
