@@ -5,11 +5,20 @@ from uuid import UUID, uuid4
 import pytest
 
 from commissioners.common.protocol import (
+    DescribeDivisionRequest,
     DivisionInfo,
     EpisodeResult as ProtocolEpisodeResult,
     EpisodeScore,
+    LeaderboardRoundResultInfo,
     LeagueInfo,
+    MembershipChange as ProtocolMembershipChange,
     MembershipInfo,
+    RankDivisionRequest,
+    RoundCompletedRequest,
+    RoundConfig,
+    RoundInfo,
+    RoundResultInfo,
+    ScheduleRoundsRequest,
     RoundStart,
     VariantInfo,
 )
@@ -19,12 +28,21 @@ from commissioners.common.commissioners import (
     AmongThemCommissioner,
     BaselineCommissioner,
     EpisodeResult,
+    MembershipChange,
+    OnRoundCompletedContext,
+    OnRoundCompletedResult,
     PolicyPool,
     PolicyPoolEntry,
     Round,
+    RoundSpec,
     RoundPolicyScore,
+    V2RoundConfig,
     complete_round_for_round_start,
+    describe_division_for_request,
+    rank_division_for_request,
+    round_completed_for_request,
     schedule_episodes_for_round_start,
+    schedule_rounds_for_request,
 )
 
 
@@ -233,3 +251,138 @@ def test_round_start_adapter_uses_extracted_commissioner_api() -> None:
     schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
 
     assert schedule.episodes[0].policy_version_ids == policy_version_ids
+
+
+class HookResponseCommissioner(BaselineCommissioner):
+    def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
+        membership = ctx.division_memberships[0]
+        return OnRoundCompletedResult(
+            membership_changes=[
+                MembershipChange(
+                    membership_id=membership.id,
+                    from_division_id=membership.division_id,
+                    to_division_id=ctx.division.id,
+                    reason="mapped",
+                )
+            ],
+            follow_up_rounds=[
+                RoundSpec(
+                    division_id=ctx.division.id,
+                    round_config=V2RoundConfig(),
+                    execution_backend="mock",
+                )
+            ],
+        )
+
+
+def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None:
+    division_id = uuid4()
+    league_id = uuid4()
+    membership_id = uuid4()
+    policy_version_id = uuid4()
+    round_id = uuid4()
+    commissioner = HookResponseCommissioner()
+
+    schedule_response = schedule_rounds_for_request(
+        commissioner,
+        ScheduleRoundsRequest(
+            league=LeagueInfo(id=league_id, commissioner_config={"minimum_champions": 1}),
+            divisions=[DivisionInfo(id=division_id, name="Bronze", level=0)],
+            active_memberships=[
+                MembershipInfo(
+                    id=membership_id,
+                    division_id=division_id,
+                    policy_version_id=policy_version_id,
+                    is_champion=True,
+                )
+            ],
+            recent_rounds=[],
+        ),
+    )
+    assert schedule_response.to_json()["type"] == "schedule_rounds_response"
+    assert schedule_response.rounds[0].division_id == division_id
+
+    rank_response = rank_division_for_request(
+        commissioner,
+        RankDivisionRequest(
+            league=LeagueInfo(id=league_id),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0),
+            completed_rounds=[
+                RoundInfo(
+                    id=round_id,
+                    public_id="round_test",
+                    division_id=division_id,
+                    round_number=1,
+                    status="completed",
+                    completed_at="2026-05-29T00:00:00+00:00",
+                )
+            ],
+            recent_rounds=[],
+            round_results=[
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=policy_version_id,
+                    player_id="player-1",
+                    rank=1,
+                    score=4.0,
+                )
+            ],
+        ),
+    )
+    assert rank_response.to_json()["type"] == "rank_division_response"
+    assert rank_response.rankings[0].player_id == "player-1"
+
+    describe_response = describe_division_for_request(
+        commissioner,
+        DescribeDivisionRequest(
+            league=LeagueInfo(id=league_id, commissioner_config={"minimum_champions": 1}),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0),
+            active_memberships=[
+                MembershipInfo(
+                    id=membership_id,
+                    division_id=division_id,
+                    policy_version_id=policy_version_id,
+                    is_champion=True,
+                )
+            ],
+            recent_rounds=[],
+        ),
+    )
+    assert describe_response.to_json()["type"] == "describe_division_response"
+    assert describe_response.description.round_schedule is not None
+
+    completed_response = round_completed_for_request(
+        commissioner,
+        RoundCompletedRequest(
+            league=LeagueInfo(id=league_id),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0),
+            all_divisions=[DivisionInfo(id=division_id, name="Bronze", level=0)],
+            round_config=RoundConfig(),
+            round_results=[
+                RoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=policy_version_id,
+                    rank=1,
+                    score=4.0,
+                )
+            ],
+            division_memberships=[
+                MembershipInfo(
+                    id=membership_id,
+                    division_id=division_id,
+                    policy_version_id=policy_version_id,
+                )
+            ],
+            recent_results=[],
+        ),
+    )
+    assert completed_response.to_json()["type"] == "round_completed_response"
+    assert completed_response.follow_up_rounds[0].division_id == division_id
+    assert completed_response.membership_changes == [
+        ProtocolMembershipChange(
+            membership_id=membership_id,
+            from_division_id=division_id,
+            to_division_id=division_id,
+            reason="mapped",
+        )
+    ]

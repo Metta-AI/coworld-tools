@@ -87,6 +87,9 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                         await websocket.close(code=1008, reason="episode_result received before round_start")
                         return
                     result = EpisodeResult.model_validate({key: value for key, value in data.items() if key != "type"})
+                    if expected_request_ids and result.request_id not in expected_request_ids:
+                        await websocket.close(code=1008, reason=f"unknown episode request id: {result.request_id!r}")
+                        return
                     results_by_request_id[result.request_id] = result
                 elif msg_type == "episode_failed":
                     failed = EpisodeFailed.model_validate({key: value for key, value in data.items() if key != "type"})

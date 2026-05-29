@@ -99,6 +99,27 @@ def test_round_websocket_fails_round_when_episode_fails() -> None:
     assert "scheduled episode failed" in exc_info.value.reason
 
 
+def test_round_websocket_rejects_unknown_episode_result_request_id() -> None:
+    client = TestClient(app)
+    round_start, _policy_version_ids = _round_start_json()
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/round") as websocket:
+            websocket.send_json(round_start)
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "episode_result",
+                    "request_id": "not-scheduled",
+                    "scores": [],
+                }
+            )
+            websocket.receive_json()
+
+    assert exc_info.value.code == 1008
+    assert "unknown episode request id" in exc_info.value.reason
+
+
 def test_protocol_accepts_prefixed_round_public_id_and_episode_completed_response() -> None:
     round_info = RoundInfo(
         id=uuid4(),

@@ -12,6 +12,8 @@ from uuid import UUID
 from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DescribeDivisionResponse,
+    DivisionDescription as CommissionerDivisionDescription,
+    DivisionLeaderboardEntry as CommissionerDivisionLeaderboardEntry,
     DivisionRanking as CommissionerDivisionRanking,
 )
 from commissioners.common.protocol import (
@@ -22,6 +24,9 @@ from commissioners.common.protocol import (
 )
 from commissioners.common.protocol import (
     GraduationChange as CommissionerGraduationChange,
+)
+from commissioners.common.protocol import (
+    MembershipChange as CommissionerMembershipChange,
 )
 from commissioners.common.protocol import (
     RankDivisionRequest,
@@ -39,6 +44,9 @@ from commissioners.common.protocol import (
 )
 from commissioners.common.protocol import (
     RoundInfo,
+)
+from commissioners.common.protocol import (
+    RoundSpec as CommissionerRoundSpec,
 )
 from commissioners.common.protocol import (
     RoundStart as CommissionerRoundStart,
@@ -1373,6 +1381,24 @@ def schedule_episodes_for_round_start(
     )
 
 
+def _protocol_round_spec(spec: RoundSpec) -> CommissionerRoundSpec:
+    return CommissionerRoundSpec.model_validate(spec.model_dump(mode="json"))
+
+
+def _protocol_leaderboard_entry(entry: DivisionLeaderboardSnapshot) -> CommissionerDivisionLeaderboardEntry:
+    return CommissionerDivisionLeaderboardEntry.model_validate(entry.model_dump(mode="json"))
+
+
+def _protocol_division_description(
+    description: DivisionCommissionerDescriptionPublic,
+) -> CommissionerDivisionDescription:
+    return CommissionerDivisionDescription.model_validate(description.model_dump(mode="json"))
+
+
+def _protocol_membership_change(change: MembershipChange) -> CommissionerMembershipChange:
+    return CommissionerMembershipChange.model_validate(change.model_dump(mode="json"))
+
+
 def complete_round_for_round_start(
     commissioner: Commissioner,
     round_start: CommissionerRoundStart,
@@ -1428,7 +1454,7 @@ def complete_round_for_round_start(
             commissioner_config=_round_start_config(round_start),
         )
     )
-    complete.membership_changes = hook_result.membership_changes
+    complete.membership_changes = [_protocol_membership_change(change) for change in hook_result.membership_changes]
     complete.graduation_changes = [
         CommissionerGraduationChange(
             membership_id=change.membership_id,
@@ -1476,7 +1502,7 @@ def schedule_rounds_for_request(
             recent_rounds=[_round_snapshot(round_info) for round_info in request.recent_rounds],
         )
     )
-    return ScheduleRoundsResponse(rounds=specs)
+    return ScheduleRoundsResponse(rounds=[_protocol_round_spec(spec) for spec in specs])
 
 
 def rank_division_for_request(
@@ -1513,7 +1539,7 @@ def rank_division_for_request(
             ],
         )
     )
-    return RankDivisionResponse(rankings=rankings)
+    return RankDivisionResponse(rankings=[_protocol_leaderboard_entry(ranking) for ranking in rankings])
 
 
 def describe_division_for_request(
@@ -1548,7 +1574,7 @@ def describe_division_for_request(
             recent_rounds=[_round_snapshot(round_info) for round_info in request.recent_rounds],
         )
     )
-    return DescribeDivisionResponse(description=description)
+    return DescribeDivisionResponse(description=_protocol_division_description(description))
 
 
 def round_completed_for_request(
@@ -1615,6 +1641,6 @@ def round_completed_for_request(
         )
     )
     return RoundCompletedResponse(
-        membership_changes=result.membership_changes,
-        follow_up_rounds=result.follow_up_rounds,
+        membership_changes=[_protocol_membership_change(change) for change in result.membership_changes],
+        follow_up_rounds=[_protocol_round_spec(round_spec) for round_spec in result.follow_up_rounds],
     )
