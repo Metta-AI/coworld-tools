@@ -141,6 +141,16 @@
       "image": "ghcr.io/metta-ai/reporters-default:latest"
     }
   ],
+  "grader": [
+    {
+      "id": "mettagrid-score-grader",
+      "name": "MettaGrid Score Grader",
+      "type": "grader",
+      "description": "Generic MettaGrid grader that scores simple score-and-steps results from spread, margin, magnitude, and episode length.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/mettagrid/mettagrid_score_grader",
+      "image": "ghcr.io/metta-ai/graders-mettagrid-score:latest"
+    }
+  ],
   "variants": [
     {
       "id": "hosted-daily",
