@@ -26,9 +26,13 @@ BODY_OBJECT_BASE = 2000
 TASK_BUBBLE_OBJECT_BASE = 3000
 TASK_ARROW_OBJECT_BASE = 7000
 VOTE_DOT_OBJECT_BASE = 10100
+# Skip votes use a SEPARATE base and the same "vote dot <color>" sprite: object id
+# is VOTE_SKIP_DOT_OBJECT_BASE + voter (global.nim:95,1212). Split by id range.
+VOTE_SKIP_DOT_OBJECT_BASE = 10400
 
-# sim.nim MaxPlayers. A vote dot's object id is
-# VOTE_DOT_OBJECT_BASE + target * MAX_PLAYERS + voter (global.nim:1193).
+# sim.nim MaxPlayers. A normal vote dot's object id is
+# VOTE_DOT_OBJECT_BASE + target * MAX_PLAYERS + voter (global.nim:1193), so the
+# normal range spans VOTE_DOT_OBJECT_BASE .. + MAX_PLAYERS*MAX_PLAYERS.
 MAX_PLAYERS = 16
 
 # The 16 player color names, in palette order (global.nim PlayerColorNames).

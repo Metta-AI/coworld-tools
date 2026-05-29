@@ -78,3 +78,19 @@ def test_progress_counter_and_voting_resolved() -> None:
     assert resolved.voting.dots == (resolved.voting.dots[0],)
     dot = resolved.voting.dots[0]
     assert (dot.target, dot.voter) == (3, 2)
+
+
+def test_skip_vote_dots_decode_as_skip_not_a_player_target() -> None:
+    scene = SceneState()
+    scene.apply(
+        w.define_sprite(921, 4, 4, "vote dot red")
+        # Skip vote from voter 2 uses the separate base 10400 + voter.
+        + w.define_object(10402, 1, 1, 9, 0, 921)
+        # A normal vote: voter 1 -> target 0 at 10100 + 0*16 + 1 = 10101.
+        + w.define_object(10101, 1, 1, 9, 0, 921)
+    )
+    resolved = resolve_scene(scene, tick=1)
+    by_voter = {d.voter: d for d in resolved.voting.dots}
+
+    assert by_voter[2].is_skip and by_voter[2].target == -2
+    assert not by_voter[1].is_skip and by_voter[1].target == 0

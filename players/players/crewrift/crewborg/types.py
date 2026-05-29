@@ -174,11 +174,14 @@ class Command(BaseModel):
     chat: str | None = None
 
 
-def derive_phase(resolved: ResolvedScene) -> Phase:
-    """Derive the game phase from interstitial text + voting presence (design §5).
+def derive_phase(resolved: ResolvedScene, current: Phase) -> Phase:
+    """Advance the phase machine from interstitial text + voting + scene signals.
 
-    Returns ``unknown`` when no phase signal is visible (e.g. early ``Playing``
-    ticks with no interstitial and no meeting), leaving belief's phase unchanged.
+    Explicit interstitial text and the voting UI pin the transitional phases. The
+    subtlety (design §5) is ``Playing``: during ordinary play there is usually *no*
+    interstitial and no voting UI, so the machine must infer ``Playing`` from a
+    live scene once a reveal/meeting clears — otherwise belief stays stuck at
+    ``RoleReveal`` and P2's Normal mode (keyed on ``Playing``) never activates.
     """
 
     texts = resolved.phase_texts
@@ -192,7 +195,17 @@ def derive_phase(resolved: ResolvedScene) -> Phase:
         return "VoteResult"
     if resolved.voting.active or "SKIP" in texts:
         return "Voting"
-    return "unknown"
+
+    # No transitional signal. Infer Playing from a live scene: when a reveal /
+    # meeting has just cleared, or (for a mid-game join) when Playing-specific
+    # signals — the crew task counter or task bubbles — are present.
+    if not resolved.camera_ready:
+        return current
+    if current in ("RoleReveal", "VoteResult", "Voting", "Playing"):
+        return "Playing"
+    if resolved.crew_tasks_remaining is not None or resolved.task_signals:
+        return "Playing"
+    return current
 
 
 def perceive(observation: Observation, tick: int) -> Percept:
@@ -217,11 +230,6 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     belief.camera_ready = resolved.camera_ready
     belief.camera_x = resolved.camera_x
     belief.camera_y = resolved.camera_y
-
-    # Self role/state persists; only overwrite when the HUD reveals it this tick.
-    if resolved.self_role is not None:
-        belief.self_role = resolved.self_role
-        belief.self_kill_ready = resolved.self_kill_ready
 
     for signal in resolved.task_signals:
         belief.assigned_task_indices.add(signal.task_index)
@@ -252,9 +260,19 @@ def update_belief(belief: Belief, percept: Percept) -> None:
                 first_seen_tick=percept.tick,
             )
 
-    phase = derive_phase(resolved)
-    if phase != "unknown" and phase != belief.phase:
+    phase = derive_phase(resolved, belief.phase)
+    if phase != belief.phase:
         belief.phase = phase
         belief.phase_start_tick = percept.tick
+
+    # Self role/state (design §4-§5). The HUD shows an imposter/ghost icon for
+    # those roles; an alive crewmate has neither, so once we know we are Playing
+    # and no such marker is present, the role is crewmate. Role is fixed for the
+    # game (a crewmate only changes to "dead" on death, via the ghost icon).
+    if resolved.self_role is not None:
+        belief.self_role = resolved.self_role
+        belief.self_kill_ready = resolved.self_kill_ready
+    elif belief.self_role is None and belief.phase == "Playing":
+        belief.self_role = "crewmate"
 
     belief.voting = resolved.voting

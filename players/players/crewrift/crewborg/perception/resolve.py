@@ -22,6 +22,7 @@ from players.crewrift.crewborg.perception.constants import (
     MAX_PLAYERS,
     PHASE_TEXTS,
     PLAYER_OBJECT_BASE,
+    VOTE_SKIP_DOT_OBJECT_BASE,
     PREFIX_BODY,
     PREFIX_PLAYER,
     PREFIX_PROGRESS_BAR,
@@ -33,6 +34,7 @@ from players.crewrift.crewborg.perception.constants import (
     VOTE_DOT_OBJECT_BASE,
 )
 from players.crewrift.crewborg.perception.entities import (
+    SKIP_VOTE_TARGET,
     ResolvedScene,
     TaskSignal,
     VisibleBody,
@@ -144,9 +146,18 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
                     screen=(obj.x, obj.y),
                 )
             )
-        elif object_id >= VOTE_DOT_OBJECT_BASE and label.startswith(PREFIX_VOTE_DOT):
+        elif (
+            VOTE_DOT_OBJECT_BASE <= object_id < VOTE_DOT_OBJECT_BASE + MAX_PLAYERS * MAX_PLAYERS
+            and label.startswith(PREFIX_VOTE_DOT)
+        ):
             rel = object_id - VOTE_DOT_OBJECT_BASE
             dots.append(VoteDot(target=rel // MAX_PLAYERS, voter=rel % MAX_PLAYERS))
+        elif (
+            VOTE_SKIP_DOT_OBJECT_BASE <= object_id < VOTE_SKIP_DOT_OBJECT_BASE + MAX_PLAYERS
+            and label.startswith(PREFIX_VOTE_DOT)
+        ):
+            # Skip votes share the "vote dot" sprite but a separate id range.
+            dots.append(VoteDot(target=SKIP_VOTE_TARGET, voter=object_id - VOTE_SKIP_DOT_OBJECT_BASE))
 
     return ResolvedScene(
         tick=tick,

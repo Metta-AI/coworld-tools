@@ -50,11 +50,20 @@ class TaskSignal(BaseModel):
     screen: tuple[int, int]
 
 
+# A vote dot whose ``target`` is this sentinel is a skip vote (the game's vote
+# value −2 for skip; sim.nim).
+SKIP_VOTE_TARGET = -2
+
+
 class VoteDot(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     voter: int
-    target: int
+    target: int  # a player slot, or SKIP_VOTE_TARGET (−2) for a skip vote
+
+    @property
+    def is_skip(self) -> bool:
+        return self.target == SKIP_VOTE_TARGET
 
 
 class VotingState(BaseModel):
