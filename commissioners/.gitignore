@@ -7,4 +7,10 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+
+# Environment / secrets
+.env
+
+# OS cruft
+.DS_Store
