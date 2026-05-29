@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from hungercog.variants.energy import EnergyVariant
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.game_value import InventoryValue

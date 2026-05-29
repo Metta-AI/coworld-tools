@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import Field
 from typing_extensions import Self
 
-from cogames.core import CoGameMission
+from mettagrid.cogame.core import CoGameMission
 from cogony.terrain import find_arena
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.mettagrid_config import AgentConfig, GameConfig, MettaGridConfig, WallConfig

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
+from werecog.compat import require_obs_fields  # noqa: F401  # imported by main; unused locally
 from werecog.variants.common import (
     DAY_EXECUTION_USED_STAT,
     DAY_PHASE,

@@ -9,7 +9,7 @@ from __future__ import annotations
 import random as _rng
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.game.channels import DMG_STATS, RES_STATS, SYS_DAMAGE_STATS
 from mettagrid.config.mettagrid_config import (
     GridObjectConfig,

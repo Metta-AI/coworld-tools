@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 
 from cogony.game.cargo import CargoLimitVariant
 from cogony.game.channels import ChannelsVariant

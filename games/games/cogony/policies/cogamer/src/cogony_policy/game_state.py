@@ -25,7 +25,7 @@ from cogony_policy.agent import (
 )
 from cogony_policy.agent.coglet_policy import CogletAgentPolicy
 from cogony_policy.agent.world_model import WorldModel
-from cogames.sdk.cogsguard import CogsguardSemanticSurface
+from mettagrid.sdk.cogsguard import CogsguardSemanticSurface
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.sdk.agent import MettagridState
 from mettagrid.simulator import Action

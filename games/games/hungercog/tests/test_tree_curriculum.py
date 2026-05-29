@@ -1,5 +1,6 @@
 import pytest
-from cogames.variants import VariantRegistry
+from mettagrid.cogame.variants import VariantRegistry
+
 from hungercog.game import make_game
 
 pytest.importorskip("metta.rl.curriculum.tree_curriculum")

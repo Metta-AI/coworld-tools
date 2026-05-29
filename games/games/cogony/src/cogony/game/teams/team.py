@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.core import CoGameMissionVariant
+from mettagrid.cogame.variants import ResolvedDeps
 from mettagrid.base_config import Config
 from mettagrid.config.filter import hasTag
 from mettagrid.config.mettagrid_config import AgentConfig, MettaGridConfig

@@ -6,7 +6,7 @@ import copy
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from cogames.game import CoGame
+from mettagrid.cogame.game import CoGame
 from mettagrid.config.mettagrid_config import MettaGridConfig
 
 GAMES: dict[str, dict[str, Any]] = {}

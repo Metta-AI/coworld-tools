@@ -8,7 +8,7 @@ from overcogged.variants import HIDDEN_VARIANTS as _HIDDEN_VARIANTS
 from overcogged.variants import VARIANTS as _VARIANTS
 
 if TYPE_CHECKING:
-    from cogames.core import CoGameMissionVariant
+    from mettagrid.cogame.core import CoGameMissionVariant
 
     PUBLIC_VARIANTS: list[CoGameMissionVariant]
     HIDDEN_VARIANTS: list[CoGameMissionVariant]

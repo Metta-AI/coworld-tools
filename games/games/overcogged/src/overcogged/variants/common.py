@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypeVar
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 
 T = TypeVar("T", bound=CoGameMissionVariant)
 

@@ -1,6 +1,6 @@
 """Challenge bundle variants for diplomacy."""
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 
 from diplomacog.variants.layout import CompactArenaVariant
 from diplomacog.variants.pressure import CrisisSurgeVariant, SabotageHeavyVariant

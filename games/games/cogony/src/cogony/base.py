@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, override
 
-from cogames.core import CoGameMissionVariant, Deps
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.variants import ResolvedDeps
 from mettagrid.config.filter import actorHas, isNot
 from mettagrid.config.handler_config import Handler, allOf
 from mettagrid.config.mettagrid_config import MettaGridConfig

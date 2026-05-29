@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 from werecog.variants.common import (
     ALIVE,
     ROLE_VILLAGER,

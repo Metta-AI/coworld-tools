@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from amongcogs.game.meetings import MeetingsVariant
 from amongcogs.game.station_events import StationEventsVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from amongcogs.constants import (
     ALIVE_RESOURCE,
     CRITICAL_TIMER_RESOURCE,

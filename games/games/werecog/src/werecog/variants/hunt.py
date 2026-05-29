@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.variants import ResolvedDeps
 from werecog.variants.common import (
     ALIVE,
     DAY_PHASE,

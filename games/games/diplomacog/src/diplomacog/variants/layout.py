@@ -1,6 +1,6 @@
 """Map layout modifiers for diplomacy."""
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 
 from diplomacog.variants.discussion import DiscussionSessionsVariant
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from cogony.game.territory.territory import TerritoryVariant
 from mettagrid.config.filter import sharedTagPrefix
 from mettagrid.config.handler_config import Handler, updateTarget

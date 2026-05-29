@@ -9,7 +9,7 @@ from typing import cast
 from pydantic import Field
 from typing_extensions import Self
 
-from cogames.core import CoGameMission, CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMission, CoGameMissionVariant
 from amongcogs.constants import (
     ALIVE_RESOURCE,
     COMMS_ALERT_RESOURCE,

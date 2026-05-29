@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 
 from overcogged.defaults import FRIES_BURN_TICKS, FRIES_COOK_TICKS, SOUP_BURN_TICKS, SOUP_COOK_TICKS
 from overcogged.variants.common import VariantGraphAccess

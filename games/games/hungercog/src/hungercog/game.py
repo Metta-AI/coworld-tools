@@ -7,8 +7,9 @@ from typing import cast
 
 from pydantic import Field
 
-from cogames.core import CoGameMission
-from cogames.game import CoGame, register_game
+from mettagrid.cogame.core import CoGameMission
+from mettagrid.cogame.game import CoGame, register_game
+
 from hungercog.variants import VARIANTS
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.mettagrid_config import (

@@ -29,7 +29,7 @@ INITIAL_POLICY_ACTION_TIMEOUT_SECONDS = 5.0
 def build_env(config: dict[str, Any]):
     import overcogged.game.game  # noqa: F401 - registers the game
     from cogames.cli.mission import resolve_mission
-    from cogames.game import get_game
+    from mettagrid.cogame.game import get_game
 
     _mission_name, env, _mission = resolve_mission(
         get_game("overcogged"),

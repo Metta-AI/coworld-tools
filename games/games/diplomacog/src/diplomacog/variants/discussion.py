@@ -1,6 +1,6 @@
 """Talk-driven discussion session modifiers for diplomacy."""
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.event_config import EventConfig
 from mettagrid.config.game_value import QueryInventoryValue
 from mettagrid.config.handler_config import Handler, allOf, updateTarget

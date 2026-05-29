@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from hungercog.variants.seasons import YEAR_LENGTH, SeasonsVariant
 from mettagrid.config.mettagrid_config import MettaGridConfig
 

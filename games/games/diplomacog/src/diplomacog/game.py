@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, Self, cast
 
-from cogames.core import CoGameMission, CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMission, CoGameMissionVariant
 from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import GameValueFilter, HandlerTarget, actorHasAnyOf, anyOf, isNot

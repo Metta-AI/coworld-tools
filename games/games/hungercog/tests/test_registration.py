@@ -1,5 +1,5 @@
 import hungercog  # noqa: F401
-from cogames.game import get_game
+from mettagrid.cogame.game import get_game
 
 
 def test_hungercog_registers_standalone_game_module() -> None:

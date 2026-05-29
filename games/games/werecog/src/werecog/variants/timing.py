@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from werecog.defaults import DEFAULT_DAY_STEPS, DEFAULT_NIGHT_STEPS
 from werecog.variants.meetings import MeetingsVariant
 

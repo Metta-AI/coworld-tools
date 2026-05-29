@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING, override
 
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
-from cogames.variants import ResolvedDeps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.variants import ResolvedDeps
 from cogony.base import BaseVariant
 from cogony.game.datacenter import DatacenterVariant
 from cogony.game.extractors import ExtractorsVariant

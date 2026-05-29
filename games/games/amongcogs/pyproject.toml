@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "amongcogs"
 version = "0.1.0"
-description = "Standalone AmongCogs game package built on cogames and mettagrid"
+description = "Standalone AmongCogs game package built on mettagrid"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Metta-AI" }]
@@ -15,7 +15,6 @@ dependencies = [
   "uvicorn[standard]>=0.34.0",
   "fastapi>=0.115.0",
   "anthropic>=0.64.0",
-  "cogames",
   "mettagrid",
   "pydantic>=2.11.5",
   "typing-extensions>=4.12.0",

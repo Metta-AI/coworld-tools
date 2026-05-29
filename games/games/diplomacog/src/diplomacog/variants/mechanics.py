@@ -1,6 +1,6 @@
 """Core mechanic variants for diplomacy."""
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.game_value import QueryInventoryValue, stat
 from mettagrid.config.handler_config import allOf
 from mettagrid.config.mettagrid_config import MettaGridConfig, ResourceLimitsConfig

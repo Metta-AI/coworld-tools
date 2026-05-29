@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, override
 
-from cogames.core import CoGameMissionVariant
+from mettagrid.cogame.core import CoGameMissionVariant
 from cogony.game.channels import DMG_STATS, RES_STATS, SYS_DAMAGE_STATS
 from cogony.game.teams.gear_stations import GEAR_NAMES
 from mettagrid.config.event_config import EventConfig, periodic

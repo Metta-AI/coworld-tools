@@ -6,7 +6,7 @@ import random
 from collections import Counter
 from typing import cast
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 from mettagrid.config.event_config import EventConfig, periodic
 from mettagrid.config.filter import (
     actorHas,

@@ -9,7 +9,6 @@ description = "Cogony policy for CoGames — clone, improve, submit"
 requires-python = ">=3.12"
 dependencies = [
   "mettagrid",
-  "cogames",
   "typer>=0.12",
   "jinja2>=3.1",
 ]
@@ -45,5 +44,4 @@ omit = [
 ]
 
 [tool.uv.sources]
-cogames = {git = "https://github.com/Metta-AI/cogames.git"}
 mettagrid = {git = "https://github.com/Metta-AI/mettagrid.git"}

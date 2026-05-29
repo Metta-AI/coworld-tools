@@ -8,6 +8,13 @@ dependencies = []
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+# Pin mettagrid at the published Metta-AI/mettagrid mirror so workspace members
+# resolve `mettagrid.cogame` and `mettagrid.sdk.cogsguard` (added in
+# mettagrid-v0.26.24, not yet on PyPI). Drop this once a newer mettagrid wheel
+# is published.
+mettagrid = { git = "https://github.com/Metta-AI/mettagrid.git", tag = "mettagrid-v0.26.24" }
+
 [tool.uv.workspace]
 members = [
   "games/amongcogs",

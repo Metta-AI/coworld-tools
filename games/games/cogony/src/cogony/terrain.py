@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, override
 import numpy as np
 from pydantic import Field
 
-from cogames.core import CoGameMissionVariant, Deps
+from mettagrid.cogame.core import CoGameMissionVariant, Deps
 
 if TYPE_CHECKING:
     from cogony.mission import CogonyMission
