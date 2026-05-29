@@ -287,7 +287,7 @@ Implications for the policy's source layout:
   `run`) is the player entrypoint that reads `COGAMES_ENGINE_WS_URL`.
 
 A top-level walker can `find players -name build.sh -exec {} \;` to build
-every policy. The flat per-game layout (`players/{among_them,cogsguard,...}`)
+every policy. The flat per-game layout (`players/{cogsguard,...}`)
 plus per-policy directories makes this discoverable without orchestration
 code.
 

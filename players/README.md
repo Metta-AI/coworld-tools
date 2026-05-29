@@ -33,7 +33,6 @@ The repo contains four things:
 
 ```
 players/             # Concrete players plus the shared SDK
-  among_them/        #   BitWorld "Among Them"
   cogsguard/         #   Cogs vs Clips
   paintarena/        #   Paint Arena (reserved)
   infinite_blocks/   #   Infinite Blocks (reserved)
