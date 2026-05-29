@@ -52,6 +52,47 @@ def test_just_killed_recorded_on_kill_ready_to_cooldown_edge() -> None:
     assert belief.last_kill_tick == 6
 
 
+def test_kill_ready_since_tick_tracks_the_cooldown_to_ready_edge() -> None:
+    belief = Belief()
+    # Cooldown: no ready-since stamp.
+    _fold(belief, 5, self_role="imposter", self_kill_ready=False, crew_tasks_remaining=3)
+    assert belief.kill_ready_since_tick is None
+    # Cooldown → ready: stamp the tick we became able to kill.
+    _fold(belief, 6, self_role="imposter", self_kill_ready=True, crew_tasks_remaining=3)
+    assert belief.kill_ready_since_tick == 6
+    # Staying ready does not re-stamp (urgency keeps climbing).
+    _fold(belief, 9, self_role="imposter", self_kill_ready=True, crew_tasks_remaining=3)
+    assert belief.kill_ready_since_tick == 6
+    # Killing (ready → cooldown) clears it.
+    _fold(belief, 10, self_role="imposter", self_kill_ready=False, crew_tasks_remaining=3)
+    assert belief.kill_ready_since_tick is None
+    assert belief.last_kill_tick == 10
+
+
+def test_roster_accumulates_a_sighting_trail() -> None:
+    from players.crewrift.crewborg.perception.entities import VisiblePlayer
+
+    belief = Belief()
+    _fold(belief, 1, crew_tasks_remaining=5, visible_players=(VisiblePlayer(object_id=1001, color="green", facing="left", world_x=10, world_y=10),))
+    _fold(belief, 2, crew_tasks_remaining=5, visible_players=(VisiblePlayer(object_id=1001, color="green", facing="right", world_x=14, world_y=12),))
+
+    entry = belief.roster[1001]
+    # Last-known fix is the freshest sighting; history is the ordered trail.
+    assert (entry.world_x, entry.world_y, entry.last_seen_tick, entry.facing) == (14, 12, 2, "right")
+    assert entry.history == [(1, 10, 10), (2, 14, 12)]
+
+
+def test_roster_history_is_bounded() -> None:
+    from players.crewrift.crewborg.types import ROSTER_HISTORY_MAX, RosterEntry
+
+    entry = RosterEntry(object_id=1, color="red", facing="left", world_x=0, world_y=0, last_seen_tick=0)
+    for t in range(ROSTER_HISTORY_MAX + 20):
+        entry.record(t, t, t, "left", "red")
+    assert len(entry.history) == ROSTER_HISTORY_MAX
+    assert entry.history[-1] == (ROSTER_HISTORY_MAX + 19,) * 3  # newest kept
+    assert entry.history[0][0] == 20  # oldest dropped
+
+
 def test_teammates_recorded_from_imps_role_reveal() -> None:
     belief = Belief()
     resolved = ResolvedScene(

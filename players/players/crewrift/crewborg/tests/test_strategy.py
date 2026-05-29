@@ -65,7 +65,8 @@ def test_non_playing_phases_idle() -> None:
 def _imposter_with_visible_target(**kwargs) -> Belief:
     from players.crewrift.crewborg.types import RosterEntry
 
-    belief = Belief(phase="Playing", self_role="imposter", last_tick=10, **kwargs)
+    belief = Belief(phase="Playing", self_role="imposter", last_tick=10, self_world_x=100, self_world_y=100, **kwargs)
+    # A lone, isolated, reachable (no nav graph) crewmate — a valid kill opportunity.
     belief.roster[1004] = RosterEntry(
         object_id=1004, color="red", facing="left", world_x=50, world_y=50, last_seen_tick=10
     )
@@ -73,14 +74,36 @@ def _imposter_with_visible_target(**kwargs) -> Belief:
 
 
 def test_imposter_pretends_by_default() -> None:
+    # No kill opportunity ⇒ Pretend (which itself follows crew / wanders rooms).
     assert _select(Belief(phase="Playing", self_role="imposter", last_tick=10)) == "pretend"
 
 
-def test_imposter_hunts_when_kill_ready_with_target() -> None:
+def test_imposter_hunts_when_kill_ready_with_opportunity() -> None:
     assert _select(_imposter_with_visible_target(self_kill_ready=True)) == "hunt"
-    # Kill ready but no target in view ⇒ pretend.
-    no_target = Belief(phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10)
+    # Kill ready but no target in view ⇒ no opportunity ⇒ pretend.
+    no_target = Belief(
+        phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10,
+        self_world_x=100, self_world_y=100,
+    )
     assert _select(no_target) == "pretend"
+
+
+def test_imposter_pretends_when_kill_ready_but_no_subtle_opening() -> None:
+    from players.crewrift.crewborg.types import RosterEntry
+
+    # Kill ready, but the only crewmate has a witness right beside it and urgency is
+    # zero ⇒ keep blending in rather than killing in front of someone.
+    belief = Belief(
+        phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10,
+        self_world_x=100, self_world_y=100,
+    )
+    belief.roster[1004] = RosterEntry(
+        object_id=1004, color="green", facing="left", world_x=50, world_y=50, last_seen_tick=10
+    )
+    belief.roster[1005] = RosterEntry(
+        object_id=1005, color="blue", facing="left", world_x=58, world_y=50, last_seen_tick=10
+    )
+    assert _select(belief) == "pretend"
 
 
 def test_imposter_evades_right_after_a_kill() -> None:
@@ -88,7 +111,7 @@ def test_imposter_evades_right_after_a_kill() -> None:
     assert _select(belief) == "evade"  # last_tick 10 − last_kill_tick 8 < EVADE_TICKS
 
 
-def test_imposter_pretends_when_only_teammate_visible() -> None:
+def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:
     # Kill ready but the only visible player is a teammate ⇒ no target ⇒ pretend.
     belief = _imposter_with_visible_target(self_kill_ready=True)
     belief.teammate_colors = {"red"}  # the visible target is red (see helper)

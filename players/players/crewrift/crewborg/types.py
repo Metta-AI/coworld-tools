@@ -46,6 +46,7 @@ IntentKind = Literal[
     "chat",
     "kill",
     "vent",
+    "escape",
 ]
 
 # Game phases (sim.nim phase machine). ``unknown`` until the first phase signal.
@@ -80,8 +81,19 @@ class Percept(BaseModel):
     walkability: np.ndarray | None = None
 
 
+# How many recent sightings to keep per player (design §5). A trajectory tail —
+# enough to read heading/velocity and to recover the crew when sight is lost,
+# without unbounded growth.
+ROSTER_HISTORY_MAX = 64
+
+
 class RosterEntry(BaseModel):
-    """Last-known state of one player object (design §5 roster)."""
+    """Last-known state of one player object + a recent sighting trail (design §5).
+
+    ``world_x``/``world_y``/``last_seen_tick`` are the last-known fix; ``history`` is
+    a bounded tail of ``(tick, x, y)`` sightings (oldest first) for reading where a
+    player was heading and for re-finding the crew after losing sight of them.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +103,19 @@ class RosterEntry(BaseModel):
     world_x: int
     world_y: int
     last_seen_tick: int
+    history: list[tuple[int, int, int]] = Field(default_factory=list)
+
+    def record(self, tick: int, x: int, y: int, facing: str, color: str) -> None:
+        """Fold a fresh sighting into the last-known fix and the bounded trail."""
+
+        self.color = color
+        self.facing = facing
+        self.world_x = x
+        self.world_y = y
+        self.last_seen_tick = tick
+        self.history.append((tick, x, y))
+        if len(self.history) > ROSTER_HISTORY_MAX:
+            del self.history[0]
 
 
 class BodyEntry(BaseModel):
@@ -159,6 +184,12 @@ class Belief(BaseModel):
     # Imposter: tick of the most recent self kill (kill-ready → cooldown edge),
     # used to evade the fresh body briefly (design §7.2).
     last_kill_tick: int | None = None
+    # Imposter: tick the kill last became ready (cooldown → kill-ready edge), reset
+    # to ``None`` whenever the kill is on cooldown. The strategy reads
+    # ``last_tick - kill_ready_since_tick`` as a "how long have I been able to kill
+    # without doing so" urgency signal that loosens the kill-opportunity bar over
+    # time (design §10).
+    kill_ready_since_tick: int | None = None
 
 
 class Intent(BaseModel):
@@ -186,6 +217,9 @@ class ActionState(BaseModel):
     route: list[tuple[int, int]] = Field(default_factory=list)
     route_cursor: int = 0
     route_goal: tuple[int, int] | None = None
+    # For a vent-aware escape route: maps the index of a waypoint reached by venting
+    # to the vent index to stand on and press B (design §9). Empty for walk routes.
+    route_teleports: dict[int, int] = Field(default_factory=dict)
     # Last observed self world position, for estimating velocity (predictive stop).
     last_self_x: int | None = None
     last_self_y: int | None = None
@@ -288,14 +322,20 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     belief.active_task_progress_pct = resolved.active_task_progress_pct
 
     for player in resolved.visible_players:
-        belief.roster[player.object_id] = RosterEntry(
-            object_id=player.object_id,
-            color=player.color,
-            facing=player.facing,
-            world_x=player.world_x,
-            world_y=player.world_y,
-            last_seen_tick=percept.tick,
-        )
+        entry = belief.roster.get(player.object_id)
+        if entry is None:
+            belief.roster[player.object_id] = RosterEntry(
+                object_id=player.object_id,
+                color=player.color,
+                facing=player.facing,
+                world_x=player.world_x,
+                world_y=player.world_y,
+                last_seen_tick=percept.tick,
+                history=[(percept.tick, player.world_x, player.world_y)],
+            )
+        else:
+            # Update the existing entry in place so its sighting trail accumulates.
+            entry.record(percept.tick, player.world_x, player.world_y, player.facing, player.color)
     # The roster spawns co-located at the first Playing tick, so the distinct
     # ids seen so far estimate the full player count (design §5).
     belief.total_player_count = max(belief.total_player_count, len(belief.roster))
@@ -339,6 +379,13 @@ def update_belief(belief: Belief, percept: Percept) -> None:
             and belief.phase == "Playing"
         ):
             belief.last_kill_tick = percept.tick
+        # Track the cooldown → kill-ready edge (and clear it on the way down) so the
+        # strategy can measure how long we have been able to kill without doing so.
+        if resolved.self_role == "imposter":
+            if resolved.self_kill_ready is True and belief.self_kill_ready is not True:
+                belief.kill_ready_since_tick = percept.tick
+            elif resolved.self_kill_ready is False:
+                belief.kill_ready_since_tick = None
         belief.self_role = resolved.self_role
         belief.self_kill_ready = resolved.self_kill_ready
     elif belief.self_role is None and belief.phase == "Playing":

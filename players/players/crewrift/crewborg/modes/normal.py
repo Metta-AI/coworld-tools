@@ -1,22 +1,28 @@
 """Normal mode: the default crewmate stance — complete assigned tasks (design §7.1).
 
-Each tick it concludes completion of the station it is standing on, picks the
-nearest **reachable** incomplete assigned task, and emits ``complete_task(T)``
-until belief shows ``T`` done, then moves to the next.
+Targeting is driven off the **live task-signal set** (``visible_task_indices`` — the
+arrows + bubbles, which together mark exactly the incomplete assigned tasks): pick
+the nearest **reachable** signalled task, emit ``complete_task(T)`` until it's done,
+then move to the next. When **no** task signal remains, every task is done, so head
+back to the spawn / start room rather than standing still.
+
+**Completion detection.** The authoritative signal is the **bubble disappearing**
+(``T`` leaving the signal set while we are inside its rect). But a bubble can also
+blink out for a tick from occlusion (an imposter overlapping us) or a screen-edge —
+so we *gate* it on the progress bar: ``T`` is concluded done only if we recently saw
+its progress reach ``COMPLETION_PROGRESS_PCT`` (≈ done). A bubble vanishing without
+that progress is treated as a flicker — we keep holding the same task. Progress is
+only a gate, never the trigger (so we never stop the hold early at, say, 98%); and
+because targeting uses the live signals, a falsely-concluded task that is still
+signalled is simply re-targeted (self-healing).
 
 Two stall guards (design §5):
 
 - *Reachability* — prefer tasks the nav graph can actually route to, so we don't
   fixate on an unreachable station (the action layer holds still on no path).
 - *Arrows-disabled sweep* — when ``showTaskArrows`` is off, off-screen tasks emit
-  no signals, so ``assigned_task_indices`` can stay empty at spawn. Rather than
-  idle forever, sweep the baked task stations (``navigate_to`` each) to discover
-  our assigned ones, whose bubbles appear once we are near them.
-
-Completion is concluded here (not in ``update_belief``) because only the mode
-knows which task it is standing on: a bubble also leaves the visible set by going
-off-screen, so "bubble gone" alone is ambiguous — but a task whose rect we are
-*inside* leaving the visible set means we finished it.
+  no signals, so the signal set can be empty at spawn even with tasks to do. Rather
+  than head home immediately, sweep the baked stations to discover assigned ones.
 """
 
 from __future__ import annotations
@@ -25,7 +31,9 @@ from players.crewrift.crewborg.map.types import TaskStation
 from players.crewrift.crewborg.types import ActionState, Belief, Intent
 from players.player_sdk import EmptyModeParams, Mode
 
-PROGRESS_COMPLETE_PCT = 100
+# A bubble leaving the signal set counts as completion only if progress recently
+# reached at least this — otherwise it's treated as a flicker/occlusion.
+COMPLETION_PROGRESS_PCT = 90
 SWEEP_ARRIVE_RADIUS = 24  # within this of a station center ⇒ count it as checked
 
 
@@ -36,46 +44,50 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
     def __init__(self, params=None) -> None:
         super().__init__(params)
         self._target: int | None = None
+        self._max_progress: int = 0  # peak progress seen for the current target
         self._swept: set[int] = set()
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
         del action_state
         tasks = belief.map.tasks if belief.map is not None else ()
 
-        self._conclude_completion(belief, tasks)
-        self._target = self._select_target(belief, tasks)
+        self._update_target(belief, tasks)
         if self._target is not None:
             return Intent(kind="complete_task", task_index=self._target, reason="completing assigned task")
 
         sweep = self._sweep_intent(belief, tasks)
         if sweep is not None:
             return sweep
-        return Intent(kind="idle", reason="no incomplete tasks remain")
+        return _return_to_start(belief)
 
-    def _conclude_completion(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> None:
+    def _update_target(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> None:
+        """Conclude/keep the current target, then pick a new one off the live signals."""
+
+        signals = belief.visible_task_indices
         target = self._target
-        if target is None or target >= len(tasks):
-            return
-        if target in belief.completed_task_indices:
-            self._target = None
-            return
-        on_station = _inside(tasks[target], belief.self_world_x, belief.self_world_y)
-        progress_done = belief.active_task_progress_pct == PROGRESS_COMPLETE_PCT
-        bubble_gone = target not in belief.visible_task_indices
-        if progress_done or (on_station and bubble_gone):
-            belief.completed_task_indices.add(target)
-            self._target = None
+        if target is not None and target < len(tasks):
+            on_station = _inside(tasks[target], belief.self_world_x, belief.self_world_y)
+            if on_station and belief.active_task_progress_pct is not None:
+                self._max_progress = max(self._max_progress, belief.active_task_progress_pct)
+            if target not in signals:
+                # Bubble gone: a real completion only if progress reached ~done.
+                # Otherwise it's a flicker/occlusion — keep holding the same task.
+                if self._max_progress >= COMPLETION_PROGRESS_PCT:
+                    belief.completed_task_indices.add(target)
+                    self._target = None
+            # if still signalled, keep the current target (avoids thrashing).
 
-    def _select_target(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> int | None:
-        candidates = [
-            index
-            for index in belief.assigned_task_indices
-            if index < len(tasks) and index not in belief.completed_task_indices
-        ]
+        if self._target is None:
+            self._target = self._pick_target(belief, tasks, signals)
+            self._max_progress = 0
+
+    def _pick_target(self, belief: Belief, tasks: tuple[TaskStation, ...], signals: set[int]) -> int | None:
+        # The live signal set is the authoritative list of remaining tasks; a task
+        # still signalled is still to do (even if we earlier mis-concluded it done).
+        candidates = [index for index in signals if index < len(tasks)]
         if not candidates:
             return None
 
-        self_xy = _self_xy(belief)
         # Prefer tasks with a baked reachable anchor; fall back to all if none have
         # one (rare — the action layer then holds still rather than wall-drive).
         if belief.nav is not None:
@@ -83,8 +95,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             if reachable:
                 candidates = reachable
 
-        if self._target in candidates:
-            return self._target  # keep the current target to avoid thrashing
+        self_xy = _self_xy(belief)
         if self_xy is None:
             return min(candidates)
         return min(candidates, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
@@ -110,6 +121,20 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             return None  # checked every station and found no assigned tasks
         nearest = min(remaining, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
         return Intent(kind="navigate_to", point=_nav_point(belief, tasks[nearest], nearest), reason="sweeping for tasks")
+
+
+def _return_to_start(belief: Belief) -> Intent:
+    """All assigned tasks done — head back to the spawn / start room instead of
+    standing still (which strands a finished crewmate and earns stuck penalties)."""
+
+    if belief.map is None:
+        return Intent(kind="idle", reason="no incomplete tasks remain")
+    goal = (belief.map.home.x, belief.map.home.y)
+    if belief.nav is not None:
+        cell = belief.nav.nearest_reachable_node(*goal)
+        if cell is not None:
+            goal = belief.nav.node_point[cell]
+    return Intent(kind="navigate_to", point=goal, reason="tasks done: returning to the start room")
 
 
 def _inside(task: TaskStation, x: int | None, y: int | None) -> bool:

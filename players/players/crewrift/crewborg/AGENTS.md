@@ -11,7 +11,8 @@ cited file before relying on it.**
 
 > **Status:** Implemented end-to-end — the agent plays both roles (crewmate
 > tasks / meetings / voting / report / flee, plus imposter Hunt / Pretend / Evade
-> and the `kill`/`vent` intents). The LLM strategy seam stays in place but
+> and the `kill`/`vent`/`escape` intents; imposter Pretend shadows the crew, and
+> Hunt is gated on a shared, urgency-relaxing kill opportunity). The LLM strategy seam stays in place but
 > unused. See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.

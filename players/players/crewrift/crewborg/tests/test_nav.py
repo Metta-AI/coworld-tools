@@ -9,6 +9,7 @@ from players.crewrift.crewborg.nav import (
     _segment_clear,
     build_nav_graph,
     plan_route,
+    plan_route_via_vents,
 )
 
 
@@ -120,3 +121,65 @@ def test_vent_anchor_lands_within_reach_of_the_vent_center() -> None:
     assert anchor is not None
     (ax, ay), (cx, cy) = anchor, (22, 12)
     assert (ax - cx) ** 2 + (ay - cy) ** 2 <= 16**2  # within VentRange of the center
+
+
+# --------------------------------------------------------------------------- #
+# Vent teleport edges + vent-aware routing (imposter flee)                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_vent_edges_connect_same_group_reachable_vents() -> None:
+    mask = np.ones((48, 48), dtype=bool)
+    vents = [
+        Vent(x=8, y=8, w=8, h=8, group="g", group_index=1),  # center (12, 12)
+        Vent(x=32, y=32, w=8, h=8, group="g", group_index=2),  # center (36, 36)
+    ]
+    graph = build_nav_graph(mask, map_data=_map(vents=vents))
+    pairs = {(e.from_vent, e.to_vent) for edges in graph.vent_edges.values() for e in edges}
+    assert pairs == {(0, 1), (1, 0)}  # a teleport edge each way
+
+
+def test_a_solitary_vent_has_no_teleport_edge() -> None:
+    mask = np.ones((48, 48), dtype=bool)
+    vent = Vent(x=8, y=8, w=8, h=8, group="lonely", group_index=1)
+    graph = build_nav_graph(mask, map_data=_map(vents=[vent]))
+    assert graph.vent_edges == {}  # nowhere to teleport to
+
+
+def _detour_map_with_linking_vents() -> tuple[np.ndarray, MapData]:
+    # A wall splits left from right except for a narrow gap along the top rows, so
+    # walking across is a long detour — but two same-group vents link the sides.
+    mask = np.ones((120, 200), dtype=bool)
+    mask[20:120, 98:102] = False  # wall from row 20 down; gap is rows 0..20
+    vents = [
+        Vent(x=86, y=56, w=8, h=8, group="g", group_index=1),  # center (90, 60), left of wall
+        Vent(x=106, y=56, w=8, h=8, group="g", group_index=2),  # center (110, 60), right of wall
+    ]
+    map_data = MapData(
+        width=200, height=120, tasks=(), vents=tuple(vents), rooms=(),
+        button=MapRect(x=0, y=0, w=4, h=4), home=MapPoint(x=10, y=10),
+    )
+    return mask, map_data
+
+
+def test_plan_route_via_vents_takes_the_teleport_shortcut() -> None:
+    mask, map_data = _detour_map_with_linking_vents()
+    graph = build_nav_graph(mask, map_data=map_data)
+
+    waypoints, teleports = plan_route_via_vents(graph, (10, 110), (190, 110))
+    assert waypoints, "expected a route to the far side"
+    assert teleports, "expected the route to use a vent teleport"
+    # The teleport target waypoint lands within VentRange of a vent center.
+    centers = [(90, 60), (110, 60)]
+    for index in teleports:
+        wx, wy = waypoints[index]
+        assert any((wx - cx) ** 2 + (wy - cy) ** 2 <= 16**2 for cx, cy in centers)
+
+
+def test_plain_plan_route_never_teleports() -> None:
+    # The vent-free planner must detour up through the gap, not jump the wall.
+    mask, map_data = _detour_map_with_linking_vents()
+    graph = build_nav_graph(mask, map_data=map_data)
+    route = plan_route(graph, (10, 110), (190, 110))
+    assert route and route[-1] == (190, 110)
+    assert any(y < 20 for _, y in route)  # routed up through the top gap

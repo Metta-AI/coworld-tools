@@ -49,6 +49,13 @@ DEFAULT_CELL_SIZE = 8
 # within VentRange=16px of the vent center; tasks/button fire from inside the rect.
 VENT_REACH = 16
 
+# Cost (graph units, i.e. world pixels) charged for traversing a vent teleport edge.
+# A vent use is ~one action regardless of how far the teleport jumps, so the cost is
+# a small fixed value — A* then strongly prefers a vent whenever it shortcuts a long
+# walk, which is exactly what makes a fleeing imposter vanish through the nearest
+# useful vent (these edges are imposter-only; ``plan_route`` never traverses them).
+VENT_EDGE_COST = float(DEFAULT_CELL_SIZE)
+
 # 8-neighbour offsets used to build edges. Only the four "forward" directions are
 # enumerated; each discovered edge is added symmetrically.
 _FORWARD = [(0, 1), (1, 0), (1, 1), (1, -1)]
@@ -58,6 +65,25 @@ _SNAP_RADIUS_CELLS = 48  # how far to search for a node when snapping a world po
 
 Cell = tuple[int, int]  # (row, col)
 Point = tuple[int, int]  # (x, y) world pixel
+
+
+@dataclass(frozen=True)
+class VentEdge:
+    """A one-way teleport edge between two same-group vents (imposter-only).
+
+    Standing within VentRange of the vent at ``from_vent`` and pressing B teleports
+    to the vent at ``to_vent`` (``sim.nim`` vent groups). ``from_anchor`` /
+    ``to_anchor`` are the reachable pixels the route walks onto either side of the
+    hop; ``from_cell`` / ``to_cell`` are their graph cells (the A* endpoints).
+    """
+
+    from_vent: int
+    to_vent: int
+    from_cell: Cell
+    to_cell: Cell
+    from_anchor: Point
+    to_anchor: Point
+    cost: float
 
 
 @dataclass
@@ -73,6 +99,10 @@ class NavGraph:
     reachable: set[Cell]  # nodes connected to home over the graph
     task_anchors: dict[int, Point] = field(default_factory=dict)
     vent_anchors: dict[int, Point] = field(default_factory=dict)
+    # Teleport edges between same-group vents, keyed by the entry vent's anchor cell.
+    # Consulted only by ``plan_route_via_vents`` (imposter flee), never by walking
+    # routes — so crewmate pathing is unaffected by their presence.
+    vent_edges: dict[Cell, list[VentEdge]] = field(default_factory=dict)
     button_anchor: Point | None = None
     unreachable: tuple[str, ...] = ()
 
@@ -372,6 +402,8 @@ def _build_anchors(graph: NavGraph, map_data: MapData) -> None:
     if graph.button_anchor is None:
         unreachable.append("emergency button")
 
+    _build_vent_edges(graph, map_data)
+
     graph.unreachable = tuple(unreachable)
     if unreachable:
         _log.warning(
@@ -380,6 +412,42 @@ def _build_anchors(graph: NavGraph, map_data: MapData) -> None:
             len(unreachable),
             ", ".join(unreachable),
         )
+
+
+def _build_vent_edges(graph: NavGraph, map_data: MapData) -> None:
+    """Add a teleport edge between every ordered pair of same-group vents.
+
+    A vent only teleports the imposter to the *other* vents in its group
+    (``sim.nim``), so the edges connect each reachable vent anchor to every other
+    reachable anchor sharing its ``group``. Vents whose anchor was unreachable (no
+    entry in ``vent_anchors``) are skipped — you cannot walk to them to vent.
+    """
+
+    groups: dict[str, list[int]] = {}
+    for index, vent in enumerate(map_data.vents):
+        if index in graph.vent_anchors:
+            groups.setdefault(vent.group, []).append(index)
+
+    for members in groups.values():
+        if len(members) < 2:
+            continue  # a lone reachable vent in its group teleports nowhere useful
+        for from_vent in members:
+            from_anchor = graph.vent_anchors[from_vent]
+            from_cell = graph.world_to_cell(*from_anchor)
+            for to_vent in members:
+                if to_vent == from_vent:
+                    continue
+                to_anchor = graph.vent_anchors[to_vent]
+                edge = VentEdge(
+                    from_vent=from_vent,
+                    to_vent=to_vent,
+                    from_cell=from_cell,
+                    to_cell=graph.world_to_cell(*to_anchor),
+                    from_anchor=from_anchor,
+                    to_anchor=to_anchor,
+                    cost=VENT_EDGE_COST,
+                )
+                graph.vent_edges.setdefault(from_cell, []).append(edge)
 
 
 def _find_anchor(
@@ -472,6 +540,103 @@ def plan_route(graph: NavGraph, start_world: Point, goal_world: Point) -> list[P
                 f = tentative + math.dist(graph.node_point[neighbour], goal_point)
                 heapq.heappush(open_heap, (f, neighbour))
     return []
+
+
+def plan_route_via_vents(
+    graph: NavGraph, start_world: Point, goal_world: Point
+) -> tuple[list[Point], dict[int, int]]:
+    """A* a route to ``goal_world`` that may teleport through vents (imposter flee).
+
+    Identical to :func:`plan_route` but the search may also traverse the graph's
+    vent teleport edges, so the cheapest route to a far point can vanish through a
+    vent instead of walking the long way round. Returns ``(waypoints, teleports)``
+    where ``teleports`` maps the index of a waypoint *reached by venting* to the
+    vent index the agent must stand on and press B to get there; the action layer
+    walks the ordinary legs and fires the vent on the teleport legs. ``([], {})``
+    when the goal is unreachable even with vents.
+    """
+
+    if _segment_clear(graph.walkability, start_world, goal_world):
+        return [goal_world], {}
+    start = graph.nearest_reachable_node(*start_world)
+    goal = graph.nearest_reachable_node(*goal_world)
+    if start is None or goal is None:
+        return [], {}
+    if start == goal:
+        return [goal_world], {}
+
+    came_from, came_edge = _astar_via_vents(graph, start, goal)
+    if goal not in came_from:
+        return [], {}
+
+    nodes = [goal]
+    current = goal
+    while current != start:
+        current = came_from[current]
+        nodes.append(current)
+    nodes.reverse()
+
+    # Walk the cell path, splitting it into walk-segments at each teleport. Each
+    # walk-segment is string-pulled on its own (a teleport boundary is never
+    # smoothed across — the two anchors aren't mutually visible), and the exit
+    # anchor of a hop is marked as a teleport waypoint.
+    waypoints: list[Point] = []
+    teleports: dict[int, int] = {}
+    segment: list[Point] = [start_world]
+    for cell in nodes[1:]:
+        edge = came_edge[cell]
+        if edge is None:
+            segment.append(graph.node_point[cell])
+            continue
+        segment.append(edge.from_anchor)  # walk onto the vent entry, then teleport
+        waypoints.extend(_smooth_route(graph.walkability, segment)[1:])
+        waypoints.append(edge.to_anchor)
+        teleports[len(waypoints) - 1] = edge.from_vent
+        segment = [edge.to_anchor]
+    segment.append(goal_world)
+    waypoints.extend(_smooth_route(graph.walkability, segment)[1:])
+    return waypoints, teleports
+
+
+def _astar_via_vents(
+    graph: NavGraph, start: Cell, goal: Cell
+) -> tuple[dict[Cell, Cell], dict[Cell, VentEdge | None]]:
+    """A* over walk edges + vent teleport edges; records how each cell was reached.
+
+    ``came_edge[cell]`` is the :class:`VentEdge` used to arrive at ``cell`` (a
+    teleport leg) or ``None`` (a walked leg), so the route can be split at hops.
+    """
+
+    goal_point = graph.node_point[goal]
+    came_from: dict[Cell, Cell] = {}
+    came_edge: dict[Cell, VentEdge | None] = {}
+    g_score = {start: 0.0}
+    open_heap: list[tuple[float, Cell]] = [(0.0, start)]
+    closed: set[Cell] = set()
+
+    def relax(neighbour: Cell, step_cost: float, edge: VentEdge | None) -> None:
+        tentative = g_score[current] + step_cost
+        if tentative < g_score.get(neighbour, math.inf):
+            came_from[neighbour] = current
+            came_edge[neighbour] = edge
+            g_score[neighbour] = tentative
+            f = tentative + math.dist(graph.node_point[neighbour], goal_point)
+            heapq.heappush(open_heap, (f, neighbour))
+
+    while open_heap:
+        _, current = heapq.heappop(open_heap)
+        if current == goal:
+            break
+        if current in closed:
+            continue
+        closed.add(current)
+        for neighbour, step_cost in graph.adjacency[current]:
+            if neighbour not in closed:
+                relax(neighbour, step_cost, None)
+        for edge in graph.vent_edges.get(current, []):
+            if edge.to_cell not in closed:
+                relax(edge.to_cell, edge.cost, edge)
+    return came_from, came_edge
 
 
 def _reconstruct(
