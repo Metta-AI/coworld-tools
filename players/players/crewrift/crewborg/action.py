@@ -44,6 +44,10 @@ STOP_FACTOR = 1.3
 
 # Report fires when within ReportRange = 20px (dist² ≤ 400) of a body (sim.nim).
 REPORT_RANGE_SQ = 400
+# Kill fires within KillRange = 20px (dist² ≤ 400); vent within VentRange = 16px
+# (dist² ≤ 256) (sim.nim).
+KILL_RANGE_SQ = 400
+VENT_RANGE_SQ = 256
 
 
 def encode_chat(text: str) -> bytes:
@@ -204,7 +208,12 @@ def _resolve(
     if intent.kind == "flee_from":
         return _resolve_flee(intent, belief, action_state, self_xy)
 
-    # Remaining kinds (kill/vent) are wired in P4.
+    if intent.kind == "kill":
+        return _resolve_kill(intent, belief, action_state, self_xy)
+
+    if intent.kind == "vent":
+        return _resolve_vent(intent, belief, action_state, self_xy)
+
     return Command(held_mask=0)
 
 
@@ -270,3 +279,39 @@ def _resolve_flee(
     if away == self_xy:  # co-located: no flee direction
         return Command(held_mask=0)
     return Command(held_mask=_movement_mask(self_xy, away, _velocity(action_state, self_xy)))
+
+
+def _resolve_kill(
+    intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
+) -> Command:
+    target = belief.roster.get(intent.target_id) if intent.target_id is not None else None
+    if target is None:
+        return Command(held_mask=0)
+    target_xy = (target.world_x, target.world_y)
+    if _dist2(self_xy, target_xy) <= KILL_RANGE_SQ:
+        # In range: a fresh A press kills (sim.nim tryKill). Caveat: if a body is
+        # adjacent, the server reports it instead — Hunt avoids that case.
+        return Command(held_mask=_edge_press(action_state, BTN_A))
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, target_xy))
+
+
+def _resolve_vent(
+    intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
+) -> Command:
+    vent = _select_vent(belief, intent.target_id, self_xy)
+    if vent is None:
+        return Command(held_mask=0)
+    vent_xy = (vent.center.x, vent.center.y)
+    if _dist2(self_xy, vent_xy) <= VENT_RANGE_SQ:
+        return Command(held_mask=BTN_B)  # B is level-triggered (sim.nim tryVent)
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, vent_xy))
+
+
+def _select_vent(belief: Belief, target_id: int | None, self_xy: tuple[int, int]):
+    if belief.map is None or not belief.map.vents:
+        return None
+    vents = belief.map.vents
+    if target_id is not None and 0 <= target_id < len(vents):
+        return vents[target_id]
+    # Default: the nearest vent.
+    return min(vents, key=lambda v: _dist2(self_xy, (v.center.x, v.center.y)))

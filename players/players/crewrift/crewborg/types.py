@@ -153,6 +153,10 @@ class Belief(BaseModel):
     # them; ``believed_imposters`` drives the Flee mode (dormant while empty).
     believed_imposters: set[int] = Field(default_factory=set)
 
+    # Imposter: tick of the most recent self kill (kill-ready → cooldown edge),
+    # used to evade the fresh body briefly (design §7.2).
+    last_kill_tick: int | None = None
+
 
 class Intent(BaseModel):
     """Symbolic "what to do now" (design §8). P2 emits idle/navigate_to/complete_task."""
@@ -314,6 +318,14 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     # and no such marker is present, the role is crewmate. Role is fixed for the
     # game (a crewmate only changes to "dead" on death, via the ghost icon).
     if resolved.self_role is not None:
+        # A kill-ready → cooldown edge for an imposter means we just killed
+        # someone (the icon flips to "imposter icon cooldown"); note it to evade.
+        if (
+            resolved.self_role == "imposter"
+            and belief.self_kill_ready is True
+            and resolved.self_kill_ready is False
+        ):
+            belief.last_kill_tick = percept.tick
         belief.self_role = resolved.self_role
         belief.self_kill_ready = resolved.self_kill_ready
     elif belief.self_role is None and belief.phase == "Playing":

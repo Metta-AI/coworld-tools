@@ -6,6 +6,7 @@ import numpy as np
 
 from players.crewrift.crewborg.action import (
     BTN_A,
+    BTN_B,
     BTN_DOWN,
     BTN_LEFT,
     BTN_RIGHT,
@@ -16,7 +17,7 @@ from players.crewrift.crewborg.action import (
     encode_input,
     resolve_action,
 )
-from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
+from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.nav import build_nav_grid
 from players.crewrift.crewborg.perception.entities import VotingState
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, RosterEntry
@@ -177,3 +178,43 @@ def test_flee_moves_away_from_threat() -> None:
     )
     command = resolve_action(Intent(kind="flee_from", target_id=1004), belief, ActionState())
     assert command.held_mask == BTN_LEFT  # threat is to our right ⇒ flee left
+
+
+def _belief_with_target(self_xy: tuple[int, int], target_xy: tuple[int, int]) -> Belief:
+    belief = Belief(self_world_x=self_xy[0], self_world_y=self_xy[1])
+    belief.roster[1004] = RosterEntry(
+        object_id=1004, color="red", facing="left", world_x=target_xy[0], world_y=target_xy[1], last_seen_tick=1
+    )
+    return belief
+
+
+def test_kill_navigates_then_edge_presses_a_in_range() -> None:
+    on_target = _belief_with_target((50, 50), (50, 50))
+    action_state = ActionState()
+    intent = Intent(kind="kill", target_id=1004)
+    assert resolve_action(intent, on_target, action_state).held_mask == BTN_A  # fresh press
+    assert resolve_action(intent, on_target, action_state).held_mask == 0  # release (edge)
+
+    far = _belief_with_target((300, 300), (50, 50))
+    assert resolve_action(Intent(kind="kill", target_id=1004), far, ActionState()).held_mask == BTN_UP | BTN_LEFT
+
+
+def _belief_with_vent(self_xy: tuple[int, int], vent_xy: tuple[int, int]) -> Belief:
+    vent = Vent(x=vent_xy[0] - 7, y=vent_xy[1] - 7, w=14, h=14, group="1", group_index=1)  # center vent_xy
+    map_data = MapData(
+        width=1235, height=659, tasks=(), vents=(vent,), rooms=(), button=MapRect(x=0, y=0, w=28, h=34),
+        home=MapPoint(x=0, y=0),
+    )
+    return Belief(map=map_data, self_world_x=self_xy[0], self_world_y=self_xy[1])
+
+
+def test_vent_navigates_then_holds_b_level_in_range() -> None:
+    on_vent = _belief_with_vent((100, 100), (100, 100))
+    action_state = ActionState()
+    intent = Intent(kind="vent")
+    # B is level-triggered: held every tick in range (no edge release).
+    assert resolve_action(intent, on_vent, action_state).held_mask == BTN_B
+    assert resolve_action(intent, on_vent, action_state).held_mask == BTN_B
+
+    far = _belief_with_vent((300, 300), (100, 100))
+    assert resolve_action(Intent(kind="vent"), far, ActionState()).held_mask == BTN_UP | BTN_LEFT

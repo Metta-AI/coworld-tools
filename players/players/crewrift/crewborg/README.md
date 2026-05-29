@@ -10,15 +10,15 @@ as a Docker image the Coworld runner launches.
 
 ## Status
 
-**P3 — meetings / report / flee (current).** On top of P2's crewmate task loop,
-the mode selector now follows the full crewmate priority order: during `Voting`
-it runs **Attend Meeting** (chat once, then cast a vote — default policy *skip*);
-a body in view triggers **Report Body** (navigate to it and report); and an
-approaching believed imposter triggers **Flee** (keep-away). The action layer
-gained the edge-triggered A-press FSM, the vote cursor → skip → confirm sequence,
-chat packets (sent by the bridge during Voting), and the `flee_from` keep-away
-primitive. The evidence ledger is a stub, so Flee is wired but dormant until
-suspicion reasoning exists. Imposter behaviour (P4) is still to come.
+**P4 — imposter modes (current; P0–P4 complete).** The agent now plays both
+roles. On top of the crewmate behaviour (tasks, meetings, voting, report, flee),
+the role-aware selector runs the imposter priority order during `Playing`:
+**Hunt** (kill ready → navigate to the nearest isolated crewmate and kill in
+range), **Evade** (just killed → vanish via a vent or move off the body), and
+**Pretend** (otherwise → loiter near task stations to blend in); meetings reuse
+**Attend Meeting**. The action layer gained the `kill` (edge-A in KillRange) and
+`vent` (level-B in VentRange) intents. The full P0–P4 design (`design.md` §11) is
+implemented; the LLM strategy seam remains for later.
 
 ## Layout
 
@@ -29,8 +29,8 @@ crewborg/
   action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             nav grid + A* route planning over the walkability mask
   trace.py           stderr-JSON trace & metrics sinks
-  modes/             stances: idle, normal, attend_meeting, report_body, flee
-  strategy/          rule_based.py: the mode selector (full crewmate priority)
+  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade
+  strategy/          rule_based.py: role-aware mode selector (crewmate + imposter)
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh

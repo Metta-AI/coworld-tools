@@ -39,6 +39,19 @@ def test_imposter_hud_sets_role_and_kill_ready() -> None:
     assert belief.self_kill_ready is True
 
 
+def test_just_killed_recorded_on_kill_ready_to_cooldown_edge() -> None:
+    belief = Belief()
+    # Imposter, kill ready.
+    _fold(belief, 5, self_role="imposter", self_kill_ready=True, crew_tasks_remaining=3)
+    assert belief.last_kill_tick is None
+    # Kill ready → cooldown: we just killed someone.
+    _fold(belief, 6, self_role="imposter", self_kill_ready=False, crew_tasks_remaining=3)
+    assert belief.last_kill_tick == 6
+    # Staying on cooldown does not re-record.
+    _fold(belief, 7, self_role="imposter", self_kill_ready=False, crew_tasks_remaining=3)
+    assert belief.last_kill_tick == 6
+
+
 def test_phase_stays_unknown_before_any_signal() -> None:
     belief = Belief()
     # Camera not yet ready and no signals: phase remains unknown, role unset.
