@@ -35,3 +35,57 @@ entries:
     owner: jamesboggs
     description: Minimal Cogs vs Clips replay-difference grader for the tentative Coworld grader contract.
     family: symbolic
+  - name: bitworld-score-grader
+    image: bitworld-score-grader:latest
+    source: graders/bitworld_score/bitworld_score_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/bitworld_score/bitworld_score_grader
+    status: starter
+    target: bitworld_score
+    owner: jamesboggs
+    description: Generic score-and-activity grader for BitWorld Coworlds without bespoke graders.
+    family: symbolic
+  - name: crewrift-grader
+    image: crewrift-grader:latest
+    source: graders/crewrift/crewrift_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/crewrift/crewrift_grader
+    status: starter
+    target: crewrift
+    owner: jamesboggs
+    description: Minimal Crewrift social-deduction episode-interest grader.
+    family: symbolic
+  - name: mettagrid-score-grader
+    image: mettagrid-score-grader:latest
+    source: graders/mettagrid/mettagrid_score_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/mettagrid/mettagrid_score_grader
+    status: starter
+    target: mettagrid
+    owner: jamesboggs
+    description: Generic score-and-steps grader for simple MettaGrid-style Coworlds.
+    family: symbolic
+  - name: liarliar-grader
+    image: liarliar-grader:latest
+    source: graders/liarliar/liarliar_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/liarliar/liarliar_grader
+    status: starter
+    target: liar-liar-cut-the-wire
+    owner: jamesboggs
+    description: Minimal Liar Liar grader based on module outcomes, survival, and communication signals.
+    family: symbolic
+  - name: persephones-escape-grader
+    image: persephones-escape-grader:latest
+    source: graders/persephones_escape/persephones_escape_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/persephones_escape/persephones_escape_grader
+    status: starter
+    target: persephones_escape
+    owner: jamesboggs
+    description: Minimal Persephone's Escape grader based on decisive outcome, score spread, and duration.
+    family: symbolic
+  - name: tribal-cog-grader
+    image: tribal-cog-grader:latest
+    source: graders/tribal_cog/tribal_cog_grader
+    source_url: https://github.com/Metta-AI/graders/tree/main/graders/tribal_cog/tribal_cog_grader
+    status: starter
+    target: tribal_cog
+    owner: jamesboggs
+    description: Minimal Tribal Cog grader based on team scores, winner, duration, and completion reason.
+    family: symbolic

@@ -53,6 +53,12 @@ implementation.
 | `among_them/among_them_grader` | Among Them | Starter implementation; cataloged |
 | `paint_arena/paint_arena_grader` | PaintArena | Starter implementation; cataloged |
 | `cogs_v_clips/cogs_v_clips_grader` | Cogs vs Clips | Starter implementation; cataloged |
+| `bitworld_score/bitworld_score_grader` | Generic BitWorld score games | Starter implementation; cataloged |
+| `crewrift/crewrift_grader` | Crewrift | Starter implementation; cataloged |
+| `mettagrid/mettagrid_score_grader` | Generic MettaGrid score games | Starter implementation; cataloged |
+| `liarliar/liarliar_grader` | Liar Liar | Starter implementation; cataloged |
+| `persephones_escape/persephones_escape_grader` | Persephone's Escape | Starter implementation; cataloged |
+| `tribal_cog/tribal_cog_grader` | Tribal Cog / Tribal Fortress | Starter implementation; cataloged |
 
 ## Authoritative Coworld Sources
 
@@ -89,6 +95,24 @@ cd graders/paint_arena/paint_arena_grader
 ./build.sh
 
 cd graders/cogs_v_clips/cogs_v_clips_grader
+./build.sh
+
+cd graders/bitworld_score/bitworld_score_grader
+./build.sh
+
+cd graders/crewrift/crewrift_grader
+./build.sh
+
+cd graders/mettagrid/mettagrid_score_grader
+./build.sh
+
+cd graders/liarliar/liarliar_grader
+./build.sh
+
+cd graders/persephones_escape/persephones_escape_grader
+./build.sh
+
+cd graders/tribal_cog/tribal_cog_grader
 ./build.sh
 ```
 
