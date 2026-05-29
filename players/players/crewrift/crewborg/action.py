@@ -20,7 +20,7 @@ point" routine that follows the baked nav route (design §9):
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.nav import plan_route
+from players.crewrift.crewborg.nav import plan_route, plan_route_via_vents
 from players.crewrift.crewborg.types import ActionState, Belief, Command, Intent
 
 INPUT_HEADER = 0x84
@@ -116,6 +116,7 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route = []
     action_state.route_cursor = 0
     action_state.route_goal = None
+    action_state.route_teleports = {}
     action_state.vote_confirmed = False
     action_state.chat_sent = False
 
@@ -128,9 +129,19 @@ def _edge_press(action_state: ActionState, bit: int) -> int:
 
 
 def _navigate_mask(
-    belief: Belief, action_state: ActionState, self_xy: tuple[int, int], goal: tuple[int, int]
+    belief: Belief,
+    action_state: ActionState,
+    self_xy: tuple[int, int],
+    goal: tuple[int, int],
+    *,
+    via_vents: bool = False,
 ) -> int:
-    """Follow (replanning if needed) the nav route toward ``goal``; return d-pad mask."""
+    """Follow (replanning if needed) the nav route toward ``goal``; return d-pad mask.
+
+    With ``via_vents`` the route may include vent teleport legs (imposter flee): on
+    such a leg the agent walks onto the entry vent's anchor and presses B to vanish
+    to the exit, then resumes walking.
+    """
 
     velocity = _velocity(action_state, self_xy)
 
@@ -139,9 +150,14 @@ def _navigate_mask(
     if action_state.route_goal != goal:
         action_state.route_goal = goal
         action_state.route_cursor = 0
+        action_state.route_teleports = {}
         if belief.nav is None:
             # No nav graph yet: steer straight at the goal.
             action_state.route = [goal]
+        elif via_vents:
+            route, teleports = plan_route_via_vents(belief.nav, self_xy, goal)
+            action_state.route = list(route)
+            action_state.route_teleports = dict(teleports)
         else:
             # nav present: an empty route means genuinely unreachable — hold
             # still (a stall the mode can react to) rather than steering at a wall.
@@ -150,15 +166,43 @@ def _navigate_mask(
     if not action_state.route:
         return 0  # unreachable under the nav graph: hold still
 
-    # Advance past any waypoints we have already reached.
+    # Advance past any waypoints we have already reached — including a teleport
+    # target once the hop has dropped us next to it (so we resume walking onward
+    # instead of trying to vent back). A teleport target is unreachable on foot, so
+    # before the hop fires we are never within range of it and the cursor halts on
+    # it, which is exactly when we press B below.
     while (
         action_state.route_cursor < len(action_state.route) - 1
         and _dist2(self_xy, action_state.route[action_state.route_cursor]) <= WAYPOINT_RADIUS**2
     ):
         action_state.route_cursor += 1
 
-    waypoint = action_state.route[min(action_state.route_cursor, len(action_state.route) - 1)]
+    cursor = action_state.route_cursor
+    if cursor in action_state.route_teleports and _dist2(self_xy, action_state.route[cursor]) > WAYPOINT_RADIUS**2:
+        return _teleport_mask(belief, action_state, self_xy)
+
+    waypoint = action_state.route[min(cursor, len(action_state.route) - 1)]
     return _movement_mask(self_xy, waypoint, velocity)
+
+
+def _teleport_mask(belief: Belief, action_state: ActionState, self_xy: tuple[int, int]) -> int:
+    """Drive the vent hop at the current cursor: press B in range, else close in.
+
+    The cursor sits on a teleport-target waypoint; the leg before it walked us onto
+    the entry vent's anchor. Press B (level-triggered) once we are actually within
+    VentRange of that vent's center — otherwise keep steering onto the anchor so the
+    press lands. Once the server teleports us next to the exit waypoint, the cursor
+    advances and ordinary walking resumes.
+    """
+
+    vent_index = action_state.route_teleports[action_state.route_cursor]
+    if belief.map is None or not (0 <= vent_index < len(belief.map.vents)):
+        return 0
+    center = belief.map.vents[vent_index].center
+    if _dist2(self_xy, (center.x, center.y)) <= VENT_RANGE_SQ:
+        return BTN_B
+    entry = action_state.route[action_state.route_cursor - 1]
+    return _movement_mask(self_xy, entry, _velocity(action_state, self_xy))
 
 
 def resolve_action(intent: Intent, belief: Belief, action_state: ActionState) -> Command:
@@ -198,6 +242,12 @@ def _resolve(
         if intent.point is None:
             return Command(held_mask=0)
         return Command(held_mask=_navigate_mask(belief, action_state, self_xy, intent.point))
+
+    if intent.kind == "escape":
+        if intent.point is None:
+            return Command(held_mask=0)
+        # Flee toward the point, vanishing through a vent when one lies on the route.
+        return Command(held_mask=_navigate_mask(belief, action_state, self_xy, intent.point, via_vents=True))
 
     if intent.kind == "complete_task":
         return _resolve_complete_task(intent, belief, action_state, self_xy)

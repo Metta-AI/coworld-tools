@@ -129,6 +129,8 @@ class CrewborgEventTracer:
         elif kind == "report" and command.held_mask & BTN_A:
             emit.event("report_attempted", {"body_id": intent.target_id})
             emit.counter("report_attempted")
-        elif kind == "vent" and command.held_mask & BTN_B:
+        elif kind in ("vent", "escape") and command.held_mask & BTN_B:
+            # ``escape`` presses B only on a vent teleport leg, so a B edge here is a
+            # vent use just like the dedicated ``vent`` intent.
             emit.event("vent_attempted", {})
             emit.counter("vent_attempted")

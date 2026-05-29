@@ -58,16 +58,68 @@ def test_advances_to_next_task_after_completion() -> None:
     assert second.kind == "complete_task" and second.task_index == 1
 
 
-def test_idles_when_no_tasks_remain() -> None:
+def test_bubble_flicker_at_low_progress_does_not_complete() -> None:
+    # On a task, only 40% done, then its bubble blinks out (e.g. an imposter overlaps
+    # us) ⇒ NOT complete; keep holding the same task rather than abandoning it.
     belief = Belief(
-        map=_map_with_tasks(),
+        map=_map_with_tasks(), visible_task_indices={0, 1}, self_world_x=110, self_world_y=110
+    )
+    mode = NormalMode()
+    assert mode.decide(belief, ActionState()).task_index == 0
+    belief.active_task_progress_pct = 40  # mid-task
+    mode.decide(belief, ActionState())
+    belief.visible_task_indices = {1}  # task 0's bubble flickers out
+    intent = mode.decide(belief, ActionState())
+    assert intent.kind == "complete_task" and intent.task_index == 0  # still holding task 0
+    assert 0 not in belief.completed_task_indices
+
+
+def test_completes_when_bubble_gone_after_high_progress() -> None:
+    belief = Belief(
+        map=_map_with_tasks(), visible_task_indices={0, 1}, self_world_x=110, self_world_y=110
+    )
+    mode = NormalMode()
+    assert mode.decide(belief, ActionState()).task_index == 0
+    belief.active_task_progress_pct = 95  # ≥ COMPLETION_PROGRESS_PCT
+    mode.decide(belief, ActionState())
+    belief.visible_task_indices = {1}  # bubble gone *after* near-complete progress
+    intent = mode.decide(belief, ActionState())
+    assert 0 in belief.completed_task_indices
+    assert intent.kind == "complete_task" and intent.task_index == 1  # moved on
+
+
+def test_done_only_when_no_task_signals_remain() -> None:
+    # Signals empty ⇒ done, even though our completed set says nothing finished
+    # (we trust the live arrows+bubbles, not the bookkeeping).
+    belief = Belief(
+        map=_map_with_tasks(), assigned_task_indices={0, 1}, visible_task_indices=set(),
+        self_world_x=110, self_world_y=110, crew_tasks_remaining=5,
+    )
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # home
+
+
+def test_resignalled_task_is_repursued_even_if_marked_completed() -> None:
+    # A task we concluded done but whose bubble is still showing must be re-targeted
+    # (self-healing against a wrong completion).
+    belief = Belief(
+        map=_map_with_tasks(), completed_task_indices={0}, visible_task_indices={0},
+        self_world_x=110, self_world_y=110,
+    )
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "complete_task" and intent.task_index == 0
+
+
+def test_returns_to_the_start_room_when_all_tasks_are_done() -> None:
+    belief = Belief(
+        map=_map_with_tasks(),  # home = (0, 0)
         assigned_task_indices={0, 1},
         completed_task_indices={0, 1},
         self_world_x=110,
         self_world_y=110,
     )
     intent = NormalMode().decide(belief, ActionState())
-    assert intent.kind == "idle"
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # back to spawn, not idle
 
 
 def test_sweeps_baked_tasks_when_no_signals_arrive() -> None:
@@ -80,8 +132,10 @@ def test_sweeps_baked_tasks_when_no_signals_arrive() -> None:
 
 
 def test_no_sweep_once_crew_tasks_are_done() -> None:
+    # crew tasks all done, none assigned to us ⇒ don't sweep stations; head to spawn.
     belief = Belief(map=_map_with_tasks(), self_world_x=0, self_world_y=0, crew_tasks_remaining=0)
-    assert NormalMode().decide(belief, ActionState()).kind == "idle"
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # home, not a station sweep
 
 
 def test_picks_reachable_task_over_nearer_unreachable_one() -> None:

@@ -236,7 +236,8 @@ chosen by an on/off-screen test (`global:2202-2274`, `:2410-2440`):
   rooms, emergency-button location, walkability grid, and a nav graph built over it.
 - **roster** — total player count (see below) and, per stable object id: color,
   last-known world xy, facing, **alive/dead** (no ghost-state tracking), last-seen
-  tick.
+  tick, and a bounded **sighting trail** (`history`: recent `(tick, x, y)`) for
+  re-finding the crew when sight is lost (and, later, reading heading/velocity).
 - **bodies** — by id: color, world xy, reported flag.
 - **tasks** — assigned task indices (from `task_signals` ids), per-task world
   location (from the map), per-task completion; `crew_tasks_remaining`;
@@ -316,6 +317,10 @@ enforced at pixel resolution**:
   VentRange of a vent) is precomputed, so navigation targets a known-good point
   instead of a rect center that may sit in a wall. A destination with no reachable
   anchor is logged at build — surfaced on frame 1, not as a silent mid-game stall.
+- **Vent teleport edges:** same-group vents teleport together, so the graph also
+  holds a directed edge between every pair of reachable same-group vent anchors.
+  These are **imposter-only**: only `plan_route_via_vents` (the `escape` intent)
+  traverses them, so crewmate routes are unaffected by their presence.
 
 The decoded walkability also validates the bake: if it doesn't match `croatoan`,
 the server is running a different map — fail loud / fall back. (`mapPath` is
@@ -340,7 +345,7 @@ re-decides.
 
 | Mode | Active when | Intents emitted |
 |---|---|---|
-| **Normal** | default while `Playing` | `complete_task(T)` (pick → emit until belief shows T done → pick next); `idle`/`loiter` if none left |
+| **Normal** | default while `Playing` | target the nearest reachable **signalled** task (live arrows+bubbles = the remaining tasks) and `complete_task(T)`; conclude `T` done when its **bubble disappears**, gated on having seen ≥ `COMPLETION_PROGRESS_PCT` (≈90%) progress (so an occlusion/edge flicker doesn't false-complete); when **no task signal remains**, `navigate_to` the spawn / **start room** rather than standing still |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote(choice)` before the timer |
 | **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
 | **Flee** | a believed-imposter is approaching | `flee_from(player)`, or a strategic `navigate_to(point)` |
@@ -349,10 +354,76 @@ re-decides.
 
 | Mode | Active when | Intents emitted |
 |---|---|---|
-| **Pretend** | kill on cooldown | `idle`/`loiter` near task stations and crew; fake task stops |
-| **Hunt** | kill ready | `navigate_to(target)`; `kill(target)` in range |
-| **Evade** | just killed | `flee_from` / `navigate_to` away from the body (or `vent` to vanish) |
+| **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
+| **Hunt** | kill ready *and* a subtle opening exists | `kill(target)` — the nearest reachable, isolated crewmate (`strategy.opportunity`); the action layer navigates and edge-presses A in range |
+| **Evade** | just killed | brief (`EVADE_TICKS`) and **local**: `escape(point)` to a reachable point just outside the body's immediate vicinity (≈ `EVADE_RADIUS`), then back to Pretend — *not* the globally furthest point, which stranded the imposter away from the crew. Routes via the vent-aware graph (a short hop won't take a far teleport) |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, `vote(choice)` — bluff/deflect |
+
+**Pretend is the imposter's default blending behaviour** — a four-state FSM that
+keeps the imposter doing crewmate-like things (tailing people, faking tasks) and
+*never standing still*. It carries no notion of a "victim"; it just looks busy and
+stays among the crew so Hunt (which preempts it) gets openings.
+
+```
+                 ╔══════════════════════════════════════════════════╗
+                 ║                     DISPATCH                       ║
+                 ║   (entry; re-entered after a task or failed         ║
+                 ║    recovery — not a resident state)                 ║
+                 ║                                                     ║
+                 ║     a crewmate visible?  ── yes ──▶ FOLLOW          ║
+                 ║                          ── no  ──▶ GOTO_ROOM       ║
+                 ╚══════════════════════════════════════════════════╝
+                        │                                  │
+            nearest     │                                  │   next room
+            visible     ▼                                  ▼   (≠ current)
+       ┌────────────────────────────┐        ┌────────────────────────────┐
+       │           FOLLOW           │         │          GOTO_ROOM          │
+       │  navigate to the target    │         │  wander to room R           │
+       │  crewmate's live position  │         │  (round-robin, R ≠ here)    │
+       └────────────────────────────┘        └────────────────────────────┘
+          │                      │                │                      │
+   same room as target,         │ target          │ a crewmate           │ arrived at R,
+   room is non-start            │ no longer        │ becomes visible      │ still no crew
+   and has a station            │ visible          │                      │
+          │                      │                │                      │ pick next room
+          ▼                      ▼                ▼                      ▼ (stay GOTO_ROOM)
+   ┌──────────────┐       ┌──────────────┐    ╴╴▶ DISPATCH          ╶╶▶ (loop)
+   │   DO_TASK    │       │   RECOVER    │
+   │ go to the    │       │ navigate to  │
+   │ nearest      │       │ the target's │
+   │ station in   │       │ last-seen    │
+   │ that room;   │       │ position     │
+   │ HOLD 72 ticks│       └──────────────┘
+   └──────────────┘          │          │
+          │              target          │ arrived, target
+          │ hold         visible          │ still not visible
+          │ complete     again            │
+          ▼                  │            ▼
+      DISPATCH ◀╴╴╴╴╴╴╴╴╴╴╴╴╴┘╴╴╴╴╴╴╴╴╴▶ DISPATCH
+                          (→ FOLLOW)
+```
+
+| State | Behaviour | Transitions |
+|---|---|---|
+| **DISPATCH** | transient chooser | crewmate visible → **FOLLOW**(nearest visible); else → **GOTO_ROOM**(next room ≠ current) |
+| **FOLLOW**(target) | `navigate_to` the target crewmate's live position | same room as target *and* that room is **non-start with a task station** → **DO_TASK**; target not visible → **RECOVER**; else keep following |
+| **RECOVER**(target) | `navigate_to` the target's **last-seen** position | target visible again → **FOLLOW**(target); arrived and target still not visible → **DISPATCH**; else keep going |
+| **GOTO_ROOM**(R) | `navigate_to` room R (a round-robin pick over the rooms, skipping the current one) — the never-idle wander | any crewmate visible → **DISPATCH**; arrived and still no crew → pick the next room (stay GOTO_ROOM); else keep going |
+| **DO_TASK**(station) | `navigate_to` the nearest station in the shared room, then **hold `TASK_TICKS` (72)** (`idle` — a fake task) | hold complete → **DISPATCH** |
+
+Notes: the **starting room never triggers DO_TASK** (every player is co-located
+there at spawn, and anchoring a task there strands the imposter when the crew
+disperses). DO_TASK **holds the full duration** even if crewmates pass by — only
+Hunt/Evade (via the selector) can preempt it. RECOVER re-acquires **only its own
+target**; a *different* visible crewmate is picked up at the next DISPATCH.
+"Random" crewmate/room choices are **arbitrary-but-deterministic** (nearest crewmate;
+round-robin rooms) — no RNG — so runs are reproducible.
+
+**Hunt is opportunity-gated, not cooldown-gated.** Being able to kill does not by
+itself pull the imposter out of blending in — Hunt runs only when an *unwitnessed*
+kill is available. The isolation bar relaxes with urgency (how long we have been
+able to kill without doing so), so a perpetually-cautious imposter still escalates
+to a riskier kill rather than never killing (§10).
 
 ### 7.3 Division of labour
 
@@ -366,7 +437,12 @@ opened, target dead — and changes the intent. A ghost crewmate keeps Normal mo
 Mode-level enhancements to keep in view: arrow-bearing **task triangulation** under
 arrows-only; **travelling-salesman** task ordering over the nav graph; **safety in
 numbers** (prefer routes/tasks near other crewmates); **strategic flee targets**
-(toward a trusted player / the button / a sightline-breaking corner).
+(toward a trusted player / the button / a sightline-breaking corner);
+**trajectory prediction** from the roster sighting trail (lead a moving target for
+the kill, predict where the crew is heading rather than where they were);
+**imposter target selection / coordination** (commit to stalking a chosen straggler;
+fan the two imposters apart) — both deliberately dropped from the simplified Pretend
+FSM above and worth revisiting once the basics play well.
 
 ---
 
@@ -386,10 +462,14 @@ An intent is "what to do now" — above a button press, below a behavior. One
 | `chat` | text | speak in a meeting |
 | `kill` | target player id | go to a crewmate and kill (imposter) |
 | `vent` | vent / group target | go to a vent and use it (imposter) |
+| `escape` | world point | flee to a point, vanishing through a vent if one is on the fast route (imposter) |
 
 `flee_from` is the simple keep-away primitive (geometry owned by the action
-layer). Situational fleeing — toward a trusted player, the button, or around a
-corner — is the Flee mode emitting `navigate_to` instead.
+layer), used by the crewmate Flee mode — it never vents. Situational fleeing —
+toward a trusted player, the button, or around a corner — is the Flee mode emitting
+`navigate_to` instead. `escape` is its imposter counterpart: the action layer plans
+a vent-aware route to the point, so the only way an agent uses a vent in transit is
+an imposter emitting `escape` (crewmate routes never touch the teleport edges).
 
 ---
 
@@ -416,6 +496,11 @@ transport mechanics live, and it is **stateful across ticks** (state in
 - `vent` → navigate to the vent's **baked anchor**, then press B (the trigger gate
   stays on the true vent center — `sim.nim` VentRange — even though nav aims at the
   anchor).
+- `escape` → follow a **vent-aware route** (`plan_route_via_vents`) to the point.
+  Ordinary legs walk; a teleport leg walks onto the entry vent's anchor and presses
+  B (gated on real VentRange) to vanish to the exit, then resumes walking. The
+  route's teleport legs are carried in `ActionState.route_teleports` (waypoint index
+  → entry vent index).
 
 Static destinations (tasks, vents, button) navigate to their **baked anchor** — a
 reachable walkable pixel satisfying the interaction condition (§6) — so a rect
@@ -433,7 +518,8 @@ targets) use their live position.
 - Hand the held mask to the bridge, which de-dups (send-only-on-change).
 
 **`ActionState` holds:** the current intent (for the diff), the active nav route +
-progress cursor, the A-press FSM state, and the pending-chat buffer.
+progress cursor (+ which legs are vent teleports), the A-press FSM state, and the
+pending-chat buffer.
 
 `Command` carries the per-tick wire payload (input packet ± chat); an empty payload
 means "send nothing this tick."
@@ -461,10 +547,22 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 **Imposter selection** (priority order):
 
 1. phase = `Voting` → **Attend Meeting**
-2. just killed → **Evade**
-3. kill ready + a reachable isolated crewmate → **Hunt**
-4. otherwise → **Pretend** (watch `crew_tasks_remaining` to escalate as the crew
-   nears a task win)
+2. just killed (within `EVADE_TICKS`) → **Evade**
+3. kill ready **and** a subtle kill opportunity exists → **Hunt**
+4. otherwise → **Pretend** (whose own FSM follows a crewmate, fakes tasks, and
+   wanders rooms when none are in sight — see §7.2; it never idles)
+
+(3) is gated on `strategy.opportunity.kill_opportunity`, *not* merely on the kill
+being off cooldown: it returns the nearest reachable, **unwitnessed** crewmate in
+view, or `None`. The selector and Hunt share that one function so they never
+disagree about whether a kill is on. The isolation bar relaxes with **urgency** —
+`last_tick − kill_ready_since_tick`, how long we have been able to kill without
+doing so — shrinking the required clearance radius and the witness-staleness window
+to zero by `URGENCY_FULL_TICKS`, at which point any reachable visible target
+qualifies. This is the "always be killing, but subtly" behaviour: blend in until an
+effective kill is available, and grow less picky the longer an opening is denied.
+(`crew_tasks_remaining`-based escalation was considered and dropped — the imposter
+acts with constant urgency rather than only near a task win.)
 
 ---
 
@@ -520,7 +618,7 @@ mode has run (§7.3).
 
 ## 12. Tuning parameters
 
-Three behavior parameters are implemented with the defaults below; none is
+The behavior parameters below are implemented with these defaults; none is
 structural, and each still awaits tuning against a live server.
 
 | Parameter | Current default |
@@ -528,6 +626,9 @@ structural, and each still awaits tuning against a live server.
 | Movement-controller style | bang-bang + a release-near-target deadband with a predictive stop — release an axis within the estimated momentum stopping distance so the agent coasts onto the target instead of overshooting |
 | Voting policy | always cast, defaulting to **skip** (must vote before the timer; not voting costs −10) |
 | Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
+| Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
+| Evade flee distance | leave the body's vicinity by ≈ `EVADE_RADIUS = 128` px (local, not the farthest point), for `EVADE_TICKS = 72` |
+| Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
 
 ---
 

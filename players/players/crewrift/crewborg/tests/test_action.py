@@ -35,6 +35,64 @@ def _one_task_map() -> MapData:
     )
 
 
+def _detour_map_with_linking_vents() -> MapData:
+    return MapData(
+        width=200, height=120, tasks=(),
+        vents=(
+            Vent(x=86, y=56, w=8, h=8, group="g", group_index=1),  # center (90, 60), left
+            Vent(x=106, y=56, w=8, h=8, group="g", group_index=2),  # center (110, 60), right
+        ),
+        rooms=(), button=MapRect(x=0, y=0, w=4, h=4), home=MapPoint(x=10, y=10),
+    )
+
+
+def test_escape_presses_b_to_vent_when_a_teleport_leg_is_next() -> None:
+    mask = np.ones((120, 200), dtype=bool)
+    mask[20:120, 98:102] = False  # wall splitting the map (gap along the top)
+    map_data = _detour_map_with_linking_vents()
+    nav = build_nav_graph(mask, map_data=map_data)
+
+    # Stand on the left vent's anchor; the cheapest escape to the far side teleports.
+    entry = nav.vent_anchor(0)
+    belief = Belief(map=map_data, nav=nav, self_world_x=entry[0], self_world_y=entry[1])
+    action_state = ActionState()
+    command = resolve_action(Intent(kind="escape", point=(190, 110)), belief, action_state)
+
+    assert action_state.route_teleports, "escape route should include a vent hop"
+    assert command.held_mask == BTN_B  # at the vent entry: press B to vanish
+
+
+def test_escape_resumes_walking_after_the_teleport() -> None:
+    # Mid-route: cursor sits on the teleport target and the hop has dropped us next
+    # to it. We must advance past it and walk onward, not vent back to the entry.
+    goal = (190, 110)
+    intent = Intent(kind="escape", point=goal)
+    action_state = ActionState(
+        current_intent=intent,
+        route=[(90, 60), (110, 60), goal],  # entry anchor, exit anchor, goal
+        route_cursor=1,
+        route_goal=goal,
+        route_teleports={1: 0},
+    )
+    # Standing on the exit anchor (just teleported there).
+    belief = Belief(map=_detour_map_with_linking_vents(), self_world_x=110, self_world_y=60)
+    command = resolve_action(intent, belief, action_state)
+    assert action_state.route_cursor == 2  # advanced past the teleport target
+    assert not (command.held_mask & BTN_B)  # walking onward, not venting back
+
+
+def test_escape_walks_before_reaching_the_vent() -> None:
+    mask = np.ones((120, 200), dtype=bool)
+    mask[20:120, 98:102] = False
+    map_data = _detour_map_with_linking_vents()
+    nav = build_nav_graph(mask, map_data=map_data)
+
+    # Far from any vent: the first move is a walk toward the route, not a B press.
+    belief = Belief(map=map_data, nav=nav, self_world_x=10, self_world_y=110)
+    command = resolve_action(Intent(kind="escape", point=(190, 110)), belief, ActionState())
+    assert command.held_mask != 0 and not (command.held_mask & BTN_B)
+
+
 def test_encode_input_emits_header_and_masked_byte() -> None:
     assert encode_input(0) == bytes([INPUT_HEADER, 0x00])
     assert encode_input(BTN_UP | BTN_A) == bytes([INPUT_HEADER, 0x21])

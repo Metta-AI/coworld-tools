@@ -12,13 +12,16 @@ as a Docker image the Coworld runner launches.
 
 Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
 meetings, votes, reports bodies, and flees believed imposters. As an imposter the
-role-aware selector runs a priority order during `Playing`: **Hunt** (kill ready →
-navigate to the nearest isolated crewmate and kill in range), **Evade** (just
-killed → vanish via a vent or move off the body), and **Pretend** (otherwise →
-loiter near task stations to blend in); meetings reuse **Attend Meeting**. The
-action layer covers the `kill` (edge-A in KillRange) and `vent` (level-B in
-VentRange) intents. The LLM strategy seam (`design.md` §10) remains in place but
-unused.
+role-aware selector runs a priority order during `Playing`: **Evade** (just killed
+→ brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
+*and* a subtle opening → kill the nearest reachable, unwitnessed crewmate), and
+**Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
+tails one into a room, and wanders rooms when none are in sight, never idling);
+meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
+(shared with the selector) whose isolation bar relaxes with urgency, not merely on
+the cooldown ending. The action layer covers `kill` (edge-A in KillRange), `vent`
+(level-B in VentRange), and `escape` (vent-aware flee routing). The LLM strategy
+seam (`design.md` §10) remains in place but unused.
 
 ## Layout
 
@@ -27,11 +30,11 @@ crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
-  nav.py             baked nav graph: pixel-validated A* + reachability + anchors
+  nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade
-  strategy/          rule_based.py: role-aware mode selector (crewmate + imposter)
+  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade (+ imposter_common helpers)
+  strategy/          rule_based.py: role-aware mode selector + opportunity.py: shared kill-opportunity/urgency
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
