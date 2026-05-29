@@ -24,6 +24,7 @@ from players.crewrift.crewborg.nav import plan_route
 from players.crewrift.crewborg.types import ActionState, Belief, Command, Intent
 
 INPUT_HEADER = 0x84
+CHAT_HEADER = 0x81
 MASK_BITS = 0x7F
 
 # Button bit assignments (AGENTS.md §2 / design §3.3).
@@ -40,6 +41,19 @@ WAYPOINT_RADIUS = 8  # within this of a route waypoint ⇒ advance to the next
 # Momentum stopping distance ≈ v·fr/(1-fr) with fr = 144/256; ≈ 1.29·v. Release
 # the axis a bit before that so friction brings us to rest on the target.
 STOP_FACTOR = 1.3
+
+# Report fires when within ReportRange = 20px (dist² ≤ 400) of a body (sim.nim).
+REPORT_RANGE_SQ = 400
+
+
+def encode_chat(text: str) -> bytes:
+    """Encode meeting chat into a Sprite-v1 input-text packet (Voting only).
+
+    ``0x81`` + little-endian ``u16`` length + printable ASCII (non-ASCII dropped).
+    """
+
+    payload = text.encode("ascii", errors="ignore")
+    return bytes([CHAT_HEADER]) + len(payload).to_bytes(2, "little") + payload
 
 
 def encode_input(held_mask: int) -> bytes:
@@ -98,6 +112,15 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route = []
     action_state.route_cursor = 0
     action_state.route_goal = None
+    action_state.vote_confirmed = False
+    action_state.chat_sent = False
+
+
+def _edge_press(action_state: ActionState, bit: int) -> int:
+    """Fire an edge-triggered button once: 0→bit registers; if we held it last
+    tick, release first (return 0) so the next tick re-presses (sim.nim freshA)."""
+
+    return 0 if action_state.held_mask & bit else bit
 
 
 def _navigate_mask(
@@ -157,6 +180,12 @@ def _resolve(
     if intent.kind in ("idle", "loiter"):
         return Command(held_mask=0)
 
+    # Meeting intents don't depend on world position.
+    if intent.kind == "vote":
+        return _resolve_vote(belief, action_state)
+    if intent.kind == "chat":
+        return _resolve_chat(intent, action_state)
+
     # World-relative intents need our position; hold still until the camera is up.
     if self_xy is None:
         return Command(held_mask=0)
@@ -169,7 +198,13 @@ def _resolve(
     if intent.kind == "complete_task":
         return _resolve_complete_task(intent, belief, action_state, self_xy)
 
-    # Other intent kinds (report/vote/chat/kill/vent) are wired in P3/P4.
+    if intent.kind == "report":
+        return _resolve_report(intent, belief, action_state, self_xy)
+
+    if intent.kind == "flee_from":
+        return _resolve_flee(intent, belief, action_state, self_xy)
+
+    # Remaining kinds (kill/vent) are wired in P4.
     return Command(held_mask=0)
 
 
@@ -187,3 +222,51 @@ def _resolve_complete_task(
     # Otherwise drive onto the station's center.
     center = (task.center.x, task.center.y)
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, center))
+
+
+def _resolve_report(
+    intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
+) -> Command:
+    body = belief.bodies.get(intent.target_id) if intent.target_id is not None else None
+    if body is None:
+        return Command(held_mask=0)
+    body_xy = (body.world_x, body.world_y)
+    if _dist2(self_xy, body_xy) <= REPORT_RANGE_SQ:
+        # In range: a fresh A press reports the body (sim.nim tryReport).
+        return Command(held_mask=_edge_press(action_state, BTN_A))
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, body_xy))
+
+
+def _resolve_vote(belief: Belief, action_state: ActionState) -> Command:
+    """Default voting policy = skip (design §12): step the cursor onto the skip
+    cell (edge-press down), then confirm with a fresh A press, exactly once."""
+
+    if action_state.vote_confirmed:
+        return Command(held_mask=0)
+    if belief.voting.skip_cursor_present:
+        press = _edge_press(action_state, BTN_A)
+        if press:  # the fresh-press tick casts the vote
+            action_state.vote_confirmed = True
+        return Command(held_mask=press)
+    # Step the cursor toward the skip cell (cursor moves are edge-triggered).
+    return Command(held_mask=_edge_press(action_state, BTN_DOWN))
+
+
+def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:
+    if action_state.chat_sent or not intent.text:
+        return Command(held_mask=0)
+    action_state.chat_sent = True
+    return Command(held_mask=0, chat=intent.text)
+
+
+def _resolve_flee(
+    intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
+) -> Command:
+    threat = belief.roster.get(intent.target_id) if intent.target_id is not None else None
+    if threat is None:
+        return Command(held_mask=0)
+    # Steer directly away from the threat: reflect its position through ours.
+    away = (2 * self_xy[0] - threat.world_x, 2 * self_xy[1] - threat.world_y)
+    if away == self_xy:  # co-located: no flee direction
+        return Command(held_mask=0)
+    return Command(held_mask=_movement_mask(self_xy, away, _velocity(action_state, self_xy)))

@@ -27,7 +27,7 @@ from typing import Any
 import websockets
 
 from players.crewrift.crewborg import build_runtime
-from players.crewrift.crewborg.action import encode_input
+from players.crewrift.crewborg.action import encode_chat, encode_input
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map import walkability_matches
 from players.crewrift.crewborg.trace import StderrJsonMetricsSink, StderrJsonTraceSink
@@ -86,6 +86,10 @@ async def run_bridge(
                 if command.held_mask != last_sent_mask:
                     await websocket.send(encode_input(command.held_mask))
                     last_sent_mask = command.held_mask
+
+                # Meeting chat (accepted only during Voting); sent as it appears.
+                if command.chat is not None:
+                    await websocket.send(encode_chat(command.chat))
     finally:
         runtime.close()
 

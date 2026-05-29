@@ -10,13 +10,15 @@ as a Docker image the Coworld runner launches.
 
 ## Status
 
-**P2 — crewmate Normal mode + nav + action layer (current).** On top of P1's
-perception, crewborg now *plays* as a crewmate: during `Playing` the mode selector
-runs Normal mode, which picks the nearest incomplete assigned task and emits
-`complete_task`; the action layer plans an A\* route over the walkability grid and
-drives there with a bang-bang + predictive-stop movement controller, then holds A
-on the station to complete it. Meetings/report/flee (P3) and imposter behaviour
-(P4) are still to come (see `design.md` §11 for the phase plan).
+**P3 — meetings / report / flee (current).** On top of P2's crewmate task loop,
+the mode selector now follows the full crewmate priority order: during `Voting`
+it runs **Attend Meeting** (chat once, then cast a vote — default policy *skip*);
+a body in view triggers **Report Body** (navigate to it and report); and an
+approaching believed imposter triggers **Flee** (keep-away). The action layer
+gained the edge-triggered A-press FSM, the vote cursor → skip → confirm sequence,
+chat packets (sent by the bridge during Voting), and the `flee_from` keep-away
+primitive. The evidence ledger is a stub, so Flee is wired but dormant until
+suspicion reasoning exists. Imposter behaviour (P4) is still to come.
 
 ## Layout
 
@@ -24,11 +26,11 @@ on the station to complete it. Meetings/report/flee (P3) and imposter behaviour
 crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
   types.py           the six SDK types + perceive/update_belief + phase machine
-  action.py          action layer: stateful resolve_action + movement controller
+  action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             nav grid + A* route planning over the walkability mask
   trace.py           stderr-JSON trace & metrics sinks
-  modes/             behavioral stances (P2: idle, normal)
-  strategy/          rule_based.py: the mode selector (P2: Normal during Playing)
+  modes/             stances: idle, normal, attend_meeting, report_body, flee
+  strategy/          rule_based.py: the mode selector (full crewmate priority)
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
