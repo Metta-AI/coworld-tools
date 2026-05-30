@@ -5,13 +5,13 @@
 >
 > **Canonical contract version:** the `contract defined, runtime pending` shape described in metta's `docs/roles/reporter.md` and `EPISODE_BUNDLE_README.md` (last revised in metta on 2026-05-22). When this doc and the metta role doc disagree, **metta is authoritative.**
 >
-> **Implementation status (this repo, 2026-05-23):** the two implemented reporters — [`reporters/paint_arena/paint_arena_summarizer/`](../reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](../reporters/among_them/among_them_summarizer/) — have been migrated to the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an in-zip `manifest.json` flagging `render` and `event_log`. The bundle inner manifest is read by an inline `BundleReader` (a future-`reporter_sdk` extraction candidate). Episode-level metadata reaches each reporter via the bundle's optional `metadata` token; absent it the reporter falls back to defaults and uses the inner manifest's `ereq_id` as `episode_id`. The metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` remain in the pre-canonical state and will be migrated in a paired upstream PR.
+> **Implementation status (this repo, 2026-05-30):** the implemented reporters — [`reporters/paint_arena/paint_arena_summarizer/`](../reporters/paint_arena/paint_arena_summarizer/), [`reporters/among_them/among_them_summarizer/`](../reporters/among_them/among_them_summarizer/), and [`reporters/cogs_vs_clips/cogs_vs_clips_summarizer/`](../reporters/cogs_vs_clips/cogs_vs_clips_summarizer/) — run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` shape with an in-zip `manifest.json` flagging `render`, `event_log`, and optionally `trace`. Episode-level metadata reaches each reporter via the bundle's optional `metadata` token; absent it the reporter falls back to defaults and uses the inner manifest's `ereq_id` as `episode_id`. The metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` remain in the pre-canonical state and will be migrated in a paired upstream PR.
 
 ---
 
 ## 1. What a reporter is
 
-A **reporter** is a Coworld supporting runnable that turns one episode's artifacts into rendered highlights (a Markdown or HTML render) and a structured event log (a Parquet with `ts, player, key, value` columns). Reporters compress sparse episode experience — replays, results, logs — into dense signals for humans, Observatory surfaces, and downstream supporting runnables.
+A **reporter** is a Coworld supporting runnable that turns one episode's artifacts into rendered highlights (a Markdown or HTML render), structured event logs (a Parquet with `ts, player, key, value` columns), and optional machine traces. Reporters compress sparse episode experience — replays, results, logs — into dense signals for humans, Observatory surfaces, and downstream supporting runnables.
 
 Reporters are **on-demand**. The episode runner does **not** invoke them automatically. A reporter run is triggered by a CLI command (planned: `coworld run-reporter` — exact shape still being settled), a hosted button, or an automatic Column pipeline. The invoker assembles the episode bundle, sets the env vars, and waits for the container to exit.
 
@@ -58,7 +58,8 @@ The output zip may include any files the reporter needs (Markdown, HTML, Parquet
 {
   "reporter_id": "paint-arena-summarizer",
   "render": "summary.md",
-  "event_log": "stats.parquet"
+  "event_log": "stats.parquet",
+  "trace": "trace.jsonl"
 }
 ```
 
@@ -67,6 +68,7 @@ The output zip may include any files the reporter needs (Markdown, HTML, Parquet
 | `reporter_id` | recommended | The id this reporter self-reports for itself. Conventionally matches the runnable's `id` in `manifest.reporter[]`, but the platform does not enforce a match. Useful for caches and downstream consumers tracking provenance. |
 | `render` | optional | Path inside the zip to a single `.md` or `.html` file that UIs should render. **At most one per output.** |
 | `event_log` | optional | Path inside the zip to a single Parquet file containing structured tick-aligned events. **At most one per output.** See [§3](#3-event-log-schema) below. |
+| `trace` | optional | Path inside the zip to a single `.jsonl` or `.json` machine-readable trace artifact. **At most one per output.** |
 
 All other files in the zip are free-form; reporters can include any auxiliary assets their output needs.
 
@@ -123,11 +125,11 @@ Both reporters in this repo have been migrated from the earlier internal draft (
 | --- | --- | --- |
 | **Input** | Multiple env vars: `COGAME_RESULTS_URI`, `COGAME_REPLAY_URI`, `COGAME_LOG_URI`, `COGAME_EPISODE_METADATA_URI`, `COGAME_REPORTER_ID` | Single env var: `COGAME_EPISODE_BUNDLE_URI` (a zip with an inner `manifest.json`) |
 | **Output env var** | `COGAME_REPORT_OUTPUT_URI` | `COGAME_REPORT_URI` |
-| **Output zip render manifest** | A top-level `render.txt` text file listing renderable paths in order | A top-level `manifest.json` with `reporter_id`, `render` (one `.md`/`.html`), `event_log` (one `.parquet`) |
+| **Output zip render manifest** | A top-level `render.txt` text file listing renderable paths in order | A top-level `manifest.json` with `reporter_id`, `render` (one `.md`/`.html`), `event_log` (one `.parquet`), `trace` (one `.jsonl`/`.json`) |
 | **Event-log `player` column** | `int16` | `int64` |
 | **Trigger** | Per-episode, auto-fired from the episode runner | On-demand, fired by a CLI / button / pipeline |
 
-The artifact files inside the output zip (`summary.html`, `stats.json`, `events.parquet`, etc.) carry over essentially unchanged — the change is in how they're *flagged*, not in what they *are*. Each reporter carries an inline `BundleReader` that opens the bundle zip and reads tokens via the inner manifest's `files` map; once a second concrete reporter exists in canonical form, the `BundleReader` is the next item on the `reporter_sdk` extraction list.
+The artifact files inside the output zip (`summary.html`, `stats.json`, `trace.jsonl`, `events.parquet`, etc.) carry over essentially unchanged — the change is in how they're *flagged*, not in what they *are*. The shared `reporter_sdk` opens the bundle zip, reads tokens via the inner manifest's `files` map, validates output manifests, and writes deterministic report zips.
 
 Episode-level metadata (`variant_id`, `duration_seconds`, per-slot `policy_name`) is not formally part of the canonical inner manifest. In practice it reaches the reporter via an optional `metadata` bundle token; when absent, each reporter falls back to defaults and reads `episode_id` from the inner manifest's `ereq_id`.
 
@@ -140,7 +142,7 @@ The metta-side reference reporters under `packages/coworld/src/coworld/examples/
 Anchored on the canonical contract, with no contract extensions:
 
 - **One zip per reporter run.** Even for empty or "nothing to surface" outputs, write a valid zip.
-- **Use `manifest.json` to flag `render` and `event_log`.** No other in-band metadata files.
+- **Use `manifest.json` to flag `render`, `event_log`, and `trace`.** No other in-band metadata files.
 - **Use the shared event-log schema.** `(ts: int64, player: int64, key: string, value: string)` per the canonical contract. JSON-encode structured `value`s.
 - **Prefer determinism when feasible.** Pin Parquet writer version, pin zip-entry mtimes (recommended sentinel: `(1980, 1, 1, 0, 0, 0)`). Determinism is preferred but not required.
 - **Match the per-reporter README structure.** What artifacts are produced, which files `manifest.json` flags, any non-obvious dependencies. [`reporters/paint_arena/paint_arena_summarizer/README.md`](../reporters/paint_arena/paint_arena_summarizer/README.md) is the reference shape.

@@ -1,7 +1,8 @@
 """Tests for OutputManifest and build_report_zip.
 
 Pins the validation contract — ``render`` must be an ``.md``/``.html`` zip
-entry and ``event_log`` must be a ``.parquet`` zip entry — and verifies
+entry, ``event_log`` must be a ``.parquet`` zip entry, and ``trace`` must
+be a ``.jsonl``/``.json`` zip entry — and verifies
 that the in-zip ``manifest.json`` carries the declared fields, prepended
 as the first entry in the output zip.
 """
@@ -39,6 +40,7 @@ def test_happy_path_both_set() -> None:
         reporter_id="paint-arena-summarizer",
         render="summary.html",
         event_log="proximity.parquet",
+        trace="trace.jsonl",
     )
     payload = build_report_zip(
         manifest,
@@ -46,6 +48,7 @@ def test_happy_path_both_set() -> None:
             ("summary.html", b"<!DOCTYPE html>"),
             ("stats.json", b"{}"),
             ("proximity.parquet", b"PAR1"),
+            ("trace.jsonl", b"{}\n"),
         ],
     )
     entries = _entries(payload)
@@ -54,11 +57,13 @@ def test_happy_path_both_set() -> None:
         "summary.html",
         "stats.json",
         "proximity.parquet",
+        "trace.jsonl",
     }
     parsed = json.loads(entries["manifest.json"])
     assert parsed["reporter_id"] == "paint-arena-summarizer"
     assert parsed["render"] == "summary.html"
     assert parsed["event_log"] == "proximity.parquet"
+    assert parsed["trace"] == "trace.jsonl"
 
 
 def test_manifest_is_first_entry() -> None:
@@ -94,6 +99,22 @@ def test_event_log_optional() -> None:
     parsed = json.loads(_entries(payload)["manifest.json"])
     assert parsed["render"] == "summary.md"
     assert parsed["event_log"] is None
+    assert parsed["trace"] is None
+
+
+def test_trace_optional() -> None:
+    """A reporter that has no machine trace omits the field."""
+    manifest = OutputManifest(reporter_id="x", render="summary.md")
+    payload = build_report_zip(manifest, [("summary.md", b"# title")])
+    parsed = json.loads(_entries(payload)["manifest.json"])
+    assert parsed["trace"] is None
+
+
+def test_trace_accepts_json() -> None:
+    manifest = OutputManifest(reporter_id="x", trace="trace.json")
+    payload = build_report_zip(manifest, [("trace.json", b"[]")])
+    parsed = json.loads(_entries(payload)["manifest.json"])
+    assert parsed["trace"] == "trace.json"
 
 
 # ---------- validation failures ----------
@@ -123,9 +144,26 @@ def test_event_log_must_be_parquet_extension() -> None:
         build_report_zip(manifest, [("events.json", b"")])
 
 
+def test_trace_must_exist_in_entries() -> None:
+    manifest = OutputManifest(reporter_id="x", trace="missing.jsonl")
+    with pytest.raises(ValueError, match="trace"):
+        build_report_zip(manifest, [("other.jsonl", b"")])
+
+
+def test_trace_must_have_trace_extension() -> None:
+    manifest = OutputManifest(reporter_id="x", trace="trace.txt")
+    with pytest.raises(ValueError, match="trace"):
+        build_report_zip(manifest, [("trace.txt", b"")])
+
+
 def test_byte_identical_on_rerun() -> None:
-    manifest = OutputManifest(reporter_id="x", render="s.html", event_log="e.parquet")
-    entries = [("s.html", b"<x/>"), ("e.parquet", b"PAR1")]
+    manifest = OutputManifest(
+        reporter_id="x",
+        render="s.html",
+        event_log="e.parquet",
+        trace="trace.jsonl",
+    )
+    entries = [("s.html", b"<x/>"), ("e.parquet", b"PAR1"), ("trace.jsonl", b"{}\n")]
     assert build_report_zip(manifest, entries) == build_report_zip(manifest, entries)
 
 
