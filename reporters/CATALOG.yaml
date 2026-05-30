@@ -14,8 +14,9 @@
 # convention established by .github/workflows/build-default-reporter-image.yml.
 # Every finished (non-scaffold) reporter has a sibling workflow that
 # publishes its image to GHCR on push to main:
-#   - paint-arena-summarizer   → build-paint-arena-summarizer-image.yml
-#   - among-them-summarizer    → build-among-them-summarizer-image.yml
+#   - paint-arena-summarizer       → build-paint-arena-summarizer-image.yml
+#   - among-them-summarizer        → build-among-them-summarizer-image.yml
+#   - cogs-vs-clips-summarizer     → build-cogs-vs-clips-summarizer-image.yml
 #   - softmax-default-reporter → build-default-reporter-image.yml
 # Scaffold entries (status: experimental) have no publish workflow yet;
 # their image tags are forward-looking placeholders until the reporter
@@ -66,7 +67,7 @@ entries:
     image: ghcr.io/metta-ai/reporters-cogs-vs-clips-summarizer:latest
     source: reporters/cogs_vs_clips/cogs_vs_clips_summarizer
     source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/cogs_vs_clips/cogs_vs_clips_summarizer
-    status: experimental
+    status: active
     target: cogs_vs_clips
     owner: jboggs
-    description: Scaffold; no implementation. Planned per-episode summarizer for Cogs vs Clips. Source directory exists but every file is empty.
+    description: Per-episode Markdown summary plus decoded agent-tick trace JSONL and event-log Parquet for Cogs vs Clips; SDK-consuming.

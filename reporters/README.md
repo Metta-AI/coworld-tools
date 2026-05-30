@@ -1,12 +1,12 @@
 # reporters
 
-Reporter implementations for **Coworlds** — on-demand runnables that turn one episode's bundle (`results.json`, `replay.json`, optional logs, optional config and error info) into a single zip containing a rendered highlight (`.md` or `.html`) and a structured event log (Parquet).
+Reporter implementations for **Coworlds** — on-demand runnables that turn one episode's bundle (`results.json`, `replay.json`, optional logs, optional config and error info) into a single zip containing a rendered highlight (`.md` or `.html`), a structured event log (Parquet), and optional machine traces.
 
 This is the canonical per-role repository for `Metta-AI/reporters`, one of the six Coworld supporting-role repos described in [`docs/specs/0045-coworld-role-repos.md`](../metta/docs/specs/0045-coworld-role-repos.md) in metta.
 
 > **Canonical contract:** [`packages/coworld/src/coworld/docs/roles/reporter.md`](../metta/packages/coworld/src/coworld/docs/roles/reporter.md) in metta. Local restatement: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Navigation guide into the rest of metta: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md).
 >
-> **Implementation status (2026-05-23):** two concrete reporters under [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/) and [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/) are functionally complete and now both run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` contract with an in-zip `manifest.json` flagging `render` and `event_log`. The matching metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` are still on the pre-canonical shape and will be migrated in a paired upstream PR.
+> **Implementation status (2026-05-30):** concrete reporters under [`reporters/paint_arena/paint_arena_summarizer/`](reporters/paint_arena/paint_arena_summarizer/), [`reporters/among_them/among_them_summarizer/`](reporters/among_them/among_them_summarizer/), and [`reporters/cogs_vs_clips/cogs_vs_clips_summarizer/`](reporters/cogs_vs_clips/cogs_vs_clips_summarizer/) are functionally complete and run on the canonical `COGAME_EPISODE_BUNDLE_URI` / `COGAME_REPORT_URI` contract with an in-zip `manifest.json` flagging `render`, `event_log`, and optionally `trace`. The matching metta-side reference reporters under `packages/coworld/src/coworld/examples/paintarena/reporter/` are still on the pre-canonical shape and will be migrated in a paired upstream PR.
 
 ## What is a Coworld reporter?
 
@@ -17,7 +17,7 @@ Reporters compress sparse episode experience into dense highlight signals: narra
 Each reporter is a process-style container that:
 
 1. Reads the episode bundle from `COGAME_EPISODE_BUNDLE_URI`, inspecting the bundle's internal `manifest.json` to discover which files are present.
-2. Writes its single output zip to `COGAME_REPORT_URI`, including a top-level `manifest.json` flagging the `render` target (one `.md` or `.html`) and the `event_log` (one Parquet with `(ts, player, key, value)` columns).
+2. Writes its single output zip to `COGAME_REPORT_URI`, including a top-level `manifest.json` flagging the `render` target (one `.md` or `.html`), the `event_log` (one Parquet with `(ts, player, key, value)` columns), and an optional `trace` (`.jsonl` or `.json`) for machine-readable timelines.
 3. Exits.
 
 The platform persists reporter outputs and exposes them through Observatory's API and frontend, plus through the `coworld` CLI. **Reporters are on-demand** — they are not auto-invoked by the episode runner. A reporter run is triggered by a CLI command (planned: `coworld run-reporter`), a hosted button, or an automatic Column pipeline.
@@ -136,7 +136,8 @@ The output zip may include any files the reporter needs (Markdown, HTML, Parquet
 {
   "reporter_id": "paint-arena-summarizer",
   "render": "summary.html",
-  "event_log": "proximity.parquet"
+  "event_log": "proximity.parquet",
+  "trace": "trace.jsonl"
 }
 ```
 
@@ -145,6 +146,7 @@ The output zip may include any files the reporter needs (Markdown, HTML, Parquet
 | `reporter_id` | recommended | The id this reporter self-reports for itself. Conventionally matches the runnable's `id` in `manifest.reporter[]`. |
 | `render` | optional | Path inside the zip to a single `.md` or `.html` file that UIs should render. **At most one per output.** |
 | `event_log` | optional | Path inside the zip to a single Parquet file containing structured tick-aligned events. **At most one per output.** Schema: `(ts: int64, player: int64, key: string, value: string)`. |
+| `trace` | optional | Path inside the zip to a single `.jsonl` or `.json` machine-readable trace artifact. **At most one per output.** |
 
 All other files in the zip are free-form auxiliary assets — referenced from the render target via relative paths, or downloaded directly via the file-direct API surface when one ships.
 
@@ -168,12 +170,12 @@ For everything else — manifest declaration shape, the bundle's internal `manif
 | Component | Coworld | Kind | Status |
 | --- | --- | --- | --- |
 | `paint_arena/paint_arena_summarizer` | PaintArena | Reporter | **Implemented (canonical, SDK-consuming)** — first concrete reporter; tests passing. Runs on the canonical contract: single `COGAME_EPISODE_BUNDLE_URI` input, single `COGAME_REPORT_URI` output, in-zip `manifest.json` flagging `render` and `event_log`. Imports its shared primitives from [`reporter_sdk`](reporters/reporter_sdk/). |
-| `reporter_sdk` | (shared) | Library | **Implemented** — `BundleReader`, `OutputManifest` + `build_report_zip`, deterministic zip writer, shared event-log schema and writer, env-var URI helpers, retrying `read_uri`/`write_uri`. Imported by both concrete reporters. |
+| `reporter_sdk` | (shared) | Library | **Implemented** — `BundleReader`, `OutputManifest` + `build_report_zip`, deterministic zip writer, shared event-log schema and writer, trace manifest validation, env-var URI helpers, retrying `read_uri`/`write_uri`. Imported by concrete reporters. |
 | `templates/summarizer_template` | (template) | Reporter scaffold | **Implemented** — extracted from the post-SDK `paint_arena_summarizer`. Runs end-to-end against a synthetic bundle and emits a valid-shape (stub-content) output zip via [`reporter_sdk`](reporters/reporter_sdk/); scaffolding for new `<coworld>_summarizer` reporters, not registered in any Coworld manifest. |
 | `among_them/among_them_summarizer` | Among Them | Reporter | **Implemented (canonical, SDK-consuming, all eight design phases landed)** — second concrete reporter; full binary `.bitreplay` parser, input-stream analytics, HTML scoreboard, containerized smoke, determinism + zip-contract assertions, paint-arena-shaped README; tests passing. Imports its shared primitives from [`reporter_sdk`](reporters/reporter_sdk/). See [`reporters/among_them/among_them_summarizer/DESIGN.md`](reporters/among_them/among_them_summarizer/DESIGN.md). |
 | `default/default_reporter` | (any) | Reporter | **Implemented (canonical, SDK-consuming)** — the Softmax-published placeholder reporter. Renders a per-slot score summary from `results.json::scores`; no event log. Published to `ghcr.io/metta-ai/reporters-default:latest` via [`.github/workflows/build-default-reporter-image.yml`](.github/workflows/build-default-reporter-image.yml); referenced by Coworld manifests that have not shipped a game-specific reporter (satisfies the schema's `min_length=1` on `manifest.reporter[]`). See [`reporters/default/README.md`](reporters/default/README.md). |
 | `among_them/among_them_highlight_reel` | Among Them | Reporter | Scaffold only — no implementation. |
-| `cogs_vs_clips/cogs_vs_clips_summarizer` | Cogs vs Clips | Reporter | Scaffold only — no implementation. |
+| `cogs_vs_clips/cogs_vs_clips_summarizer` | Cogs vs Clips | Reporter | **Implemented (canonical, SDK-consuming)** — decodes compact MettaScope replays into per-agent `trace.jsonl`, `events.parquet`, `behavior_summary.json`, and a Markdown summary. Published to `ghcr.io/metta-ai/reporters-cogs-vs-clips-summarizer:latest` via [`.github/workflows/build-cogs-vs-clips-summarizer-image.yml`](.github/workflows/build-cogs-vs-clips-summarizer-image.yml). |
 
 ### Build strategy: concrete reporter first, then extract
 
@@ -211,7 +213,7 @@ New reporters should start from the canonical Coworld role contract:
 
 - Read **only** `COGAME_EPISODE_BUNDLE_URI`; inspect the bundle's internal `manifest.json` to find the files you need.
 - Write a single zip to `COGAME_REPORT_URI` before exiting 0; an empty zip is a valid output ("ran successfully, nothing to surface").
-- Include a top-level `manifest.json` flagging your `render` target (one `.md` or `.html`) and your `event_log` (one Parquet) if you produce them. `reporter_id` should match the runnable's manifest `id`.
+- Include a top-level `manifest.json` flagging your `render` target (one `.md` or `.html`), your `event_log` (one Parquet), and your `trace` (one `.jsonl` or `.json`) if you produce them. `reporter_id` should match the runnable's manifest `id`.
 - Use the canonical event-log schema: `(ts: int64, player: int64, key: string, value: string)`; JSON-encode structured `value`s.
 - Pin zip-entry mtimes to a fixed value (e.g. `(1980, 1, 1, 0, 0, 0)`) if byte-identical reruns matter; without this, otherwise-deterministic reporters drift through `os.stat`-stamped mtimes.
 - Prefer pure functions of the bundle. If a reporter needs richer external context, document the dependency in the reporter README and manifest entry.
