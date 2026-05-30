@@ -6,6 +6,7 @@ import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.nav import (
+    CLEARANCE_RADIUS,
     _segment_clear,
     build_nav_graph,
     plan_route,
@@ -28,6 +29,31 @@ def test_fully_blocked_cell_is_not_a_node() -> None:
     graph = build_nav_graph(mask, cell_size=8)
     assert (0, 0) not in graph.node_point
     assert (1, 1) in graph.node_point
+
+
+def test_node_points_keep_clearance_from_walls() -> None:
+    # A wall on the left third; the node in the adjacent cell sits CLEARANCE_RADIUS
+    # off the wall (corridor-centered), not flush against it.
+    mask = np.ones((24, 24), dtype=bool)
+    mask[:, 0:8] = False
+    graph = build_nav_graph(mask, cell_size=8)
+    pt = graph.node_point.get((1, 1))  # cell x8..15, y8..15 — adjacent to the wall
+    assert pt is not None
+    assert bool(graph.clearance[pt[1], pt[0]])  # the node point keeps clearance
+    assert pt[0] >= 8 + CLEARANCE_RADIUS  # off the wall edge at x=8
+
+
+def test_route_keeps_clearance_around_a_wall() -> None:
+    # A bar hanging from the top; the only crossing is the gap along the bottom.
+    # The route must dip into the gap but should keep clearance from the bar, not
+    # graze it (which is what wedged the agent before).
+    mask = np.ones((24, 60), dtype=bool)
+    mask[0:16, 28:32] = False
+    graph = build_nav_graph(mask, cell_size=8)
+    route = plan_route(graph, (8, 20), (50, 20))
+    assert route and route[-1] == (50, 20)
+    for x, y in route:
+        assert bool(graph.clearance[y, x]), f"waypoint ({x},{y}) hugs a wall (no clearance)"
 
 
 def test_route_goes_around_a_wall() -> None:

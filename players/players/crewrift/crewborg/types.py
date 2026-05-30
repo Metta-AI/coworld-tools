@@ -217,6 +217,9 @@ class ActionState(BaseModel):
     route: list[tuple[int, int]] = Field(default_factory=list)
     route_cursor: int = 0
     route_goal: tuple[int, int] | None = None
+    # Ticks since the route was last (re)planned; drives periodic re-rooting so the
+    # follower doesn't commit to a stale route after drifting off the planned line.
+    ticks_since_plan: int = 0
     # For a vent-aware escape route: maps the index of a waypoint reached by venting
     # to the vent index to stand on and press B (design §9). Empty for walk routes.
     route_teleports: dict[int, int] = Field(default_factory=dict)

@@ -45,6 +45,14 @@ _log = logging.getLogger(__name__)
 
 DEFAULT_CELL_SIZE = 8
 
+# Config-space margin (world px): routes keep this much clearance from walls so the
+# bang-bang controller's axis-aligned staircase + momentum drift don't graze walls
+# (the cause of task-approach wedging). Reachability/connectivity are unaffected —
+# clearance only steers node placement, the clear-shot short-circuit, and route
+# string-pulling; A* edges and the spawn flood still use the true walkability mask,
+# so tight passages and wall-adjacent destinations stay reachable.
+CLEARANCE_RADIUS = 2
+
 # Interaction reach for anchor placement (world pixels, from sim.nim). A vent fires
 # within VentRange=16px of the vent center; tasks/button fire from inside the rect.
 VENT_REACH = 16
@@ -97,6 +105,10 @@ class NavGraph:
     node_point: dict[Cell, Point]  # cell -> its representative walkable pixel
     adjacency: dict[Cell, list[tuple[Cell, float]]]  # cell -> [(neighbour, cost)]
     reachable: set[Cell]  # nodes connected to home over the graph
+    # Walkable pixels that also keep CLEARANCE_RADIUS clear of walls (the eroded
+    # mask). Routes prefer these so imperfect control doesn't graze walls; falls
+    # back to ``walkability`` if unset.
+    clearance: np.ndarray | None = None
     task_anchors: dict[int, Point] = field(default_factory=dict)
     vent_anchors: dict[int, Point] = field(default_factory=dict)
     # Teleport edges between same-group vents, keyed by the entry vent's anchor cell.
@@ -191,21 +203,29 @@ def _segment_clear(walkability: np.ndarray, a: Point, b: Point) -> bool:
     return True
 
 
-def _cell_node_point(mask: np.ndarray, row: int, col: int, cell_size: int) -> Point | None:
-    """The set pixel of ``mask`` nearest the center of cell ``(row, col)``, or ``None``."""
+def _cell_node_point(
+    reachable: np.ndarray, clearance: np.ndarray, row: int, col: int, cell_size: int
+) -> Point | None:
+    """The cell's representative pixel: nearest-center reachable pixel, preferring one
+    that also keeps clearance. Returns the nearest clearance-keeping reachable pixel if
+    any, else the nearest reachable pixel, else ``None`` (no reachable pixel in cell)."""
 
     y0, x0 = row * cell_size, col * cell_size
     yc, xc = y0 + cell_size // 2, x0 + cell_size // 2
     best: Point | None = None
     best_d: int | None = None
+    best_clear: Point | None = None
+    best_clear_d: int | None = None
     for py in range(y0, y0 + cell_size):
         for px in range(x0, x0 + cell_size):
-            if not mask[py, px]:
+            if not reachable[py, px]:
                 continue
             d = (px - xc) ** 2 + (py - yc) ** 2
             if best_d is None or d < best_d:
                 best_d, best = d, (px, py)
-    return best
+            if clearance[py, px] and (best_clear_d is None or d < best_clear_d):
+                best_clear_d, best_clear = d, (px, py)
+    return best_clear if best_clear is not None else best
 
 
 def _nearest_walkable_pixel(walkability: np.ndarray, x: int, y: int, max_radius: int) -> Point | None:
@@ -227,6 +247,29 @@ def _nearest_walkable_pixel(walkability: np.ndarray, x: int, y: int, max_radius:
         if best is not None:
             return best
     return None
+
+
+def _clearance_mask(walkability: np.ndarray, radius: int) -> np.ndarray:
+    """Pixels whose full ``(2·radius+1)²`` box is walkable — i.e. ``radius`` px clear of
+    any wall. Map-edge pixels (box extends out of bounds) count as non-clear. Computed
+    once at build time by ANDing the mask against its shifts (a box erosion)."""
+
+    if radius <= 0:
+        return walkability
+    height, width = walkability.shape
+    out = walkability.copy()
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx == 0 and dy == 0:
+                continue
+            shifted = np.zeros_like(walkability)
+            ys0, ys1 = max(0, dy), height + min(0, dy)
+            xs0, xs1 = max(0, dx), width + min(0, dx)
+            yd0, yd1 = max(0, -dy), height + min(0, -dy)
+            xd0, xd1 = max(0, -dx), width + min(0, -dx)
+            shifted[yd0:yd1, xd0:xd1] = walkability[ys0:ys1, xs0:xs1]
+            out &= shifted
+    return out
 
 
 def _flood_reachable_pixels(walkability: np.ndarray, seed: Point) -> np.ndarray:
@@ -305,7 +348,8 @@ def build_nav_graph(
     else:
         reachable_pixels = walkability
 
-    node_point = _build_nodes(reachable_pixels, cell_size)
+    clearance = _clearance_mask(walkability, CLEARANCE_RADIUS)
+    node_point = _build_nodes(reachable_pixels, clearance, cell_size)
     adjacency = _build_edges(walkability, node_point)
 
     graph = NavGraph(
@@ -316,36 +360,28 @@ def build_nav_graph(
         node_point=node_point,
         adjacency=adjacency,
         reachable=set(node_point),  # every node sits on a reachable pixel by construction
+        clearance=clearance,
     )
     if map_data is not None:
         _build_anchors(graph, map_data)
     return graph
 
 
-def _build_nodes(reachable_pixels: np.ndarray, cell_size: int) -> dict[Cell, Point]:
-    """One node per cell that contains a reachable pixel; point = the one nearest center.
-
-    Open cells (center pixel reachable) take the center directly; only boundary cells
-    — a reachable pixel but a blocked/unreachable center — need the per-pixel scan.
-    """
+def _build_nodes(reachable_pixels: np.ndarray, clearance: np.ndarray, cell_size: int) -> dict[Cell, Point]:
+    """One node per cell containing a reachable pixel; point = nearest-center pixel,
+    **preferring one that keeps clearance** so node-to-node travel runs down corridor
+    centres. Every cell with a reachable pixel still gets a node (a cell with no
+    clearance pixel falls back to its nearest-center reachable pixel), so connectivity
+    and reachability are unchanged."""
 
     height, width = reachable_pixels.shape
     rows, cols = height // cell_size, width // cell_size
-    trimmed = reachable_pixels[: rows * cell_size, : cols * cell_size]
-    blocks = trimmed.reshape(rows, cell_size, cols, cell_size)
-    has_pixel = blocks.any(axis=(1, 3))
-    center_pixel = blocks[:, cell_size // 2, :, cell_size // 2]
-    half = cell_size // 2
-
     node_point: dict[Cell, Point] = {}
     for row in range(rows):
         for col in range(cols):
-            if center_pixel[row, col]:
-                node_point[(row, col)] = (col * cell_size + half, row * cell_size + half)
-            elif has_pixel[row, col]:
-                point = _cell_node_point(reachable_pixels, row, col, cell_size)
-                if point is not None:
-                    node_point[(row, col)] = point
+            point = _cell_node_point(reachable_pixels, clearance, row, col, cell_size)
+            if point is not None:
+                node_point[(row, col)] = point
     return node_point
 
 
@@ -498,17 +534,29 @@ def _find_anchor(
 # --------------------------------------------------------------------------- #
 
 
+def _path_mask(graph: NavGraph) -> np.ndarray:
+    """The mask routes follow — the clearance (eroded) mask, or walkability if unset.
+
+    Used for the clear-shot short-circuit and string-pulling so followed segments keep
+    clearance from walls. A* edges and reachability still use the true walkability mask
+    (in ``adjacency`` / the spawn flood), so connectivity is unaffected.
+    """
+
+    return graph.clearance if graph.clearance is not None else graph.walkability
+
+
 def plan_route(graph: NavGraph, start_world: Point, goal_world: Point) -> list[Point]:
     """A* a string-pulled route of world waypoints from start to goal, or ``[]``.
 
-    A clear straight shot short-circuits A* entirely. Otherwise start and goal are
-    snapped into the reachable component, A* plans over the node graph, and the
-    cell-point path is string-pulled by a pixel-resolution line-of-sight pass. The
-    final waypoint is the exact ``goal_world`` so the action layer drives onto the
-    real target (which may itself sit just off a node, e.g. a dynamic kill target).
+    A clear (clearance-keeping) straight shot short-circuits A* entirely. Otherwise
+    start and goal are snapped into the reachable component, A* plans over the node
+    graph, and the cell-point path is string-pulled by a pixel-resolution
+    clearance-keeping line-of-sight pass. The final waypoint is the exact
+    ``goal_world`` so the action layer drives onto the real target (which may itself
+    sit just off a node / against a wall, e.g. a task anchor or a dynamic kill target).
     """
 
-    if _segment_clear(graph.walkability, start_world, goal_world):
+    if _segment_clear(_path_mask(graph), start_world, goal_world):
         return [goal_world]
     start = graph.nearest_reachable_node(*start_world)
     goal = graph.nearest_reachable_node(*goal_world)
@@ -556,7 +604,7 @@ def plan_route_via_vents(
     when the goal is unreachable even with vents.
     """
 
-    if _segment_clear(graph.walkability, start_world, goal_world):
+    if _segment_clear(_path_mask(graph), start_world, goal_world):
         return [goal_world], {}
     start = graph.nearest_reachable_node(*start_world)
     goal = graph.nearest_reachable_node(*goal_world)
@@ -589,12 +637,12 @@ def plan_route_via_vents(
             segment.append(graph.node_point[cell])
             continue
         segment.append(edge.from_anchor)  # walk onto the vent entry, then teleport
-        waypoints.extend(_smooth_route(graph.walkability, segment)[1:])
+        waypoints.extend(_smooth_route(_path_mask(graph), segment)[1:])
         waypoints.append(edge.to_anchor)
         teleports[len(waypoints) - 1] = edge.from_vent
         segment = [edge.to_anchor]
     segment.append(goal_world)
-    waypoints.extend(_smooth_route(graph.walkability, segment)[1:])
+    waypoints.extend(_smooth_route(_path_mask(graph), segment)[1:])
     return waypoints, teleports
 
 
@@ -658,7 +706,7 @@ def _reconstruct(
     # String-pull the staircase into straight runs. Anchor at the agent's real start
     # position (not the start cell's node point) so the first leg is cut too, then
     # drop that anchor — the follower drives from where it actually is.
-    return _smooth_route(graph.walkability, [start_world] + waypoints)[1:]
+    return _smooth_route(_path_mask(graph), [start_world] + waypoints)[1:]
 
 
 def _smooth_route(walkability: np.ndarray, waypoints: list[Point]) -> list[Point]:
