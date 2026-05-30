@@ -88,11 +88,11 @@ def test_imposter_hunts_when_kill_ready_with_opportunity() -> None:
     assert _select(no_target) == "pretend"
 
 
-def test_imposter_pretends_when_kill_ready_but_no_subtle_opening() -> None:
+def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
     from players.crewrift.crewborg.types import RosterEntry
 
-    # Kill ready, but the only crewmate has a witness right beside it and urgency is
-    # zero ⇒ keep blending in rather than killing in front of someone.
+    # Kill ready with crewmates in sight (even clustered) ⇒ Hunt and stalk; Hunt
+    # itself holds off the actual kill until the victim is isolated.
     belief = Belief(
         phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10,
         self_world_x=100, self_world_y=100,
@@ -103,7 +103,7 @@ def test_imposter_pretends_when_kill_ready_but_no_subtle_opening() -> None:
     belief.roster[1005] = RosterEntry(
         object_id=1005, color="blue", facing="left", world_x=58, world_y=50, last_seen_tick=10
     )
-    assert _select(belief) == "pretend"
+    assert _select(belief) == "hunt"
 
 
 def test_imposter_evades_right_after_a_kill() -> None:

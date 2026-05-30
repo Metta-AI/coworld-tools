@@ -1,14 +1,16 @@
-"""Shared imposter kill-opportunity logic (design §10).
+"""Shared imposter victim-selection and witness logic (design §7.2, §10).
 
-A single source of truth for "is there a subtle kill available right now, and if
-so against whom" — used both by the selector (to choose Hunt over Pretend) and by
-Hunt itself (to pick the target), so the two can never disagree.
+Hunt commits to a *victim* and stalks it, striking only when the kill would go
+**unwitnessed**. This module is the single source of truth for: which crewmate to
+commit to (``select_victim`` — the most-isolated straggler, easiest to finish off
+unseen), whether a kill on a given target is currently unwitnessed (``unwitnessed``),
+and whether any victim is even trackable right now (``has_trackable_victim``, which
+gates Hunt vs. Pretend in the selector).
 
-An opportunity is a currently-visible, reachable, non-teammate crewmate that is
-*isolated* enough that the kill would go unwitnessed. The isolation bar is not
-fixed: the longer the imposter has been able to kill without doing so, the more it
-relaxes, so a cautious imposter that never finds a perfect opening still escalates
-to a riskier kill rather than stalling forever (design §10 "act with urgency").
+The witness bar is not fixed: the longer the imposter has been *able* to kill
+without doing so, the more it relaxes (``kill_urgency_ticks``), so a cautious
+imposter that never finds a clean opening still escalates rather than stalling
+forever (design §10 "act with urgency").
 """
 
 from __future__ import annotations
@@ -17,17 +19,20 @@ from players.crewrift.crewborg.nav import plan_route
 from players.crewrift.crewborg.types import Belief, RosterEntry
 
 # Clearance (world px) required around a target at zero urgency: no other crewmate
-# may be within this distance for the kill to count as unwitnessed. Matches the old
-# Hunt isolation radius.
+# may be within this distance for the kill to count as unwitnessed.
 BASE_ISOLATION_RADIUS = 48
 
 # At zero urgency, another crewmate seen within this many ticks still counts as a
 # potential witness; the window shrinks with urgency so stale sightings stop vetoing.
 WITNESS_WINDOW_TICKS = 72
 
-# Ticks of being able-to-kill-without-killing at which the isolation bar reaches
-# zero — i.e. the imposter will take any reachable visible target (~10s at 24 Hz).
+# Ticks of being able-to-kill-without-killing at which the witness bar reaches zero —
+# i.e. the imposter will strike any victim regardless of witnesses (~10s at 24 Hz).
 URGENCY_FULL_TICKS = 240
+
+# A non-teammate seen within this many ticks is still "trackable" — Hunt can stalk it
+# (to its last-known / predicted position) even while it is briefly out of view.
+TRACK_WINDOW_TICKS = 120
 
 
 def kill_urgency_ticks(belief: Belief) -> int:
@@ -38,19 +43,27 @@ def kill_urgency_ticks(belief: Belief) -> int:
     return max(0, belief.last_tick - belief.kill_ready_since_tick)
 
 
-def kill_opportunity(belief: Belief) -> RosterEntry | None:
-    """The best currently-killable, isolated, reachable target, or ``None``.
+def has_trackable_victim(belief: Belief) -> bool:
+    """Whether any non-teammate has been seen recently enough for Hunt to stalk.
 
-    Returns the nearest qualifying target; ``None`` means "keep blending in" — no
-    subtle chance exists yet (and we are not urgent enough to force a risky one).
+    Gates the selector: kill-ready + a trackable victim → Hunt (stalk); otherwise the
+    imposter blends/wanders via Pretend (and so goes looking for crew when it has none).
     """
+
+    return any(
+        entry.color not in belief.teammate_colors and belief.last_tick - entry.last_seen_tick <= TRACK_WINDOW_TICKS
+        for entry in belief.roster.values()
+    )
+
+
+def select_victim(belief: Belief) -> RosterEntry | None:
+    """The crewmate to commit to hunting: the most-isolated reachable crewmate in
+    view (a straggler — easiest to finish off unwitnessed), tie-broken by nearest to
+    us. ``None`` when no non-teammate is currently visible/reachable to commit to."""
 
     self_xy = _self_xy(belief)
     if self_xy is None:
         return None
-
-    # Killable = a non-teammate player seen this very tick (we need a live position
-    # to navigate onto and a fresh target the server won't skip).
     crew = [
         entry
         for entry in belief.roster.values()
@@ -58,22 +71,34 @@ def kill_opportunity(belief: Belief) -> RosterEntry | None:
     ]
     if not crew:
         return None
-
-    # Reachability: an unreachable target would only strand the action layer.
     candidates = crew
     if belief.nav is not None:
         candidates = [t for t in crew if plan_route(belief.nav, self_xy, (t.world_x, t.world_y))]
         if not candidates:
             return None
+    # Prefer the most isolated (largest gap to its nearest other crewmate), then nearest.
+    return max(candidates, key=lambda t: (_isolation(t, belief), -_dist2(self_xy, (t.world_x, t.world_y))))
+
+
+def unwitnessed(belief: Belief, target: RosterEntry) -> bool:
+    """Whether killing ``target`` now would go unseen, at the current urgency level."""
 
     frac = min(1.0, kill_urgency_ticks(belief) / URGENCY_FULL_TICKS)
-    required_radius_sq = (BASE_ISOLATION_RADIUS * (1.0 - frac)) ** 2
-    witness_window = int(WITNESS_WINDOW_TICKS * (1.0 - frac))
+    radius_sq = (BASE_ISOLATION_RADIUS * (1.0 - frac)) ** 2
+    window = int(WITNESS_WINDOW_TICKS * (1.0 - frac))
+    return _is_unwitnessed(target, belief, radius_sq, window)
 
-    isolated = [t for t in candidates if _is_unwitnessed(t, belief, required_radius_sq, witness_window)]
-    if not isolated:
-        return None
-    return min(isolated, key=lambda t: _dist2(self_xy, (t.world_x, t.world_y)))
+
+def _isolation(target: RosterEntry, belief: Belief) -> float:
+    """Distance² to the nearest *other* non-teammate — higher means more isolated."""
+
+    target_xy = (target.world_x, target.world_y)
+    gaps = [
+        _dist2(target_xy, (o.world_x, o.world_y))
+        for o in belief.roster.values()
+        if o.object_id != target.object_id and o.color not in belief.teammate_colors
+    ]
+    return min(gaps) if gaps else float("inf")
 
 
 def _is_unwitnessed(target: RosterEntry, belief: Belief, radius_sq: float, window: int) -> bool:

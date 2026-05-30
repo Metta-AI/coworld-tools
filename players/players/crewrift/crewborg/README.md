@@ -14,7 +14,8 @@ Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
 meetings, votes, reports bodies, and flees believed imposters. As an imposter the
 role-aware selector runs a priority order during `Playing`: **Evade** (just killed
 → brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
-*and* a subtle opening → kill the nearest reachable, unwitnessed crewmate), and
+*and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
+trajectory-led intercept, and strike when in range and unwitnessed), and
 **Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
 tails one into a room, and wanders rooms when none are in sight, never idling);
 meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
@@ -34,7 +35,7 @@ crewborg/
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade (+ imposter_common helpers)
-  strategy/          rule_based.py: role-aware mode selector + opportunity.py: shared kill-opportunity/urgency
+  strategy/          rule_based.py: mode selector + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
