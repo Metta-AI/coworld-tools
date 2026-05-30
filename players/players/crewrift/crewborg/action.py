@@ -42,6 +42,11 @@ WAYPOINT_RADIUS = 8  # within this of a route waypoint ⇒ advance to the next
 # the axis a bit before that so friction brings us to rest on the target.
 STOP_FACTOR = 1.3
 
+# Re-root the nav route at the agent's live position at least this often (ticks), so
+# the follower never commits to a stale route after drifting off the planned line.
+# A* is ~0.2ms (design §12), so frequent replanning is effectively free.
+REPLAN_INTERVAL = 8
+
 # Report fires when within ReportRange = 20px (dist² ≤ 400) of a body (sim.nim).
 REPORT_RANGE_SQ = 400
 # Kill fires within KillRange = 20px (dist² ≤ 400); vent within VentRange = 16px
@@ -117,6 +122,7 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route_cursor = 0
     action_state.route_goal = None
     action_state.route_teleports = {}
+    action_state.ticks_since_plan = 0
     action_state.vote_confirmed = False
     action_state.chat_sent = False
 
@@ -145,12 +151,18 @@ def _navigate_mask(
 
     velocity = _velocity(action_state, self_xy)
 
-    # (Re)plan only when the goal changes (an unreachable goal leaves an empty
-    # route — we must not re-run A* every tick, nor wall-drive toward it).
-    if action_state.route_goal != goal:
+    # (Re)plan when the goal changes, and also **periodically** (every
+    # REPLAN_INTERVAL ticks) re-rooting the route at the agent's live position. A* is
+    # ~0.2ms, so this is nearly free, and it keeps the follower from committing to a
+    # stale route after it has drifted off the planned line (the residual cause of
+    # task-approach wedging — a fresh route from where it actually is routes around
+    # the wall it was mashing into).
+    action_state.ticks_since_plan += 1
+    if action_state.route_goal != goal or action_state.ticks_since_plan >= REPLAN_INTERVAL:
         action_state.route_goal = goal
         action_state.route_cursor = 0
         action_state.route_teleports = {}
+        action_state.ticks_since_plan = 0
         if belief.nav is None:
             # No nav graph yet: steer straight at the goal.
             action_state.route = [goal]
