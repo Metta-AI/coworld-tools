@@ -312,6 +312,14 @@ enforced at pixel resolution**:
   the real mask, not the coarse approximation.
 - **Reachability** is a pixel flood from `home` (spawn) — ground truth, immune to a
   thin wall passing *through* a cell.
+- **Clearance** (`CLEARANCE_RADIUS`): a config-space margin so routes run down
+  corridor centres rather than grazing walls — the bang-bang controller's
+  axis-aligned staircase + momentum would otherwise drift into a grazed wall and
+  wedge. An eroded mask (a pixel is "clear" iff its `(2r+1)²` box is walkable) steers
+  node placement, the clear-shot short-circuit, and route string-pulling. Edges and
+  the reachability flood still use the **true** mask, so tight passages and
+  wall-adjacent destinations stay reachable (only the final hop onto an anchor is
+  un-inflated).
 - **Destination anchors:** for every baked task / vent / button, the reachable
   pixel satisfying its interaction condition (inside the task/button rect; within
   VentRange of a vent) is precomputed, so navigation targets a known-good point
@@ -512,7 +520,10 @@ targets) use their live position.
 - Button bitmask encoding and the `[0x84, mask&0x7f]` packet.
 - The edge-triggered A press FSM (release then re-press to refire).
 - Momentum control / nav-route following (the `nav` helper plans over the baked
-  graph; the action layer follows).
+  graph; the action layer follows). The route is **re-rooted at the agent's live
+  position every `REPLAN_INTERVAL` ticks** (and whenever the goal changes), so the
+  follower never commits to a stale route after drifting off the planned line — A*
+  is ~0.2 ms, so this is nearly free and is what eliminates residual approach-wedging.
 - Vote-cursor stepping then A-confirm.
 - Chat buffering + ASCII validation (emit only during Voting).
 - Hand the held mask to the bridge, which de-dups (send-only-on-change).
@@ -624,6 +635,8 @@ structural, and each still awaits tuning against a live server.
 | Parameter | Current default |
 |---|---|
 | Movement-controller style | bang-bang + a release-near-target deadband with a predictive stop — release an axis within the estimated momentum stopping distance so the agent coasts onto the target instead of overshooting |
+| Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
+| Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | always cast, defaulting to **skip** (must vote before the timer; not voting costs −10) |
 | Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |

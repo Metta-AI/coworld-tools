@@ -62,6 +62,25 @@ def test_escape_presses_b_to_vent_when_a_teleport_leg_is_next() -> None:
     assert command.held_mask == BTN_B  # at the vent entry: press B to vanish
 
 
+def test_periodic_replan_reroots_the_route_on_interval() -> None:
+    from players.crewrift.crewborg.action import REPLAN_INTERVAL
+
+    nav = build_nav_graph(np.ones((40, 40), dtype=bool), cell_size=8)
+    belief = Belief(nav=nav, self_world_x=4, self_world_y=4)
+    action_state = ActionState()
+    intent = Intent(kind="navigate_to", point=(36, 36))  # fixed goal throughout
+
+    resolve_action(intent, belief, action_state)  # initial plan
+    assert action_state.ticks_since_plan == 0
+    # A few more ticks with the goal unchanged: the counter climbs...
+    for _ in range(REPLAN_INTERVAL - 1):
+        resolve_action(intent, belief, action_state)
+    assert action_state.ticks_since_plan == REPLAN_INTERVAL - 1
+    # ...and the next tick triggers a periodic re-plan (counter resets), with no goal change.
+    resolve_action(intent, belief, action_state)
+    assert action_state.ticks_since_plan == 0
+
+
 def test_escape_resumes_walking_after_the_teleport() -> None:
     # Mid-route: cursor sits on the teleport target and the hop has dropped us next
     # to it. We must advance past it and walk onward, not vent back to the entry.
