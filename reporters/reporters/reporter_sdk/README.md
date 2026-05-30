@@ -13,7 +13,7 @@ Scope is deliberately narrow:
 - **In scope:**
   - Episode-bundle reader: opens a bundle zip from a `file://` or `https://` URI, parses its inner `manifest.json`, exposes typed accessors for `results.json`, `replay.json`, optional `config.json`, optional logs, optional `error_info.json`.
   - Deterministic zip writer with pinned-mtime support (recommended sentinel: `(1980, 1, 1, 0, 0, 0)`).
-  - In-zip `manifest.json` writer for the reporter output: validates that `render` (if set) points at an existing `.md` or `.html` entry and `event_log` (if set) points at an existing Parquet entry.
+  - In-zip `manifest.json` writer for the reporter output: validates that `render` (if set) points at an existing `.md` or `.html` entry, `event_log` (if set) points at an existing Parquet entry, and `trace` (if set) points at an existing `.jsonl` or `.json` entry.
   - Env-var URI accessors (`COGAME_EPISODE_BUNDLE_URI`, `COGAME_REPORT_URI`).
   - I/O wrappers compatible with metta's `packages/coworld/src/coworld/runner/io.py` (`file://`, `https://`, presigned S3, retries on 429/5xx).
   - The shared Parquet event-log schema and a writer over it.
@@ -33,7 +33,7 @@ reporter_sdk/
 │   ├── bundle.py         # BundleReader, BundleInnerManifest
 │   ├── event_log.py      # EVENT_LOG_SCHEMA, write_events_parquet
 │   ├── io.py             # ReporterInputs, load_reporter_inputs, read_uri, write_uri, read_json
-│   ├── output_manifest.py# OutputManifest, build_report_zip, RENDERABLE_EXTENSIONS, EVENT_LOG_EXTENSIONS
+│   ├── output_manifest.py# OutputManifest, build_report_zip, RENDERABLE_EXTENSIONS, EVENT_LOG_EXTENSIONS, TRACE_EXTENSIONS
 │   └── zip_writer.py     # write_deterministic_zip, stable_json, MTIME_SENTINEL
 └── tests/                # per-submodule unit tests
 ```
@@ -48,8 +48,8 @@ Imported as `from reporter_sdk import X`:
 | --- | --- | --- |
 | `BundleReader` | class | Open an episode bundle zip from `file://` / `https://`, parse the inner `manifest.json`, expose typed accessors keyed by token name (`results`, `replay`, `metadata`, ...). |
 | `BundleInnerManifest` | pydantic model | The shape of the bundle's inner `manifest.json`: `ereq_id`, `status`, `include`, `files`. `extra="allow"` for forward-compat. |
-| `OutputManifest` | pydantic model | The shape of the reporter's own in-zip `manifest.json`: `reporter_id`, optional `render`, optional `event_log`. |
-| `build_report_zip(manifest, entries)` | function | Validate `manifest` against `entries` and produce a deterministic zip with `manifest.json` prepended. `render` must point at an in-zip `.md`/`.html`; `event_log` must point at an in-zip `.parquet`. |
+| `OutputManifest` | pydantic model | The shape of the reporter's own in-zip `manifest.json`: `reporter_id`, optional `render`, optional `event_log`, optional `trace`. |
+| `build_report_zip(manifest, entries)` | function | Validate `manifest` against `entries` and produce a deterministic zip with `manifest.json` prepended. `render` must point at an in-zip `.md`/`.html`; `event_log` must point at an in-zip `.parquet`; `trace` must point at an in-zip `.jsonl`/`.json`. |
 | `write_deterministic_zip(entries)` | function | Lower-level deterministic zip writer (used by `build_report_zip` and by reporters that need full control). Pins `date_time=(1980,1,1,0,0,0)` on every entry. |
 | `MTIME_SENTINEL` | constant | `(1980, 1, 1, 0, 0, 0)`. |
 | `stable_json(obj)` | function | `json.dumps` with `sort_keys=True, separators=(",", ":")`; use for any JSON embedded inside another container (event-log `value` strings, manifest payloads). |
@@ -59,7 +59,7 @@ Imported as `from reporter_sdk import X`:
 | `load_reporter_inputs()` | function | Read both from the canonical env vars (`COGAME_EPISODE_BUNDLE_URI`, `COGAME_REPORT_URI`). Raises `KeyError` if either is missing. |
 | `read_uri(uri)` / `write_uri(uri, payload, content_type)` | functions | Dispatched over `file://` and `http(s)://`. HTTP retries on 429/5xx with exponential backoff (5 attempts, capped at 8s). |
 | `read_json(uri)` | function | `read_uri` + JSON decode. |
-| `RENDERABLE_EXTENSIONS` / `EVENT_LOG_EXTENSIONS` | frozensets | The accepted extensions for `OutputManifest.render` / `OutputManifest.event_log`. |
+| `RENDERABLE_EXTENSIONS` / `EVENT_LOG_EXTENSIONS` / `TRACE_EXTENSIONS` | frozensets | The accepted extensions for `OutputManifest.render` / `OutputManifest.event_log` / `OutputManifest.trace`. |
 
 ## Install
 

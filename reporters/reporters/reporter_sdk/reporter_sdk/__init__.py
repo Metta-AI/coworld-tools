@@ -28,6 +28,7 @@ from .io import (
 from .output_manifest import (
     EVENT_LOG_EXTENSIONS,
     RENDERABLE_EXTENSIONS,
+    TRACE_EXTENSIONS,
     OutputManifest,
     build_report_zip,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "EVENT_LOG_SCHEMA",
     "MTIME_SENTINEL",
     "RENDERABLE_EXTENSIONS",
+    "TRACE_EXTENSIONS",
     "BundleInnerManifest",
     "BundleReader",
     "OutputManifest",
