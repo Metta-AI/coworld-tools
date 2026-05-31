@@ -91,6 +91,7 @@ class StageConfig(BaseModel):
     label: str = "Round"
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    self_play: bool = False
 
 
 class RoundConfig(BaseModel):
@@ -335,7 +336,7 @@ class EpisodeCompletedRequest(BaseModel):
     failed_episodes: list[EpisodeFailed] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_completed_event(self) -> "EpisodeCompletedRequest":
+    def validate_completed_event(self) -> EpisodeCompletedRequest:
         if (self.episode_result is None) == (self.episode_failed is None):
             raise ValueError("exactly one of episode_result or episode_failed must be set")
         return self

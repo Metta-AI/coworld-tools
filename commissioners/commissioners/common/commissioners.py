@@ -195,6 +195,10 @@ class V2StageConfig(BaseModel):
     label: str = "Round"
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    # When true, every seat in an episode is filled by a single entrant playing
+    # against copies of itself, and each entrant gets its own episodes. Used for
+    # qualifiers so a policy's score reflects only its own play, not its opponents'.
+    self_play: bool = False
 
 
 class V2RoundConfig(BaseModel):
@@ -213,6 +217,7 @@ class PoolConfig(BaseModel):
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
     mock_scores: dict[UUID, float] | None = None
+    self_play: bool = False
 
 
 class RoundSchedulingConfig(BaseModel):
@@ -246,6 +251,17 @@ AMONG_THEM_DIRT_STAGE = V2StageConfig(
     num_episodes=8,
     min_episodes_per_entrant=8,
 )
+# Qualifiers gate entry into the competition; they only need enough games to judge
+# pass/fail, not the full ranking power of a competition round. These are self-play,
+# so a single episode already yields one seat of signal per agent for that policy;
+# a few episodes per entrant is plenty. Keeping this small bounds qualifier round
+# size, which for self-play is num_entrants * min_episodes_per_entrant.
+AMONG_THEM_QUALIFIER_STAGE = V2StageConfig(
+    label="Round",
+    num_episodes=2,
+    min_episodes_per_entrant=2,
+    self_play=True,
+)
 
 
 class AmongThemSchedulingConfig(RoundSchedulingConfig):
@@ -253,6 +269,7 @@ class AmongThemSchedulingConfig(RoundSchedulingConfig):
     default_execution_backend: str = "dispatch"
     stages: list[V2StageConfig] | None = Field(default_factory=lambda: [AMONG_THEM_DEFAULT_STAGE])
     dirt_stages: list[V2StageConfig] | None = Field(default_factory=lambda: [AMONG_THEM_DIRT_STAGE])
+    qualifier_stages: list[V2StageConfig] | None = Field(default_factory=lambda: [AMONG_THEM_QUALIFIER_STAGE])
     # Dirt exists to evaluate unproven policies, so it needs to run with very few entrants.
     dirt_minimum_champions: int = Field(default=2, gt=0)
     dirt_division_name: str = "Dirt"
@@ -501,6 +518,19 @@ def select_competition_entry_division(
         division_type=DIVISION_TYPE_COMPETITION,
         fallback_to_lowest=True,
     )
+
+
+def division_entrants(
+    memberships: list[MembershipSnapshot],
+    division: DivisionSnapshot,
+    *,
+    is_qualifier: bool,
+) -> list[MembershipSnapshot]:
+    return [
+        membership
+        for membership in memberships
+        if membership.division_id == division.id and (is_qualifier or membership.is_champion)
+    ]
 
 
 _SMALL_NUMBER_WORDS = {
@@ -856,10 +886,10 @@ class BaselineCommissioner(Commissioner):
             if latest_round is not None and latest_round.created_at >= current_slot:
                 continue
 
-            division_champions = [m for m in ctx.active_memberships if m.division_id == division.id and m.is_champion]
             is_qualifier = qualifier_division is not None and division.id == qualifier_division.id
+            entrants = division_entrants(ctx.active_memberships, division, is_qualifier=is_qualifier)
             min_champs = config.qualifiers_minimum_champions if is_qualifier else config.minimum_champions
-            if len(division_champions) < min_champs:
+            if len(entrants) < min_champs:
                 continue
 
             specs.append(
@@ -884,6 +914,24 @@ class BaselineCommissioner(Commissioner):
         variant_id: str,
     ) -> CommissionerScheduleEpisodes:
         config = PoolConfig.model_validate(pool.config)
+        if config.self_play:
+            # Each entrant gets its own episodes with every seat filled by its own
+            # policy, so its score reflects only its own play, not its opponents'.
+            # min_episodes_per_entrant is the number of self-play episodes per entrant
+            # (not divided across seats, since each episode features one entrant).
+            episodes_per_entrant = config.min_episodes_per_entrant or config.num_episodes
+            episodes = [
+                CommissionerEpisodeRequest(
+                    request_id=str(entry_index * episodes_per_entrant + episode_index),
+                    variant_id=variant_id,
+                    policy_version_ids=[entry.policy_version_id] * num_agents,
+                    tags={"pool_id": str(pool.id)},
+                )
+                for entry_index, entry in enumerate(entries)
+                for episode_index in range(episodes_per_entrant)
+            ]
+            return CommissionerScheduleEpisodes(episodes=episodes)
+
         num_episodes = _pool_episode_count(
             config=config,
             num_entries=len(entries),
@@ -1028,8 +1076,8 @@ class AmongThemCommissioner(BaselineCommissioner):
             if latest_round is not None and latest_round.created_at >= current_slot:
                 continue
 
-            division_champions = [m for m in ctx.active_memberships if m.division_id == division.id and m.is_champion]
             is_qualifier = qualifier_division is not None and division.id == qualifier_division.id
+            entrants = division_entrants(ctx.active_memberships, division, is_qualifier=is_qualifier)
             is_dirt = self._is_dirt_division(division, config)
             if is_qualifier:
                 min_champs = config.qualifiers_minimum_champions
@@ -1037,10 +1085,15 @@ class AmongThemCommissioner(BaselineCommissioner):
                 min_champs = config.dirt_minimum_champions
             else:
                 min_champs = config.minimum_champions
-            if len(division_champions) < min_champs:
+            if len(entrants) < min_champs:
                 continue
 
-            stages = config.dirt_stages if is_dirt else config.stages
+            if is_qualifier:
+                stages = config.qualifier_stages
+            elif is_dirt:
+                stages = config.dirt_stages
+            else:
+                stages = config.stages
 
             specs.append(
                 RoundSpec(
@@ -1056,14 +1109,47 @@ class AmongThemCommissioner(BaselineCommissioner):
         return specs
 
     def describe_division(self, ctx: DivisionDescriptionContext) -> DivisionCommissionerDescriptionPublic:
-        return (
-            super()
-            .describe_division(ctx)
-            .model_copy(
-                update={
-                    "scoring_mechanics": AMONG_THEM_SCORING_MECHANICS,
-                }
+        config = self._scheduling_config(ctx.league.commissioner_config)
+        is_qualifier = select_qualifier_division(ctx.league.commissioner_config, [ctx.division]) is not None
+        if is_qualifier:
+            minimum_entrants, stages, entrant_label = (
+                config.qualifiers_minimum_champions,
+                config.qualifier_stages,
+                "qualifying entrant",
             )
+        elif self._is_dirt_division(ctx.division, config):
+            minimum_entrants, stages, entrant_label = (
+                config.dirt_minimum_champions,
+                config.dirt_stages,
+                "champion entrant",
+            )
+        else:
+            minimum_entrants, stages, entrant_label = (
+                config.minimum_champions,
+                config.stages,
+                "champion entrant",
+            )
+
+        active_round = next((r for r in ctx.recent_rounds if r.status in ("pending", "claimed", "running")), None)
+        entrant_count = len(division_entrants(ctx.active_memberships, ctx.division, is_qualifier=is_qualifier))
+        next_round = None
+        if entrant_count < minimum_entrants:
+            needed = minimum_entrants - entrant_count
+            next_round = f"Add {needed} more {_plural_word(needed, entrant_label)} before scheduling can continue."
+        elif active_round is not None:
+            next_round = f"The next round waits for round #{active_round.round_number} to finish."
+
+        return DivisionCommissionerDescriptionPublic(
+            round_schedule=(
+                f"Rounds start every {_duration_text(config.schedule_interval_minutes)}"
+                f"{_schedule_slot_description(config)} if there are at least "
+                f"{_count_text(minimum_entrants)} {_plural_word(minimum_entrants, entrant_label)} "
+                "in the division."
+            ),
+            next_round=next_round,
+            round_structure=_round_structure_description(stages),
+            leaderboard_rules=_leaderboard_rules_description(),
+            scoring_mechanics=AMONG_THEM_SCORING_MECHANICS,
         )
 
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]:
@@ -1225,6 +1311,7 @@ def _current_division(round_start: CommissionerRoundStart) -> DivisionSnapshot:
                 name=match.name,
                 level=match.level,
                 league_id=round_start.league.id,
+                type=match.type,
             )
 
     membership_division_ids = {membership.division_id for membership in round_start.memberships}
@@ -1237,6 +1324,7 @@ def _current_division(round_start: CommissionerRoundStart) -> DivisionSnapshot:
                 name=match.name,
                 level=match.level,
                 league_id=round_start.league.id,
+                type=match.type,
             )
 
     if not round_start.divisions:
@@ -1247,6 +1335,7 @@ def _current_division(round_start: CommissionerRoundStart) -> DivisionSnapshot:
         name=division.name,
         level=division.level,
         league_id=round_start.league.id,
+        type=division.type,
     )
 
 
@@ -1260,6 +1349,7 @@ def _round_start_stage_config(round_start: CommissionerRoundStart) -> dict[str, 
         "num_episodes": config.get("num_episodes", 1),
         "min_episodes_per_entrant": config.get("min_episodes_per_entrant"),
         "mock_scores": config.get("mock_scores"),
+        "self_play": config.get("self_play", False),
     }
 
 

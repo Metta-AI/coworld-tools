@@ -170,6 +170,62 @@ def test_among_them_schedule_matches_current_wide_pool_examples() -> None:
     assert schedule.episodes[-1].policy_version_ids == [policy_version_ids[i] for i in (15, 0, 1, 2, 3, 4, 5, 6)]
 
 
+def test_self_play_pool_fills_each_episode_with_one_entrant() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    pool = PolicyPool(
+        id=uuid4(),
+        label="Round",
+        pool_type="round",
+        config={"num_episodes": 1, "min_episodes_per_entrant": 2, "self_play": True},
+    )
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+
+    schedule = BaselineCommissioner().schedule_episodes(pool=pool, entries=entries, num_agents=3, variant_id="default")
+
+    assert [episode.request_id for episode in schedule.episodes] == ["0", "1", "2", "3"]
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0], policy_version_ids[0], policy_version_ids[0]],
+        [policy_version_ids[0], policy_version_ids[0], policy_version_ids[0]],
+        [policy_version_ids[1], policy_version_ids[1], policy_version_ids[1]],
+        [policy_version_ids[1], policy_version_ids[1], policy_version_ids[1]],
+    ]
+
+
+def test_among_them_qualifier_schedule_uses_self_play_stage() -> None:
+    qualifier_id = uuid4()
+    response = schedule_rounds_for_request(
+        AmongThemCommissioner(),
+        ScheduleRoundsRequest(
+            league=LeagueInfo(
+                id=uuid4(),
+                commissioner_config={
+                    "minimum_champions": 4,
+                    "qualifiers_division_name": "Qualifiers",
+                    "qualifiers_minimum_champions": 1,
+                },
+            ),
+            divisions=[DivisionInfo(id=qualifier_id, name="Qualifiers", level=-1, type="staging")],
+            active_memberships=[
+                MembershipInfo(
+                    id=uuid4(),
+                    division_id=qualifier_id,
+                    policy_version_id=uuid4(),
+                    is_champion=False,
+                )
+            ],
+            recent_rounds=[],
+        ),
+    )
+
+    assert len(response.rounds) == 1
+    assert response.rounds[0].division_id == qualifier_id
+    assert response.rounds[0].round_config.stages is not None
+    assert response.rounds[0].round_config.stages[0].self_play is True
+
+
 def test_among_them_scoring_metadata_and_dirt_wood_changes() -> None:
     dirt_id = uuid4()
     wood_id = uuid4()
