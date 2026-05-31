@@ -15,3 +15,11 @@ entries:
     status: active
     owner: Metta-AI
     description: Among Them seat-rotation commissioner with Dirt/Wood graduation semantics.
+  - name: cogs-vs-clips-commissioner
+    source: commissioners/cogs_vs_clips/cogs_vs_clips_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/cogs_vs_clips/cogs_vs_clips_commissioner
+    image: ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest
+    target: cogs_vs_clips
+    status: active
+    owner: Metta-AI
+    description: Cogs vs Clips slot-balanced commissioner with mean-score rankings.

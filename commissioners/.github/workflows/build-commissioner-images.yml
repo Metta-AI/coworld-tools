@@ -33,6 +33,9 @@ jobs:
           - name: among-them-commissioner
             dockerfile: commissioners/among_them/among_them_commissioner/Dockerfile
             image: ghcr.io/metta-ai/commissioners-among-them-commissioner
+          - name: cogs-vs-clips-commissioner
+            dockerfile: commissioners/cogs_vs_clips/cogs_vs_clips_commissioner/Dockerfile
+            image: ghcr.io/metta-ai/commissioners-cogs-vs-clips
 
     steps:
       - uses: actions/checkout@v4

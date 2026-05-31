@@ -27,6 +27,7 @@ from commissioners.common.commissioners import (
     AMONG_THEM_SCORE_KIND,
     AmongThemCommissioner,
     BaselineCommissioner,
+    CogsVsClipsCommissioner,
     EpisodeResult,
     MembershipChange,
     OnRoundCompletedContext,
@@ -166,6 +167,32 @@ def test_among_them_schedule_matches_current_wide_pool_examples() -> None:
     ]
 
     schedule = AmongThemCommissioner().schedule_episodes(pool=pool, entries=entries, num_agents=8, variant_id="default")
+
+    assert len(schedule.episodes) == 16
+    assert schedule.episodes[0].policy_version_ids == [policy_version_ids[i] for i in (0, 1, 2, 3, 4, 5, 6, 7)]
+    assert schedule.episodes[1].policy_version_ids == [policy_version_ids[i] for i in (1, 2, 3, 4, 5, 6, 7, 8)]
+    assert schedule.episodes[-1].policy_version_ids == [policy_version_ids[i] for i in (15, 0, 1, 2, 3, 4, 5, 6)]
+
+
+def test_cogs_vs_clips_schedule_uses_slot_balanced_rotation() -> None:
+    policy_version_ids = [uuid4() for _ in range(16)]
+    pool = PolicyPool(
+        id=uuid4(),
+        label="Slot-balanced round",
+        pool_type="round",
+        config={"num_episodes": 1, "min_episodes_per_entrant": 8},
+    )
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+
+    schedule = CogsVsClipsCommissioner().schedule_episodes(
+        pool=pool,
+        entries=entries,
+        num_agents=8,
+        variant_id="default",
+    )
 
     assert len(schedule.episodes) == 16
     assert schedule.episodes[0].policy_version_ids == [policy_version_ids[i] for i in (0, 1, 2, 3, 4, 5, 6, 7)]

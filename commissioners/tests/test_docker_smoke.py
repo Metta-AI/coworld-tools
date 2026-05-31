@@ -22,6 +22,10 @@ IMAGES = [
         "commissioners-smoke-among-them",
         "commissioners/among_them/among_them_commissioner/Dockerfile",
     ),
+    (
+        "commissioners-smoke-cogs-vs-clips",
+        "commissioners/cogs_vs_clips/cogs_vs_clips_commissioner/Dockerfile",
+    ),
 ]
 
 
