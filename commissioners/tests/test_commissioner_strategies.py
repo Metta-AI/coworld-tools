@@ -53,11 +53,13 @@ def _round_start(
     commissioner_config: dict | None = None,
     division_name: str = "Bronze",
     division_id: UUID | None = None,
+    division_type: str = "competition",
     extra_divisions: list[DivisionInfo] | None = None,
+    state: dict | None = None,
 ) -> RoundStart:
     active_division_id = division_id or uuid4()
     divisions = [
-        DivisionInfo(id=active_division_id, name=division_name, level=0),
+        DivisionInfo(id=active_division_id, name=division_name, level=0, type=division_type),
         *(extra_divisions or []),
     ]
     return RoundStart(
@@ -84,6 +86,7 @@ def _round_start(
                 num_agents=num_agents,
             )
         ],
+        state=state,
     )
 
 
@@ -183,7 +186,7 @@ def test_self_play_pool_fills_each_episode_with_one_entrant() -> None:
         for index, policy_version_id in enumerate(policy_version_ids)
     ]
 
-    schedule = BaselineCommissioner().schedule_episodes(pool=pool, entries=entries, num_agents=3, variant_id="default")
+    schedule = AmongThemCommissioner().schedule_episodes(pool=pool, entries=entries, num_agents=3, variant_id="default")
 
     assert [episode.request_id for episode in schedule.episodes] == ["0", "1", "2", "3"]
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
@@ -194,7 +197,7 @@ def test_self_play_pool_fills_each_episode_with_one_entrant() -> None:
     ]
 
 
-def test_among_them_qualifier_schedule_uses_self_play_stage() -> None:
+def test_among_them_qualifier_schedule_does_not_expose_self_play_stage() -> None:
     qualifier_id = uuid4()
     response = schedule_rounds_for_request(
         AmongThemCommissioner(),
@@ -223,7 +226,42 @@ def test_among_them_qualifier_schedule_uses_self_play_stage() -> None:
     assert len(response.rounds) == 1
     assert response.rounds[0].division_id == qualifier_id
     assert response.rounds[0].round_config.stages is not None
-    assert response.rounds[0].round_config.stages[0].self_play is True
+    assert "self_play" not in response.rounds[0].round_config.stages[0].model_dump()
+
+
+def test_among_them_qualifier_round_start_restores_private_self_play() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=3,
+        commissioner_config={
+            "minimum_champions": 3,
+            "qualifiers_division_name": "Qualifiers",
+            "qualifiers_minimum_champions": 1,
+        },
+        division_name="Qualifiers",
+        division_type="staging",
+        state={
+            "round_config": {
+                "stages": [
+                    {
+                        "label": "Round",
+                        "num_episodes": 2,
+                        "min_episodes_per_entrant": 2,
+                    }
+                ]
+            }
+        },
+    )
+
+    schedule = schedule_episodes_for_round_start(AmongThemCommissioner(), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0], policy_version_ids[0], policy_version_ids[0]],
+        [policy_version_ids[0], policy_version_ids[0], policy_version_ids[0]],
+        [policy_version_ids[1], policy_version_ids[1], policy_version_ids[1]],
+        [policy_version_ids[1], policy_version_ids[1], policy_version_ids[1]],
+    ]
 
 
 def test_among_them_scoring_metadata_and_dirt_wood_changes() -> None:

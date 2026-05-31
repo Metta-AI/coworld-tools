@@ -914,24 +914,6 @@ class BaselineCommissioner(Commissioner):
         variant_id: str,
     ) -> CommissionerScheduleEpisodes:
         config = PoolConfig.model_validate(pool.config)
-        if config.self_play:
-            # Each entrant gets its own episodes with every seat filled by its own
-            # policy, so its score reflects only its own play, not its opponents'.
-            # min_episodes_per_entrant is the number of self-play episodes per entrant
-            # (not divided across seats, since each episode features one entrant).
-            episodes_per_entrant = config.min_episodes_per_entrant or config.num_episodes
-            episodes = [
-                CommissionerEpisodeRequest(
-                    request_id=str(entry_index * episodes_per_entrant + episode_index),
-                    variant_id=variant_id,
-                    policy_version_ids=[entry.policy_version_id] * num_agents,
-                    tags={"pool_id": str(pool.id)},
-                )
-                for entry_index, entry in enumerate(entries)
-                for episode_index in range(episodes_per_entrant)
-            ]
-            return CommissionerScheduleEpisodes(episodes=episodes)
-
         num_episodes = _pool_episode_count(
             config=config,
             num_entries=len(entries),
@@ -1173,6 +1155,24 @@ class AmongThemCommissioner(BaselineCommissioner):
     ) -> CommissionerScheduleEpisodes:
         config = PoolConfig.model_validate(pool.config)
 
+        if config.self_play:
+            # Each entrant gets its own episodes with every seat filled by its own
+            # policy, so its score reflects only its own play, not its opponents'.
+            # min_episodes_per_entrant is the number of self-play episodes per entrant
+            # (not divided across seats, since each episode features one entrant).
+            episodes_per_entrant = config.min_episodes_per_entrant or config.num_episodes
+            episodes = [
+                CommissionerEpisodeRequest(
+                    request_id=str(entry_index * episodes_per_entrant + episode_index),
+                    variant_id=variant_id,
+                    policy_version_ids=[entry.policy_version_id] * num_agents,
+                    tags={"pool_id": str(pool.id)},
+                )
+                for entry_index, entry in enumerate(entries)
+                for episode_index in range(episodes_per_entrant)
+            ]
+            return CommissionerScheduleEpisodes(episodes=episodes)
+
         num_episodes = _pool_episode_count(
             config=config,
             num_entries=len(entries),
@@ -1339,22 +1339,39 @@ def _current_division(round_start: CommissionerRoundStart) -> DivisionSnapshot:
     )
 
 
-def _round_start_stage_config(round_start: CommissionerRoundStart) -> dict[str, Any]:
+def _round_start_stage_config(
+    round_start: CommissionerRoundStart,
+    commissioner: Commissioner | None = None,
+) -> dict[str, Any]:
     config = _round_start_config(round_start)
     stages = config.get("stages")
     if isinstance(stages, list) and stages:
         stage = V2StageConfig.model_validate(stages[0])
-        return stage.model_dump(mode="json")
-    return {
-        "num_episodes": config.get("num_episodes", 1),
-        "min_episodes_per_entrant": config.get("min_episodes_per_entrant"),
-        "mock_scores": config.get("mock_scores"),
-        "self_play": config.get("self_play", False),
-    }
+        stage_config = stage.model_dump(mode="json")
+    else:
+        stage_config = {
+            "num_episodes": config.get("num_episodes", 1),
+            "min_episodes_per_entrant": config.get("min_episodes_per_entrant"),
+            "mock_scores": config.get("mock_scores"),
+            "self_play": config.get("self_play", False),
+        }
+    if isinstance(commissioner, AmongThemCommissioner):
+        qualifier_division = select_qualifier_division(
+            round_start.league.commissioner_config,
+            _round_start_divisions(round_start),
+        )
+        if qualifier_division is not None and _current_division(round_start).id == qualifier_division.id:
+            scheduling_config = commissioner._scheduling_config(round_start.league.commissioner_config)
+            qualifier_stage = (scheduling_config.qualifier_stages or [AMONG_THEM_QUALIFIER_STAGE])[0]
+            stage_config["self_play"] = qualifier_stage.self_play
+    return stage_config
 
 
-def _round_start_pool(round_start: CommissionerRoundStart) -> PolicyPool:
-    stage_config = _round_start_stage_config(round_start)
+def _round_start_pool(
+    round_start: CommissionerRoundStart,
+    commissioner: Commissioner | None = None,
+) -> PolicyPool:
+    stage_config = _round_start_stage_config(round_start, commissioner)
     return PolicyPool(
         id=round_start.round_id,
         label=str(stage_config.get("label") or "Round"),
@@ -1464,7 +1481,7 @@ def schedule_episodes_for_round_start(
 ) -> CommissionerScheduleEpisodes:
     variant_id, num_agents = _round_start_variant(round_start)
     return commissioner.schedule_episodes(
-        pool=_round_start_pool(round_start),
+        pool=_round_start_pool(round_start, commissioner),
         entries=_round_start_entries(round_start),
         num_agents=num_agents,
         variant_id=variant_id,
@@ -1510,7 +1527,7 @@ def complete_round_for_round_start(
         for index, result in enumerate(episode_results)
     ]
     round_row = _round_start_round(round_start)
-    pool = _round_start_pool(round_start)
+    pool = _round_start_pool(round_start, commissioner)
     entries = _round_start_entries(round_start)
     complete = commissioner.complete_round(
         round_row=round_row,
