@@ -1,13 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env sh
+set -eu
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${IMAGE:-among-them-commissioner:latest}"
-PLATFORM="${PLATFORM:-linux/amd64}"
-
-exec docker build \
-  --platform "${PLATFORM}" \
-  -f "${HERE}/Dockerfile" \
-  -t "${IMAGE}" \
-  "${HERE}" \
-  "$@"
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
+docker build \
+  -f "$repo_root/commissioners/among_them/among_them_commissioner/Dockerfile" \
+  -t ghcr.io/metta-ai/commissioners-among-them-commissioner:latest \
+  "$repo_root"

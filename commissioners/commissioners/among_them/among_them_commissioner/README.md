@@ -1,40 +1,26 @@
 # Among Them Commissioner
 
-Reference home for the Among Them Coworld commissioner.
+Runnable reference commissioner for the Among Them Coworld.
 
-The hosted commissioner currently lives in Observatory's backend as
-`AmongThemCommissioner`, registered with `commissioner_key="among_them"`.
-This directory gives the Coworld manifest a canonical role-repo location while
-the platform protocol remains the source of truth for hosted tournament
-scheduling, ranking, and division movement.
+## Behavior
 
-Metta source:
+- `GET /healthz` returns `200`.
+- `WEBSOCKET /round` accepts `round_start`, schedules episodes, collects `episode_result` messages, and emits `round_complete`.
+- Entrants rotate through every seat using the current Observatory Among Them schedule: episode `n` starts with entrant `n`, then fills consecutive seats modulo the entrant count.
+- Scores are averaged from the game-reported `episode_result.scores`.
+- Result metadata uses `score_kind=mean_round_score` and `version=2`, matching the hosted commissioner.
+- Dirt/Wood movement is emitted through `graduation_changes`: average score `> 0` moves a policy to Wood, average score `<= 0` moves it to Dirt.
 
-```text
-app_backend/src/metta/app_backend/v2/commissioners.py
+The Coworld commissioner protocol source of truth remains in `Metta-AI/metta` at `packages/coworld/src/coworld/commissioner/protocol.py`.
+
+## Local run
+
+```sh
+uvicorn commissioners.among_them.among_them_commissioner.among_them_commissioner:app --host 0.0.0.0 --port 8080
 ```
-
-## Runtime Contract
-
-Commissioners decide what episodes to schedule in a tournament, how rankings
-change from completed episodes, and how players move between divisions. Custom
-third-party commissioner containers are not yet a public extension point; this
-starter emits a descriptor for local tooling and manifest validation.
-
-Required environment variables:
-
-- `COGAME_COMMISSIONER_OUTPUT_URI`: destination URI for the descriptor JSON.
-
-Optional environment variables:
-
-- `COGAME_MANIFEST_URI`: Coworld manifest JSON.
-- `COGAME_LEAGUE_STATE_URI`: current league state JSON.
-
-URI values may be `file://` paths, plain local paths, or `http(s)://` URLs.
-HTTP outputs are written with `PUT`.
 
 ## Build
 
-```bash
-./build.sh
+```sh
+./commissioners/among_them/among_them_commissioner/build.sh
 ```

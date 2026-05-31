@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from commissioners.common.commissioners import AmongThemCommissioner
+from commissioners.common.commissioners import BaselineCommissioner
 from commissioners.common.server import create_app
 
-app = create_app(AmongThemCommissioner())
+app = create_app(BaselineCommissioner())
 
 
 def main() -> None:
