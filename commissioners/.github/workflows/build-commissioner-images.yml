@@ -50,10 +50,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::12}"
+          CONTENT_TAG="${{ matrix.image }}:coworld-${SHORT_SHA}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "tags=${{ matrix.image }}:pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${CONTENT_TAG},${{ matrix.image }}:latest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "content_tag=${CONTENT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ matrix.image }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Output pinned image URIs
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "content tag: ${{ steps.tags.outputs.content_tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest:      ${{ matrix.image }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

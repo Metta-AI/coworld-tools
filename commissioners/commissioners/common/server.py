@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from commissioners.common.commissioners import (
-    Commissioner,
+from commissioners.common.commissioners import Commissioner
+from commissioners.common.adapters import (
     complete_round_for_round_start,
     describe_division_for_request,
     rank_division_for_request,
