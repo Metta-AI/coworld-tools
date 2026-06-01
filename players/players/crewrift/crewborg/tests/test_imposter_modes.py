@@ -22,62 +22,78 @@ def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "
 # --------------------------------------------------------------------------- #
 
 
-def test_hunt_targets_nearest_isolated_player() -> None:
+def test_hunt_strikes_a_victim_in_range_and_unwitnessed() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
-    _visible(belief, 1004, (120, 100), color="green")  # near, far from 1007 ⇒ isolated
-    _visible(belief, 1007, (600, 600), color="blue")  # far, isolated
+    _visible(belief, 1004, (108, 100), color="green")  # 8px away (<KillRange), alone
     intent = HuntMode().decide(belief, ActionState())
     assert intent.kind == "kill" and intent.target_id == 1004
 
 
-def test_hunt_idles_with_no_target_in_view() -> None:
+def test_hunt_stalks_a_distant_victim() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
-    _visible(belief, 1004, (120, 100), tick=1)  # an earlier-tick sighting is not "in view"
+    _visible(belief, 1004, (300, 100), color="green")  # far ⇒ close in, don't kill
+    intent = HuntMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point[0] > 100  # heading toward the victim
+
+
+def test_hunt_idles_with_no_victim_in_view() -> None:
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
+    _visible(belief, 1004, (120, 100), tick=1)  # earlier-tick sighting only ⇒ nothing to commit to
     assert HuntMode().decide(belief, ActionState()).kind == "idle"
 
 
 def test_hunt_skips_teammates() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
     belief.teammate_colors = {"red"}
-    _visible(belief, 1004, (110, 100), color="red")  # teammate — never a target
+    _visible(belief, 1004, (108, 100), color="red")  # teammate — never a victim
     assert HuntMode().decide(belief, ActionState()).kind == "idle"
 
-    _visible(belief, 1007, (140, 100), color="green")  # an isolated crewmate is killable
+    _visible(belief, 1007, (108, 100), color="green")  # an in-range crewmate is killable
     intent = HuntMode().decide(belief, ActionState())
     assert intent.kind == "kill" and intent.target_id == 1007
 
 
-def test_hunt_waits_when_targets_are_clustered() -> None:
-    # Two crewmates standing together: neither kill is unwitnessed, and with no
-    # urgency yet Hunt holds off rather than killing in front of a witness.
+def test_hunt_lies_in_wait_when_a_witness_is_near() -> None:
+    # Victim in range but a witness beside it (zero urgency) ⇒ shadow, don't fire.
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5, self_kill_ready=True)
-    _visible(belief, 1004, (120, 100), color="green")
-    _visible(belief, 1005, (130, 100), color="blue")  # 10px from 1004 ⇒ witnesses each other
-    assert HuntMode().decide(belief, ActionState()).kind == "idle"
+    _visible(belief, 1004, (108, 100), color="green")
+    _visible(belief, 1005, (110, 100), color="blue")  # witness next to the victim
+    intent = HuntMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to"  # lying in wait, not killing
 
 
-def test_hunt_takes_a_clustered_target_under_urgency() -> None:
-    # Same cluster, but long kill-ready without a kill ⇒ the isolation bar has
-    # relaxed to zero and Hunt takes the nearest reachable target anyway.
+def test_hunt_strikes_a_witnessed_victim_under_full_urgency() -> None:
     belief = Belief(
-        self_world_x=100, self_world_y=100, last_tick=300,
-        self_kill_ready=True, kill_ready_since_tick=0,
+        self_world_x=100, self_world_y=100, last_tick=300, self_kill_ready=True, kill_ready_since_tick=0,
     )
-    _visible(belief, 1004, (120, 100), color="green")
-    _visible(belief, 1005, (130, 100), color="blue")
+    _visible(belief, 1004, (108, 100), color="green")
+    _visible(belief, 1005, (110, 100), color="blue")  # witness ignored at full urgency
     intent = HuntMode().decide(belief, ActionState())
     assert intent.kind == "kill" and intent.target_id == 1004
 
 
-def test_hunt_prefers_reachable_over_unreachable_isolated() -> None:
+def test_hunt_commits_to_one_victim_across_ticks() -> None:
+    # Once committed, Hunt keeps the same victim even as another comes closer.
+    mode = HuntMode()
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
+    _visible(belief, 1004, (300, 100), color="green")
+    mode.decide(belief, ActionState())  # commits to 1004
+    assert mode._victim_id == 1004
+    _visible(belief, 1009, (140, 100), color="white")  # a nearer crewmate appears
+    mode.decide(belief, ActionState())
+    assert mode._victim_id == 1004  # still committed to the first victim
+
+
+def test_hunt_prefers_reachable_victim() -> None:
     mask = np.ones((24, 120), dtype=bool)
     mask[:, 56:64] = False  # wall splits the map; right side is unreachable from the left
     belief = Belief(self_world_x=8, self_world_y=12, last_tick=5)
     belief.nav = build_nav_graph(mask, cell_size=8)
-    _visible(belief, 1001, (110, 12), color="green")  # right side: isolated but UNREACHABLE
-    _visible(belief, 1002, (10, 12), color="blue")  # left: reachable and isolated
-    intent = HuntMode().decide(belief, ActionState())
-    assert intent.kind == "kill" and intent.target_id == 1002  # not the unreachable 1001
+    _visible(belief, 1001, (110, 12), color="green")  # right side: UNREACHABLE
+    _visible(belief, 1002, (10, 12), color="blue")  # left: reachable
+    mode = HuntMode()
+    mode.decide(belief, ActionState())
+    assert mode._victim_id == 1002  # committed to the reachable one, not 1001
 
 
 # --------------------------------------------------------------------------- #

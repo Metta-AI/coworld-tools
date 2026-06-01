@@ -16,18 +16,19 @@ Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
 2. just killed → Evade
-3. kill ready + a subtle kill opportunity (an isolated, reachable crewmate) → Hunt
+3. kill ready + a trackable victim → Hunt (commit to a victim, stalk it, strike when isolated)
 4. otherwise → Pretend (blend in: follow the crew, fake tasks, wander rooms when none in sight)
 
-Crucially (3) does **not** fire the instant the kill comes off cooldown: it waits
-for an actual opening (``strategy.opportunity.kill_opportunity``), whose isolation
-bar relaxes with urgency. So a kill-ready imposter keeps blending in via Pretend
-until killing would be effective and subtle.
+(3) fires whenever the kill is ready and some crewmate is trackable — Hunt then
+*stalks* the chosen victim and only fires the kill when it would go unwitnessed
+(``strategy.opportunity``), the witness bar relaxing with urgency. When no crewmate
+is trackable (e.g. none seen recently), the imposter stays in Pretend and wanders to
+find the crew.
 """
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.strategy.opportunity import kill_opportunity
+from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim
 from players.crewrift.crewborg.types import ActionState, Belief
 from players.player_sdk import ModeDirective
 from players.player_sdk.types import BeliefSnapshot
@@ -72,12 +73,12 @@ class RuleBasedStrategy:
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
         # Imposter priority (design §10): just killed -> Evade; kill ready *and* a
-        # subtle opening -> Hunt; otherwise -> Pretend (blend in: follow the crew,
-        # fake tasks, and wander rooms when none are in sight).
+        # victim is trackable -> Hunt (commit + stalk + strike when isolated);
+        # otherwise -> Pretend (blend in: follow the crew, fake tasks, wander rooms).
         if belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS:
             return ModeDirective(mode="evade", source="strategy", reason="just killed: lay low")
-        if belief.self_kill_ready and kill_opportunity(belief) is not None:
-            return ModeDirective(mode="hunt", source="strategy", reason="kill opportunity: hunt")
+        if belief.self_kill_ready and has_trackable_victim(belief):
+            return ModeDirective(mode="hunt", source="strategy", reason="kill ready: stalk a victim")
         return ModeDirective(mode="pretend", source="strategy", reason="blend in")
 
 

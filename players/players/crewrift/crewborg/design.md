@@ -363,7 +363,7 @@ re-decides.
 | Mode | Active when | Intents emitted |
 |---|---|---|
 | **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
-| **Hunt** | kill ready *and* a subtle opening exists | `kill(target)` — the nearest reachable, isolated crewmate (`strategy.opportunity`); the action layer navigates and edge-presses A in range |
+| **Hunt** | kill ready *and* a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); `kill` when in KillRange *and* unwitnessed, else keep shadowing (lie in wait) |
 | **Evade** | just killed | brief (`EVADE_TICKS`) and **local**: `escape(point)` to a reachable point just outside the body's immediate vicinity (≈ `EVADE_RADIUS`), then back to Pretend — *not* the globally furthest point, which stranded the imposter away from the crew. Routes via the vent-aware graph (a short hop won't take a far teleport) |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, `vote(choice)` — bluff/deflect |
 
@@ -427,11 +427,14 @@ target**; a *different* visible crewmate is picked up at the next DISPATCH.
 "Random" crewmate/room choices are **arbitrary-but-deterministic** (nearest crewmate;
 round-robin rooms) — no RNG — so runs are reproducible.
 
-**Hunt is opportunity-gated, not cooldown-gated.** Being able to kill does not by
-itself pull the imposter out of blending in — Hunt runs only when an *unwitnessed*
-kill is available. The isolation bar relaxes with urgency (how long we have been
-able to kill without doing so), so a perpetually-cautious imposter still escalates
-to a riskier kill rather than never killing (§10).
+**Hunt stalks; it doesn't wait for a perfect opening.** Whenever the kill is ready
+and a crewmate is trackable, Hunt commits to a victim and shadows it — leading its
+motion to close range — and fires only when the kill would go **unwitnessed**.
+Holding off the *kill* (not the *stalk*) until the victim isolates is what
+manufactures kills: the imposter is already next to the straggler when it peels off.
+The witness bar relaxes with urgency (how long we have been able to kill without
+doing so), so a perpetually-shadowed kill still eventually fires rather than never
+(§10). It commits to **one** victim until it's killed or lost (re-picking otherwise).
 
 ### 7.3 Division of labour
 
@@ -445,12 +448,12 @@ opened, target dead — and changes the intent. A ghost crewmate keeps Normal mo
 Mode-level enhancements to keep in view: arrow-bearing **task triangulation** under
 arrows-only; **travelling-salesman** task ordering over the nav graph; **safety in
 numbers** (prefer routes/tasks near other crewmates); **strategic flee targets**
-(toward a trusted player / the button / a sightline-breaking corner);
-**trajectory prediction** from the roster sighting trail (lead a moving target for
-the kill, predict where the crew is heading rather than where they were);
-**imposter target selection / coordination** (commit to stalking a chosen straggler;
-fan the two imposters apart) — both deliberately dropped from the simplified Pretend
-FSM above and worth revisiting once the basics play well.
+(toward a trusted player / the button / a sightline-breaking corner); **imposter
+coordination** (fan the two imposters onto different victims/areas rather than both
+stalking one); **shadow the committed victim while the kill recharges** (Hunt's
+commitment currently lives only while kill-ready; during cooldown the imposter
+Pretends generically). Victim commitment, the most-isolated-straggler pick, and
+trajectory-led interception are now implemented (Hunt, `strategy.trajectory`).
 
 ---
 
@@ -559,19 +562,20 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 
 1. phase = `Voting` → **Attend Meeting**
 2. just killed (within `EVADE_TICKS`) → **Evade**
-3. kill ready **and** a subtle kill opportunity exists → **Hunt**
+3. kill ready **and** a victim is trackable → **Hunt** (commit + stalk + strike when isolated)
 4. otherwise → **Pretend** (whose own FSM follows a crewmate, fakes tasks, and
    wanders rooms when none are in sight — see §7.2; it never idles)
 
-(3) is gated on `strategy.opportunity.kill_opportunity`, *not* merely on the kill
-being off cooldown: it returns the nearest reachable, **unwitnessed** crewmate in
-view, or `None`. The selector and Hunt share that one function so they never
-disagree about whether a kill is on. The isolation bar relaxes with **urgency** —
-`last_tick − kill_ready_since_tick`, how long we have been able to kill without
-doing so — shrinking the required clearance radius and the witness-staleness window
-to zero by `URGENCY_FULL_TICKS`, at which point any reachable visible target
-qualifies. This is the "always be killing, but subtly" behaviour: blend in until an
-effective kill is available, and grow less picky the longer an opening is denied.
+(3) fires whenever the kill is ready and *any* crewmate is trackable
+(`has_trackable_victim` — seen within `TRACK_WINDOW_TICKS`); Hunt then commits to a
+victim and stalks it (§7.2), firing the kill only when it would go **unwitnessed**.
+The witness bar relaxes with **urgency** — `last_tick − kill_ready_since_tick`, how
+long we have been able to kill without doing so — shrinking the required clearance
+radius and the witness-staleness window to zero by `URGENCY_FULL_TICKS`, at which
+point the imposter strikes regardless of witnesses. This is the "always be killing,
+but subtly" behaviour: a kill-ready imposter is *always* stalking, but holds the
+actual kill until the victim isolates (growing less picky the longer it's denied).
+When no crewmate is trackable it stays in Pretend and wanders to find the crew.
 (`crew_tasks_remaining`-based escalation was considered and dropped — the imposter
 acts with constant urgency rather than only near a task win.)
 
@@ -642,6 +646,7 @@ structural, and each still awaits tuning against a live server.
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Evade flee distance | leave the body's vicinity by ≈ `EVADE_RADIUS = 128` px (local, not the farthest point), for `EVADE_TICKS = 72` |
 | Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
+| Hunt victim tracking | stalk a victim seen within `TRACK_WINDOW_TICKS = 120`; lead its motion up to `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
 
 ---
 
