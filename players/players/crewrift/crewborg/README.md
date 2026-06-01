@@ -7,15 +7,18 @@ as a Docker image the Coworld runner launches.
 
 - **Design spec:** [`design.md`](./design.md) — the settled architecture.
 - **Orientation:** [`AGENTS.md`](./AGENTS.md) — codebases, protocol, source pointers.
+- **Design docs:** [`docs/designs/`](./docs/designs/) — living deep-dives, e.g.
+  [`suspicion.md`](./docs/designs/suspicion.md) (the Bayesian model + likelihood-ratio
+  table + how we learn/improve the weights).
 
 ## What it does
 
 Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
-meetings, votes, reports bodies, and flees believed imposters — a deliberately
-narrow suspicion model (`strategy/suspicion.py`) flags only **near-certain**
-evidence (a witnessed kill or a witnessed vent, detected from frame-to-frame
-transitions on the perception tape) and fills `believed_imposters`, with reporting
-a visible body taking priority over fleeing. As an imposter the
+meetings, votes, reports bodies, and flees believed imposters — a **Bayesian
+suspicion model** (`strategy/suspicion.py`) maintains a posterior `P(imposter)` per
+player (a combinatorial prior updated by likelihood ratios for witnessed kills/vents
+and graded event-log cues) and flees anyone over a probability threshold, with
+reporting a visible body taking priority over fleeing. As an imposter the
 role-aware selector runs a priority order during `Playing`: **Evade** (just killed
 → brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
 *and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
@@ -39,7 +42,7 @@ crewborg/
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade (+ imposter_common helpers)
-  strategy/          rule_based.py: mode selector + suspicion.py: near-certain imposter detection → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
+  strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
