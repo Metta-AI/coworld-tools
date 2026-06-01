@@ -11,6 +11,10 @@ from typing import TYPE_CHECKING
 
 from players.crewrift.crewborg.perception.constants import (
     BODY_OBJECT_BASE,
+    CHAT_ICON_OBJECT_BASE,
+    CHAT_ICON_OBJECT_LIMIT,
+    CHAT_TEXT_OBJECT_BASE,
+    CHAT_TEXT_OBJECT_LIMIT,
     ENTITY_COLLISION_DX,
     ENTITY_COLLISION_DY,
     LABEL_GHOST_ICON,
@@ -31,15 +35,19 @@ from players.crewrift.crewborg.perception.constants import (
     PREFIX_TASK_COUNTER,
     PREFIX_VOTE_DOT,
     PREFIX_VOTE_SELF_MARKER,
+    RESULT_ICON_OBJECT_ID,
     ROLE_ICON_OBJECT_BASE,
     SELF_OFFSET_X,
     SELF_OFFSET_Y,
     TASK_ARROW_OBJECT_BASE,
     TASK_BUBBLE_OBJECT_BASE,
     VOTE_DOT_OBJECT_BASE,
+    VOTE_ICON_OBJECT_BASE,
 )
 from players.crewrift.crewborg.perception.entities import (
     SKIP_VOTE_TARGET,
+    CensusEntry,
+    ChatLine,
     ResolvedScene,
     TaskSignal,
     VisibleBody,
@@ -47,6 +55,11 @@ from players.crewrift.crewborg.perception.entities import (
     VoteDot,
     VotingState,
 )
+
+# A chat speaker icon is matched to the text line whose screen-y is nearest, within
+# this tolerance (px). The icon is vertically centered on its (possibly multi-line)
+# message, so its y can sit a few px below the text's top.
+CHAT_ICON_TEXT_Y_TOLERANCE = 32
 
 if TYPE_CHECKING:
     from players.crewrift.crewborg.coworld.scene import SceneState
@@ -84,6 +97,12 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     cursor = skip_cursor = timer = False
     self_marker_color: str | None = None
     reveal_colors: set[str] = set()
+    census: list[CensusEntry] = []
+    ejected_color: str | None = None
+    # Chat is paired after the loop: collect candidate text lines (screen-y → text)
+    # and speaker icons (screen-y → color), then match each icon to its line by y.
+    chat_text_rows: list[tuple[int, str]] = []
+    chat_icon_rows: list[tuple[int, str]] = []
 
     for object_id, obj in scene.objects.items():
         sprite = scene.sprites.get(obj.sprite_id)
@@ -102,6 +121,28 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             continue
         if label == LABEL_GHOST_ICON:
             self_role = "dead"
+            continue
+
+        # Social UI on the voting / vote-result screens, dispatched by id range.
+        if CHAT_TEXT_OBJECT_BASE <= object_id < CHAT_TEXT_OBJECT_LIMIT:
+            # Shared with phase/HUD text: keep as a chat-text candidate but fall
+            # through so genuine phase texts still reach the PHASE_TEXTS branch.
+            chat_text_rows.append((obj.y, label))
+        elif CHAT_ICON_OBJECT_BASE <= object_id < CHAT_ICON_OBJECT_LIMIT:
+            if label.startswith(PREFIX_PLAYER):
+                color, _ = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
+                chat_icon_rows.append((obj.y, color))
+            continue
+        elif VOTE_ICON_OBJECT_BASE <= object_id < VOTE_ICON_OBJECT_BASE + MAX_PLAYERS:
+            if label.startswith(PREFIX_PLAYER):
+                color, _ = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
+                census.append(CensusEntry(color=color, alive=True))
+            elif label.startswith(PREFIX_BODY):
+                census.append(CensusEntry(color=label[len(PREFIX_BODY) :], alive=False))
+            continue
+        elif object_id == RESULT_ICON_OBJECT_ID:
+            if label.startswith(PREFIX_PLAYER):
+                ejected_color, _ = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
             continue
 
         if label == LABEL_VOTE_CURSOR:
@@ -179,6 +220,7 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
 
     self_world_x = camera_x + SELF_OFFSET_X if scene.camera_ready else None
     self_world_y = camera_y + SELF_OFFSET_Y if scene.camera_ready else None
+    chat_lines = _pair_chat(chat_icon_rows, chat_text_rows)
 
     return ResolvedScene(
         tick=tick,
@@ -203,4 +245,36 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
         ),
         phase_texts=frozenset(phase_texts),
         reveal_player_colors=frozenset(reveal_colors),
+        chat_lines=chat_lines,
+        census=tuple(census),
+        ejected_color=ejected_color,
     )
+
+
+def _pair_chat(
+    icon_rows: list[tuple[int, str]], text_rows: list[tuple[int, str]]
+) -> tuple[ChatLine, ...]:
+    """Match each chat speaker icon to the text line at the nearest screen-y.
+
+    Anchoring on the icon range (exclusively chat) keeps phase/HUD text in the
+    shared 9000 range from being mistaken for chat: a text line is only emitted
+    when an icon sits within ``CHAT_ICON_TEXT_Y_TOLERANCE`` of it. Each text line is
+    consumed at most once, so stacked messages map one-to-one to their speakers.
+    """
+
+    lines: list[ChatLine] = []
+    used: set[int] = set()
+    for icon_y, color in sorted(icon_rows):
+        best: int | None = None
+        best_dy = CHAT_ICON_TEXT_Y_TOLERANCE + 1
+        for i, (text_y, _text) in enumerate(text_rows):
+            if i in used:
+                continue
+            dy = abs(text_y - icon_y)
+            if dy < best_dy:
+                best, best_dy = i, dy
+        if best is None:
+            continue
+        used.add(best)
+        lines.append(ChatLine(speaker_color=color, text=text_rows[best][1]))
+    return tuple(lines)

@@ -21,19 +21,19 @@ class FleeMode(Mode[Belief, ActionState, Intent]):
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
         del action_state
-        threats = [pid for pid in belief.believed_imposters if pid in belief.roster]
+        threats = [color for color in belief.believed_imposters if color in belief.roster]
         if not threats:
             return Intent(kind="idle", reason="no believed threat present")
         if belief.self_world_x is None or belief.self_world_y is None:
             target = min(threats)
         else:
             self_xy = (belief.self_world_x, belief.self_world_y)
-            target = min(threats, key=lambda p: _dist2(self_xy, _player_xy(belief, p)))
-        return Intent(kind="flee_from", target_id=target, reason="fleeing believed imposter")
+            target = min(threats, key=lambda c: _dist2(self_xy, _player_xy(belief, c)))
+        return Intent(kind="flee_from", target_color=target, reason="fleeing believed imposter")
 
 
-def _player_xy(belief: Belief, player_id: int) -> tuple[int, int]:
-    entry = belief.roster[player_id]
+def _player_xy(belief: Belief, color: str) -> tuple[int, int]:
+    entry = belief.roster[color]
     return entry.world_x, entry.world_y
 
 

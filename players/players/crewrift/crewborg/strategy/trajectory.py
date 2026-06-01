@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from players.crewrift.crewborg.types import RosterEntry
+from players.crewrift.crewborg.types import PlayerRecord
 
 Point = tuple[int, int]
 
@@ -24,7 +24,7 @@ AGENT_SPEED_PX = 3.0
 MAX_LEAD_TICKS = 24
 
 
-def velocity(entry: RosterEntry) -> tuple[float, float]:
+def velocity(entry: PlayerRecord) -> tuple[float, float]:
     """Per-tick velocity from the player's two most recent sightings, or ``(0, 0)``.
 
     Returns zero when there is no usable pair (too few sightings, or a gap wider than
@@ -47,7 +47,7 @@ def lead_ticks(self_xy: Point, target_xy: Point) -> int:
     return min(MAX_LEAD_TICKS, int(math.dist(self_xy, target_xy) / AGENT_SPEED_PX))
 
 
-def predict(entry: RosterEntry, lead: int) -> Point:
+def predict(entry: PlayerRecord, lead: int) -> Point:
     """The player's last-known position extrapolated ``lead`` ticks along its velocity.
 
     A stationary target (no usable velocity) predicts to its current position, so

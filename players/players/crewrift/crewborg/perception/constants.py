@@ -30,6 +30,27 @@ TASK_ARROW_OBJECT_BASE = 7000
 # "player <color>" sprites — so these reveal the imposter team.
 ROLE_ICON_OBJECT_BASE = 9500
 
+# Voting-screen social UI, rendered as labeled sprites only during Voting /
+# VoteResult (global.nim:94-104). These id ranges are disjoint from the in-world
+# player/body ranges (1000/2000), so the same "player <color>" / "body <color>"
+# labels never collide with live-world entities.
+#
+# Chat text and interstitial/HUD text SHARE the 9000 range (both are
+# ProtocolTextObjectBase + index), so chat lines cannot be told apart by id alone.
+# Instead we anchor on the chat *icon* range (exclusively chat) and pair each icon
+# to the text line at the same screen-y (global.nim:739-810).
+CHAT_TEXT_OBJECT_BASE = 9000  # chat line text sprite; label = the raw message text
+CHAT_TEXT_OBJECT_LIMIT = 9200
+CHAT_ICON_OBJECT_BASE = 9200  # chat speaker icon; "player <color> <facing>" sprite
+CHAT_ICON_OBJECT_LIMIT = 9300
+# Voting candidate grid: one cell per player, "player <color>" if alive or
+# "body <color>" if dead — an authoritative alive/dead census by color, every
+# meeting (global.nim:1124-1167). Object id = base + players-seq index.
+VOTE_ICON_OBJECT_BASE = 9300
+# Vote-result interstitial: a single icon for the ejected player, "player <color>
+# <facing>" (global.nim:1257-1280). Absent when the vote skipped (no one ejected).
+RESULT_ICON_OBJECT_ID = 9600
+
 VOTE_DOT_OBJECT_BASE = 10100
 # Skip votes use a SEPARATE base and the same "vote dot <color>" sprite: object id
 # is VOTE_SKIP_DOT_OBJECT_BASE + voter (global.nim:95,1212). Split by id range.

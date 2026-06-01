@@ -9,7 +9,7 @@ so the mode stays focused on its state machine.
 from __future__ import annotations
 
 from players.crewrift.crewborg.map.types import Room
-from players.crewrift.crewborg.types import Belief, RosterEntry
+from players.crewrift.crewborg.types import Belief, PlayerRecord
 
 Point = tuple[int, int]
 
@@ -69,11 +69,13 @@ def task_point(belief: Belief, index: int) -> Point:
     return task.center.x, task.center.y
 
 
-def visible_crew(belief: Belief) -> list[RosterEntry]:
-    """Non-teammate players seen this very tick (the candidates to follow)."""
+def visible_crew(belief: Belief) -> list[PlayerRecord]:
+    """Live non-teammate players seen this very tick (the candidates to follow)."""
 
     return [
         e
         for e in belief.roster.values()
-        if e.last_seen_tick == belief.last_tick and e.color not in belief.teammate_colors
+        if e.last_seen_tick == belief.last_tick
+        and e.color not in belief.teammate_colors
+        and e.life_status != "dead"
     ]

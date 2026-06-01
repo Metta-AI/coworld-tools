@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from players.crewrift.crewborg.modes import AttendMeetingMode, FleeMode, ReportBodyMode
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, RosterEntry
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, PlayerRecord
 
 
 def test_attend_meeting_chats_once_then_votes() -> None:
@@ -31,12 +31,13 @@ def test_report_body_idles_with_no_body_in_view() -> None:
 
 def test_flee_targets_believed_imposter_and_is_dormant_when_empty() -> None:
     belief = Belief(self_world_x=100, self_world_y=100)
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="red", facing="left", world_x=120, world_y=100, last_seen_tick=1
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004, color="red", facing="left", world_x=120, world_y=100, last_seen_tick=1,
+        life_status="alive",
     )
     # Empty evidence stub ⇒ dormant.
     assert FleeMode().decide(belief, ActionState()).kind == "idle"
     # Once a believed imposter exists, flee from it.
-    belief.believed_imposters = {1004}
+    belief.believed_imposters = {"red"}
     intent = FleeMode().decide(belief, ActionState())
-    assert intent.kind == "flee_from" and intent.target_id == 1004
+    assert intent.kind == "flee_from" and intent.target_color == "red"

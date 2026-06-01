@@ -20,7 +20,7 @@ from players.crewrift.crewborg.action import (
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.nav import build_nav_graph
 from players.crewrift.crewborg.perception.entities import VotingState
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, RosterEntry
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, PlayerRecord
 
 
 def _one_task_map() -> MapData:
@@ -250,17 +250,19 @@ def test_chat_emitted_once() -> None:
 
 def test_flee_moves_away_from_threat() -> None:
     belief = Belief(self_world_x=100, self_world_y=100)
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1,
+        life_status="alive",
     )
-    command = resolve_action(Intent(kind="flee_from", target_id=1004), belief, ActionState())
+    command = resolve_action(Intent(kind="flee_from", target_color="red"), belief, ActionState())
     assert command.held_mask == BTN_LEFT  # threat is to our right ⇒ flee left
 
 
 def _belief_with_target(self_xy: tuple[int, int], target_xy: tuple[int, int]) -> Belief:
     belief = Belief(self_world_x=self_xy[0], self_world_y=self_xy[1])
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="red", facing="left", world_x=target_xy[0], world_y=target_xy[1], last_seen_tick=1
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004, color="red", facing="left", world_x=target_xy[0], world_y=target_xy[1],
+        last_seen_tick=1, life_status="alive",
     )
     return belief
 
@@ -268,12 +270,12 @@ def _belief_with_target(self_xy: tuple[int, int], target_xy: tuple[int, int]) ->
 def test_kill_navigates_then_edge_presses_a_in_range() -> None:
     on_target = _belief_with_target((50, 50), (50, 50))
     action_state = ActionState()
-    intent = Intent(kind="kill", target_id=1004)
+    intent = Intent(kind="kill", target_color="red")
     assert resolve_action(intent, on_target, action_state).held_mask == BTN_A  # fresh press
     assert resolve_action(intent, on_target, action_state).held_mask == 0  # release (edge)
 
     far = _belief_with_target((300, 300), (50, 50))
-    assert resolve_action(Intent(kind="kill", target_id=1004), far, ActionState()).held_mask == BTN_UP | BTN_LEFT
+    assert resolve_action(Intent(kind="kill", target_color="red"), far, ActionState()).held_mask == BTN_UP | BTN_LEFT
 
 
 def _belief_with_vent(self_xy: tuple[int, int], vent_xy: tuple[int, int]) -> Belief:

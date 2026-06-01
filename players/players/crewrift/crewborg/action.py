@@ -335,7 +335,7 @@ def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:
 def _resolve_flee(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    threat = belief.roster.get(intent.target_id) if intent.target_id is not None else None
+    threat = belief.roster.get(intent.target_color) if intent.target_color is not None else None
     if threat is None:
         return Command(held_mask=0)
     # Steer directly away from the threat: reflect its position through ours.
@@ -348,7 +348,7 @@ def _resolve_flee(
 def _resolve_kill(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    target = belief.roster.get(intent.target_id) if intent.target_id is not None else None
+    target = belief.roster.get(intent.target_color) if intent.target_color is not None else None
     if target is None:
         return Command(held_mask=0)
     target_xy = (target.world_x, target.world_y)

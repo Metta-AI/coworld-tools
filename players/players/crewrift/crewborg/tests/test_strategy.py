@@ -46,13 +46,14 @@ def test_ghost_does_tasks_not_report() -> None:
 
 
 def test_approaching_believed_imposter_selects_flee() -> None:
-    from players.crewrift.crewborg.types import RosterEntry
+    from players.crewrift.crewborg.types import PlayerRecord
 
     belief = Belief(phase="Playing", self_role="crewmate", self_world_x=100, self_world_y=100)
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1,
+        life_status="alive",
     )
-    belief.believed_imposters = {1004}
+    belief.believed_imposters = {"red"}
     assert _select(belief) == "flee"
 
 
@@ -63,12 +64,13 @@ def test_non_playing_phases_idle() -> None:
 
 
 def _imposter_with_visible_target(**kwargs) -> Belief:
-    from players.crewrift.crewborg.types import RosterEntry
+    from players.crewrift.crewborg.types import PlayerRecord
 
     belief = Belief(phase="Playing", self_role="imposter", last_tick=10, self_world_x=100, self_world_y=100, **kwargs)
     # A lone, isolated, reachable (no nav graph) crewmate — a valid kill opportunity.
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="red", facing="left", world_x=50, world_y=50, last_seen_tick=10
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004, color="red", facing="left", world_x=50, world_y=50, last_seen_tick=10,
+        life_status="alive",
     )
     return belief
 
@@ -89,7 +91,7 @@ def test_imposter_hunts_when_kill_ready_with_opportunity() -> None:
 
 
 def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
-    from players.crewrift.crewborg.types import RosterEntry
+    from players.crewrift.crewborg.types import PlayerRecord
 
     # Kill ready with crewmates in sight (even clustered) ⇒ Hunt and stalk; Hunt
     # itself holds off the actual kill until the victim is isolated.
@@ -97,11 +99,13 @@ def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
         phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10,
         self_world_x=100, self_world_y=100,
     )
-    belief.roster[1004] = RosterEntry(
-        object_id=1004, color="green", facing="left", world_x=50, world_y=50, last_seen_tick=10
+    belief.roster["green"] = PlayerRecord(
+        object_id=1004, color="green", facing="left", world_x=50, world_y=50, last_seen_tick=10,
+        life_status="alive",
     )
-    belief.roster[1005] = RosterEntry(
-        object_id=1005, color="blue", facing="left", world_x=58, world_y=50, last_seen_tick=10
+    belief.roster["blue"] = PlayerRecord(
+        object_id=1005, color="blue", facing="left", world_x=58, world_y=50, last_seen_tick=10,
+        life_status="alive",
     )
     assert _select(belief) == "hunt"
 

@@ -7,13 +7,13 @@ import numpy as np
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Room, TaskStation
 from players.crewrift.crewborg.modes import EvadeMode, HuntMode, PretendMode
 from players.crewrift.crewborg.nav import build_nav_graph
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, RosterEntry
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, PlayerRecord
 
 
 def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "red", tick: int | None = None) -> None:
-    belief.roster[object_id] = RosterEntry(
+    belief.roster[color] = PlayerRecord(
         object_id=object_id, color=color, facing="left", world_x=xy[0], world_y=xy[1],
-        last_seen_tick=belief.last_tick if tick is None else tick,
+        last_seen_tick=belief.last_tick if tick is None else tick, life_status="alive",
     )
 
 
@@ -26,7 +26,7 @@ def test_hunt_strikes_a_victim_in_range_and_unwitnessed() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
     _visible(belief, 1004, (108, 100), color="green")  # 8px away (<KillRange), alone
     intent = HuntMode().decide(belief, ActionState())
-    assert intent.kind == "kill" and intent.target_id == 1004
+    assert intent.kind == "kill" and intent.target_color == "green"
 
 
 def test_hunt_stalks_a_distant_victim() -> None:
@@ -50,7 +50,7 @@ def test_hunt_skips_teammates() -> None:
 
     _visible(belief, 1007, (108, 100), color="green")  # an in-range crewmate is killable
     intent = HuntMode().decide(belief, ActionState())
-    assert intent.kind == "kill" and intent.target_id == 1007
+    assert intent.kind == "kill" and intent.target_color == "green"
 
 
 def test_hunt_lies_in_wait_when_a_witness_is_near() -> None:
@@ -69,7 +69,7 @@ def test_hunt_strikes_a_witnessed_victim_under_full_urgency() -> None:
     _visible(belief, 1004, (108, 100), color="green")
     _visible(belief, 1005, (110, 100), color="blue")  # witness ignored at full urgency
     intent = HuntMode().decide(belief, ActionState())
-    assert intent.kind == "kill" and intent.target_id == 1004
+    assert intent.kind == "kill" and intent.target_color == "green"
 
 
 def test_hunt_commits_to_one_victim_across_ticks() -> None:
@@ -78,10 +78,10 @@ def test_hunt_commits_to_one_victim_across_ticks() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
     _visible(belief, 1004, (300, 100), color="green")
     mode.decide(belief, ActionState())  # commits to 1004
-    assert mode._victim_id == 1004
+    assert mode._victim_color == "green"
     _visible(belief, 1009, (140, 100), color="white")  # a nearer crewmate appears
     mode.decide(belief, ActionState())
-    assert mode._victim_id == 1004  # still committed to the first victim
+    assert mode._victim_color == "green"  # still committed to the first victim
 
 
 def test_hunt_prefers_reachable_victim() -> None:
@@ -93,7 +93,7 @@ def test_hunt_prefers_reachable_victim() -> None:
     _visible(belief, 1002, (10, 12), color="blue")  # left: reachable
     mode = HuntMode()
     mode.decide(belief, ActionState())
-    assert mode._victim_id == 1002  # committed to the reachable one, not 1001
+    assert mode._victim_color == "blue"  # committed to the reachable one, not 1001
 
 
 # --------------------------------------------------------------------------- #
@@ -124,9 +124,9 @@ def _belief(map_data: MapData, nav, self_xy: tuple[int, int], tick: int) -> Beli
 
 
 def _see(belief: Belief, object_id: int, xy: tuple[int, int], tick: int | None = None, color: str = "green") -> None:
-    belief.roster[object_id] = RosterEntry(
+    belief.roster[color] = PlayerRecord(
         object_id=object_id, color=color, facing="left", world_x=xy[0], world_y=xy[1],
-        last_seen_tick=belief.last_tick if tick is None else tick,
+        last_seen_tick=belief.last_tick if tick is None else tick, life_status="alive",
     )
 
 
@@ -172,7 +172,7 @@ def test_pretend_recovers_to_the_targets_last_seen_spot_when_lost() -> None:
     belief = _belief(map_data, nav, (10, 10), tick=200)
     _see(belief, 1001, (160, 60), tick=100)  # last seen a while ago, not visible now
     mode = PretendMode()
-    mode._state, mode._target_id = "follow", 1001  # we had been following it
+    mode._state, mode._target_color = "follow", "green"  # we had been following it
     intent = mode.decide(belief, ActionState())
     assert intent.kind == "navigate_to" and intent.point == (160, 60)  # to the last-seen spot
 

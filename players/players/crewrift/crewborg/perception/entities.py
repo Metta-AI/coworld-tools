@@ -34,6 +34,32 @@ class VisibleBody(BaseModel):
     world_y: int
 
 
+class ChatLine(BaseModel):
+    """One chat message visible on the voting screen (design §4.3).
+
+    ``speaker_color`` is recovered from the speaker icon rendered alongside the
+    text; ``None`` if no icon could be matched to the line.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    speaker_color: str | None
+    text: str
+
+
+class CensusEntry(BaseModel):
+    """One player's alive/dead state from the voting candidate grid (design §4.3).
+
+    The grid renders every player as a crew sprite (alive) or body sprite (dead),
+    tagged by color — an authoritative per-meeting alive/dead census.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    color: str
+    alive: bool
+
+
 class TaskSignal(BaseModel):
     """One incomplete assigned task's signal (crewmate-only; design §4.2).
 
@@ -111,3 +137,10 @@ class ResolvedScene(BaseModel):
     # Player colors shown in the role-reveal icons — the imposter team when the
     # viewer is an imposter (design §7.2 teammate identification).
     reveal_player_colors: frozenset[str] = frozenset()
+
+    # Social signals from the voting / vote-result screens (design §4.3).
+    chat_lines: tuple[ChatLine, ...] = ()
+    census: tuple[CensusEntry, ...] = ()
+    # The color ejected by the just-finished vote, or ``None`` (vote skipped / not
+    # a VoteResult frame).
+    ejected_color: str | None = None

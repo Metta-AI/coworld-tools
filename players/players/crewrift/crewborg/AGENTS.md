@@ -340,6 +340,12 @@ sprite; that sprite's **label** tells you what it is. Verified label vocabulary
 - Voting: `vote cursor` (`global:1521`), `vote skip cursor` (`global:1529`),
   `vote self marker <color>` (`global:1538`), `vote dot <color>` (tally,
   `global:1546`), `vote timer` (`global:1252`).
+- Social UI (meeting/result screens, decoded into chat + census + ejection;
+  `global:739-1280`): chat is a text sprite (label = the raw message, id `9000+`)
+  paired by screen-y to a speaker icon (`player <color>`, id `9200+`); the voting
+  candidate grid (`9300+seq`) shows each player as `player <color>` (alive) or
+  `body <color>` (dead) — an authoritative alive/dead census by color; the
+  vote-result icon (`9600`, `player <color>`) names the ejected player.
 - Phase/result **text** (read game phase from which appear; `interstitialTextItems`,
   `global:957-1044`): `WAITING`/`NEED MORE!` (`global:966-967`), `STARTING`
   (`global:970`), `IMPS`/`CREWMATE` (role reveal, `global:992`), `SKIP`
@@ -347,9 +353,11 @@ sprite; that sprite's **label** tells you what it is. Verified label vocabulary
   `DRAW`/`CREW WINS`/`IMPS WIN` (game over, `global:1021-1025`).
 - **Object ids are stable per entity across ticks** (track by id): players
   `1000 + joinOrder` (`spriteObjectId`, `global:1858`), bodies `2000 + i`
-  (`spriteBodyObjectId`, `global:2069`), task bubbles `3000 + taskIndex`
-  (`spriteTaskObjectId`, `global:2073`), map `1`, vote dots
-  `10100 + voter*MaxPlayers + target` (base `notsus:167`, decoded `notsus:1827`).
+  (`spriteBodyObjectId`, `global:2069` — note `i` is the bodies-seq index, **not**
+  the dead player's joinOrder, so a body links to its player by **color**, not id),
+  task bubbles `3000 + taskIndex` (`spriteTaskObjectId`, `global:2073`), map `1`,
+  vote dots `10100 + target*MaxPlayers + voter` (base `notsus:167`, decoded
+  `notsus:1827`).
 
 **Vents, rooms, and the emergency button are NOT objects** — they're baked into
 the `map` sprite's pixels (`buildMapSpritePixels`, `global:701`). crewborg can't
