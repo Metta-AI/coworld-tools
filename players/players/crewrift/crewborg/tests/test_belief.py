@@ -135,6 +135,54 @@ def test_phase_stays_unknown_before_any_signal() -> None:
     assert belief.self_role is None
 
 
+# --- perception tape (design §5.1) ------------------------------------------
+
+
+def test_tape_records_camera_ready_frames_with_viewport_and_entities() -> None:
+    from players.crewrift.crewborg.perception.entities import VisibleBody, VisiblePlayer
+
+    belief = Belief()
+    resolved = ResolvedScene(
+        tick=3, camera_ready=True, camera_x=40, camera_y=70,
+        visible_players=(VisiblePlayer(object_id=1001, color="green", facing="left", world_x=50, world_y=80),),
+        visible_bodies=(VisibleBody(object_id=2002, color="red", world_x=44, world_y=72),),
+    )
+    update_belief(belief, Percept(tick=3, messages_applied=3, resolved=resolved))
+
+    assert len(belief.recent_frames) == 1
+    frame = belief.recent_frames[-1]
+    assert (frame.tick, frame.camera_x, frame.camera_y) == (3, 40, 70)
+    assert frame.players == {"green": (50, 80)} and frame.bodies == {"red": (44, 72)}
+
+
+def test_tape_frame_carries_the_visibility_mask() -> None:
+    import numpy as np
+
+    belief = Belief()
+    mask = np.ones((4, 4), dtype=bool)
+    resolved = ResolvedScene(tick=2, camera_ready=True, camera_x=0, camera_y=0)
+    update_belief(belief, Percept(tick=2, messages_applied=2, resolved=resolved, visible_mask=mask))
+    assert belief.recent_frames[-1].visible_mask is mask  # held by reference
+
+
+def test_tape_skips_frames_without_a_camera() -> None:
+    belief = Belief()
+    resolved = ResolvedScene(tick=1, camera_ready=False, camera_x=0, camera_y=0)
+    update_belief(belief, Percept(tick=1, messages_applied=1, resolved=resolved))
+    assert belief.recent_frames == []  # nothing to anchor a transition on
+
+
+def test_tape_is_bounded() -> None:
+    from players.crewrift.crewborg.types import RECENT_FRAMES_MAX
+
+    belief = Belief()
+    for tick in range(RECENT_FRAMES_MAX + 10):
+        _fold(belief, tick)
+    assert len(belief.recent_frames) == RECENT_FRAMES_MAX
+    assert belief.recent_frames[-1].tick == RECENT_FRAMES_MAX + 9  # newest kept
+    assert belief.recent_frames[0].tick == 10  # oldest dropped
+
+
 # --- life-status linkage (design §5) ----------------------------------------
 
 

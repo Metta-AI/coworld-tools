@@ -5,9 +5,10 @@ websocket message may concatenate **many** sub-messages, so we loop an offset ov
 the whole packet, dispatching each message in turn (design §3.1). All multi-byte
 fields are little-endian.
 
-The only pixels decoded are the ``walkability map`` sprite's alpha channel
-(snappy raw-block compressed); every other sprite's pixels are skipped — crewborg
-reads structured state from labels and coordinates, not vision.
+The only pixels decoded are two sprites' alpha channels (both snappy raw-block
+compressed): the static ``walkability map`` and the dynamic ``shadow`` vision
+overlay (line of sight). Every other sprite's pixels are skipped — crewborg reads
+structured state from labels and coordinates, not vision.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import cramjam
 import numpy as np
 
 from players.crewrift.crewborg.perception.constants import (
+    LABEL_SHADOW,
     LABEL_WALKABILITY,
     MAP_OBJECT_ID,
     MAP_SPRITE_ID,
@@ -106,6 +108,9 @@ def _apply_define_sprite(scene: SceneState, message: bytes, offset: int) -> int:
     if label == LABEL_WALKABILITY:
         compressed = message[compressed_start : compressed_start + compressed_len]
         _decode_walkability(scene, width, height, bytes(compressed))
+    elif label == LABEL_SHADOW:
+        compressed = message[compressed_start : compressed_start + compressed_len]
+        _decode_shadow(scene, width, height, bytes(compressed))
 
     scene.sprites[sprite_id] = SpriteDef(width=width, height=height, label=label)
     return offset
@@ -125,6 +130,27 @@ def _decode_walkability(scene: SceneState, width: int, height: int, compressed: 
     scene.walkability = alpha > 0
     scene.walkability_width = width
     scene.walkability_height = height
+
+
+def _decode_shadow(scene: SceneState, width: int, height: int, compressed: bytes) -> None:
+    """Decode the ``shadow`` vision overlay into a screen-space visibility mask.
+
+    The overlay paints occluded pixels opaque and leaves visible pixels transparent
+    (sim.nim: ``shadowBuf`` true ⇒ occluded), so ``visible = alpha == 0``. Overwrites
+    the prior mask — it is resent on every camera move, so it always matches the
+    current camera.
+    """
+
+    if width <= 0 or height <= 0:
+        raise SpriteProtocolError("invalid shadow dimensions")
+    try:
+        raw = bytes(cramjam.snappy.decompress_raw(compressed))
+    except Exception as exc:  # cramjam raises a variety of error types
+        raise SpriteProtocolError("shadow snappy decode failed") from exc
+    if len(raw) != width * height * 4:
+        raise SpriteProtocolError("shadow payload size mismatch")
+    alpha = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 4)[:, :, 3]
+    scene.visible_mask = alpha == 0
 
 
 def _apply_define_object(scene: SceneState, message: bytes, offset: int) -> int:

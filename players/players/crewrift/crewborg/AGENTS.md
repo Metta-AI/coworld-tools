@@ -336,7 +336,9 @@ sprite; that sprite's **label** tells you what it is. Verified label vocabulary
   `global:1784`), `imposter icon` / `imposter icon cooldown` (⇒ *you* are
   imposter, kill ready / cooling, `global:1760,1768`), `ghost icon` (⇒ *you* are
   dead, `global:1776`), `progress bar N%` (`global:2464`), `task counter N`
-  (`global:2519`), `shadow` (vision overlay, `global:2352`).
+  (`global:2519`), `shadow` (screen-sized per-player vision overlay, object `13000`
+  / sprite `5010`; decoded into a line-of-sight mask — opaque ⇒ occluded,
+  transparent ⇒ visible — resent on any camera move, `global:2212`, `sim:2974`).
 - Voting: `vote cursor` (`global:1521`), `vote skip cursor` (`global:1529`),
   `vote self marker <color>` (`global:1538`), `vote dot <color>` (tally,
   `global:1546`), `vote timer` (`global:1252`).
@@ -368,8 +370,8 @@ read their positions from the stream; get them from the static map /
 (alpha > 0 ⇒ walkable), sized to the full 1235×659 map. Built server-side at
 `buildWalkabilitySpritePixels` `global:709`; decoded by `notsus` at `np:389-406`
 (alpha-only mask). Snappy-decompress it once; `nav.py` builds the pixel-validated
-nav graph over it (§6) — the *only* image decoding crewborg needs; ignore every
-other sprite's pixels.
+nav graph over it (§6). The only other sprite whose pixels crewborg decodes is the
+dynamic `shadow` line-of-sight overlay (above); ignore every other sprite's pixels.
 
 **Client → server (input).** Player input is `0x84` + one **byte** bitmask
 (`[0x84, mask & 0x7f]`; encoder `np:194`, server masks bit 7 at `global:501`,
@@ -405,11 +407,12 @@ game semantics (handler `applyInput`, `sim:2751`):
 So **crewborg's perception is structured-scene maintenance**, not vision: keep
 the object/sprite tables current, derive the camera from object 1, resolve each
 object to `(label, world-x, world-y)`, and fold that into belief (self
-pos/role/state, other players, bodies, task icons, voting state, phase). The
-single image step is the `walkability map` alpha mask. This is dramatically
-simpler than a pixel-CV stack — crewborg's perception is **structured-scene
-maintenance**, not computer vision; there is no framebuffer parser and no pixel
-atlas (the lone image step is Snappy-decoding the `walkability map` sprite).
+pos/role/state, other players, bodies, task icons, voting state, phase). The only
+image steps are two sprite alpha masks: the static `walkability map` and the
+dynamic `shadow` line-of-sight overlay. This is dramatically simpler than a
+pixel-CV stack — crewborg's perception is **structured-scene maintenance**, not
+computer vision; there is no framebuffer parser and no pixel atlas (the only image
+steps are Snappy-decoding those two alpha masks).
 
 **Step cadence (a crewborg design choice, grounded in the server).** The server
 emits exactly one binary message per socket per 24 Hz tick (one `sim.step` per
@@ -486,10 +489,11 @@ layout (`__init__.py`/`types.py`/`action.py`/`nav.py`/`modes/`/`strategy/`/
 mode/intent/strategy design (the LLM strategy seam remains in place but unused).
 
 Perception is **structured-scene maintenance**, not computer vision: there is no
-framebuffer parser, no pixel atlas, and no CV parity oracle. The lone image step
-is Snappy-decoding the `walkability map` sprite — and even that is used only to
-*validate* a baked map (vent/button/task locations are not in the stream; see
-[§2](#sprite-v1-protocol-structured-scene-not-a-framebuffer) and `design.md` §3).
+framebuffer parser, no pixel atlas, and no CV parity oracle. The only image steps
+are Snappy-decoding two sprite alpha masks: the `walkability map` (used only to
+*validate* a baked map — vent/button/task locations are not in the stream) and the
+dynamic `shadow` line-of-sight overlay (real per-point visibility); see
+[§2](#sprite-v1-protocol-structured-scene-not-a-framebuffer) and `design.md` §3.
 
 Behavior & parsing references:
 - **Crewrift's `notsus` / `evidencebot_v2` Nim bots** are the behavior references;
