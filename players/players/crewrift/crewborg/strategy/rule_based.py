@@ -7,10 +7,13 @@ tick, transitions are re-evaluated each cycle (no reflexes).
 Crewmate priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
-2. a believed imposter approaching → Flee
-3. a body in view → Report Body
+2. a body in view → Report Body (a meeting protects us; outranks fleeing)
+3. a believed imposter approaching → Flee
 4. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
 5. otherwise → idle
+
+``believed_imposters`` (which gates Flee) is filled by the suspicion model
+(``strategy.suspicion``, design §10.1), folded into belief each tick.
 
 Imposter priority order (design §10):
 
@@ -61,11 +64,13 @@ class RuleBasedStrategy:
                 return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
             if belief.self_role == "imposter":
                 return self._select_imposter(belief)
-            # Live crewmate (or not-yet-known role): full field priority.
-            if _threat_approaching(belief):
-                return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
+            # Live crewmate (or not-yet-known role): full field priority. Reporting a
+            # visible body outranks fleeing — a meeting protects us and lets the crew
+            # act, which beats running from a suspect we could instead report.
             if any(bid in belief.bodies for bid in belief.visible_body_ids):
                 return ModeDirective(mode="report_body", source="strategy", reason="body in view")
+            if _threat_approaching(belief):
+                return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
             return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
         # All non-play phases (RoleReveal / Lobby / VoteResult / GameOver / unknown).

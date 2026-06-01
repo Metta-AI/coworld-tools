@@ -2,8 +2,10 @@
 
 Per design §3 this is the lone non-pydantic SDK-facing type: a plain dataclass
 holding the three retained tables (Layers/Sprites/Objects), the decoded camera,
-and the walkability mask, which ``Observation`` references by pointer. Raw sprite
-pixels never reach the strategy — only the ``walkability map`` alpha is retained.
+the walkability mask, and the ``shadow`` line-of-sight mask, which ``Observation``
+references by pointer. Raw sprite pixels are otherwise discarded — only those two
+alpha masks are retained (the walkability mask for nav, the line-of-sight mask
+flows on into the perception tape).
 
 Byte-level decoding lives in :mod:`players.crewrift.crewborg.perception.decoder`;
 ``apply`` delegates to it.
@@ -43,6 +45,11 @@ class SceneState:
     walkability: np.ndarray | None = None
     walkability_width: int = 0
     walkability_height: int = 0
+
+    # Decoded line-of-sight: a screen-space bool grid (True ⇒ visible) from the
+    # ``shadow`` vision overlay, overwritten each time that sprite is resent (on any
+    # camera move), or None until it first arrives. Aligned to the current camera.
+    visible_mask: np.ndarray | None = None
 
     def apply(self, message: bytes) -> None:
         """Decode one incoming binary message into the scene tables.

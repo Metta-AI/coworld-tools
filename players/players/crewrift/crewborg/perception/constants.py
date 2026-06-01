@@ -61,6 +61,12 @@ VOTE_SKIP_DOT_OBJECT_BASE = 10400
 # normal range spans VOTE_DOT_OBJECT_BASE .. + MAX_PLAYERS*MAX_PLAYERS.
 MAX_PLAYERS = 16
 
+# The /player camera shows a fixed ScreenWidth×ScreenHeight world window (sim.nim;
+# 128×128, the same screen the SELF_OFFSET below is derived from). A world point
+# (wx, wy) is on-screen iff camera ≤ (wx, wy) < camera + (SCREEN_WIDTH, SCREEN_HEIGHT).
+SCREEN_WIDTH = 128
+SCREEN_HEIGHT = 128
+
 # Self-world-position offset (design §3.2). Self is the camera center, not an
 # object; inverting playerView's camera math (sim.nim ~2879) with SpriteSize=12,
 # SpriteDrawOffX/Y=2/8 and a 128×128 screen gives
@@ -98,6 +104,10 @@ PLAYER_COLOR_NAMES: tuple[str, ...] = (
 
 # Fixed sprite labels (global.nim init / per-tick HUD).
 LABEL_WALKABILITY = "walkability map"
+# The per-player vision overlay: a screen-sized sprite, resent on any camera move,
+# whose opaque pixels are occluded and transparent pixels are visible (line of
+# sight). Decoded into a per-frame visibility mask (global.nim:2212, sim.nim:2974).
+LABEL_SHADOW = "shadow"
 LABEL_MAP = "map"
 LABEL_TASK_BUBBLE = "task bubble"
 LABEL_TASK_ARROW = "task arrow"

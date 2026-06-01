@@ -5,8 +5,9 @@ the action layer maximizes distance from it. ``flee_from`` is the simple keep-aw
 primitive — situational fleeing (toward a trusted player, the button, or around a
 corner) is a later refinement that emits ``navigate_to`` instead (design §8).
 
-The evidence ledger (``belief.believed_imposters``) is currently unpopulated, so
-this mode is wired but dormant until suspicion reasoning fills it.
+``belief.believed_imposters`` (suspected player colors) is filled each tick by the
+suspicion model (``strategy.suspicion``); this mode flees the nearest believed
+imposter present in the roster, and is inert whenever that set is empty.
 """
 
 from __future__ import annotations

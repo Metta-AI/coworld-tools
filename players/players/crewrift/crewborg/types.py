@@ -80,6 +80,9 @@ class Percept(BaseModel):
     messages_applied: int
     resolved: ResolvedScene
     walkability: np.ndarray | None = None
+    # Screen-space line-of-sight mask (True ⇒ visible), aligned to this tick's
+    # camera; held by reference. ``None`` until the ``shadow`` overlay arrives.
+    visible_mask: np.ndarray | None = None
 
 
 # How many recent sightings to keep per player (design §5). A trajectory tail —
@@ -192,6 +195,36 @@ class ChatEvent(BaseModel):
     text: str
 
 
+# How many recent raw observation frames the perception tape keeps (~1 s at 24 Hz).
+RECENT_FRAMES_MAX = 24
+
+
+class PerceptionFrame(BaseModel):
+    """One frame of raw observations — the "perception tape" (design §5.1).
+
+    Distinct from the interpreted aggregates (``roster`` / ``bodies``): this is
+    *what we saw* on a single camera-ready frame, including the camera viewport so
+    consumers know **what we could see** (a region absent from ``players`` is only
+    meaningfully "clear" if it was inside the viewport). Frame-to-frame transition
+    detection (kills, vents) reads the tape; occupancy/adjacency are pure functions
+    over it (``strategy.occupancy``), never stored.
+    """
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    tick: int
+    camera_x: int
+    camera_y: int
+    # Alive players visible this frame: color → collision (x, y).
+    players: dict[str, tuple[int, int]] = Field(default_factory=dict)
+    # Bodies visible this frame: color → collision (x, y).
+    bodies: dict[str, tuple[int, int]] = Field(default_factory=dict)
+    # Screen-space line-of-sight mask (True ⇒ visible) for this frame's camera, held
+    # by reference (``None`` before the ``shadow`` overlay arrives). Lets occupancy
+    # predicates use true LoS instead of mere viewport containment.
+    visible_mask: np.ndarray | None = None
+
+
 class Belief(BaseModel):
     """Persistent world model — the only interface the strategy and modes see."""
 
@@ -223,6 +256,11 @@ class Belief(BaseModel):
     crew_tasks_remaining: int | None = None
     active_task_progress_pct: int | None = None
 
+    # Perception tape (design §5.1): a bounded ring of recent raw observation
+    # frames (oldest first), appended only on camera-ready frames. The substrate
+    # for frame-to-frame transition detection; aggregates below are folded from it.
+    recent_frames: list[PerceptionFrame] = Field(default_factory=list)
+
     # Roster + bodies (design §5). The roster is keyed by player **color** — the
     # one identity stable and unique across every Crewrift namespace — and carries
     # each player's live/dead status (see ``PlayerRecord``). ``bodies`` stays keyed
@@ -245,9 +283,11 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-    # Social / evidence (design §5). ``believed_imposters`` holds suspected player
-    # **colors** and drives the Flee mode (dormant until suspicion reasoning fills
-    # it).
+    # Social / evidence (design §5, §10.1). ``suspicion`` is the per-color evidence
+    # score maintained by the suspicion model each tick; ``believed_imposters`` is
+    # the derived set of suspected player **colors** (those over the belief
+    # threshold) that drives the Flee mode.
+    suspicion: dict[str, float] = Field(default_factory=dict)
     believed_imposters: set[str] = Field(default_factory=set)
     # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
     # so Hunt never targets a fellow imposter (the server's kill skips them).
@@ -365,6 +405,7 @@ def perceive(observation: Observation, tick: int) -> Percept:
         messages_applied=scene.messages_applied,
         resolved=resolve_scene(scene, tick),
         walkability=scene.walkability,
+        visible_mask=scene.visible_mask,
     )
 
 
@@ -441,6 +482,24 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         # Reflect the death onto the (color-keyed) roster, linking it to the last
         # time we saw that player alive.
         _record_death(belief, body.color, percept.tick, "body", (body.world_x, body.world_y))
+
+    # Append this frame to the perception tape — only camera-ready frames, so the
+    # tape holds real in-world observations (with the viewport) for transition
+    # detection. Meetings (no camera) leave a tick gap, which detectors require to
+    # be absent (consecutive ticks) before trusting a transition.
+    if resolved.camera_ready:
+        belief.recent_frames.append(
+            PerceptionFrame(
+                tick=percept.tick,
+                camera_x=resolved.camera_x,
+                camera_y=resolved.camera_y,
+                players={p.color: (p.world_x, p.world_y) for p in resolved.visible_players},
+                bodies={b.color: (b.world_x, b.world_y) for b in resolved.visible_bodies},
+                visible_mask=percept.visible_mask,
+            )
+        )
+        if len(belief.recent_frames) > RECENT_FRAMES_MAX:
+            del belief.recent_frames[0]
 
     # The meeting candidate grid is an authoritative alive/dead census by color.
     for entry in resolved.census:

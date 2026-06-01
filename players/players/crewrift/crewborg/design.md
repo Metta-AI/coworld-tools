@@ -98,15 +98,16 @@ the strategy.
 Crewrift speaks **binary Sprite v1**: a structured scene protocol, **not** a
 framebuffer. The server streams object placements with exact coordinates and
 sprites carrying **text labels** — agents read state from structured data, with
-no computer vision. The only image decode crewborg performs is the `walkability
-map` sprite's alpha channel.
+no computer vision. The only image decodes crewborg performs are two sprite alpha
+channels: the static `walkability map` and the dynamic `shadow` vision overlay (§4.4).
 
 Crewborg writes its own websocket bridge (`coworld/policy_player.py`):
 
 1. Read `COGAMES_ENGINE_WS_URL` (runner fills `?slot=N&token=…`);
    `websockets.connect(url, max_size=None)` — token validation is at HTTP upgrade.
 2. Maintain a **`SceneState`** (a plain dataclass, owned by the bridge): three
-   retained tables plus the decoded camera and walkability mask.
+   retained tables plus the decoded camera, walkability mask, and `shadow`
+   line-of-sight mask.
 3. Per tick: block for one binary message — each message is a complete frame (the
    decoder applies all of its concatenated sub-packets) — apply it to
    `SceneState`, then run `runtime.step(observation)` and send the result.
@@ -240,6 +241,20 @@ Chat text shares the `9000` range with phase/HUD text, so chat cannot be told
 apart by id alone; we anchor on the icon range (exclusively chat) and only emit a
 line when an icon sits within a small y-tolerance of a text sprite.
 
+### 4.4 Line of sight (the `shadow` overlay)
+
+The server sends each non-ghost player a **vision overlay** — a screen-sized
+sprite (object `13000`, sprite `5010`, label `shadow`; `global:2212`) whose opaque
+pixels are occluded and transparent pixels are visible, computed by raycasting
+against walls (`castShadows`, `sim.nim:2974`). Crewborg decodes its alpha exactly
+like `walkability` into `scene.visible_mask` (a screen-space bool grid,
+`True ⇒ visible`; `visible = alpha == 0`). Unlike walkability it is **dynamic**:
+the server resends it on *any* camera/player move (cache keyed on camera+origin,
+`sim.nim:3037`), so the retained mask always matches the current camera — there is
+no staleness window. This is true per-point line of sight (it powers
+`rect_visible`, §10.1), distinct from mere viewport containment. It is absent for
+ghosts and during meetings (no camera).
+
 ---
 
 ## 5. Belief
@@ -261,6 +276,8 @@ line when an icon sits within a small y-tolerance of a text sprite.
   (`death_source` ∈ `body`/`census`/`ejection`, `death_seen_tick`, `body_xy`).
   The alive-fix is preserved when the death is recorded, connecting "last seen
   alive" to "now dead" on one record.
+- **tape** — `recent_frames`: a bounded ring of recent raw observation frames
+  (§5.1), the substrate for frame-to-frame transition detection.
 - **bodies** — by id: color, world xy, reported flag. Each body sighting also
   flips the matching color's roster record to `dead` (linking by color).
 - **chat** — `chat_log`: the current meeting's transcript (`(tick, speaker_color,
@@ -272,10 +289,11 @@ line when an icon sits within a small y-tolerance of a text sprite.
 - **phase** — current phase + start tick + the phase state machine, advanced from
   `phase_signals` (emit a `phase_change` trace on transition).
 - **voting** — live tally, cursor, timer, who has voted.
-- **social / evidence** — extension point for sightings/suspicion. The death
-  signals above are now populated; `believed_imposters` (a set of suspected
-  **colors**, driving Flee) is still unfilled — suspicion reasoning that consumes
-  the roster life-status + `chat_log` + vote tally remains to be built.
+- **social / evidence** — `suspicion` (per-color score) and `believed_imposters`
+  (the derived set of suspected **colors**, driving Flee), maintained each tick by
+  the suspicion model (§10.1). It flags only near-certain evidence (witnessed kill
+  / vent); consuming the `chat_log` + vote tally for suspicion-aware voting/chat
+  remains to be built.
 - **inferences** — reserved slot for strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
@@ -299,6 +317,36 @@ a known off-screen incomplete task: set `True` on the first `7000+idx` object se
 - **On** — follow arrow bearings to off-screen tasks.
 - **Off** — no off-screen task signal; task-finding becomes a baked-map
   room-by-room sweep until each station's bubble appears.
+
+### 5.1 Perception tape (`recent_frames`)
+
+The roster/bodies aggregates answer *"what is true now"* but flatten time. A
+second, complementary layer answers *"what changed between frames"*: a bounded
+ring of recent **raw** observation frames (`PerceptionFrame`, oldest first,
+`RECENT_FRAMES_MAX` ≈ 24 ≈ 1 s at 24 Hz), appended in `update_belief` **only on
+camera-ready frames**. Each frame holds its `tick`, the **camera** (`camera_x/y`),
+the alive `players` + `bodies` seen that frame (color → world xy), and the
+**line-of-sight mask** for that frame (`visible_mask`, §4.4, held by reference).
+
+Two design choices make it the right substrate for transition detection:
+
+- **Raw, not derived.** Occupancy (vent/task rects) and adjacency (kill-range) are
+  *pure functions* over the tape (`strategy.occupancy`), never materialised — so a
+  new region/predicate is a function, not a schema change. (A hot derived view such
+  as kill-range adjacency could later be cached in its own belief slot; the tape
+  makes that additive.)
+- **Carries observability.** Storing the camera + LoS mask means an absence from
+  `players` is distinguishable from "we weren't looking there": `rect_visible`
+  answers whether a region was *actually in line of sight* that frame (true
+  occlusion, not just inside the viewport rectangle) — essential for any "this
+  region was clear" claim. It falls back to viewport containment (`rect_observed`)
+  only before the mask has arrived.
+
+Camera-ready-only appends mean a meeting leaves a **tick gap** in the tape;
+transition detectors require the two frames they compare to be consecutive, so the
+gap is self-protecting. This overlaps slightly with the per-player `roster.history`
+trails (different scope: uniform recent all-player frames vs. long per-player
+trails for velocity/recovery); both are kept.
 
 ---
 
@@ -584,8 +632,9 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 **Crewmate selection** (priority order):
 
 1. phase = `Voting` → **Attend Meeting**; `RoleReveal`/`Lobby`/`GameOver` → **idle**
-2. believed-imposter approaching → **Flee**
-3. body in view → **Report Body**
+2. body in view → **Report Body** (a meeting protects us and lets the crew act, so
+   reporting outranks fleeing a suspect we could instead report)
+3. believed-imposter approaching → **Flee**
 4. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
 
 **Imposter selection** (priority order):
@@ -609,6 +658,48 @@ When no crewmate is trackable it stays in Pretend and wanders to find the crew.
 (`crew_tasks_remaining`-based escalation was considered and dropped — the imposter
 acts with constant urgency rather than only near a task win.)
 
+### 10.1 Suspicion (`strategy/suspicion.py`)
+
+`update_suspicion(belief)` runs every tick in the fast loop *after* `update_belief`
+(composed in `build_runtime`), so the strategy snapshot reads a current
+`believed_imposters`. It is a deliberately **narrow but near-certain** flagger:
+it raises suspicion only on evidence that identifies an imposter with ~100%
+confidence, and when it does it sets `belief.suspicion[color]` very high
+(`CONFIRMED_SUSPICION`); `believed_imposters` (which gates Flee) is everyone over
+`BELIEVE_THRESHOLD` who is still alive. There is **no decay** — a confirmation is
+permanent for the game, cleared only when the suspect dies.
+
+The evidence is two **frame-to-frame transitions** read off the perception tape
+(§5.1); both require the two frames to be **consecutive** (`tick` differs by 1),
+so a meeting gap (no camera) can never be misread as a transition. Stateless —
+all state is the tape plus the resulting score:
+
+- **Witnessed kill.** A body we see this frame whose owner we saw *alive* the
+  previous frame, with exactly **one** other player within `KILL_RANGE_SQ` of that
+  victim a frame ago → that lone neighbour is the killer. (Zero neighbours → killer
+  unseen, no call; ≥2 → ambiguous, no call.)
+- **Witnessed vent** (only imposters can vent): *emergence* — the vent rect + a
+  one-tick walk margin (`VENT_WALK_MARGIN`) was *in line of sight and clear* last
+  frame and a player is inside it now; or *submersion* — a player was inside the
+  vent rect last frame and has vanished while the vent is still in line of sight.
+
+Occupancy and adjacency are pure functions over the tape (`strategy.occupancy`:
+`players_in_rect`, `rect_visible`, `neighbors_within`) — nothing derived is stored.
+"In line of sight" is real visibility from the decoded `shadow` mask (§4.4),
+not mere viewport containment, so wall/shadow occlusion no longer produces false
+"the vent was clear" calls (`rect_visible` falls back to viewport only on frames
+before the mask has arrived). Only crewmates reason this way (an imposter knows the
+truth, accrues no suspicion, never flees; nor does a ghost). Kill-witnessing uses
+only players we actually saw.
+
+Deliberately **not** included (lower-confidence, deferred to validation / the LLM
+seam): body-proximity loitering, *area-recency* (who was last seen where a body
+turned up), *alibi clearing*, *vote-tally* bandwagons (census-mapped
+`voting.dots`), and *chat semantics* (`chat_log`, §4.3). A natural future cache is
+materialised **kill-range adjacency** in its own belief slot; the tape makes that
+an additive change. These also feed the still-unbuilt suspicion-aware **voting**
+and **chat generation**.
+
 ---
 
 ## 11. Package layout and tracing
@@ -622,7 +713,7 @@ crewborg/
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
   modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
-  strategy/          # rule_based.py: the mode selector
+  strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
   coworld/           # policy_player.py (bridge), Dockerfile, entrypoint.sh

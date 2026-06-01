@@ -59,6 +59,28 @@ def test_walkability_alpha_decoded_to_bool_grid() -> None:
     np.testing.assert_array_equal(scene.walkability, np.array(mask))
 
 
+def test_shadow_alpha_decoded_to_visibility_mask() -> None:
+    scene = SceneState()
+    visible = [[True, False], [True, True]]  # transparent (alpha 0) ⇒ visible
+    rgba = bytearray()
+    for row in visible:
+        for vis in row:
+            rgba += bytes([0, 0, 0, 0 if vis else 255])
+    scene.apply(w.define_sprite(5010, 2, 2, "shadow", rgba=bytes(rgba)))
+    assert scene.visible_mask is not None
+    np.testing.assert_array_equal(scene.visible_mask, np.array(visible))
+
+
+def test_shadow_is_overwritten_on_resend() -> None:
+    scene = SceneState()
+    opaque = bytes([0, 0, 0, 255])  # occluded everywhere
+    clear = bytes([0, 0, 0, 0])  # visible everywhere
+    scene.apply(w.define_sprite(5010, 1, 1, "shadow", rgba=opaque))
+    assert scene.visible_mask is not None and not scene.visible_mask.any()
+    scene.apply(w.define_sprite(5010, 1, 1, "shadow", rgba=clear))
+    assert scene.visible_mask.all()  # latest resend wins
+
+
 def test_unknown_message_type_is_malformed() -> None:
     scene = SceneState()
     with pytest.raises(SpriteProtocolError):
