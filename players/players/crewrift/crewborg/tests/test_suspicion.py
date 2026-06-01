@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Vent
 from players.crewrift.crewborg.strategy.suspicion import (
     BODY_LINGER_MIN_TICKS,
+    FLEE_PROBABILITY,
     FOLLOW_MIN_TICKS,
     VENT_DWELL_MIN_TICKS,
     update_suspicion,
@@ -163,84 +165,96 @@ def test_submersion_is_suppressed_when_the_vent_is_occluded_now() -> None:
     assert not belief.believed_imposters  # player gone, but maybe they just walked behind a wall
 
 
-# --- graded event-log scoring (tier 2) --------------------------------------
+# --- Bayesian posterior: prior + graded evidence (tier 2) -------------------
 
 
-def _with_events(color: str, events: list[PlayerEvent], **rec_kwargs) -> Belief:
-    belief = Belief(self_role="crewmate", last_tick=200)
-    belief.roster[color] = PlayerRecord(color=color, life_status="alive", events=events, **rec_kwargs)
-    return belief
+def _vent_dwell(start: int = 1) -> PlayerEvent:
+    return PlayerEvent(kind="vent", start_tick=start, end_tick=start + VENT_DWELL_MIN_TICKS, region_index=0)
 
 
-def test_one_graded_signal_raises_suspicion_but_does_not_flee() -> None:
-    belief = _with_events(
-        "red", [PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0)]
+def _body_linger(start: int = 50) -> PlayerEvent:
+    return PlayerEvent(
+        kind="near_body", start_tick=start, end_tick=start + BODY_LINGER_MIN_TICKS, target_color="blue", min_dist=8
     )
+
+
+def _crew_belief(total_players: int = 8) -> Belief:
+    # A neutral crewmate scene with a known player count, so the prior is meaningful.
+    return Belief(self_role="crewmate", last_tick=200, total_player_count=total_players)
+
+
+def _add(belief: Belief, color: str, events=()) -> None:
+    belief.roster[color] = PlayerRecord(color=color, life_status="alive", events=list(events))
+
+
+def test_no_evidence_player_sits_at_the_combinatorial_prior() -> None:
+    belief = _crew_belief(total_players=8)  # 8 players ⇒ 2 imposters among the other 7
+    _add(belief, "red")
     update_suspicion(belief)
-    assert belief.suspicion.get("red", 0.0) > 0  # scored...
-    assert "red" not in belief.believed_imposters  # ...but a single soft cue isn't enough
+    assert belief.suspicion["red"] == pytest.approx(2 / 7)
+    assert "red" not in belief.believed_imposters
+
+
+def test_one_graded_signal_raises_the_posterior_but_does_not_flee() -> None:
+    belief = _crew_belief()
+    _add(belief, "red", [_vent_dwell()])
+    _add(belief, "blue")  # a no-evidence baseline
+    update_suspicion(belief)
+    assert belief.suspicion["red"] > belief.suspicion["blue"]  # evidence moved the posterior up
+    assert "red" not in belief.believed_imposters  # ...but a single cue isn't near-certain
 
 
 def test_corroborating_graded_signals_cross_the_flee_bar() -> None:
-    belief = _with_events(
-        "red",
-        [
-            PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0),
-            PlayerEvent(
-                kind="near_body", start_tick=50, end_tick=50 + BODY_LINGER_MIN_TICKS,
-                target_color="blue", min_dist=8,
-            ),
-        ],
-    )
+    belief = _crew_belief()
+    _add(belief, "red", [_vent_dwell(), _body_linger()])
     update_suspicion(belief)
-    assert "red" in belief.believed_imposters  # two corroborating cues ⇒ flee
+    assert belief.suspicion["red"] >= FLEE_PROBABILITY and "red" in belief.believed_imposters
 
 
-def test_brief_or_distant_cues_do_not_score() -> None:
-    belief = _with_events(
-        "red",
-        [
-            PlayerEvent(kind="vent", start_tick=1, end_tick=3, region_index=0),  # too brief
-            PlayerEvent(kind="near_body", start_tick=10, end_tick=10 + BODY_LINGER_MIN_TICKS,
-                        target_color="blue", min_dist=40),  # too far
-            PlayerEvent(kind="proximity", start_tick=20, end_tick=24, target_color="green", min_dist=5),  # brief
-        ],
-    )
+def test_brief_or_distant_cues_leave_the_posterior_at_the_prior() -> None:
+    belief = _crew_belief()
+    _add(belief, "red", [
+        PlayerEvent(kind="vent", start_tick=1, end_tick=3, region_index=0),  # too brief
+        PlayerEvent(kind="near_body", start_tick=10, end_tick=10 + BODY_LINGER_MIN_TICKS,
+                    target_color="blue", min_dist=40),  # too far
+        PlayerEvent(kind="proximity", start_tick=20, end_tick=24, target_color="green", min_dist=5),  # brief
+    ])
+    _add(belief, "blue")  # baseline
     update_suspicion(belief)
-    assert "red" not in belief.suspicion
+    assert belief.suspicion["red"] == belief.suspicion["blue"]  # none qualified ⇒ still the prior
 
 
-def test_following_a_victim_to_death_scores_only_when_they_died() -> None:
-    end = 40 + FOLLOW_MIN_TICKS  # a sustained-enough following interval
+def test_following_a_victim_to_death_only_updates_when_they_died() -> None:
+    end = 40 + FOLLOW_MIN_TICKS
     follow = PlayerEvent(kind="proximity", start_tick=40, end_tick=end, target_color="yellow", min_dist=10)
-    # Victim alive ⇒ no score.
-    alive = _with_events("orange", [follow])
-    alive.roster["yellow"] = PlayerRecord(color="yellow", life_status="alive")
-    update_suspicion(alive)
-    assert "orange" not in alive.suspicion
 
-    # Victim dead, the following ended near when we found the body ⇒ scores.
-    dead = _with_events("orange", [follow])
+    alive = _crew_belief()
+    _add(alive, "orange", [follow])
+    _add(alive, "yellow")  # victim still alive ⇒ no evidence
+    update_suspicion(alive)
+    assert alive.suspicion["orange"] == alive.suspicion["yellow"]  # both at the prior
+
+    dead = _crew_belief()
+    _add(dead, "orange", [follow])
     dead.roster["yellow"] = PlayerRecord(color="yellow", life_status="dead", death_seen_tick=end + 10)
     update_suspicion(dead)
-    assert dead.suspicion.get("orange", 0.0) > 0
+    assert dead.suspicion["orange"] > 2 / 7  # following the victim to death raised it above prior
 
 
-def test_graded_scoring_ignores_dead_subjects() -> None:
-    belief = _with_events(
-        "red", [PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0)]
-    )
+def test_dead_subjects_drop_out_of_the_posterior() -> None:
+    belief = _crew_belief()
+    _add(belief, "red", [_vent_dwell()])
     belief.roster["red"].life_status = "dead"
     update_suspicion(belief)
-    assert "red" not in belief.suspicion
+    assert "red" not in belief.suspicion  # the dead are no threat
 
 
-def test_a_confirmation_outweighs_everything_and_flees() -> None:
+def test_a_confirmation_drives_the_posterior_to_near_one() -> None:
     belief = _belief(_frame(4, players={}), _frame(5, players={"red": (53, 53)}), map=_vent_map())
-    # Mask makes the vent watched+clear last frame (emergence) → confirmed.
-    update_suspicion(belief)
+    belief.total_player_count = 8
+    update_suspicion(belief)  # emergence ⇒ confirmed
     assert "red" in belief.confirmed_imposters and "red" in belief.believed_imposters
-    assert belief.suspicion["red"] >= 1000.0
+    assert belief.suspicion["red"] > 0.99  # overwhelming likelihood ratio
 
 
 # --- believed-imposters maintenance -----------------------------------------

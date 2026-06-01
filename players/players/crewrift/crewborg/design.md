@@ -292,11 +292,13 @@ ghosts and during meetings (no camera).
 - **phase** — current phase + start tick + the phase state machine, advanced from
   `phase_signals` (emit a `phase_change` trace on transition).
 - **voting** — live tally, cursor, timer, who has voted.
-- **social / evidence** — `confirmed_imposters` (near-certain catches, permanent),
-  `suspicion` (per-color score: confirmation + graded event-log evidence), and
-  `believed_imposters` (the derived suspected **colors** over the flee threshold).
-  Maintained each tick by the suspicion model (§10.1). Consuming the `chat_log` +
-  vote tally for suspicion-aware voting/chat remains to be built.
+- **social / evidence** — `suspicion[color]` = the Bayesian posterior **P(imposter)**
+  ∈ [0, 1] per other player (combinatorial prior + likelihood-ratio updates),
+  `confirmed_imposters` (near-certain catches contributed as overwhelming-LR
+  evidence), and `believed_imposters` (alive colors over the flee probability).
+  `imposter_count` (K) overrides the player-count-derived default. Maintained each
+  tick by the suspicion model (§10.1). Consuming the `chat_log` + vote tally for
+  suspicion-aware voting/chat remains to be built.
 - **inferences** — reserved slot for strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
@@ -703,55 +705,64 @@ When no crewmate is trackable it stays in Pretend and wanders to find the crew.
 (`crew_tasks_remaining`-based escalation was considered and dropped — the imposter
 acts with constant urgency rather than only near a task win.)
 
-### 10.1 Suspicion (`strategy/suspicion.py`)
+### 10.1 Suspicion — Bayesian P(imposter) (`strategy/suspicion.py`)
+
+> **Full reference:** [`docs/designs/suspicion.md`](docs/designs/suspicion.md) — the
+> living home for the model, the likelihood-ratio table's per-entry rationale, the
+> offline LR-learning workflow, and the provenance log of every weight. This section
+> is the summary.
 
 `update_suspicion(belief)` runs every tick in the fast loop *after* `update_belief`
-+ `update_event_log` (composed in `build_runtime`), so the strategy snapshot reads
-a current `believed_imposters`. **Two tiers** feed one per-color `suspicion` score;
-`believed_imposters` (which gates Flee) is everyone at/over `BELIEVE_THRESHOLD` who
-is still alive. Crewmate-only — an imposter knows the truth (accrues nothing, never
-flees), nor does a ghost.
++ `update_event_log` (composed in `build_runtime`). Crewmate POV: it maintains
+`belief.suspicion[color]` = the posterior **probability that player is an imposter**,
+∈ [0, 1] — a real probability, so thresholds mean something. `believed_imposters`
+(which gates Flee) is every **alive** player with `P ≥ FLEE_PROBABILITY` (0.9).
+Crewmate-only — an imposter knows the truth (suspicion cleared, never flees), nor
+does a ghost.
 
-**Tier 1 — near-certain (`confirmed_imposters`, permanent until death).** Two
-**frame-to-frame transitions** off the perception tape (§5.1), both requiring
-**consecutive** frames so a meeting gap can't be misread:
+**Prior.** With `P` players and `K` imposters, a crewmate knows the `K` are among
+the other `P − 1`, so each other player's marginal prior is `K / (P − 1)`. `K` is
+derived from the player count via the game's auto formula `(P − 3) // 2`
+(`sim.nim:1387`; `effectiveImposterCount`), overridable by `belief.imposter_count`.
 
-- **Witnessed kill.** A body we see this frame whose owner we saw *alive* the
-  previous frame, with exactly **one** other player within `KILL_RANGE_SQ` of the
-  victim a frame ago → that lone neighbour is the killer. (Zero → killer unseen;
-  ≥2 → ambiguous; neither calls.)
-- **Witnessed vent** (only imposters vent): *emergence* (vent rect + a one-tick
-  walk margin `VENT_WALK_MARGIN` was *in line of sight and clear* last frame, occupied
-  now) or *submersion* (a player in the vent last frame vanished while it stays in
-  line of sight). "In line of sight" is the decoded `shadow` mask (§4.4) via
-  `rect_visible`, so occlusion can't produce a false "clear" (falls back to viewport
-  only before the mask arrives). Kill-witnessing uses only players we saw.
+**Update (log-odds Bayes).** `logit(P) = logit(prior) + Σ log(LR_e)` over the
+evidence types `e` we have observed, where `LR_e = P(e | imposter) / P(e | crewmate)`
+comes from `LIKELIHOOD_RATIOS`. The likelihood ratios are the **learnable surface**:
+the values in the table are an initial hand-tuned cut, meant to be recomputed offline
+from game replays and swapped in — the agent just consumes the table. Evidence is a
+**set of types** per player (each updates at most once), so an unbounded event log
+(§5.2) can't inflate the posterior and there's no double-counting; and because role
+is a fixed latent, evidence **persists** (no decay — the prior is the only baseline).
 
-A confirmation contributes `CONFIRMED_SCORE` (≫ threshold), so a confirmed imposter
-is always believed.
+Two evidence sources, unified under one framework — a witnessed catch is just
+evidence with an overwhelming LR (`1e6 ⇒ P ≈ 1`), not a special case:
 
-**Tier 2 — graded (conservative, recomputed each tick).** A pure readout of the
-per-player event log (§5.2) — no accumulation state, so no double-counting and old
-evidence ages out as events evict. Only a few **low-false-positive** patterns
-score; a single one stays *below* `BELIEVE_THRESHOLD`, so graded flee needs
-**corroboration** (we never flee on one circumstantial cue), and the score is
-capped (`GRADED_SCORE_CAP`):
+- **Near-certain** (`confirmed_imposters`, persisted), from **consecutive**
+  frame-to-frame transitions on the tape (§5.1): *witnessed kill* (lone
+  `KILL_RANGE_SQ` neighbour of a victim alive last frame, body now) and *witnessed
+  vent* — *emergence* (vent + a `VENT_WALK_MARGIN` margin was in line of sight and
+  clear last frame, occupied now) or *submersion* (a player in the vent last frame
+  gone while it stays in sight). "In line of sight" is the decoded `shadow` mask
+  (§4.4) via `rect_visible`, so occlusion can't fake a "clear".
+- **Graded** (modest LR), recomputed from the event log (§5.2): *sustained vent
+  dwell* (≥ `VENT_DWELL_MIN_TICKS`), *lingering at a body* (≥ `BODY_LINGER_MIN_TICKS`
+  within `BODY_LINGER_MAX_DIST`), *following a victim to death* (proximity ≥
+  `FOLLOW_MIN_TICKS` to a player now dead, ending within `FOLLOW_DEATH_WINDOW_TICKS`
+  of finding the body). A single graded cue lands well below `FLEE_PROBABILITY`, so
+  graded fleeing needs corroboration.
 
-- *Sustained vent dwell* (≥ `VENT_DWELL_MIN_TICKS` on a vent rect).
-- *Lingering at a body* (≥ `BODY_LINGER_MIN_TICKS` within `BODY_LINGER_MAX_DIST`).
-- *Following a victim to death* (proximity ≥ `FOLLOW_MIN_TICKS` to a player now dead,
-  ending within `FOLLOW_DEATH_WINDOW_TICKS` of finding their body).
+Deliberately **excluded** as too noisy (an innocent reporter is next to the body;
+crew cluster while tasking): brief proximity, single-body passing, and *task dwell*
+as exculpation (imposters fake tasks).
 
-Final score = graded + (`CONFIRMED_SCORE` if confirmed). The graded weights are an
-initial conservative cut and want tuning against real games.
-
-Deliberately **excluded** as too noisy (a passing reporter is next to the body; crew
-cluster while tasking): brief proximity, single-body passing, and *task dwell* as
-exculpation (imposters fake tasks). Still deferred to the LLM seam: *area-recency*,
-*alibi clearing*, *vote-tally* bandwagons (census-mapped `voting.dots`), and *chat
-semantics* (`chat_log`, §4.3). A natural future cache is materialised **kill-range
-adjacency** in its own belief slot; the tape makes that additive. These also feed
-the still-unbuilt suspicion-aware **voting** and **chat generation**.
+v1 simplifications (documented for later): **naive-Bayes** independence between
+evidence types; **positive-evidence-only** (no exculpatory terms — the prior is the
+baseline); and a **static** `K / (P − 1)` prior without redistributing the imposter
+budget as players are confirmed or die (a proper joint model is a refinement). Still
+deferred to the LLM seam as future evidence: *area-recency*, *alibi clearing*,
+*vote-tally* bandwagons (census-mapped `voting.dots`), and *chat semantics*
+(`chat_log`, §4.3). The posterior also feeds the still-unbuilt suspicion-aware
+**voting** and **chat generation**.
 
 ---
 

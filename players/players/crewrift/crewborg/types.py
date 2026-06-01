@@ -319,15 +319,17 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-    # Social / evidence (design §5, §10.1). ``confirmed_imposters`` is the set of
-    # player **colors** caught by the near-certain detectors (witnessed kill/vent) —
-    # permanent until death. ``suspicion`` is the per-color score recomputed each
-    # tick (near-certain confirmation + graded event-log evidence), and
-    # ``believed_imposters`` is the derived set over the belief threshold that drives
-    # the Flee mode.
+    # Social / evidence (design §5, §10.1). Bayesian: ``suspicion[color]`` is the
+    # posterior **P(imposter)** ∈ [0, 1] for each other player (crewmate POV),
+    # recomputed each tick from a combinatorial prior + likelihood-ratio updates for
+    # observed evidence. ``confirmed_imposters`` are colors caught by the near-certain
+    # detectors (witnessed kill/vent), contributed as overwhelming-LR evidence;
+    # ``believed_imposters`` is the derived set over the flee probability (drives
+    # Flee). ``imposter_count`` (K) overrides the player-count-derived default.
     confirmed_imposters: set[str] = Field(default_factory=set)
     suspicion: dict[str, float] = Field(default_factory=dict)
     believed_imposters: set[str] = Field(default_factory=set)
+    imposter_count: int | None = None
     # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
     # so Hunt never targets a fellow imposter (the server's kill skips them).
     teammate_colors: set[str] = Field(default_factory=set)
