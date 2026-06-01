@@ -16,7 +16,7 @@ forever (design §10 "act with urgency").
 from __future__ import annotations
 
 from players.crewrift.crewborg.nav import plan_route
-from players.crewrift.crewborg.types import Belief, RosterEntry
+from players.crewrift.crewborg.types import Belief, PlayerRecord
 
 # Clearance (world px) required around a target at zero urgency: no other crewmate
 # may be within this distance for the kill to count as unwitnessed.
@@ -51,12 +51,14 @@ def has_trackable_victim(belief: Belief) -> bool:
     """
 
     return any(
-        entry.color not in belief.teammate_colors and belief.last_tick - entry.last_seen_tick <= TRACK_WINDOW_TICKS
+        entry.color not in belief.teammate_colors
+        and entry.life_status != "dead"
+        and belief.last_tick - entry.last_seen_tick <= TRACK_WINDOW_TICKS
         for entry in belief.roster.values()
     )
 
 
-def select_victim(belief: Belief) -> RosterEntry | None:
+def select_victim(belief: Belief) -> PlayerRecord | None:
     """The crewmate to commit to hunting: the most-isolated reachable crewmate in
     view (a straggler — easiest to finish off unwitnessed), tie-broken by nearest to
     us. ``None`` when no non-teammate is currently visible/reachable to commit to."""
@@ -67,7 +69,9 @@ def select_victim(belief: Belief) -> RosterEntry | None:
     crew = [
         entry
         for entry in belief.roster.values()
-        if entry.last_seen_tick == belief.last_tick and entry.color not in belief.teammate_colors
+        if entry.last_seen_tick == belief.last_tick
+        and entry.color not in belief.teammate_colors
+        and entry.life_status != "dead"
     ]
     if not crew:
         return None
@@ -80,7 +84,7 @@ def select_victim(belief: Belief) -> RosterEntry | None:
     return max(candidates, key=lambda t: (_isolation(t, belief), -_dist2(self_xy, (t.world_x, t.world_y))))
 
 
-def unwitnessed(belief: Belief, target: RosterEntry) -> bool:
+def unwitnessed(belief: Belief, target: PlayerRecord) -> bool:
     """Whether killing ``target`` now would go unseen, at the current urgency level."""
 
     frac = min(1.0, kill_urgency_ticks(belief) / URGENCY_FULL_TICKS)
@@ -89,25 +93,27 @@ def unwitnessed(belief: Belief, target: RosterEntry) -> bool:
     return _is_unwitnessed(target, belief, radius_sq, window)
 
 
-def _isolation(target: RosterEntry, belief: Belief) -> float:
-    """Distance² to the nearest *other* non-teammate — higher means more isolated."""
+def _isolation(target: PlayerRecord, belief: Belief) -> float:
+    """Distance² to the nearest *other* live non-teammate — higher means more isolated."""
 
     target_xy = (target.world_x, target.world_y)
     gaps = [
         _dist2(target_xy, (o.world_x, o.world_y))
         for o in belief.roster.values()
-        if o.object_id != target.object_id and o.color not in belief.teammate_colors
+        if o.color != target.color and o.color not in belief.teammate_colors and o.life_status != "dead"
     ]
     return min(gaps) if gaps else float("inf")
 
 
-def _is_unwitnessed(target: RosterEntry, belief: Belief, radius_sq: float, window: int) -> bool:
-    """Whether no non-teammate crewmate is close enough (and recent enough) to see the kill."""
+def _is_unwitnessed(target: PlayerRecord, belief: Belief, radius_sq: float, window: int) -> bool:
+    """Whether no live non-teammate crewmate is close enough (and recent enough) to see the kill."""
 
     target_xy = (target.world_x, target.world_y)
     for other in belief.roster.values():
-        if other.object_id == target.object_id or other.color in belief.teammate_colors:
+        if other.color == target.color or other.color in belief.teammate_colors:
             continue  # the victim itself and fellow imposters are never witnesses
+        if other.life_status == "dead":
+            continue  # a dead crewmate cannot witness the kill
         if belief.last_tick - other.last_seen_tick > window:
             continue  # last seen too long ago to credibly still be watching
         if _dist2(target_xy, (other.world_x, other.world_y)) <= radius_sq:

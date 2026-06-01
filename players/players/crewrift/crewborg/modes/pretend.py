@@ -44,7 +44,7 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
     def __init__(self, params: ModeParams | None = None) -> None:
         super().__init__(params)
         self._state: str | None = None  # None ⇒ needs DISPATCH
-        self._target_id: int | None = None  # the crewmate being followed / recovered
+        self._target_color: str | None = None  # the crewmate being followed / recovered
         self._goto_point: ic.Point | None = None  # current wander destination
         self._room_cursor: int = 0  # round-robin index over rooms
         self._task_station: ic.Point | None = None
@@ -78,14 +78,14 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         visible = ic.visible_crew(belief)
         if visible:
             target = min(visible, key=lambda e: ic.dist2(self_xy, (e.world_x, e.world_y)))
-            self._state, self._target_id = "follow", target.object_id
+            self._state, self._target_color = "follow", target.color
         else:
             self._state, self._goto_point = "goto_room", None
 
     # --- states ---------------------------------------------------------------
 
     def _follow(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        target = belief.roster.get(self._target_id) if self._target_id is not None else None
+        target = belief.roster.get(self._target_color) if self._target_color is not None else None
         if target is None or target.last_seen_tick != belief.last_tick:
             self._state = "recover"  # lost sight — go to the last-seen spot
             return self._recover(belief, self_xy)
@@ -100,7 +100,7 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         return Intent(kind="navigate_to", point=target_xy, reason="following a crewmate")
 
     def _recover(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        target = belief.roster.get(self._target_id) if self._target_id is not None else None
+        target = belief.roster.get(self._target_color) if self._target_color is not None else None
         if target is None:
             self._state = None
             self._dispatch(belief, self_xy)

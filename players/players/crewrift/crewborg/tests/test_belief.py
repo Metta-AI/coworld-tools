@@ -76,18 +76,20 @@ def test_roster_accumulates_a_sighting_trail() -> None:
     _fold(belief, 1, crew_tasks_remaining=5, visible_players=(VisiblePlayer(object_id=1001, color="green", facing="left", world_x=10, world_y=10),))
     _fold(belief, 2, crew_tasks_remaining=5, visible_players=(VisiblePlayer(object_id=1001, color="green", facing="right", world_x=14, world_y=12),))
 
-    entry = belief.roster[1001]
+    entry = belief.roster["green"]
     # Last-known fix is the freshest sighting; history is the ordered trail.
     assert (entry.world_x, entry.world_y, entry.last_seen_tick, entry.facing) == (14, 12, 2, "right")
     assert entry.history == [(1, 10, 10), (2, 14, 12)]
+    # A live sighting is proof of life, and the object id is recovered.
+    assert entry.life_status == "alive" and entry.object_id == 1001
 
 
 def test_roster_history_is_bounded() -> None:
-    from players.crewrift.crewborg.types import ROSTER_HISTORY_MAX, RosterEntry
+    from players.crewrift.crewborg.types import ROSTER_HISTORY_MAX, PlayerRecord
 
-    entry = RosterEntry(object_id=1, color="red", facing="left", world_x=0, world_y=0, last_seen_tick=0)
+    entry = PlayerRecord(object_id=1, color="red", facing="left", world_x=0, world_y=0, last_seen_tick=0)
     for t in range(ROSTER_HISTORY_MAX + 20):
-        entry.record(t, t, t, "left", "red")
+        entry.record(t, t, t, "left", 1)
     assert len(entry.history) == ROSTER_HISTORY_MAX
     assert entry.history[-1] == (ROSTER_HISTORY_MAX + 19,) * 3  # newest kept
     assert entry.history[0][0] == 20  # oldest dropped
@@ -131,3 +133,69 @@ def test_phase_stays_unknown_before_any_signal() -> None:
     update_belief(belief, Percept(tick=1, messages_applied=1, resolved=resolved))
     assert belief.phase == "unknown"
     assert belief.self_role is None
+
+
+# --- life-status linkage (design §5) ----------------------------------------
+
+
+def test_body_sighting_connects_last_seen_alive_to_the_death() -> None:
+    from players.crewrift.crewborg.perception.entities import VisibleBody, VisiblePlayer
+
+    belief = Belief()
+    # Seen alive at (10, 10) on tick 1...
+    _fold(belief, 1, visible_players=(VisiblePlayer(object_id=1003, color="red", facing="left", world_x=10, world_y=10),))
+    # ...then we find red's body across the map on tick 9.
+    _fold(belief, 9, visible_bodies=(VisibleBody(object_id=2003, color="red", world_x=300, world_y=80),))
+
+    red = belief.roster["red"]
+    assert red.life_status == "dead"
+    assert red.death_source == "body" and red.death_seen_tick == 9
+    assert red.body_xy == (300, 80)
+    # The last-seen-alive fix is preserved (not overwritten by the body position).
+    assert (red.world_x, red.world_y, red.last_seen_tick) == (10, 10, 1)
+
+
+def test_census_records_alive_and_dead_players_by_color() -> None:
+    from players.crewrift.crewborg.perception.entities import CensusEntry
+
+    belief = Belief()
+    _fold(
+        belief, 4,
+        census=(CensusEntry(color="blue", alive=True), CensusEntry(color="green", alive=False)),
+    )
+    assert belief.roster["blue"].life_status == "alive"
+    assert belief.roster["green"].life_status == "dead"
+    assert belief.roster["green"].death_source == "census"
+    # The census is authoritative for the player count, even for never-seen players.
+    assert belief.total_player_count == 2
+
+
+def test_ejection_marks_the_voted_out_player_dead() -> None:
+    belief = Belief()
+    _fold(belief, 7, ejected_color="white")
+    assert belief.roster["white"].life_status == "dead"
+    assert belief.roster["white"].death_source == "ejection"
+
+
+def test_chat_log_accumulates_dedups_and_resets_each_meeting() -> None:
+    from players.crewrift.crewborg.perception.entities import ChatLine, VotingState
+
+    belief = Belief()
+    voting = VotingState(timer_present=True)
+    # First meeting: one line, re-rendered next tick (must not duplicate), then a new line.
+    _fold(belief, 1, voting=voting, chat_lines=(ChatLine(speaker_color="red", text="i was in nav"),))
+    _fold(belief, 2, voting=voting, chat_lines=(ChatLine(speaker_color="red", text="i was in nav"),))
+    _fold(
+        belief, 3, voting=voting,
+        chat_lines=(
+            ChatLine(speaker_color="red", text="i was in nav"),
+            ChatLine(speaker_color="blue", text="sus"),
+        ),
+    )
+    assert [(e.speaker_color, e.text) for e in belief.chat_log] == [("red", "i was in nav"), ("blue", "sus")]
+    assert belief.chat_log[0].tick == 1 and belief.chat_log[1].tick == 3
+
+    # Back to Playing, then a NEW meeting clears the previous transcript.
+    _fold(belief, 10, crew_tasks_remaining=3)
+    _fold(belief, 11, voting=voting, chat_lines=(ChatLine(speaker_color="green", text="fresh"),))
+    assert [(e.speaker_color, e.text) for e in belief.chat_log] == [("green", "fresh")]

@@ -10,12 +10,18 @@ from players.crewrift.crewborg.strategy.opportunity import (
     select_victim,
     unwitnessed,
 )
-from players.crewrift.crewborg.types import Belief, RosterEntry
+from players.crewrift.crewborg.types import Belief, PlayerRecord
 
 
 def _crew(belief: Belief, object_id: int, xy: tuple[int, int], color: str, tick: int) -> None:
-    belief.roster[object_id] = RosterEntry(
-        object_id=object_id, color=color, facing="left", world_x=xy[0], world_y=xy[1], last_seen_tick=tick
+    belief.roster[color] = PlayerRecord(
+        object_id=object_id,
+        color=color,
+        facing="left",
+        world_x=xy[0],
+        world_y=xy[1],
+        last_seen_tick=tick,
+        life_status="alive",
     )
 
 
@@ -77,21 +83,21 @@ def test_select_victim_prefers_the_isolated_straggler() -> None:
 def test_unwitnessed_true_for_a_lone_target() -> None:
     belief = Belief(self_world_x=0, self_world_y=0, last_tick=5)
     _crew(belief, 1, (50, 50), "green", 5)
-    assert unwitnessed(belief, belief.roster[1])
+    assert unwitnessed(belief, belief.roster["green"])
 
 
 def test_unwitnessed_false_with_a_recent_nearby_witness() -> None:
     belief = Belief(self_world_x=0, self_world_y=0, last_tick=5)
     _crew(belief, 1, (50, 50), "green", 5)
     _crew(belief, 2, (60, 50), "blue", 5)  # 10px away, seen now ⇒ witness
-    assert not unwitnessed(belief, belief.roster[1])
+    assert not unwitnessed(belief, belief.roster["green"])
 
 
 def test_unwitnessed_ignores_a_stale_witness() -> None:
     belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
     _crew(belief, 1, (50, 50), "green", 500)
     _crew(belief, 2, (60, 50), "blue", 100)  # last seen 400 ticks ago ⇒ ignored
-    assert unwitnessed(belief, belief.roster[1])
+    assert unwitnessed(belief, belief.roster["green"])
 
 
 def test_full_urgency_strikes_through_a_witness() -> None:
@@ -101,4 +107,4 @@ def test_full_urgency_strikes_through_a_witness() -> None:
     )
     _crew(belief, 1, (50, 50), "green", URGENCY_FULL_TICKS)
     _crew(belief, 2, (60, 50), "blue", URGENCY_FULL_TICKS)  # witness ignored at full urgency
-    assert unwitnessed(belief, belief.roster[1])
+    assert unwitnessed(belief, belief.roster["green"])

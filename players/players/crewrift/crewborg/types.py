@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map.types import MapData
 from players.crewrift.crewborg.nav import NavGraph, build_nav_graph
+from players.crewrift.crewborg.perception.constants import PLAYER_OBJECT_BASE
 from players.crewrift.crewborg.perception.entities import ResolvedScene, VotingState
 from players.crewrift.crewborg.perception.resolve import resolve_scene
 
@@ -87,35 +88,82 @@ class Percept(BaseModel):
 ROSTER_HISTORY_MAX = 64
 
 
-class RosterEntry(BaseModel):
-    """Last-known state of one player object + a recent sighting trail (design §5).
+# A player's life status. ``unknown`` until we have seen them alive in-world or
+# learned their state from the meeting census / a body / an ejection.
+LifeStatus = Literal["alive", "dead", "unknown"]
+# How we learned a player died — an in-world body, the meeting census, or the
+# vote-result ejection.
+DeathSource = Literal["body", "census", "ejection"]
 
-    ``world_x``/``world_y``/``last_seen_tick`` are the last-known fix; ``history`` is
-    a bounded tail of ``(tick, x, y)`` sightings (oldest first) for reading where a
-    player was heading and for re-finding the crew after losing sight of them.
+
+class PlayerRecord(BaseModel):
+    """Everything known about one player, keyed by **color** (design §5).
+
+    Color is the only identity stable across every Crewrift namespace (in-world
+    sprites, bodies, chat icons, vote markers) and is unique per player, so it is
+    the canonical key. ``object_id`` (``PLAYER_OBJECT_BASE + joinOrder``) is the
+    live-world handle, learned the first time we see the player alive.
+
+    The fix fields — ``world_x``/``world_y``/``facing``/``last_seen_tick`` and the
+    bounded ``history`` trail — are written **only from live "player <color>"
+    sightings**, so they are exactly *"the last time and place I saw this player
+    alive"*. When the player dies we flip ``life_status`` and record the death but
+    leave the alive-fix untouched, connecting the two halves on one record.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    object_id: int
     color: str
-    facing: str
-    world_x: int
-    world_y: int
-    last_seen_tick: int
+    object_id: int | None = None
+    facing: str = "right"
+    world_x: int = 0
+    world_y: int = 0
+    last_seen_tick: int = 0
     history: list[tuple[int, int, int]] = Field(default_factory=list)
 
-    def record(self, tick: int, x: int, y: int, facing: str, color: str) -> None:
-        """Fold a fresh sighting into the last-known fix and the bounded trail."""
+    life_status: LifeStatus = "unknown"
+    # When (and how) we learned this player is dead; ``None`` while alive/unknown.
+    death_seen_tick: int | None = None
+    death_source: DeathSource | None = None
+    # Where the body was, if we saw it in-world (``None`` if death was learned only
+    # from the census / an ejection).
+    body_xy: tuple[int, int] | None = None
 
-        self.color = color
+    @property
+    def join_order(self) -> int | None:
+        """The player's joinOrder, recovered from the live-world object id."""
+
+        return None if self.object_id is None else self.object_id - PLAYER_OBJECT_BASE
+
+    def record(self, tick: int, x: int, y: int, facing: str, object_id: int) -> None:
+        """Fold a fresh **live** sighting into the alive-fix and the bounded trail."""
+
         self.facing = facing
         self.world_x = x
         self.world_y = y
         self.last_seen_tick = tick
+        self.object_id = object_id
+        self.life_status = "alive"
         self.history.append((tick, x, y))
         if len(self.history) > ROSTER_HISTORY_MAX:
             del self.history[0]
+
+    def mark_dead(
+        self, tick: int, source: DeathSource, body_xy: tuple[int, int] | None = None
+    ) -> None:
+        """Record that this player is dead, preserving the last-seen-alive fix.
+
+        Idempotent: the first death signal wins (the alive-fix and the original
+        ``death_seen_tick``/``death_source`` are kept), but a later in-world body
+        sighting fills in ``body_xy`` if we only knew of the death abstractly.
+        """
+
+        if self.life_status != "dead":
+            self.life_status = "dead"
+            self.death_seen_tick = tick
+            self.death_source = source
+        if body_xy is not None and self.body_xy is None:
+            self.body_xy = body_xy
 
 
 class BodyEntry(BaseModel):
@@ -128,6 +176,20 @@ class BodyEntry(BaseModel):
     world_x: int
     world_y: int
     first_seen_tick: int
+
+
+class ChatEvent(BaseModel):
+    """One chat message heard during a meeting (design §5 chat).
+
+    ``speaker_color`` is the speaker's player color (``None`` if the line could not
+    be attributed); ``tick`` is when we first observed the message.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tick: int
+    speaker_color: str | None
+    text: str
 
 
 class Belief(BaseModel):
@@ -161,8 +223,12 @@ class Belief(BaseModel):
     crew_tasks_remaining: int | None = None
     active_task_progress_pct: int | None = None
 
-    # Roster + bodies (design §5).
-    roster: dict[int, RosterEntry] = Field(default_factory=dict)
+    # Roster + bodies (design §5). The roster is keyed by player **color** — the
+    # one identity stable and unique across every Crewrift namespace — and carries
+    # each player's live/dead status (see ``PlayerRecord``). ``bodies`` stays keyed
+    # by body object id for the report path; deaths are also reflected onto the
+    # roster (by color) so "last seen alive" and "now dead" live on one record.
+    roster: dict[str, PlayerRecord] = Field(default_factory=dict)
     total_player_count: int = 0
     bodies: dict[int, BodyEntry] = Field(default_factory=dict)
     visible_body_ids: set[int] = Field(default_factory=set)  # bodies in view this tick
@@ -174,9 +240,15 @@ class Belief(BaseModel):
     # Voting (design §5 voting).
     voting: VotingState = Field(default_factory=VotingState)
 
-    # Social / evidence (design §5). Currently unpopulated; ``believed_imposters``
-    # drives the Flee mode (dormant until suspicion reasoning fills it).
-    believed_imposters: set[int] = Field(default_factory=set)
+    # Chat heard during the current meeting (design §5 chat), de-duplicated across
+    # ticks and cleared when a new meeting opens. The raw transcript suspicion
+    # reasoning will consume.
+    chat_log: list[ChatEvent] = Field(default_factory=list)
+
+    # Social / evidence (design §5). ``believed_imposters`` holds suspected player
+    # **colors** and drives the Flee mode (dormant until suspicion reasoning fills
+    # it).
+    believed_imposters: set[str] = Field(default_factory=set)
     # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
     # so Hunt never targets a fellow imposter (the server's kill skips them).
     teammate_colors: set[str] = Field(default_factory=set)
@@ -199,6 +271,9 @@ class Intent(BaseModel):
 
     kind: IntentKind = "idle"
     point: tuple[int, int] | None = None
+    # A player-identity target (the roster key) for ``kill`` / ``flee_from``.
+    target_color: str | None = None
+    # A body object id for ``report`` (bodies stay keyed by object id).
     target_id: int | None = None
     task_index: int | None = None
     text: str | None = None
@@ -293,6 +368,21 @@ def perceive(observation: Observation, tick: int) -> Percept:
     )
 
 
+def _record_death(
+    belief: Belief,
+    color: str,
+    tick: int,
+    source: DeathSource,
+    body_xy: tuple[int, int] | None = None,
+) -> None:
+    """Mark a player (by color) dead on the roster, creating the record if needed."""
+
+    record = belief.roster.get(color)
+    if record is None:
+        record = belief.roster[color] = PlayerRecord(color=color)
+    record.mark_dead(tick, source, body_xy)
+
+
 def update_belief(belief: Belief, percept: Percept) -> None:
     """Fold the percept into belief in place (design §5)."""
 
@@ -324,24 +414,19 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.crew_tasks_remaining = resolved.crew_tasks_remaining
     belief.active_task_progress_pct = resolved.active_task_progress_pct
 
+    # Live sightings: a "player <color>" in-world proves that player is alive here,
+    # now. Keyed by color (the canonical identity); the trail accumulates in place.
     for player in resolved.visible_players:
-        entry = belief.roster.get(player.object_id)
+        entry = belief.roster.get(player.color)
         if entry is None:
-            belief.roster[player.object_id] = RosterEntry(
-                object_id=player.object_id,
-                color=player.color,
-                facing=player.facing,
-                world_x=player.world_x,
-                world_y=player.world_y,
-                last_seen_tick=percept.tick,
-                history=[(percept.tick, player.world_x, player.world_y)],
-            )
-        else:
-            # Update the existing entry in place so its sighting trail accumulates.
-            entry.record(percept.tick, player.world_x, player.world_y, player.facing, player.color)
+            entry = belief.roster[player.color] = PlayerRecord(color=player.color)
+        entry.record(percept.tick, player.world_x, player.world_y, player.facing, player.object_id)
     # The roster spawns co-located at the first Playing tick, so the distinct
-    # ids seen so far estimate the full player count (design §5).
+    # colors seen so far estimate the full player count (design §5); the meeting
+    # census, when present, is authoritative.
     belief.total_player_count = max(belief.total_player_count, len(belief.roster))
+    if resolved.census:
+        belief.total_player_count = max(belief.total_player_count, len(resolved.census))
 
     belief.visible_body_ids = {body.object_id for body in resolved.visible_bodies}
     for body in resolved.visible_bodies:
@@ -353,11 +438,44 @@ def update_belief(belief: Belief, percept: Percept) -> None:
                 world_y=body.world_y,
                 first_seen_tick=percept.tick,
             )
+        # Reflect the death onto the (color-keyed) roster, linking it to the last
+        # time we saw that player alive.
+        _record_death(belief, body.color, percept.tick, "body", (body.world_x, body.world_y))
+
+    # The meeting candidate grid is an authoritative alive/dead census by color.
+    for entry in resolved.census:
+        if entry.alive:
+            record = belief.roster.get(entry.color)
+            if record is None:
+                belief.roster[entry.color] = PlayerRecord(color=entry.color, life_status="alive")
+            elif record.life_status == "unknown":
+                record.life_status = "alive"
+        else:
+            _record_death(belief, entry.color, percept.tick, "census")
+
+    # The vote-result interstitial names the player the meeting ejected.
+    if resolved.ejected_color is not None:
+        _record_death(belief, resolved.ejected_color, percept.tick, "ejection")
 
     phase = derive_phase(resolved, belief.phase)
     if phase != belief.phase:
+        # A new meeting clears the previous meeting's chat transcript.
+        if phase == "Voting":
+            belief.chat_log.clear()
         belief.phase = phase
         belief.phase_start_tick = percept.tick
+
+    # Chat is re-rendered every tick (the last few messages), so de-duplicate by
+    # (speaker, text) and append only lines we have not logged this meeting.
+    if resolved.chat_lines:
+        seen = {(event.speaker_color, event.text) for event in belief.chat_log}
+        for line in resolved.chat_lines:
+            key = (line.speaker_color, line.text)
+            if key not in seen:
+                seen.add(key)
+                belief.chat_log.append(
+                    ChatEvent(tick=percept.tick, speaker_color=line.speaker_color, text=line.text)
+                )
 
     # The role-reveal "IMPS" interstitial confirms we are an imposter and shows
     # only our teammates' icons; record their colors so Hunt never targets them.

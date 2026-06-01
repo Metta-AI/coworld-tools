@@ -24,7 +24,7 @@ from players.crewrift.crewborg.action import KILL_RANGE_SQ
 from players.crewrift.crewborg.modes import imposter_common as ic
 from players.crewrift.crewborg.strategy.opportunity import TRACK_WINDOW_TICKS, select_victim, unwitnessed
 from players.crewrift.crewborg.strategy.trajectory import lead_ticks, predict
-from players.crewrift.crewborg.types import ActionState, Belief, Intent, RosterEntry
+from players.crewrift.crewborg.types import ActionState, Belief, Intent, PlayerRecord
 from players.player_sdk import EmptyModeParams, Mode, ModeParams
 
 
@@ -34,7 +34,7 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
 
     def __init__(self, params: ModeParams | None = None) -> None:
         super().__init__(params)
-        self._victim_id: int | None = None  # the crewmate we have committed to hunting
+        self._victim_color: str | None = None  # the crewmate we have committed to hunting
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
         del action_state
@@ -51,7 +51,7 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
 
         # Strike: in range, victim present, and the kill goes unseen.
         if visible and ic.dist2(self_xy, victim_xy) <= KILL_RANGE_SQ and unwitnessed(belief, victim):
-            return Intent(kind="kill", target_id=victim.object_id, reason="striking isolated victim")
+            return Intent(kind="kill", target_color=victim.color, reason="striking isolated victim")
 
         # Stalk: close on the predicted intercept (lead a moving target). If a witness
         # is near, we still shadow — just don't fire — until it isolates.
@@ -60,16 +60,17 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
         reason = "lying in wait for an opening" if lying_in_wait else "stalking the victim"
         return Intent(kind="navigate_to", point=intercept, reason=reason)
 
-    def _resolve_victim(self, belief: Belief) -> RosterEntry | None:
+    def _resolve_victim(self, belief: Belief) -> PlayerRecord | None:
         """Keep the committed victim while it stays trackable; otherwise commit to a new one."""
 
-        current = belief.roster.get(self._victim_id) if self._victim_id is not None else None
+        current = belief.roster.get(self._victim_color) if self._victim_color is not None else None
         if (
             current is not None
             and current.color not in belief.teammate_colors
+            and current.life_status != "dead"
             and belief.last_tick - current.last_seen_tick <= TRACK_WINDOW_TICKS
         ):
             return current
         victim = select_victim(belief)
-        self._victim_id = victim.object_id if victim is not None else None
+        self._victim_color = victim.color if victim is not None else None
         return victim

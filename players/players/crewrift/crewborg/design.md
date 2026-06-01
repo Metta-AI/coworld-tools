@@ -209,7 +209,7 @@ present*.
 | `active_task_progress_pct` | `progress bar N%` | **per-task** progress of *your current* task; present only while in progress (`global:2441-2464`) |
 | `crew_tasks_remaining` | `task counter N` | **crew-wide** incomplete-task count (`totalTasksRemaining`, `sim:3175`); visible to both roles |
 | `phase_signals` | interstitial text + presence of voting objects | raw signals; the phase machine lives in belief (§5) |
-| `voting` | `vote cursor`, `vote skip cursor`, `vote self marker <color>`, `vote dot <color>` (ids `10100+voter*MaxPlayers+target`), `vote timer` | cursor, tally, timer |
+| `voting` | `vote cursor`, `vote skip cursor`, `vote self marker <color>`, `vote dot <color>` (ids `10100+target*MaxPlayers+voter`), `vote timer` | cursor, tally, timer |
 
 Color names (16) and the full label vocabulary are listed in `AGENTS.md` §2.
 
@@ -224,6 +224,22 @@ chosen by an on/off-screen test (`global:2202-2274`, `:2410-2440`):
   if `showTaskArrows` is enabled): a 1×1 pixel on the screen edge along the ray to
   the task. Gives **bearing only**, no location.
 
+### 4.3 Social signals (voting / vote-result screens)
+
+The meeting screens render social information as labeled sprites in id ranges
+disjoint from the in-world entity ranges (`global:739-1280`), so the same
+`player <color>` / `body <color>` labels never collide with live-world objects:
+
+| Field | Source (label / id range) | Notes |
+|---|---|---|
+| `chat_lines[]` | text sprite (`9000+`, label = the raw message) paired by screen-y to a speaker icon (`9200+`, `player <color>`) | one `(speaker_color, text)` per visible message; the last `VoteChatVisibleMessages` are re-rendered every tick |
+| `census[]` | candidate grid (`9300+seq`): `player <color>` ⇒ alive, `body <color>` ⇒ dead | an **authoritative per-meeting alive/dead census by color** |
+| `ejected_color` | vote-result icon (`9600`, `player <color>`) | the player the just-finished vote ejected; absent when the vote skipped |
+
+Chat text shares the `9000` range with phase/HUD text, so chat cannot be told
+apart by id alone; we anchor on the icon range (exclusively chat) and only emit a
+line when an icon sits within a small y-tolerance of a text sprite.
+
 ---
 
 ## 5. Belief
@@ -234,31 +250,45 @@ chosen by an on/off-screen test (`global:2202-2274`, `:2410-2440`):
   task + progress, vote cast this meeting, emergency-button-used flag.
 - **map / nav** — the static map (§6): task rects (by index), vent rects + groups,
   rooms, emergency-button location, walkability grid, and a nav graph built over it.
-- **roster** — total player count (see below) and, per stable object id: color,
-  last-known world xy, facing, **alive/dead** (no ghost-state tracking), last-seen
-  tick, and a bounded **sighting trail** (`history`: recent `(tick, x, y)`) for
-  re-finding the crew when sight is lost (and, later, reading heading/velocity).
-- **bodies** — by id: color, world xy, reported flag.
+- **roster** — keyed by player **color** (the one identity stable and unique
+  across every Crewrift namespace — in-world sprites, bodies, chat icons, vote
+  markers). Per `PlayerRecord`: color, the live-world `object_id`
+  (`PLAYER_OBJECT_BASE + joinOrder`, learned on first live sighting), the
+  **last-seen-alive fix** (world xy, facing, last-seen tick — written only from
+  live `player <color>` sightings, so it *is* "the last time/place I saw them
+  alive"), a bounded **sighting trail** (`history`: recent `(tick, x, y)`), and
+  **life status** (`alive`/`dead`/`unknown`) with how/when the death was learned
+  (`death_source` ∈ `body`/`census`/`ejection`, `death_seen_tick`, `body_xy`).
+  The alive-fix is preserved when the death is recorded, connecting "last seen
+  alive" to "now dead" on one record.
+- **bodies** — by id: color, world xy, reported flag. Each body sighting also
+  flips the matching color's roster record to `dead` (linking by color).
+- **chat** — `chat_log`: the current meeting's transcript (`(tick, speaker_color,
+  text)`), de-duplicated across the per-tick re-render and cleared when a new
+  meeting opens. Raw material for suspicion reasoning.
 - **tasks** — assigned task indices (from `task_signals` ids), per-task world
   location (from the map), per-task completion; `crew_tasks_remaining`;
   `task_arrows_enabled` (below).
 - **phase** — current phase + start tick + the phase state machine, advanced from
   `phase_signals` (emit a `phase_change` trace on transition).
 - **voting** — live tally, cursor, timer, who has voted.
-- **social / evidence** — extension point for sightings/suspicion; currently
-  unpopulated (`believed_imposters` exists and drives Flee, but nothing fills it
-  yet, so Flee stays dormant).
+- **social / evidence** — extension point for sightings/suspicion. The death
+  signals above are now populated; `believed_imposters` (a set of suspected
+  **colors**, driving Flee) is still unfilled — suspicion reasoning that consumes
+  the roster life-status + `chat_log` + vote tally remains to be built.
 - **inferences** — reserved slot for strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
 roster spawns co-located at the first `Playing` tick, so the visible set ≈ the
-full roster. Seed `total_player_count` from the max distinct player object ids
-seen; thereafter we know how many players exist and how many are currently unseen.
-(Relies on a co-located spawn — a strong estimate, not a guarantee.)
+full roster. Seed `total_player_count` from the count of distinct colors seen;
+thereafter we know how many players exist and how many are currently unseen.
+(Relies on a co-located spawn — a strong estimate, not a guarantee.) The meeting
+**census** (§4.3) lists every player and so is authoritative when present.
 
 **Staleness / stillness.** Per player, keep last-known position + last-seen tick;
-comparing against the current tick yields staleness and stillness. Position
-history (for social reasoning) is not yet tracked.
+comparing against the current tick yields staleness and stillness. The bounded
+sighting `history` trail (for velocity/heading and re-finding lost crew) is
+tracked.
 
 **`task_arrows_enabled`** (tri-state `None`/`True`/`False`). Discovered by
 observation — the `task arrow` sprite is always *defined* in init; what's gated is
@@ -621,8 +651,9 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
-seen as the kill-ready→cooldown edge). There is no `chat_received` event —
-crewborg does not decode incoming meeting chat.
+seen as the kill-ready→cooldown edge). Incoming meeting chat *is* now decoded into
+`belief.chat_log` (§4.3), but there is no `chat_received` domain event yet — the
+event seam for it is unbuilt.
 
 Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
 events key on the produced `command`, which modes never see, and `task_completed`

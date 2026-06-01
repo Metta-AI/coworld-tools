@@ -95,3 +95,52 @@ def test_skip_vote_dots_decode_as_skip_not_a_player_target() -> None:
 
     assert by_voter[2].is_skip and by_voter[2].target == -2
     assert not by_voter[1].is_skip and by_voter[1].target == 0
+
+
+def test_chat_lines_pair_speaker_icons_to_text_by_screen_y() -> None:
+    scene = SceneState()
+    scene.apply(
+        # A phase text in the shared 9000 range with no icon beside it: must NOT be
+        # mistaken for chat.
+        w.define_sprite(800, 8, 8, "SKIP")
+        + w.define_object(9001, 60, 8, 9, 0, 800)
+        # Two stacked chat messages: text in [9000,9200), speaker icon in [9200,9300).
+        + w.define_sprite(810, 8, 8, "red did electrical")
+        + w.define_object(9002, 12, 50, 9, 0, 810)
+        + w.define_sprite(811, 8, 8, "player blue right")
+        + w.define_object(9200, 1, 50, 9, 0, 811)  # blue speaks at y=50
+        + w.define_sprite(812, 8, 8, "where was green")
+        + w.define_object(9003, 12, 70, 9, 0, 812)
+        + w.define_sprite(813, 8, 8, "player pink right")
+        + w.define_object(9201, 1, 70, 9, 0, 813)  # pink speaks at y=70
+    )
+    resolved = resolve_scene(scene, tick=1)
+
+    by_speaker = {line.speaker_color: line.text for line in resolved.chat_lines}
+    assert by_speaker == {"blue": "red did electrical", "pink": "where was green"}
+    assert "SKIP" in resolved.phase_texts  # the phase text still resolves as such
+
+
+def test_candidate_grid_resolves_an_alive_dead_census_by_color() -> None:
+    scene = SceneState()
+    scene.apply(
+        # Candidate-grid cells live at VOTE_ICON_OBJECT_BASE (9300) + seq index.
+        w.define_sprite(820, 8, 8, "player orange right")
+        + w.define_object(9300, 10, 20, 9, 0, 820)  # orange: alive
+        + w.define_sprite(821, 8, 8, "body white")
+        + w.define_object(9301, 30, 20, 9, 0, 821)  # white: dead
+    )
+    resolved = resolve_scene(scene, tick=1)
+
+    census = {entry.color: entry.alive for entry in resolved.census}
+    assert census == {"orange": True, "white": False}
+
+
+def test_vote_result_ejected_color_resolves() -> None:
+    scene = SceneState()
+    scene.apply(
+        w.define_sprite(830, 8, 8, "player lime right")
+        + w.define_object(9600, 60, 60, 9, 0, 830)  # RESULT_ICON_OBJECT_ID
+    )
+    resolved = resolve_scene(scene, tick=1)
+    assert resolved.ejected_color == "lime"
