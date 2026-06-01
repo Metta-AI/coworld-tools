@@ -39,7 +39,8 @@ crewborg/
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
-  scripts/play_local.sh
+  scripts/play_local.sh      run crewborg against a local Crewrift server
+  scripts/fetch_episodes.py  download full data for the N most recent hosted episodes
   build.sh
   tests/
 ```
@@ -65,6 +66,31 @@ players/crewrift/crewborg/scripts/play_local.sh
 
 `COGAMES_ENGINE_WS_URL` defaults to `ws://localhost:2000/player?slot=0&token=`;
 override it to point elsewhere.
+
+## Fetch hosted episode data
+
+Download the full data for the most recent episodes crewborg played in the
+hosted Crewrift league (auth via `softmax login`):
+
+```sh
+players/crewrift/crewborg/scripts/fetch_episodes.sh -n 10
+players/crewrift/crewborg/scripts/fetch_episodes.sh -n 5 --version 2 --out /tmp/eps
+```
+
+Writes one directory per episode (default `episode_data/`, gitignored) plus an
+`index.json` summary. Each episode dir holds `episode.json` +
+`episode_request.json` (metadata, participants, scores, game_config), the
+binary `replay.json` (the whole game — load it with the
+[`COGAME_LOAD_REPLAY_URI`](docs/crewrift-replays.md) viewer recipe) and its raw
+compressed `replay.json.z`, and `logs/crewborg_slot{N}_v{V}.log` — crewborg's
+own per-tick stderr trace for each slot it controlled. The run is idempotent
+(`--force` to re-download); see `--help` for `--no-replay` / `--no-logs`.
+
+For ad-hoc inspection the official `coworld episodes` / `coworld replays
+--download-dir` / `coworld episode-logs --download-dir` commands cover the same
+ground (they require **coworld ≥ 0.1.13** — 0.1.11 crashes on a stale
+`V2EpisodeRequestRow` model). This script complements them by filtering to
+crewborg and bundling everything per episode in one pass.
 
 ## Build the image
 

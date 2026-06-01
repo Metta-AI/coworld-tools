@@ -450,8 +450,22 @@ coworld submit crewborg:v1 --league <crewrift-league-id>
 ```
 Local episode/iteration uses `coworld run-episode` / `coworld play` against the
 game's `coworld_manifest.json`. Full platform contract:
-`coworld/src/coworld/COWORLD_README.md`, `GAME_RUNTIME_README.md`,
-`runner/runner.py` (protocol authority).
+`coworld/src/coworld/docs/README.md` (platform overview + role/artifact docs
+under `docs/roles/` and `docs/artifacts/`) and `runner/runner.py` (protocol
+authority). *(The flat `COWORLD_README.md`/`GAME_RUNTIME_README.md` were
+reorganized into `docs/` as of coworld 0.1.13.)*
+
+**Retrieving hosted episodes crewborg played.** The Observatory API records
+every league episode. Official CLI: `coworld episodes`, `coworld replays
+--download-dir`, `coworld episode-logs --download-dir` (need coworld **>= 0.1.13**
+— the 0.1.11 models crash with a `V2EpisodeRequestRow.assignments`
+`ValidationError` against the current server). For a crewborg-filtered bulk pull
+of replays + per-slot traces + metadata, use
+[`scripts/fetch_episodes.py`](./scripts/fetch_episodes.py) (raw-JSON, so
+version-skew-immune; see its docstring for the live endpoint map). The API is
+reached via the official gateway `<softmax-api-server>/observatory` (the
+`coworld` CLI's route) or directly at `https://api.observatory.softmax-research.net`
+with routes at the host root.
 
 ---
 
@@ -512,7 +526,8 @@ pixel parity.
 | Crewrift rules / mechanics | `~/coding/games/coworld-crewrift/README.md`, `docs/rules.md`, `src/crewrift/sim.nim` |
 | Crewrift wire protocol | `~/coding/games/coworld-crewrift/docs/sprite_v1.md` |
 | Crewrift reference bots + guides | `~/coding/games/coworld-crewrift/players/` |
-| Coworld platform/runner contract | `~/coding/metta/packages/coworld/src/coworld/COWORLD_README.md` *(read-only)* |
+| Coworld platform/runner contract | `~/coding/metta/packages/coworld/src/coworld/docs/README.md` + `runner/runner.py` *(read-only)* |
+| Fetch hosted episodes crewborg played | `players/crewrift/crewborg/scripts/fetch_episodes.py` (or `coworld episodes`/`replays`/`episode-logs`, coworld ≥ 0.1.13) |
 
 Absolute roots:
 - Player SDK & this workspace: `~/coding/players_checkouts/players` (pkg `players`)
