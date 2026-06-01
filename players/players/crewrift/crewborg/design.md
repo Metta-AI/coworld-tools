@@ -275,11 +275,14 @@ ghosts and during meetings (no camera).
   **life status** (`alive`/`dead`/`unknown`) with how/when the death was learned
   (`death_source` ∈ `body`/`census`/`ejection`, `death_seen_tick`, `body_xy`).
   The alive-fix is preserved when the death is recorded, connecting "last seen
-  alive" to "now dead" on one record.
+  alive" to "now dead" on one record. Also carries the player's **event log**
+  (`events`, §5.2).
 - **tape** — `recent_frames`: a bounded ring of recent raw observation frames
   (§5.1), the substrate for frame-to-frame transition detection.
 - **bodies** — by id: color, world xy, reported flag. Each body sighting also
-  flips the matching color's roster record to `dead` (linking by color).
+  flips the matching color's roster record to `dead` (linking by color). Cleared
+  when a meeting opens (the server removes bodies then); the death stays on the
+  roster.
 - **chat** — `chat_log`: the current meeting's transcript (`(tick, speaker_color,
   text)`), de-duplicated across the per-tick re-render and cleared when a new
   meeting opens. Raw material for suspicion reasoning.
@@ -289,11 +292,11 @@ ghosts and during meetings (no camera).
 - **phase** — current phase + start tick + the phase state machine, advanced from
   `phase_signals` (emit a `phase_change` trace on transition).
 - **voting** — live tally, cursor, timer, who has voted.
-- **social / evidence** — `suspicion` (per-color score) and `believed_imposters`
-  (the derived set of suspected **colors**, driving Flee), maintained each tick by
-  the suspicion model (§10.1). It flags only near-certain evidence (witnessed kill
-  / vent); consuming the `chat_log` + vote tally for suspicion-aware voting/chat
-  remains to be built.
+- **social / evidence** — `confirmed_imposters` (near-certain catches, permanent),
+  `suspicion` (per-color score: confirmation + graded event-log evidence), and
+  `believed_imposters` (the derived suspected **colors** over the flee threshold).
+  Maintained each tick by the suspicion model (§10.1). Consuming the `chat_log` +
+  vote tally for suspicion-aware voting/chat remains to be built.
 - **inferences** — reserved slot for strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
@@ -347,6 +350,48 @@ transition detectors require the two frames they compare to be consecutive, so t
 gap is self-protecting. This overlaps slightly with the per-player `roster.history`
 trails (different scope: uniform recent all-player frames vs. long per-player
 trails for velocity/recovery); both are kept.
+
+### 5.2 Per-player event log (`PlayerRecord.events`)
+
+Where the tape is short-term raw frames, the **event log** is the long-term
+*"what have I seen X doing"* memory — a human's basis for suspicion, and the
+natural thing to hand the future LLM (`strategy/event_log.py`,
+`update_event_log`, run in the fast loop after `update_belief`). Each tick it
+records, per visible player, the **durative intervals** it observed them in
+(`PlayerEvent`; unbounded — a game produces few intervals, so it keeps the whole
+match):
+
+| Kind | Predicate | Carries |
+|---|---|---|
+| `room` | inside a baked room/corridor rect | `region_index` |
+| `task` | inside a task-station rect (looks like working — fakeable) | `region_index` |
+| `vent` | collision point inside a vent rect | `region_index` |
+| `near_body` | within `NEAR_BODY_RADIUS` of a discovered body | `target_color` (body), `min_dist` |
+| `proximity` | within `KILL_RANGE` of another live player | `target_color` (the other), `min_dist` |
+
+Two principles:
+
+- **Intervals from observation, with a small grace.** A predicate true while we
+  watch a player extends one interval; it splits when we *see the player but the
+  predicate is false* (a real departure), or after an unobserved gap longer than
+  `EVENT_MERGE_GRACE_TICKS`. A *brief* unobserved gap (losing sight for a few
+  frames) is **bridged**, so a 1-tick occlusion blip doesn't fragment a dwell. The
+  bridge vs. split decision keys on the logger's previous-observed tick per player
+  (`last_event_tick`): we only merge when the predicate held the last time we
+  actually saw them. Duration is "observed (± a few bridged frames) for ≈ N".
+- **Raw observations, derived interpretations.** Only direct sightings are stored;
+  compound signals are *queries* over the log + life-status, never their own kind —
+  e.g. *"orange followed yellow, who then died"* = a `proximity` event toward
+  yellow plus `roster["yellow"].life_status == "dead"`; *"red looked like a real
+  crewmate"* = total `task` dwell.
+
+It is **neutral memory**, built for every role (an imposter benefits too); only
+*acting* on it (suspicion → Flee) is crewmate-gated. Meeting chat stays in
+`chat_log` (§4.3) for now — a unified per-player view can merge the two later.
+The graded suspicion layer (§10.1) already consumes a conservative subset of these
+events (`vent`/`near_body`/`proximity`); `near_body` is sound because `belief.bodies`
+is cleared when a meeting opens (matching the server), so it never fires on a stale
+body location.
 
 ---
 
@@ -661,44 +706,52 @@ acts with constant urgency rather than only near a task win.)
 ### 10.1 Suspicion (`strategy/suspicion.py`)
 
 `update_suspicion(belief)` runs every tick in the fast loop *after* `update_belief`
-(composed in `build_runtime`), so the strategy snapshot reads a current
-`believed_imposters`. It is a deliberately **narrow but near-certain** flagger:
-it raises suspicion only on evidence that identifies an imposter with ~100%
-confidence, and when it does it sets `belief.suspicion[color]` very high
-(`CONFIRMED_SUSPICION`); `believed_imposters` (which gates Flee) is everyone over
-`BELIEVE_THRESHOLD` who is still alive. There is **no decay** — a confirmation is
-permanent for the game, cleared only when the suspect dies.
++ `update_event_log` (composed in `build_runtime`), so the strategy snapshot reads
+a current `believed_imposters`. **Two tiers** feed one per-color `suspicion` score;
+`believed_imposters` (which gates Flee) is everyone at/over `BELIEVE_THRESHOLD` who
+is still alive. Crewmate-only — an imposter knows the truth (accrues nothing, never
+flees), nor does a ghost.
 
-The evidence is two **frame-to-frame transitions** read off the perception tape
-(§5.1); both require the two frames to be **consecutive** (`tick` differs by 1),
-so a meeting gap (no camera) can never be misread as a transition. Stateless —
-all state is the tape plus the resulting score:
+**Tier 1 — near-certain (`confirmed_imposters`, permanent until death).** Two
+**frame-to-frame transitions** off the perception tape (§5.1), both requiring
+**consecutive** frames so a meeting gap can't be misread:
 
 - **Witnessed kill.** A body we see this frame whose owner we saw *alive* the
-  previous frame, with exactly **one** other player within `KILL_RANGE_SQ` of that
-  victim a frame ago → that lone neighbour is the killer. (Zero neighbours → killer
-  unseen, no call; ≥2 → ambiguous, no call.)
-- **Witnessed vent** (only imposters can vent): *emergence* — the vent rect + a
-  one-tick walk margin (`VENT_WALK_MARGIN`) was *in line of sight and clear* last
-  frame and a player is inside it now; or *submersion* — a player was inside the
-  vent rect last frame and has vanished while the vent is still in line of sight.
+  previous frame, with exactly **one** other player within `KILL_RANGE_SQ` of the
+  victim a frame ago → that lone neighbour is the killer. (Zero → killer unseen;
+  ≥2 → ambiguous; neither calls.)
+- **Witnessed vent** (only imposters vent): *emergence* (vent rect + a one-tick
+  walk margin `VENT_WALK_MARGIN` was *in line of sight and clear* last frame, occupied
+  now) or *submersion* (a player in the vent last frame vanished while it stays in
+  line of sight). "In line of sight" is the decoded `shadow` mask (§4.4) via
+  `rect_visible`, so occlusion can't produce a false "clear" (falls back to viewport
+  only before the mask arrives). Kill-witnessing uses only players we saw.
 
-Occupancy and adjacency are pure functions over the tape (`strategy.occupancy`:
-`players_in_rect`, `rect_visible`, `neighbors_within`) — nothing derived is stored.
-"In line of sight" is real visibility from the decoded `shadow` mask (§4.4),
-not mere viewport containment, so wall/shadow occlusion no longer produces false
-"the vent was clear" calls (`rect_visible` falls back to viewport only on frames
-before the mask has arrived). Only crewmates reason this way (an imposter knows the
-truth, accrues no suspicion, never flees; nor does a ghost). Kill-witnessing uses
-only players we actually saw.
+A confirmation contributes `CONFIRMED_SCORE` (≫ threshold), so a confirmed imposter
+is always believed.
 
-Deliberately **not** included (lower-confidence, deferred to validation / the LLM
-seam): body-proximity loitering, *area-recency* (who was last seen where a body
-turned up), *alibi clearing*, *vote-tally* bandwagons (census-mapped
-`voting.dots`), and *chat semantics* (`chat_log`, §4.3). A natural future cache is
-materialised **kill-range adjacency** in its own belief slot; the tape makes that
-an additive change. These also feed the still-unbuilt suspicion-aware **voting**
-and **chat generation**.
+**Tier 2 — graded (conservative, recomputed each tick).** A pure readout of the
+per-player event log (§5.2) — no accumulation state, so no double-counting and old
+evidence ages out as events evict. Only a few **low-false-positive** patterns
+score; a single one stays *below* `BELIEVE_THRESHOLD`, so graded flee needs
+**corroboration** (we never flee on one circumstantial cue), and the score is
+capped (`GRADED_SCORE_CAP`):
+
+- *Sustained vent dwell* (≥ `VENT_DWELL_MIN_TICKS` on a vent rect).
+- *Lingering at a body* (≥ `BODY_LINGER_MIN_TICKS` within `BODY_LINGER_MAX_DIST`).
+- *Following a victim to death* (proximity ≥ `FOLLOW_MIN_TICKS` to a player now dead,
+  ending within `FOLLOW_DEATH_WINDOW_TICKS` of finding their body).
+
+Final score = graded + (`CONFIRMED_SCORE` if confirmed). The graded weights are an
+initial conservative cut and want tuning against real games.
+
+Deliberately **excluded** as too noisy (a passing reporter is next to the body; crew
+cluster while tasking): brief proximity, single-body passing, and *task dwell* as
+exculpation (imposters fake tasks). Still deferred to the LLM seam: *area-recency*,
+*alibi clearing*, *vote-tally* bandwagons (census-mapped `voting.dots`), and *chat
+semantics* (`chat_log`, §4.3). A natural future cache is materialised **kill-range
+adjacency** in its own belief slot; the tape makes that additive. These also feed
+the still-unbuilt suspicion-aware **voting** and **chat generation**.
 
 ---
 
@@ -713,7 +766,7 @@ crewborg/
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
   modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
-  strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; occupancy.py: tape predicates; opportunity/trajectory
+  strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
   coworld/           # policy_player.py (bridge), Dockerfile, entrypoint.sh
