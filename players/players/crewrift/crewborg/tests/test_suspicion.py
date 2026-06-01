@@ -11,6 +11,8 @@ from players.crewrift.crewborg.strategy.suspicion import (
     FLEE_PROBABILITY,
     FOLLOW_MIN_TICKS,
     VENT_DWELL_MIN_TICKS,
+    VOTE_PROBABILITY,
+    top_suspect,
     update_suspicion,
 )
 from players.crewrift.crewborg.types import Belief, PerceptionFrame, PlayerEvent, PlayerRecord
@@ -271,3 +273,18 @@ def test_a_confirmed_imposter_is_cleared_once_dead() -> None:
     belief.roster["red"].life_status = "dead"
     update_suspicion(belief)
     assert "red" not in belief.believed_imposters
+
+
+# --- top_suspect (voting target) --------------------------------------------
+
+
+def test_top_suspect_picks_the_highest_over_the_vote_bar() -> None:
+    belief = Belief(self_role="crewmate")
+    belief.suspicion = {"red": VOTE_PROBABILITY + 0.05, "blue": 0.99}
+    assert top_suspect(belief) == "blue"  # the most suspicious clears the bar
+
+
+def test_top_suspect_returns_none_below_the_vote_bar() -> None:
+    belief = Belief(self_role="crewmate")
+    belief.suspicion = {"red": VOTE_PROBABILITY - 0.05, "blue": 0.1}
+    assert top_suspect(belief) is None  # nobody confident enough ⇒ skip

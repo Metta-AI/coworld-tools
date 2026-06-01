@@ -13,8 +13,25 @@ def test_attend_meeting_chats_once_then_votes() -> None:
 
     second = mode.decide(Belief(phase="Voting"), ActionState())
     assert second.kind == "vote"
-    # Stays on vote thereafter (default skip policy).
     assert mode.decide(Belief(phase="Voting"), ActionState()).kind == "vote"
+
+
+def test_attend_meeting_votes_the_top_suspect_when_confident() -> None:
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting")
+    belief.suspicion = {"red": 0.95, "blue": 0.2}  # red over the vote bar
+    mode.decide(belief, ActionState())  # chat opener
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote" and vote.target_color == "red"
+
+
+def test_attend_meeting_skips_when_no_one_is_suspicious_enough() -> None:
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting")
+    belief.suspicion = {"red": 0.4, "blue": 0.2}  # nobody over the vote bar
+    mode.decide(belief, ActionState())  # chat opener
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote" and vote.target_color is None
 
 
 def test_report_body_targets_nearest_visible_body() -> None:

@@ -235,11 +235,14 @@ disjoint from the in-world entity ranges (`global:739-1280`), so the same
 |---|---|---|
 | `chat_lines[]` | text sprite (`9000+`, label = the raw message) paired by screen-y to a speaker icon (`9200+`, `player <color>`) | one `(speaker_color, text)` per visible message; the last `VoteChatVisibleMessages` are re-rendered every tick |
 | `census[]` | candidate grid (`9300+seq`): `player <color>` ⇒ alive, `body <color>` ⇒ dead | an **authoritative per-meeting alive/dead census by color** |
+| `voting.candidates[]` + `voting.cursor_slot` | the same candidate grid (slot = `id − 9300`) + the `vote cursor` object's screen position | per-slot `(slot, color, alive)`, and the slot the cursor is on (nearest cell to the cursor) — drives **targeted voting** (map a target color → its slot, step the cursor to it) |
 | `ejected_color` | vote-result icon (`9600`, `player <color>`) | the player the just-finished vote ejected; absent when the vote skipped |
 
 Chat text shares the `9000` range with phase/HUD text, so chat cannot be told
 apart by id alone; we anchor on the icon range (exclusively chat) and only emit a
-line when an icon sits within a small y-tolerance of a text sprite.
+line when an icon sits within a small y-tolerance of a text sprite. The vote cursor
+on slot `s` is drawn at the same grid position as candidate cell `s`, so we recover
+`cursor_slot` by nearest-cell match (no need to vendor the grid layout constants).
 
 ### 4.4 Line of sight (the `shadow` overlay)
 
@@ -479,7 +482,7 @@ re-decides.
 | Mode | Active when | Intents emitted |
 |---|---|---|
 | **Normal** | default while `Playing` | target the nearest reachable **signalled** task (live arrows+bubbles = the remaining tasks) and `complete_task(T)`; conclude `T` done when its **bubble disappears**, gated on having seen ≥ `COMPLETION_PROGRESS_PCT` (≈90%) progress (so an occlusion/edge flicker doesn't false-complete); when **no task signal remains**, `navigate_to` the spawn / **start room** rather than standing still |
-| **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote(choice)` before the timer |
+| **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` the top suspect (`P(imp) ≥ VOTE_PROBABILITY`, §10.1) else skip, before the timer |
 | **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
 | **Flee** | a believed-imposter is approaching | `flee_from(player)`, or a strategic `navigate_to(point)` |
 
@@ -490,7 +493,7 @@ re-decides.
 | **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
 | **Hunt** | kill ready *and* a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); `kill` when in KillRange *and* unwitnessed, else keep shadowing (lie in wait) |
 | **Evade** | just killed | brief (`EVADE_TICKS`) and **local**: `escape(point)` to a reachable point just outside the body's immediate vicinity (≈ `EVADE_RADIUS`), then back to Pretend — *not* the globally furthest point, which stranded the imposter away from the crew. Routes via the vent-aware graph (a short hop won't take a far teleport) |
-| **Attend Meeting** | phase = `Voting` | `chat(text)`, `vote(choice)` — bluff/deflect |
+| **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` — currently **skip** (suspicion is crewmate-only, so `top_suspect` is empty for an imposter); suspicion-aware bluff/deflect is future |
 
 **Pretend is the imposter's default blending behaviour** — a four-state FSM that
 keeps the imposter doing crewmate-like things (tailing people, faking tasks) and
@@ -827,7 +830,7 @@ structural, and each still awaits tuning against a live server.
 | Movement-controller style | bang-bang + a release-near-target deadband with a predictive stop — release an axis within the estimated momentum stopping distance so the agent coasts onto the target instead of overshooting |
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
-| Voting policy | always cast, defaulting to **skip** (must vote before the timer; not voting costs −10) |
+| Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
 | Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Evade flee distance | leave the body's vicinity by ≈ `EVADE_RADIUS = 128` px (local, not the farthest point), for `EVADE_TICKS = 72` |

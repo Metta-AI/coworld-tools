@@ -70,6 +70,10 @@ LIKELIHOOD_RATIOS: dict[str, float] = {
 # Flee a player once P(imposter) reaches this — a real probability, so the bar is
 # interpretable (only near-certainty triggers the reactive Flee).
 FLEE_PROBABILITY = 0.9
+# Vote a player out once P(imposter) reaches this. Ejecting an innocent helps the
+# imposters, so the bar is high but a touch below the (reactive) flee bar — a vote is
+# a deliberate, one-shot decision made with the meeting's full evidence.
+VOTE_PROBABILITY = 0.8
 # Clamp the prior away from 0/1 so its log-odds stays finite.
 PRIOR_MIN, PRIOR_MAX = 1e-3, 0.99
 
@@ -226,6 +230,16 @@ def _recompute(belief: Belief, graded: dict[str, set[str]]) -> None:
 
     belief.suspicion = suspicion
     belief.believed_imposters = believed
+
+
+def top_suspect(belief: Belief) -> str | None:
+    """The live player to vote out — highest posterior P(imp) over `VOTE_PROBABILITY`,
+    or `None` (skip) when no one is suspicious enough. Used by Attend Meeting (§7.1)."""
+
+    if not belief.suspicion:
+        return None
+    color, p = max(belief.suspicion.items(), key=lambda kv: kv[1])
+    return color if p >= VOTE_PROBABILITY else None
 
 
 def _logit(p: float) -> float:
