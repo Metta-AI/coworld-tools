@@ -1,9 +1,9 @@
 """Bayesian suspicion: posterior P(imposter) per player (design §10.1).
 
 → Canonical reference: ``docs/designs/suspicion.md`` — the living home for the
-model, the likelihood-ratio table's rationale, the offline LR-learning workflow,
-and the provenance log of every weight. Update that doc (and its provenance log)
-whenever ``LIKELIHOOD_RATIOS`` changes.
+model, each evidence type's log-LR function (form + parameters + shape), the offline
+fitting workflow, and the provenance log. Update that doc whenever a function or its
+constants change.
 
 Crewmate POV. For every other player we maintain `belief.suspicion[color]` = the
 posterior **probability they are an imposter**, updated from a combinatorial prior
@@ -15,21 +15,25 @@ are among the other `P − 1`; by symmetry each other player's marginal prior is
 `K / (P − 1)`. `K` is derived from the player count via the game's auto formula
 (`(P − 3) // 2`), overridable by `belief.imposter_count`.
 
-**Update.** Work in log-odds: `logit(P) = logit(prior) + Σ log(LR_e)` over observed
-evidence `e`, where `LR_e = P(e | imposter) / P(e | crewmate)` comes from a table.
-`P = sigmoid(logit)`. The likelihood ratios are the **learnable surface**: the
-values here are an initial hand-tuned cut, meant to be recomputed offline from game
-replays and swapped in — the agent just consumes the table.
+**Update.** Work in log-odds: `logit(P) = logit(prior) + Σ_e logLR(e)` over observed
+evidence `e`. `P = sigmoid(logit)`. The log-LR of each graded cue is a simple,
+hand-written **function of the event's features** (`_*_log_lr` below), not a flat
+constant — because the relationship isn't flat (a skilled imposter flees rather than
+dwelling). The function forms and their constants are the **parameterization** (and
+the learnable surface — there is no learning machinery yet).
 
-**Evidence** is a *set of types* per player (each type updates at most once), so an
-unbounded event log can't inflate the posterior and there's no double-counting; and
-because role is a fixed latent, evidence **persists** (no decay):
+**Evidence**, by type, contributes its most-suspicious instance (we aggregate with
+`max` per type), so an unbounded event log can't inflate the posterior and there's
+no double-counting; and because role is a fixed latent, evidence **persists** (no
+time decay):
 
-- Near-certain (huge LR ⇒ P ≈ 1), from frame-to-frame transitions on the tape (§5.1):
-  *witnessed kill* (lone kill-range neighbour of a just-killed victim) and
-  *witnessed vent* (emergence / submersion, line-of-sight via the `shadow` mask).
-- Graded (modest LR), from the per-player event log (§5.2): *sustained vent dwell*,
-  *lingering at a body*, *following a victim to their death*.
+- Near-certain (`WITNESSED_LOG_LR` ⇒ P ≈ 1), from frame-to-frame transitions on the
+  tape (§5.1): *witnessed kill* (lone kill-range neighbour of a just-killed victim)
+  and *witnessed vent* (emergence / submersion, line-of-sight via the `shadow` mask).
+- Graded functions over the event log (§5.2): **vent dwell** (weak, ~flat past a
+  pass-through), **body proximity** (log-LR *decreases* with dwell — brief is the
+  only window on a fleeing killer), **follow-to-death** (log-LR *increases* with how
+  long the shadowing lasted).
 
 `believed_imposters` (which gates Flee) is every alive player with `P ≥
 FLEE_PROBABILITY`. Crewmate-only — an imposter knows the truth, a ghost doesn't flee.
@@ -50,22 +54,39 @@ from players.crewrift.crewborg.strategy.occupancy import (
     players_in_rect,
     rect_visible,
 )
-from players.crewrift.crewborg.types import Belief, PerceptionFrame
+from players.crewrift.crewborg.types import Belief, PerceptionFrame, PlayerEvent, PlayerRecord
 
-# Likelihood ratios LR = P(evidence | imposter) / P(evidence | crewmate) per evidence
-# type — the learnable surface of the model. The values below are INITIAL hand
-# estimates (no games analysed yet); they are meant to be recomputed offline from
-# replays and swapped in. Per-entry rationale, the learning procedure, and the
-# provenance log for every value live in docs/designs/suspicion.md (§3, §6, §7) —
-# update that doc whenever these change. witnessed_* are definitional (we saw it),
-# not learned.
-LIKELIHOOD_RATIOS: dict[str, float] = {
-    "witnessed_kill": 1e6,  # caught in the act — only imposters kill; near-certain
-    "witnessed_vent": 1e6,  # only imposters vent — near-certain
-    "vent_dwell": 15.0,  # loitering on a vent rect; crewmates ~never do
-    "body_linger": 3.0,  # hovering right at a corpse (innocent reporters do too)
-    "follow_to_death": 6.0,  # sustained proximity to a victim who then died
-}
+# Each evidence type contributes a log-likelihood-ratio, log(P(e|imp)/P(e|crew)), to
+# the posterior. Witnessed kill/vent are definitional near-certainties (a constant).
+# The graded event-log cues use simple, hand-written **per-event functions** of the
+# event's features (duration, distance) — `_*_log_lr` below — because the
+# relationship is not flat: a skilled imposter *flees* rather than dwelling, so e.g.
+# body-proximity is MORE suspicious when brief. The function form + its constants ARE
+# the parameterization (no learning machinery yet); docs/designs/suspicion.md §3
+# documents each shape and §6 how to (re)fit the constants from replays. Keep code
+# and doc in sync, and log changes in the provenance table (§7).
+
+# Near-certain catches (we saw it happen): an overwhelming log-LR ⇒ P ≈ 1.
+WITNESSED_LOG_LR = math.log(1e6)
+
+# vent dwell — weak: a real venter teleports (caught by the transition detector), so
+# merely standing on a vent is a ~flat cue once it is more than a pass-through.
+VENT_CROSS_TICKS = 3  # ≤ this many ticks on a vent tile is just crossing it ⇒ neutral
+VENT_DWELL_LOG_LR = math.log(8.0)
+
+# body proximity — DECREASING in dwell: brief presence is the only window on a
+# fleeing killer; a long camp at a corpse is (innocent) reporter behaviour. Full at
+# first sight, fading linearly to 0 by BODY_FADE_TICKS.
+BODY_NEAR_DIST = 16  # world px — "right next to it", not passing by
+BODY_NEAR_LOG_LR = math.log(3.0)
+BODY_FADE_TICKS = 48  # the log-LR fades to 0 over ~2 s of lingering
+
+# follow-to-death — INCREASING in dwell (saturating): sustained shadowing of a player
+# who then died is stalking. Gated on the target now being dead and the follow ending
+# near the death.
+FOLLOW_FULL_TICKS = 48  # the ramp reaches full at ~2 s of sustained proximity
+FOLLOW_DEATH_WINDOW_TICKS = 72  # the follow ended ~within 3 s of finding the body
+FOLLOW_LOG_LR = math.log(6.0)
 
 # Flee a player once P(imposter) reaches this — a real probability, so the bar is
 # interpretable (only near-certainty triggers the reactive Flee).
@@ -81,13 +102,6 @@ PRIOR_MIN, PRIOR_MAX = 1e-3, 0.99
 # rounded up): a player materialising inside a vent from beyond this vented.
 VENT_WALK_MARGIN = 3
 
-# --- graded-evidence gates (24 Hz; ~ticks) ----------------------------------
-VENT_DWELL_MIN_TICKS = 24  # ~1 s loitering on a vent rect
-BODY_LINGER_MIN_TICKS = 24  # ~1 s next to a body
-BODY_LINGER_MAX_DIST = 16  # world px — "right next to it", not passing by
-FOLLOW_MIN_TICKS = 48  # ~2 s of sustained proximity (following, not brushing past)
-FOLLOW_DEATH_WINDOW_TICKS = 72  # the following ended ~within 3 s of finding the body
-
 
 def update_suspicion(belief: Belief) -> None:
     """Recompute `suspicion` (posterior P(imp)) + `believed_imposters` each tick.
@@ -101,7 +115,7 @@ def update_suspicion(belief: Belief) -> None:
         return
     _detect_witnessed_kill(belief)
     _detect_witnessed_vent(belief)
-    _recompute(belief, _graded_evidence(belief))
+    _recompute(belief)
 
 
 # --- prior ------------------------------------------------------------------
@@ -174,55 +188,62 @@ def _detect_witnessed_vent(belief: Belief) -> None:
 # --- tier 2: graded evidence from the event log -----------------------------
 
 
-def _graded_evidence(belief: Belief) -> dict[str, set[str]]:
-    """The set of graded evidence types each live player exhibits in their log."""
+# --- per-event log-LR functions ---------------------------------------------
+# Each maps one event's features → its log-likelihood-ratio contribution (0.0 =
+# neutral). Simple closed forms; the constants above are the parameters.
 
-    out: dict[str, set[str]] = {}
-    for color, record in belief.roster.items():
-        if record.life_status == "dead":
-            continue
-        types: set[str] = set()
-        for event in record.events:
-            if event.kind == "vent" and event.duration_ticks >= VENT_DWELL_MIN_TICKS:
-                types.add("vent_dwell")
-            elif (
-                event.kind == "near_body"
-                and event.duration_ticks >= BODY_LINGER_MIN_TICKS
-                and event.min_dist is not None
-                and event.min_dist <= BODY_LINGER_MAX_DIST
-            ):
-                types.add("body_linger")
-            elif event.kind == "proximity" and event.duration_ticks >= FOLLOW_MIN_TICKS:
-                victim = belief.roster.get(event.target_color)
-                if (
-                    victim is not None
-                    and victim.life_status == "dead"
-                    and victim.death_seen_tick is not None
-                    and abs(victim.death_seen_tick - event.end_tick) <= FOLLOW_DEATH_WINDOW_TICKS
-                ):
-                    types.add("follow_to_death")
-        if types:
-            out[color] = types
-    return out
+
+def _vent_dwell_log_lr(event: PlayerEvent) -> float:
+    return VENT_DWELL_LOG_LR if event.duration_ticks > VENT_CROSS_TICKS else 0.0
+
+
+def _body_proximity_log_lr(event: PlayerEvent) -> float:
+    if event.min_dist is None or event.min_dist > BODY_NEAR_DIST:
+        return 0.0
+    fade = max(0.0, 1.0 - event.duration_ticks / BODY_FADE_TICKS)  # brief ⇒ more suspicious
+    return BODY_NEAR_LOG_LR * fade
+
+
+def _follow_log_lr(event: PlayerEvent, belief: Belief) -> float:
+    victim = belief.roster.get(event.target_color)
+    if victim is None or victim.life_status != "dead" or victim.death_seen_tick is None:
+        return 0.0
+    if abs(victim.death_seen_tick - event.end_tick) > FOLLOW_DEATH_WINDOW_TICKS:
+        return 0.0
+    ramp = min(1.0, event.duration_ticks / FOLLOW_FULL_TICKS)  # longer shadowing ⇒ more
+    return FOLLOW_LOG_LR * ramp
+
+
+def _graded_log_lr(belief: Belief, record: PlayerRecord) -> float:
+    """A player's total graded log-LR: the most-suspicious instance per evidence type.
+
+    Aggregating with ``max`` (not a sum over every event) keeps each type's
+    contribution bounded and double-count-free even with an unbounded event log.
+    """
+
+    vent = max((_vent_dwell_log_lr(e) for e in record.events if e.kind == "vent"), default=0.0)
+    body = max((_body_proximity_log_lr(e) for e in record.events if e.kind == "near_body"), default=0.0)
+    follow = max((_follow_log_lr(e, belief) for e in record.events if e.kind == "proximity"), default=0.0)
+    return vent + body + follow
 
 
 # --- combine into the posterior ---------------------------------------------
 
 
-def _recompute(belief: Belief, graded: dict[str, set[str]]) -> None:
+def _recompute(belief: Belief) -> None:
     prior_logit = _logit(_prior_imposter_p(belief))
     suspicion: dict[str, float] = {}
     believed: set[str] = set()
 
-    colors = set(belief.roster) | belief.confirmed_imposters
-    for color in colors:
+    for color in set(belief.roster) | belief.confirmed_imposters:
         record = belief.roster.get(color)
         if record is not None and record.life_status == "dead":
             continue  # the dead are no threat (the confirmation is kept for the record)
-        evidence = set(graded.get(color, ()))
+        logit = prior_logit
         if color in belief.confirmed_imposters:
-            evidence.add("witnessed_kill")  # any near-certain catch — overwhelming LR
-        logit = prior_logit + sum(math.log(LIKELIHOOD_RATIOS[e]) for e in evidence)
+            logit += WITNESSED_LOG_LR  # any near-certain catch — overwhelming
+        if record is not None:
+            logit += _graded_log_lr(belief, record)
         p = _sigmoid(logit)
         suspicion[color] = p
         if p >= FLEE_PROBABILITY:

@@ -7,10 +7,10 @@ import pytest
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Vent
 from players.crewrift.crewborg.strategy.suspicion import (
-    BODY_LINGER_MIN_TICKS,
+    BODY_FADE_TICKS,
     FLEE_PROBABILITY,
-    FOLLOW_MIN_TICKS,
-    VENT_DWELL_MIN_TICKS,
+    FOLLOW_FULL_TICKS,
+    VENT_CROSS_TICKS,
     VOTE_PROBABILITY,
     top_suspect,
     update_suspicion,
@@ -167,16 +167,22 @@ def test_submersion_is_suppressed_when_the_vent_is_occluded_now() -> None:
     assert not belief.believed_imposters  # player gone, but maybe they just walked behind a wall
 
 
-# --- Bayesian posterior: prior + graded evidence (tier 2) -------------------
+# --- Bayesian posterior: prior + per-event graded log-LRs (tier 2) ----------
 
 
-def _vent_dwell(start: int = 1) -> PlayerEvent:
-    return PlayerEvent(kind="vent", start_tick=start, end_tick=start + VENT_DWELL_MIN_TICKS, region_index=0)
+def _vent_dwell(start: int = 1, dur: int = 10) -> PlayerEvent:
+    return PlayerEvent(kind="vent", start_tick=start, end_tick=start + dur, region_index=0)
 
 
-def _body_linger(start: int = 50) -> PlayerEvent:
+def _near_body(start: int = 50, dur: int = 1, dist: int = 8) -> PlayerEvent:
     return PlayerEvent(
-        kind="near_body", start_tick=start, end_tick=start + BODY_LINGER_MIN_TICKS, target_color="blue", min_dist=8
+        kind="near_body", start_tick=start, end_tick=start + dur, target_color="blue", min_dist=dist
+    )
+
+
+def _long_follow(start: int = 40, target: str = "yellow") -> PlayerEvent:
+    return PlayerEvent(
+        kind="proximity", start_tick=start, end_tick=start + FOLLOW_FULL_TICKS, target_color=target, min_dist=10
     )
 
 
@@ -208,37 +214,46 @@ def test_one_graded_signal_raises_the_posterior_but_does_not_flee() -> None:
 
 def test_corroborating_graded_signals_cross_the_flee_bar() -> None:
     belief = _crew_belief()
-    _add(belief, "red", [_vent_dwell(), _body_linger()])
+    _add(belief, "red", [_vent_dwell(), _long_follow()])
+    belief.roster["yellow"] = PlayerRecord(color="yellow", life_status="dead", death_seen_tick=40 + FOLLOW_FULL_TICKS)
     update_suspicion(belief)
     assert belief.suspicion["red"] >= FLEE_PROBABILITY and "red" in belief.believed_imposters
 
 
-def test_brief_or_distant_cues_leave_the_posterior_at_the_prior() -> None:
+def test_body_proximity_is_more_suspicious_when_brief_than_when_camped() -> None:
+    # A skilled imposter flees; a long camp at a corpse is reporter behaviour. So the
+    # body-proximity log-LR DECREASES with dwell — the headline of the per-event shape.
+    belief = _crew_belief()
+    _add(belief, "red", [_near_body(dur=1)])  # a brief glimpse next to the body
+    _add(belief, "green", [_near_body(dur=BODY_FADE_TICKS)])  # camped until the cue fades to 0
+    _add(belief, "blue")  # baseline (prior)
+    update_suspicion(belief)
+    assert belief.suspicion["red"] > belief.suspicion["green"]
+    assert belief.suspicion["green"] == pytest.approx(belief.suspicion["blue"])  # long camp ⇒ neutral
+
+
+def test_pass_through_and_distant_cues_are_neutral() -> None:
     belief = _crew_belief()
     _add(belief, "red", [
-        PlayerEvent(kind="vent", start_tick=1, end_tick=3, region_index=0),  # too brief
-        PlayerEvent(kind="near_body", start_tick=10, end_tick=10 + BODY_LINGER_MIN_TICKS,
-                    target_color="blue", min_dist=40),  # too far
-        PlayerEvent(kind="proximity", start_tick=20, end_tick=24, target_color="green", min_dist=5),  # brief
+        _vent_dwell(dur=VENT_CROSS_TICKS - 1),  # duration = VENT_CROSS_TICKS ⇒ just crossing the tile
+        _near_body(dur=1, dist=40),  # too far from the body
+        PlayerEvent(kind="proximity", start_tick=20, end_tick=24, target_color="green", min_dist=5),  # victim alive
     ])
     _add(belief, "blue")  # baseline
     update_suspicion(belief)
-    assert belief.suspicion["red"] == belief.suspicion["blue"]  # none qualified ⇒ still the prior
+    assert belief.suspicion["red"] == pytest.approx(belief.suspicion["blue"])  # nothing moved the prior
 
 
 def test_following_a_victim_to_death_only_updates_when_they_died() -> None:
-    end = 40 + FOLLOW_MIN_TICKS
-    follow = PlayerEvent(kind="proximity", start_tick=40, end_tick=end, target_color="yellow", min_dist=10)
-
     alive = _crew_belief()
-    _add(alive, "orange", [follow])
+    _add(alive, "orange", [_long_follow()])
     _add(alive, "yellow")  # victim still alive ⇒ no evidence
     update_suspicion(alive)
-    assert alive.suspicion["orange"] == alive.suspicion["yellow"]  # both at the prior
+    assert alive.suspicion["orange"] == pytest.approx(alive.suspicion["yellow"])  # both at the prior
 
     dead = _crew_belief()
-    _add(dead, "orange", [follow])
-    dead.roster["yellow"] = PlayerRecord(color="yellow", life_status="dead", death_seen_tick=end + 10)
+    _add(dead, "orange", [_long_follow()])
+    dead.roster["yellow"] = PlayerRecord(color="yellow", life_status="dead", death_seen_tick=40 + FOLLOW_FULL_TICKS)
     update_suspicion(dead)
     assert dead.suspicion["orange"] > 2 / 7  # following the victim to death raised it above prior
 

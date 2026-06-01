@@ -728,17 +728,18 @@ the other `P − 1`, so each other player's marginal prior is `K / (P − 1)`. `
 derived from the player count via the game's auto formula `(P − 3) // 2`
 (`sim.nim:1387`; `effectiveImposterCount`), overridable by `belief.imposter_count`.
 
-**Update (log-odds Bayes).** `logit(P) = logit(prior) + Σ log(LR_e)` over the
-evidence types `e` we have observed, where `LR_e = P(e | imposter) / P(e | crewmate)`
-comes from `LIKELIHOOD_RATIOS`. The likelihood ratios are the **learnable surface**:
-the values in the table are an initial hand-tuned cut, meant to be recomputed offline
-from game replays and swapped in — the agent just consumes the table. Evidence is a
-**set of types** per player (each updates at most once), so an unbounded event log
-(§5.2) can't inflate the posterior and there's no double-counting; and because role
-is a fixed latent, evidence **persists** (no decay — the prior is the only baseline).
+**Update (log-odds Bayes).** `logit(P) = logit(prior) + Σ logLR(e)` over observed
+evidence `e`. Each graded cue's `logLR` is a **function of the event's features**
+(duration/distance), not a flat constant — the function form + constants are the
+parameterization (and learnable surface). Per type we take the **max** over the
+player's events (most-suspicious instance), so an unbounded event log (§5.2) can't
+inflate the posterior and there's no double-counting; and because role is a fixed
+latent, evidence **persists** (no time decay — the prior is the baseline). Full
+detail (the function shapes and how to fit them) lives in
+[`docs/designs/suspicion.md`](docs/designs/suspicion.md) §3.
 
-Two evidence sources, unified under one framework — a witnessed catch is just
-evidence with an overwhelming LR (`1e6 ⇒ P ≈ 1`), not a special case:
+Two evidence sources, unified — a witnessed catch is just evidence with an
+overwhelming `logLR` (`WITNESSED_LOG_LR = ln 1e6 ⇒ P ≈ 1`), not a special case:
 
 - **Near-certain** (`confirmed_imposters`, persisted), from **consecutive**
   frame-to-frame transitions on the tape (§5.1): *witnessed kill* (lone
@@ -747,12 +748,12 @@ evidence with an overwhelming LR (`1e6 ⇒ P ≈ 1`), not a special case:
   clear last frame, occupied now) or *submersion* (a player in the vent last frame
   gone while it stays in sight). "In line of sight" is the decoded `shadow` mask
   (§4.4) via `rect_visible`, so occlusion can't fake a "clear".
-- **Graded** (modest LR), recomputed from the event log (§5.2): *sustained vent
-  dwell* (≥ `VENT_DWELL_MIN_TICKS`), *lingering at a body* (≥ `BODY_LINGER_MIN_TICKS`
-  within `BODY_LINGER_MAX_DIST`), *following a victim to death* (proximity ≥
-  `FOLLOW_MIN_TICKS` to a player now dead, ending within `FOLLOW_DEATH_WINDOW_TICKS`
-  of finding the body). A single graded cue lands well below `FLEE_PROBABILITY`, so
-  graded fleeing needs corroboration.
+- **Graded functions** over the event log (§5.2): **vent dwell** (weak, ~flat past a
+  pass-through), **body proximity** (log-LR *decreases* with dwell — a skilled
+  imposter flees, so brief presence is the only window on a killer; a long camp is a
+  reporter), and **follow-to-death** (log-LR *increases* with how long the shadowing
+  of a now-dead victim lasted). A single graded cue lands below `FLEE_PROBABILITY`,
+  so graded fleeing needs corroboration.
 
 Deliberately **excluded** as too noisy (an innocent reporter is next to the body;
 crew cluster while tasking): brief proximity, single-body passing, and *task dwell*
