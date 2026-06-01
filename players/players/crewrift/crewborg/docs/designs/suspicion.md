@@ -1,11 +1,12 @@
 # Suspicion — Bayesian P(imposter)
 
 **Status:** living document. This is the canonical, durable home for crewborg's
-suspicion model and especially its **likelihood-ratio table** — the place where we
-record, justify, and improve the evidence weights as we learn them from games.
+suspicion model and especially its **per-event log-LR functions** (§3) — the place
+where we record, justify, and improve the evidence weights as we learn them from
+games.
 
-- **Code:** [`strategy/suspicion.py`](../../strategy/suspicion.py) — the table is
-  `LIKELIHOOD_RATIOS`; the update is `update_suspicion(belief)`.
+- **Code:** [`strategy/suspicion.py`](../../strategy/suspicion.py) — the `_*_log_lr`
+  functions + `WITNESSED_LOG_LR`; the update is `update_suspicion(belief)`.
 - **Spec summary:** [`design.md` §10.1](../../design.md).
 - **Inputs:** the perception tape (§5.1) and per-player event log (§5.2), both in
   `design.md`.
@@ -74,71 +75,100 @@ P        = sigmoid(logit(P))
 
 where `logit(p) = ln(p / (1 − p))` and `sigmoid(x) = 1 / (1 + e^−x)`.
 
-- `LR > 1` ⇒ evidence raises suspicion; `LR = 1` ⇒ neutral; `LR < 1` ⇒ lowers it
-  (we have no `LR < 1` evidence yet — see §5, positive-evidence-only).
-- Evidence is a **set of types** per player — each type contributes its `log(LR)`
-  **at most once**. So repeated logging of the same behaviour can't inflate the
-  posterior, and an unbounded event log (§5.2) is safe.
-- Because a player's role is a **fixed latent variable**, evidence does not decay:
-  observing someone vent at minute 1 is permanent evidence about their (unchanging)
-  role. There is no time-decay term, by design.
+- `logLR > 0` ⇒ evidence raises suspicion; `= 0` ⇒ neutral; `< 0` ⇒ lowers it (we
+  have no `< 0` evidence yet — see §5, positive-evidence-only).
+- Each graded cue's `logLR` is a **function of the event's features** (duration,
+  distance), not a flat constant — see §3. We aggregate **per evidence type with
+  `max`** (a player's most-suspicious instance of that type), so repeated logging of
+  the same behaviour can't inflate the posterior and an unbounded event log (§5.2)
+  is safe.
+- Because a player's role is a **fixed latent variable**, evidence does not decay in
+  time: observing someone vent at minute 1 is permanent evidence about their
+  (unchanging) role. There is no time-decay term, by design. (Note this is distinct
+  from the *body-proximity* function decreasing with *dwell duration* — that's about
+  the within-event shape, not about forgetting over wall-clock time.)
 
 ### 2.3 Worked example
 
 8 players ⇒ `K = (8 − 3) // 2 = 2`, so `prior = 2 / 7 ≈ 0.286`, `logit ≈ −0.916`.
 
-| Evidence observed | logit | P(imposter) | Flee (≥0.9)? |
-|---|---|---|---|
-| none (the prior) | −0.916 | 0.286 | no |
-| `vent_dwell` (LR 15) | −0.916 + 2.708 = 1.79 | 0.857 | no |
-| `vent_dwell` + `body_linger` (×3) | 1.79 + 1.099 = 2.89 | 0.947 | **yes** |
-| `witnessed_vent` (LR 1e6) | −0.916 + 13.82 = 12.9 | 0.99999 | **yes** |
+| Evidence observed | logLR | logit | P(imposter) | Flee (≥0.9)? |
+|---|---|---|---|---|
+| none (the prior) | — | −0.916 | 0.286 | no |
+| brief `body proximity` (LR≈3) | +1.10 | 0.18 | 0.545 | no |
+| `vent dwell` (LR 8) | +2.08 | 1.16 | 0.762 | no |
+| `vent dwell` + `follow-to-death` (LR 6) | +2.08 +1.79 | 2.96 | 0.950 | **yes** |
+| `witnessed vent` (LR 1e6) | +13.8 | 12.9 | 0.99999 | **yes** |
 
 So a single graded cue is suspicious but not flee-worthy; corroboration crosses the
 bar; a witnessed catch is effectively certain regardless of the prior.
 
 ---
 
-## 3. The evidence catalogue + likelihood-ratio table
+## 3. The evidence catalogue + per-event log-LR functions
 
-This is the load-bearing table. **The LR values are the learnable surface** — the
-initial values below are hand-estimated priors (no games analysed yet) and are
-expected to be *replaced* by values learned from replays (§6). Record every change
-in the provenance log (§7).
+This is the load-bearing part of the model. **The functions and their constants are
+the learnable surface** — hand-written initial cuts (no games analysed yet), meant
+to be (re)fit from replays (§6). Record every change in the provenance log (§7).
 
-| Evidence type | Source | Detected when | LR (current) | Rationale |
+### 3.1 Why functions, not flat ratios
+
+A flat LR per evidence type is wrong because the relationship between an event's
+*features* and guilt is not flat — and is sometimes **inverted**. A skilled imposter
+**flees** a kill instantly; they do not loiter. So:
+
+- A long dwell next to a body is **reporter** behaviour (innocent); a *brief*
+  presence is the only window on a fleeing killer. ⇒ body-proximity log-LR should
+  **decrease** with dwell.
+- Following someone for a sustained stretch right up to their death is stalking. ⇒
+  follow log-LR should **increase** with dwell.
+- Standing on a vent is weak either way (a real venter *teleports* — caught by the
+  near-certain transition detector). ⇒ ~flat past a pure pass-through.
+
+So each graded cue gets a small **`_*_log_lr(event[, belief]) -> float`** function
+(`suspicion.py`). The form + its constants are the parameterization; there is no
+learning machinery yet (and deliberately nothing neural). A type's contribution is
+the **max** over that player's events of that type (§2.2).
+
+### 3.2 Near-certain (definitional, constant)
+
+| Evidence | Source | Detected when | log-LR |
+|---|---|---|---|
+| witnessed kill | tape transition (§5.1) | victim alive last frame, body now, exactly **one** other player within `KILL_RANGE_SQ` of the victim last frame | `WITNESSED_LOG_LR` = ln 1e6 |
+| witnessed vent | tape transition (§5.1) | *emergence* (vent + `VENT_WALK_MARGIN` in line of sight & clear last frame, occupied now) or *submersion* (player in the vent last frame, gone while it stays in sight); LoS via the `shadow` mask (§4.4) | `WITNESSED_LOG_LR` |
+
+These are definitional (we *saw* it) and not learned.
+
+### 3.3 Graded functions (over the event log, §5.2)
+
+| Function | Event | Form (log-LR) | Constants | Shape / rationale |
 |---|---|---|---|---|
-| `witnessed_kill` | tape transition (§5.1) | victim alive last frame, body now, exactly **one** other player within `KILL_RANGE_SQ` of the victim last frame (the lone neighbour) | **1e6** | Definitional: we saw the kill. Near-certain; LR is "effectively infinite". |
-| `witnessed_vent` | tape transition (§5.1) | *emergence* (vent + `VENT_WALK_MARGIN` was in line of sight & clear last frame, occupied now) or *submersion* (player in the vent last frame, gone while it stays in sight). LoS via the `shadow` mask (§4.4). | **1e6** | Only imposters can vent. Near-certain. |
-| `vent_dwell` | event log (§5.2) | a `vent` event with `duration_ticks ≥ VENT_DWELL_MIN_TICKS` (≈1 s) | **15** | Crewmates cross vent tiles but ~never loiter on them; strong but not certain (odd pathing exists). |
-| `body_linger` | event log (§5.2) | a `near_body` event with `duration ≥ BODY_LINGER_MIN_TICKS` (≈1 s) and `min_dist ≤ BODY_LINGER_MAX_DIST` (16 px) | **3** | Hovering right at a corpse is suspicious, but innocent reporters do it too — modest. |
-| `follow_to_death` | event log (§5.2) | a `proximity` event to player V with `duration ≥ FOLLOW_MIN_TICKS` (≈2 s), V now dead, and the proximity ended within `FOLLOW_DEATH_WINDOW_TICKS` (≈3 s) of finding V's body | **6** | Sustained stalking of someone who then died. Noisier (loose kill-timing) but meaningful. |
+| `_vent_dwell_log_lr` | `vent` | `VENT_DWELL_LOG_LR` if `duration > VENT_CROSS_TICKS` else `0` | `VENT_CROSS_TICKS=3`, `VENT_DWELL_LOG_LR=ln 8` | ~flat once it's more than crossing the tile; weak (the transition detector owns real venting). |
+| `_body_proximity_log_lr` | `near_body` | `0` if `min_dist > BODY_NEAR_DIST`, else `BODY_NEAR_LOG_LR · max(0, 1 − duration/BODY_FADE_TICKS)` | `BODY_NEAR_DIST=16 px`, `BODY_NEAR_LOG_LR=ln 3`, `BODY_FADE_TICKS=48` | **decreasing** in dwell: full at first sight, fades to 0 by ~2 s (a long camp ⇒ reporter ⇒ neutral). |
+| `_follow_log_lr` | `proximity` | `0` unless target now dead and `\|death_seen − end\| ≤ FOLLOW_DEATH_WINDOW_TICKS`, else `FOLLOW_LOG_LR · min(1, duration/FOLLOW_FULL_TICKS)` | `FOLLOW_FULL_TICKS=48`, `FOLLOW_DEATH_WINDOW_TICKS=72`, `FOLLOW_LOG_LR=ln 6` | **increasing** (saturating) in dwell: longer shadowing of a now-dead victim ⇒ more. |
 
-### Detection gates (in `suspicion.py`)
+`VENT_WALK_MARGIN` (3 px, one tick of walking) is a perception guard for the
+vent-emergence detector, not a scoring parameter.
 
-These thresholds shape *when* an evidence type fires; tuning them changes the
-event's selectivity (and therefore the right LR). At 24 Hz:
+### 3.4 How to parameterize / change a function
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `VENT_DWELL_MIN_TICKS` | 24 | min loiter on a vent to count |
-| `BODY_LINGER_MIN_TICKS` | 24 | min dwell next to a body |
-| `BODY_LINGER_MAX_DIST` | 16 px | "right next to it" |
-| `FOLLOW_MIN_TICKS` | 48 | min sustained proximity to count as following |
-| `FOLLOW_DEATH_WINDOW_TICKS` | 72 | how close the following must end to the death |
-| `VENT_WALK_MARGIN` | 3 px | one tick of walking (vent-emergence guard) |
+Each function is plain Python over the event's fields (`duration_ticks`, `min_dist`,
+`target_color`) plus `belief` (for the target's life status). To re-shape a cue:
+edit its constants (magnitude `*_LOG_LR`, scale `*_TICKS`, distance gate) or its
+closed form. Keep three things aligned: the **function**, this **table**, and the
+**provenance log** (§7). Tests assert *relational* behaviour (evidence raises P; one
+cue stays below the flee bar; corroboration crosses it; body-proximity brief > long),
+so they survive re-tuning unless the qualitative shape changes.
 
-### Deliberately **excluded** (too noisy to be evidence)
+### 3.5 Deliberately excluded (too noisy to score)
 
-- **Brief proximity** — crew constantly pass within kill range while tasking.
-- **Single-body passing / distant near-body** — the innocent who finds and reports
-  a body is right next to it.
+- **Brief proximity** to a *living* player — crew constantly pass within kill range.
+- **Distant near-body** — beyond `BODY_NEAR_DIST` is just passing through.
 - **`task` dwell as exculpation** — would lower suspicion for "looking busy", but
-  imposters fake tasks (the Pretend mode does exactly this), so it is not reliable
-  evidence of innocence.
+  imposters fake tasks (Pretend does exactly this), so it isn't reliable innocence.
 
-These are logged in the event log regardless (they may feed the LLM later), they
-just don't carry an LR.
+These are still in the event log (they may feed the LLM later); they just map to a
+`0` log-LR.
 
 ---
 
@@ -149,8 +179,8 @@ just don't carry an LR.
 | `FLEE_PROBABILITY` | 0.9 | posterior at/above which we **flee** a player (reactive). Higher = more conservative. |
 | `VOTE_PROBABILITY` | 0.8 | posterior at/above which we **vote** the top suspect out at a meeting (else skip). Ejecting an innocent helps the imposters, so it is high — but a touch below the flee bar, as a vote is a deliberate one-shot decision made with the meeting's full evidence. |
 | `PRIOR_MIN` / `PRIOR_MAX` | 1e-3 / 0.99 | clamp the prior so log-odds is finite. |
-| the LR values | §3 | how much each observation moves belief. **The main thing to learn.** |
-| the detection gates | §3 | how selective each evidence type is. |
+| `WITNESSED_LOG_LR` | ln 1e6 | how strong a witnessed kill/vent is (definitional). |
+| the per-event log-LR functions + their constants | §3.3 | how much each graded cue moves belief, *and its shape* vs. duration/distance. **The main thing to fit.** |
 
 **Consumers of the posterior.** `believed_imposters` (P ≥ `FLEE_PROBABILITY`) gates
 the Flee mode. `top_suspect(belief)` (the highest-P live player, if ≥
@@ -187,19 +217,25 @@ we know what to revisit.
 
 ---
 
-## 6. Learning the likelihood ratios from replays
+## 6. Fitting the log-LR functions from replays
 
-This is the durable process by which the table improves. The agent never learns at
-runtime — we (offline) recompute the LRs from labelled game replays and update §3 +
-§7.
+This is the durable process by which the functions improve. The agent never learns
+at runtime — we (offline) fit each graded cue's function from labelled replays and
+update §3 + §7.
 
-For each evidence type `e`:
+The quantity each function approximates, **as a function of the event's features**:
 
 ```
-LR_e = P(e | imposter) / P(e | crewmate)
-     ≈ (imposters for whom we observed e) / (imposters we had a chance to observe)
-       ───────────────────────────────────────────────────────────────────────────
-       (crewmates for whom we observed e) / (crewmates we had a chance to observe)
+logLR(e) = ln[ P(e's features | imposter) / P(e's features | crewmate) ]
+```
+
+For a feature like dwell duration, estimate the ratio **per bin** and read off the
+*shape* (this is exactly how we found body-proximity should *decrease*):
+
+```
+                  fraction of imposter near-body events in this duration bin
+ratio(bin) ≈  ───────────────────────────────────────────────────────────────
+                  fraction of crewmate near-body events in this duration bin
 ```
 
 Procedure:
@@ -207,24 +243,25 @@ Procedure:
 1. **Replays give ground truth.** A replay records every player's true role. Load it
    with the viewer recipe in [`docs/crewrift-replays.md`](../crewrift-replays.md).
 2. **Reconstruct observations from an observer's POV.** Evidence is what a crewmate
-   *saw*, so re-run the detectors (`_graded_evidence`, the tape detectors) as if
-   crewborg were a particular crewmate in that game — using that player's
-   line-of-sight/visibility, not the global state. Do this per (observer, game).
-3. **Count with an opportunity denominator.** The denominator is players the
-   observer *could* have caught exhibiting `e` (were observable enough), not all
-   players — otherwise unobserved players bias the estimate.
-4. **Smooth.** Use Laplace/add-k smoothing so a rare or never-seen event doesn't give
-   a 0 or ∞ ratio.
-5. **Sanity-check independence.** If two evidence types are highly correlated,
-   prefer merging them or down-weighting, since naive Bayes will double-count.
-6. **Update §3 and the provenance log (§7), then mirror into
-   `LIKELIHOOD_RATIOS`.** Re-run the suspicion tests; they assert *relational*
-   properties (evidence raises P, one cue stays below the flee bar, corroboration
-   crosses it), so they should survive re-tuning — if one breaks, the new values
-   changed the qualitative behaviour and that deserves a look.
+   *saw*, so re-run the event log + tape detectors as if crewborg were a particular
+   crewmate in that game — using that player's line-of-sight/visibility, not the
+   global state. Do this per (observer, game). Record each event with its features
+   (duration, distance, target role) and the subject's true role.
+3. **Bin by feature and estimate the ratio per bin** (with an *opportunity*
+   denominator — players the observer could have caught, not all players).
+4. **Smooth** (Laplace/add-k) so rare bins don't give 0/∞.
+5. **Fit a simple closed form** to the binned ratios — keep the family in §3.3 (flat,
+   linear-fade, saturating-ramp) unless the data clearly wants another simple shape.
+   Update the function's constants (and the form if needed).
+6. **Sanity-check independence.** Highly correlated cues are double-counted by naive
+   Bayes — prefer merging or down-weighting.
+7. **Update §3.3 + the provenance log (§7), then mirror into `suspicion.py`.** Re-run
+   the suspicion tests; they assert *relational* properties (evidence raises P, one
+   cue stays below the flee bar, corroboration crosses it, body-proximity brief >
+   long), so they survive re-tuning unless the qualitative shape changed.
 
-The witnessed-kill/vent LRs are **definitional** (we saw it happen) and stay at the
-near-certainty value; they are not learned.
+The witnessed-kill/vent log-LR is **definitional** (we saw it happen) and stays at
+the near-certainty value; it is not fit.
 
 The replay-analysis tooling itself is not built yet. When it is, this section should
 gain the exact command/script and its output format.
@@ -236,13 +273,15 @@ gain the exact command/script and its output format.
 One row per value-setting event. Keep this honest — it is how we know whether a
 weight is a guess or earned.
 
-| Date | Evidence | LR | Source | Games analysed | Notes |
+| Date | Cue | Peak LR / shape | Source | Games | Notes |
 |---|---|---|---|---|---|
-| 2026-06-01 | `witnessed_kill` | 1e6 | definitional | — | only imposters kill; not learned |
-| 2026-06-01 | `witnessed_vent` | 1e6 | definitional | — | only imposters vent; not learned |
-| 2026-06-01 | `vent_dwell` | 15 | hand estimate | 0 | initial guess; loitering on a vent is rare for crew |
-| 2026-06-01 | `body_linger` | 3 | hand estimate | 0 | initial guess; ambiguous vs. innocent reporter |
-| 2026-06-01 | `follow_to_death` | 6 | hand estimate | 0 | initial guess; noisy kill-timing |
+| 2026-06-01 | witnessed kill/vent | 1e6, constant | definitional | — | we saw it; not fit |
+| 2026-06-01 | `vent_dwell` | 15, flat ≥24 ticks | hand estimate | 0 | initial guess (superseded) |
+| 2026-06-01 | `body_linger` | 3, flat ≥24 ticks | hand estimate | 0 | initial guess (superseded — gate inverted the signal) |
+| 2026-06-01 | `follow_to_death` | 6, flat ≥48 ticks | hand estimate | 0 | initial guess (superseded) |
+| 2026-06-01 | `vent_dwell` | LR 8, flat past 3-tick crossing | hand estimate | 0 | dwell is weak (transition detector owns real venting) |
+| 2026-06-01 | `body_proximity` | LR 3 at first sight → 0 by 48 ticks (**decreasing**) | hand estimate | 0 | a skilled imposter flees; long camp ⇒ reporter ⇒ neutral |
+| 2026-06-01 | `follow_to_death` | LR 6, ramp to full by 48 ticks (**increasing**) | hand estimate | 0 | sustained shadowing of a now-dead victim |
 
 ---
 
@@ -250,15 +289,15 @@ weight is a guess or earned.
 
 1. **Make it observable.** If it is a durative interaction, add a `PlayerEvent`
    kind in the event log (§5.2); if it is a frame transition, add a detector on the
-   tape (§5.1).
-2. **Define the gate** (the `*_MIN_TICKS` / distance constant) so it fires only when
-   the signal is real.
-3. **Detect it** in `_graded_evidence` (or a tape detector that adds to
-   `confirmed_imposters`).
-4. **Add its `LR`** to `LIKELIHOOD_RATIOS` and a row to the catalogue (§3) + a
-   provenance entry (§7) — initially a hand estimate, flagged for learning.
+   tape (§5.1) that adds to `confirmed_imposters`.
+2. **Write its `_<cue>_log_lr(event[, belief]) -> float`** — a small closed-form
+   function of the event's features (think about the *shape*: does the cue get more
+   or less suspicious with duration/distance?), with named constants.
+3. **Aggregate it** in `_graded_log_lr` (`max` over the player's events of that kind).
+4. **Document** it in §3.3 + add a provenance entry (§7) — initially a hand estimate,
+   flagged for fitting.
 5. **Test** the relational behaviour (raises P; alone below the flee bar unless it's
-   near-certain).
+   near-certain; and its feature shape, e.g. brief > long if decreasing).
 
 ---
 
