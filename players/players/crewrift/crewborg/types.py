@@ -98,6 +98,34 @@ LifeStatus = Literal["alive", "dead", "unknown"]
 # vote-result ejection.
 DeathSource = Literal["body", "census", "ejection"]
 
+# An observed interaction we logged about another player (design §5.2). All are
+# **durative**: an interval of contiguous observation. ``room``/``task``/``vent``
+# carry a ``region_index``; ``near_body``/``proximity`` carry a ``target_color``
+# (the body's color / the other player) and a ``min_dist`` closest approach.
+PlayerEventKind = Literal["room", "task", "vent", "near_body", "proximity"]
+
+
+class PlayerEvent(BaseModel):
+    """One observed interval about a player — the unit of their event log (§5.2).
+
+    Raw observation, not interpretation: compound signals ("followed Y, who then
+    died") are *queries* over events + life-status, not stored here. Duration is the
+    *observed* span (contiguous line of sight), i.e. "seen doing X for ≥ this long".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: PlayerEventKind
+    start_tick: int
+    end_tick: int
+    target_color: str | None = None  # near_body → body's color; proximity → other player
+    region_index: int | None = None  # room/task/vent index into the baked map
+    min_dist: int | None = None  # closest approach (world px) for near_body / proximity
+
+    @property
+    def duration_ticks(self) -> int:
+        return self.end_tick - self.start_tick + 1
+
 
 class PlayerRecord(BaseModel):
     """Everything known about one player, keyed by **color** (design §5).
@@ -131,6 +159,14 @@ class PlayerRecord(BaseModel):
     # Where the body was, if we saw it in-world (``None`` if death was learned only
     # from the census / an ejection).
     body_xy: tuple[int, int] | None = None
+
+    # The observation event log for this player (§5.2): the full-game timeline of
+    # durative interactions we saw them in, maintained by ``strategy.event_log``
+    # (unbounded — a game produces few intervals). ``last_event_tick`` is that
+    # logger's bookkeeping: the previous tick it processed this player, used to tell
+    # a brief unobserved gap (bridge) from an observed departure (split).
+    events: list[PlayerEvent] = Field(default_factory=list)
+    last_event_tick: int = 0
 
     @property
     def join_order(self) -> int | None:
@@ -283,10 +319,13 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-    # Social / evidence (design §5, §10.1). ``suspicion`` is the per-color evidence
-    # score maintained by the suspicion model each tick; ``believed_imposters`` is
-    # the derived set of suspected player **colors** (those over the belief
-    # threshold) that drives the Flee mode.
+    # Social / evidence (design §5, §10.1). ``confirmed_imposters`` is the set of
+    # player **colors** caught by the near-certain detectors (witnessed kill/vent) —
+    # permanent until death. ``suspicion`` is the per-color score recomputed each
+    # tick (near-certain confirmation + graded event-log evidence), and
+    # ``believed_imposters`` is the derived set over the belief threshold that drives
+    # the Flee mode.
+    confirmed_imposters: set[str] = Field(default_factory=set)
     suspicion: dict[str, float] = Field(default_factory=dict)
     believed_imposters: set[str] = Field(default_factory=set)
     # Imposter teammates' colors, learned from the role-reveal icons (design §7.2),
@@ -518,9 +557,15 @@ def update_belief(belief: Belief, percept: Percept) -> None:
 
     phase = derive_phase(resolved, belief.phase)
     if phase != belief.phase:
-        # A new meeting clears the previous meeting's chat transcript.
         if phase == "Voting":
+            # A meeting clears the previous transcript and — matching the server,
+            # which removes all bodies when a meeting opens — our body beliefs, so a
+            # post-meeting walk past where a body lay no longer reads as a sighting.
+            # (Deaths already recorded on the roster persist; this only drops the
+            # in-world body objects.)
             belief.chat_log.clear()
+            belief.bodies.clear()
+            belief.visible_body_ids.clear()
         belief.phase = phase
         belief.phase_start_tick = percept.tick
 

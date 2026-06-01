@@ -1,34 +1,42 @@
-"""Near-certain imposter detection → ``believed_imposters`` (design §10.1).
+"""Suspicion: near-certain detection + conservative event-log scoring (design §10.1).
 
-A deliberately **narrow but high-confidence** flagger: it only fires on evidence
-that identifies an imposter with near-100% certainty, and when it does it sets
-suspicion very high. There are exactly two such situations, both **frame-to-frame
-transitions** read off the perception tape (``belief.recent_frames``, §5.1):
+Two tiers feed one per-color ``suspicion`` score and the derived
+``believed_imposters`` set (which drives Flee). Crewmate-only — an imposter knows
+the truth (accrues nothing, never flees); a ghost does not flee either.
 
-1. **Witnessed kill.** We saw the victim *alive* one frame ago, we see the
-   victim's *body* this frame, and exactly **one** other player was within kill
-   range of the victim a frame ago — that lone neighbour is the killer.
+**Tier 1 — near-certain (permanent).** Frame-to-frame transitions off the
+perception tape (§5.1) that identify an imposter with ~100% confidence; a hit adds
+the color to ``confirmed_imposters`` for the rest of the game (cleared on death):
 
-2. **Witnessed vent.** Only an imposter can use a vent, so either transition is
-   conclusive:
-   a. *Emergence* — a frame ago we were watching the vent (and its one-tick-walk
-      margin) and it was clear of players; this frame a player is inside the vent
-      rect. They could not have walked in, so they came out of the vent.
-   b. *Submersion* — a frame ago a player was inside the vent rect; this frame the
-      vent is still in view but that player has vanished. They went into the vent.
+1. *Witnessed kill* — the victim was alive a frame ago, we see their body now, and
+   exactly **one** other player was within kill range of the victim a frame ago.
+2. *Witnessed vent* — *emergence* (a vent in line of sight + clear last frame is
+   occupied now) or *submersion* (a player in the vent last frame is gone while the
+   vent is still in line of sight). LoS uses the decoded ``shadow`` mask
+   (``rect_visible``), so occlusion does not cause false "clear" calls.
 
-Both detectors require the two frames to be **consecutive** (`tick` differs by 1)
-so a meeting gap (no camera) can never be read as a transition. Occupancy and
-adjacency are derived from the tape via ``strategy.occupancy`` — nothing is stored
-beyond the raw frames and the resulting high suspicion score.
+Both require **consecutive** frames, so a meeting gap can never be read as a
+transition.
 
-Only crewmates reason this way: an imposter already knows the truth (it accrues no
-suspicion and never flees a crewmate); a ghost does not flee either.
+**Tier 2 — graded (conservative, recomputed each tick).** A pure readout of the
+per-player event log (§5.2) — no accumulation state of its own, so it can't
+double-count and old evidence ages out as events are evicted. Only a few
+**low-false-positive** patterns score; circumstantial-but-noisy ones (brief
+proximity, passing a body) are deliberately excluded:
 
-The vent detectors use the real line-of-sight mask (the decoded ``shadow`` overlay,
-via ``rect_visible``) for "we saw it", so occlusion no longer causes false
-positives; they fall back to viewport containment only on frames before the mask
-has arrived. Kill-witnessing uses only players we actually saw.
+- *Sustained vent dwell* — sitting on a vent rect ≥ `VENT_DWELL_MIN_TICKS`
+  (innocents cross vents, they don't loiter on them).
+- *Lingering at a body* — ≥ `BODY_LINGER_MIN_TICKS` and within
+  `BODY_LINGER_MAX_DIST` (hovering at a corpse, not a passing reporter).
+- *Following a victim to their death* — proximity to player V for ≥
+  `FOLLOW_MIN_TICKS` where V is now dead and the proximity ended within
+  `FOLLOW_DEATH_WINDOW_TICKS` of when we found V's body.
+
+The final score is `graded + (CONFIRMED_SCORE if confirmed)`. A color becomes a
+believed imposter at `BELIEVE_THRESHOLD`: a near-certain confirmation clears it by
+a wide margin, while graded evidence needs **corroboration** (no single soft signal
+reaches it), so we never flee on one circumstantial cue. The weights are an initial
+conservative cut and want tuning against real games.
 """
 
 from __future__ import annotations
@@ -41,27 +49,46 @@ from players.crewrift.crewborg.strategy.occupancy import (
 )
 from players.crewrift.crewborg.types import Belief, PerceptionFrame
 
-# A confirmed detection sets suspicion this high — far above the belief threshold,
-# and (with no decay) it persists for the rest of the game unless the suspect dies.
-CONFIRMED_SUSPICION = 1000.0
-# A color is a believed imposter once its suspicion reaches this. Any confirmed
-# detection clears it by a wide margin; nothing else raises suspicion in this model.
-BELIEVE_THRESHOLD = 1.0
+# A near-certain confirmation contributes this much — far above the belief
+# threshold, so a confirmed imposter is always believed (until they die).
+CONFIRMED_SCORE = 1000.0
+# Flee a color once its score reaches this. Set so a confirmation trivially clears
+# it but a single graded signal does not (graded flee needs corroboration).
+BELIEVE_THRESHOLD = 3.0
+# Graded score is capped so no one player's log can blow up the ranking.
+GRADED_SCORE_CAP = 6.0
 
 # Max distance a player can walk in one tick (MaxSpeed/MotionScale = 704/256 ≈ 2.75,
-# rounded up), so a player materialising inside a vent from beyond this could not
-# have walked there — they vented.
+# rounded up): a player materialising inside a vent from beyond this vented.
 VENT_WALK_MARGIN = 3
+
+# --- graded-signal weights + gates (24 Hz; ~ticks) --------------------------
+VENT_DWELL_MIN_TICKS = 24  # ~1 s loitering on a vent rect
+WEIGHT_VENT_DWELL = 2.0
+BODY_LINGER_MIN_TICKS = 24  # ~1 s next to a body
+BODY_LINGER_MAX_DIST = 16  # world px — "right next to it", not passing by
+WEIGHT_BODY_LINGER = 1.5
+FOLLOW_MIN_TICKS = 48  # ~2 s of sustained proximity (following, not brushing past)
+FOLLOW_DEATH_WINDOW_TICKS = 72  # the following ended ~within 3 s of finding the body
+WEIGHT_FOLLOW_TO_DEATH = 2.0
 
 
 def update_suspicion(belief: Belief) -> None:
-    """Fold near-certain evidence into ``believed_imposters`` (run each tick after
-    ``update_belief``, which appends the current frame to the perception tape)."""
+    """Refresh ``suspicion`` + ``believed_imposters`` from both tiers.
 
+    Run each tick after ``update_belief``/``update_event_log`` so the strategy
+    snapshot sees a current set.
+    """
+
+    graded: dict[str, float] = {}
     if belief.self_role not in ("imposter", "dead"):
         _detect_witnessed_kill(belief)
         _detect_witnessed_vent(belief)
-    _refresh_believed_imposters(belief)
+        graded = _score_event_log(belief)
+    _recompute(belief, graded)
+
+
+# --- tier 1: near-certain transitions ---------------------------------------
 
 
 def _frame_pair(belief: Belief) -> tuple[PerceptionFrame, PerceptionFrame] | None:
@@ -114,13 +141,68 @@ def _detect_witnessed_vent(belief: Belief) -> None:
 
 
 def _confirm(belief: Belief, color: str) -> None:
-    belief.suspicion[color] = CONFIRMED_SUSPICION
+    belief.confirmed_imposters.add(color)
 
 
-def _refresh_believed_imposters(belief: Belief) -> None:
-    for color, score in belief.suspicion.items():
+# --- tier 2: graded event-log scoring ---------------------------------------
+
+
+def _score_event_log(belief: Belief) -> dict[str, float]:
+    """A conservative suspicion score per live player from their event log."""
+
+    scores: dict[str, float] = {}
+    for color, record in belief.roster.items():
+        if record.life_status == "dead":
+            continue
+        score = sum(_event_weight(event, belief) for event in record.events)
+        if score > 0:
+            scores[color] = min(score, GRADED_SCORE_CAP)
+    return scores
+
+
+def _event_weight(event, belief: Belief) -> float:
+    if event.kind == "vent" and event.duration_ticks >= VENT_DWELL_MIN_TICKS:
+        return WEIGHT_VENT_DWELL
+    if (
+        event.kind == "near_body"
+        and event.duration_ticks >= BODY_LINGER_MIN_TICKS
+        and event.min_dist is not None
+        and event.min_dist <= BODY_LINGER_MAX_DIST
+    ):
+        return WEIGHT_BODY_LINGER
+    if event.kind == "proximity" and event.duration_ticks >= FOLLOW_MIN_TICKS:
+        victim = belief.roster.get(event.target_color)
+        if (
+            victim is not None
+            and victim.life_status == "dead"
+            and victim.death_seen_tick is not None
+            and abs(victim.death_seen_tick - event.end_tick) <= FOLLOW_DEATH_WINDOW_TICKS
+        ):
+            return WEIGHT_FOLLOW_TO_DEATH
+    return 0.0
+
+
+# --- combine ----------------------------------------------------------------
+
+
+def _recompute(belief: Belief, graded: dict[str, float]) -> None:
+    # A confirmed imposter who has died is no longer a threat.
+    for color in list(belief.confirmed_imposters):
         record = belief.roster.get(color)
         if record is not None and record.life_status == "dead":
-            belief.believed_imposters.discard(color)  # a dead imposter is no threat
-        elif score >= BELIEVE_THRESHOLD:
-            belief.believed_imposters.add(color)
+            belief.confirmed_imposters.discard(color)
+
+    suspicion: dict[str, float] = {}
+    believed: set[str] = set()
+    for color in set(graded) | belief.confirmed_imposters:
+        record = belief.roster.get(color)
+        if record is not None and record.life_status == "dead":
+            continue
+        score = graded.get(color, 0.0) + (CONFIRMED_SCORE if color in belief.confirmed_imposters else 0.0)
+        if score <= 0:
+            continue
+        suspicion[color] = score
+        if score >= BELIEVE_THRESHOLD:
+            believed.add(color)
+    belief.suspicion = suspicion
+    belief.believed_imposters = believed

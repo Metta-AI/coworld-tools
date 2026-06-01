@@ -203,6 +203,22 @@ def test_body_sighting_connects_last_seen_alive_to_the_death() -> None:
     assert (red.world_x, red.world_y, red.last_seen_tick) == (10, 10, 1)
 
 
+def test_meeting_clears_in_world_bodies_but_keeps_the_death() -> None:
+    from players.crewrift.crewborg.perception.entities import VisibleBody, VotingState
+
+    belief = Belief()
+    _fold(belief, 1, visible_bodies=(VisibleBody(object_id=2003, color="red", world_x=10, world_y=10),))
+    assert belief.bodies and "red" in belief.roster and belief.roster["red"].life_status == "dead"
+
+    # A meeting opens: the server removes bodies, so we drop our body beliefs...
+    meeting = ResolvedScene(tick=2, camera_ready=True, camera_x=0, camera_y=0, voting=VotingState(timer_present=True))
+    update_belief(belief, Percept(tick=2, messages_applied=2, resolved=meeting))
+    assert belief.phase == "Voting"
+    assert belief.bodies == {} and belief.visible_body_ids == set()
+    # ...but the death stays recorded on the roster.
+    assert belief.roster["red"].life_status == "dead"
+
+
 def test_census_records_alive_and_dead_players_by_color() -> None:
     from players.crewrift.crewborg.perception.entities import CensusEntry
 

@@ -5,8 +5,13 @@ from __future__ import annotations
 import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Vent
-from players.crewrift.crewborg.strategy.suspicion import update_suspicion
-from players.crewrift.crewborg.types import Belief, PerceptionFrame, PlayerRecord
+from players.crewrift.crewborg.strategy.suspicion import (
+    BODY_LINGER_MIN_TICKS,
+    FOLLOW_MIN_TICKS,
+    VENT_DWELL_MIN_TICKS,
+    update_suspicion,
+)
+from players.crewrift.crewborg.types import Belief, PerceptionFrame, PlayerEvent, PlayerRecord
 
 
 def _frame(tick: int, players=None, bodies=None, camera=(0, 0), mask=None) -> PerceptionFrame:
@@ -156,6 +161,86 @@ def test_submersion_is_suppressed_when_the_vent_is_occluded_now() -> None:
     belief = _belief(prev, curr, map=_vent_map())
     update_suspicion(belief)
     assert not belief.believed_imposters  # player gone, but maybe they just walked behind a wall
+
+
+# --- graded event-log scoring (tier 2) --------------------------------------
+
+
+def _with_events(color: str, events: list[PlayerEvent], **rec_kwargs) -> Belief:
+    belief = Belief(self_role="crewmate", last_tick=200)
+    belief.roster[color] = PlayerRecord(color=color, life_status="alive", events=events, **rec_kwargs)
+    return belief
+
+
+def test_one_graded_signal_raises_suspicion_but_does_not_flee() -> None:
+    belief = _with_events(
+        "red", [PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0)]
+    )
+    update_suspicion(belief)
+    assert belief.suspicion.get("red", 0.0) > 0  # scored...
+    assert "red" not in belief.believed_imposters  # ...but a single soft cue isn't enough
+
+
+def test_corroborating_graded_signals_cross_the_flee_bar() -> None:
+    belief = _with_events(
+        "red",
+        [
+            PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0),
+            PlayerEvent(
+                kind="near_body", start_tick=50, end_tick=50 + BODY_LINGER_MIN_TICKS,
+                target_color="blue", min_dist=8,
+            ),
+        ],
+    )
+    update_suspicion(belief)
+    assert "red" in belief.believed_imposters  # two corroborating cues ⇒ flee
+
+
+def test_brief_or_distant_cues_do_not_score() -> None:
+    belief = _with_events(
+        "red",
+        [
+            PlayerEvent(kind="vent", start_tick=1, end_tick=3, region_index=0),  # too brief
+            PlayerEvent(kind="near_body", start_tick=10, end_tick=10 + BODY_LINGER_MIN_TICKS,
+                        target_color="blue", min_dist=40),  # too far
+            PlayerEvent(kind="proximity", start_tick=20, end_tick=24, target_color="green", min_dist=5),  # brief
+        ],
+    )
+    update_suspicion(belief)
+    assert "red" not in belief.suspicion
+
+
+def test_following_a_victim_to_death_scores_only_when_they_died() -> None:
+    end = 40 + FOLLOW_MIN_TICKS  # a sustained-enough following interval
+    follow = PlayerEvent(kind="proximity", start_tick=40, end_tick=end, target_color="yellow", min_dist=10)
+    # Victim alive ⇒ no score.
+    alive = _with_events("orange", [follow])
+    alive.roster["yellow"] = PlayerRecord(color="yellow", life_status="alive")
+    update_suspicion(alive)
+    assert "orange" not in alive.suspicion
+
+    # Victim dead, the following ended near when we found the body ⇒ scores.
+    dead = _with_events("orange", [follow])
+    dead.roster["yellow"] = PlayerRecord(color="yellow", life_status="dead", death_seen_tick=end + 10)
+    update_suspicion(dead)
+    assert dead.suspicion.get("orange", 0.0) > 0
+
+
+def test_graded_scoring_ignores_dead_subjects() -> None:
+    belief = _with_events(
+        "red", [PlayerEvent(kind="vent", start_tick=1, end_tick=1 + VENT_DWELL_MIN_TICKS, region_index=0)]
+    )
+    belief.roster["red"].life_status = "dead"
+    update_suspicion(belief)
+    assert "red" not in belief.suspicion
+
+
+def test_a_confirmation_outweighs_everything_and_flees() -> None:
+    belief = _belief(_frame(4, players={}), _frame(5, players={"red": (53, 53)}), map=_vent_map())
+    # Mask makes the vent watched+clear last frame (emergence) → confirmed.
+    update_suspicion(belief)
+    assert "red" in belief.confirmed_imposters and "red" in belief.believed_imposters
+    assert belief.suspicion["red"] >= 1000.0
 
 
 # --- believed-imposters maintenance -----------------------------------------
