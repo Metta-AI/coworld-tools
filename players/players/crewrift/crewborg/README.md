@@ -14,11 +14,13 @@ as a Docker image the Coworld runner launches.
 ## What it does
 
 Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
-meetings, votes, reports bodies, and flees believed imposters — a **Bayesian
-suspicion model** (`strategy/suspicion.py`) maintains a posterior `P(imposter)` per
-player (a combinatorial prior updated by likelihood ratios for witnessed kills/vents
-and graded event-log cues) and flees anyone over a probability threshold, with
-reporting a visible body taking priority over fleeing. As an imposter the
+meetings, reports bodies, flees believed imposters, and **votes out the most-likely
+imposter** — a **Bayesian suspicion model** (`strategy/suspicion.py`) maintains a
+posterior `P(imposter)` per player (a combinatorial prior updated by likelihood
+ratios for witnessed kills/vents and graded event-log cues); it flees anyone over a
+probability threshold and at meetings votes the highest-`P` player above the vote
+bar (else skips), with reporting a visible body taking priority over fleeing. As an
+imposter the
 role-aware selector runs a priority order during `Playing`: **Evade** (just killed
 → brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
 *and* a victim trackable → commit to the most-isolated crewmate, stalk it via a

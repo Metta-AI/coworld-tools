@@ -19,7 +19,7 @@ from players.crewrift.crewborg.action import (
 )
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from players.crewrift.crewborg.nav import build_nav_graph
-from players.crewrift.crewborg.perception.entities import VotingState
+from players.crewrift.crewborg.perception.entities import VoteCandidate, VotingState
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Intent, PlayerRecord
 
 
@@ -238,6 +238,47 @@ def test_vote_skip_steps_to_skip_then_confirms_once() -> None:
     assert confirm.held_mask == BTN_A and action_state.vote_confirmed
     # Vote is cast: no further input.
     assert resolve_action(intent, belief, action_state).held_mask == 0
+
+
+def _vote_grid() -> VotingState:
+    return VotingState(
+        cursor_present=True,
+        cursor_slot=0,  # currently on red's cell
+        candidates=(
+            VoteCandidate(slot=0, color="red", alive=True),
+            VoteCandidate(slot=1, color="blue", alive=True),
+        ),
+    )
+
+
+def test_targeted_vote_steps_to_the_target_then_confirms() -> None:
+    belief = Belief()
+    belief.voting = _vote_grid()  # cursor on slot 0, target is blue (slot 1)
+    action_state = ActionState()
+    intent = Intent(kind="vote", target_color="blue")
+
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_DOWN  # step toward blue
+    assert resolve_action(intent, belief, action_state).held_mask == 0  # release (edge)
+
+    belief.voting = belief.voting.model_copy(update={"cursor_slot": 1})  # cursor reached blue
+    confirm = resolve_action(intent, belief, action_state)
+    assert confirm.held_mask == BTN_A and action_state.vote_confirmed
+    assert resolve_action(intent, belief, action_state).held_mask == 0  # cast: no further input
+
+
+def test_targeted_vote_confirms_immediately_when_already_on_target() -> None:
+    belief = Belief()
+    belief.voting = _vote_grid()  # cursor already on slot 0 = red
+    command = resolve_action(Intent(kind="vote", target_color="red"), belief, ActionState())
+    assert command.held_mask == BTN_A
+
+
+def test_unresolvable_target_falls_back_to_skip() -> None:
+    belief = Belief()
+    # Target not among the live candidates (gone / grid not up) ⇒ skip instead.
+    belief.voting = VotingState(skip_cursor_present=True, candidates=(VoteCandidate(slot=0, color="red", alive=True),))
+    command = resolve_action(Intent(kind="vote", target_color="purple"), belief, ActionState())
+    assert command.held_mask == BTN_A  # confirms the skip, not a spin
 
 
 def test_chat_emitted_once() -> None:

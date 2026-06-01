@@ -242,7 +242,7 @@ def _resolve(
 
     # Meeting intents don't depend on world position.
     if intent.kind == "vote":
-        return _resolve_vote(belief, action_state)
+        return _resolve_vote(intent, belief, action_state)
     if intent.kind == "chat":
         return _resolve_chat(intent, action_state)
 
@@ -310,19 +310,40 @@ def _resolve_report(
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, body_xy))
 
 
-def _resolve_vote(belief: Belief, action_state: ActionState) -> Command:
-    """Default voting policy = skip (design §12): step the cursor onto the skip
-    cell (edge-press down), then confirm with a fresh A press, exactly once."""
+def _resolve_vote(intent: Intent, belief: Belief, action_state: ActionState) -> Command:
+    """Drive the vote cursor onto the chosen cell and confirm it, exactly once.
+
+    ``intent.target_color`` is the player to eject (design §7.1); ``None`` ⇒ skip.
+    A targeted vote whose target can't be resolved (grid not up yet, or the target
+    has died) falls back to skip so we still vote and avoid the no-vote penalty
+    (design §12). The cursor steps with edge-triggered presses; stepping DOWN cycles
+    through every alive cell + skip, so it always reaches the goal.
+    """
 
     if action_state.vote_confirmed:
         return Command(held_mask=0)
-    if belief.voting.skip_cursor_present:
-        press = _edge_press(action_state, BTN_A)
-        if press:  # the fresh-press tick casts the vote
-            action_state.vote_confirmed = True
-        return Command(held_mask=press)
-    # Step the cursor toward the skip cell (cursor moves are edge-triggered).
+    voting = belief.voting
+
+    if intent.target_color is not None:
+        target_slot = next(
+            (c.slot for c in voting.candidates if c.color == intent.target_color and c.alive), None
+        )
+        if target_slot is not None:
+            if voting.cursor_slot == target_slot:
+                return _confirm_vote(action_state)
+            return Command(held_mask=_edge_press(action_state, BTN_DOWN))  # step toward the target
+
+    # Skip policy (default, or target unresolvable): step onto the skip cell, confirm.
+    if voting.skip_cursor_present:
+        return _confirm_vote(action_state)
     return Command(held_mask=_edge_press(action_state, BTN_DOWN))
+
+
+def _confirm_vote(action_state: ActionState) -> Command:
+    press = _edge_press(action_state, BTN_A)
+    if press:  # the fresh-press tick casts the vote
+        action_state.vote_confirmed = True
+    return Command(held_mask=press)
 
 
 def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:

@@ -92,6 +92,20 @@ class VoteDot(BaseModel):
         return self.target == SKIP_VOTE_TARGET
 
 
+class VoteCandidate(BaseModel):
+    """One cell of the voting candidate grid (design §4.3): a player's vote slot.
+
+    ``slot`` is the cursor index for this player (the candidate-grid order); the
+    cursor reaches them by stepping to it. Used for targeted voting.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    slot: int
+    color: str
+    alive: bool
+
+
 class VotingState(BaseModel):
     """Voting-UI presence and tally (design §4.1)."""
 
@@ -102,6 +116,11 @@ class VotingState(BaseModel):
     timer_present: bool = False
     self_marker_color: str | None = None
     dots: tuple[VoteDot, ...] = ()
+    # The candidate grid (one cell per player) and which player slot the cursor is
+    # currently on (``None`` if not on a player cell — e.g. on skip). These drive
+    # targeted voting: map a target color → its slot, then step the cursor to it.
+    candidates: tuple[VoteCandidate, ...] = ()
+    cursor_slot: int | None = None
 
     @property
     def active(self) -> bool:

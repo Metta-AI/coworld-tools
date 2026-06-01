@@ -10,8 +10,8 @@ record, justify, and improve the evidence weights as we learn them from games.
 - **Inputs:** the perception tape (§5.1) and per-player event log (§5.2), both in
   `design.md`.
 
-If a value here and in the code ever disagree, **the code is what runs** — but a
-change should land in both, with the rationale recorded here.
+If a value here and in the code ever disagree, **the code is what runs** — but **a
+change should land in both**, with the rationale recorded here.
 
 ---
 
@@ -146,10 +146,17 @@ just don't carry an LR.
 
 | Knob | Value | Effect |
 |---|---|---|
-| `FLEE_PROBABILITY` | 0.9 | posterior at/above which we flee a player. Higher = more conservative reactive behaviour. |
+| `FLEE_PROBABILITY` | 0.9 | posterior at/above which we **flee** a player (reactive). Higher = more conservative. |
+| `VOTE_PROBABILITY` | 0.8 | posterior at/above which we **vote** the top suspect out at a meeting (else skip). Ejecting an innocent helps the imposters, so it is high — but a touch below the flee bar, as a vote is a deliberate one-shot decision made with the meeting's full evidence. |
 | `PRIOR_MIN` / `PRIOR_MAX` | 1e-3 / 0.99 | clamp the prior so log-odds is finite. |
 | the LR values | §3 | how much each observation moves belief. **The main thing to learn.** |
 | the detection gates | §3 | how selective each evidence type is. |
+
+**Consumers of the posterior.** `believed_imposters` (P ≥ `FLEE_PROBABILITY`) gates
+the Flee mode. `top_suspect(belief)` (the highest-P live player, if ≥
+`VOTE_PROBABILITY`) is the Attend Meeting vote target (design §7.1); the action layer
+maps that color → its candidate-grid slot and steps the cursor onto it (§4.3),
+falling back to skip if the target can't be resolved.
 
 ---
 
@@ -257,9 +264,8 @@ weight is a guess or earned.
 
 ## 9. Roadmap
 
-- **Suspicion-aware voting** — the posterior currently only gates Flee; the high-value
-  next consumer is voting the highest-`P` live player (above a confidence bar) instead
-  of hardcoded skip. This is where suspicion changes game *outcomes*.
+- ~~Suspicion-aware voting~~ — **done**: Attend Meeting votes the highest-`P` live
+  player when `P ≥ VOTE_PROBABILITY`, else skips (`top_suspect`; §4 consumers).
 - **Exculpatory evidence** (`LR < 1`) and an absence model.
 - **Dynamic/joint prior** (imposter-budget redistribution; §5.3).
 - **More evidence types** from the event log + `chat_log` (§4.3) and `voting.dots`.

@@ -136,6 +136,27 @@ def test_candidate_grid_resolves_an_alive_dead_census_by_color() -> None:
     assert census == {"orange": True, "white": False}
 
 
+def test_candidate_grid_with_cursor_resolves_slots_and_cursor_position() -> None:
+    scene = SceneState()
+    scene.apply(
+        # Candidate grid: slots 0/1 alive, slot 2 dead. (VOTE_ICON_OBJECT_BASE = 9300.)
+        w.define_sprite(840, 8, 8, "player red right")
+        + w.define_object(9300, 10, 20, 9, 0, 840)
+        + w.define_sprite(841, 8, 8, "player blue right")
+        + w.define_object(9301, 30, 20, 9, 0, 841)
+        + w.define_sprite(842, 8, 8, "body green")
+        + w.define_object(9302, 50, 20, 9, 0, 842)
+        # The cursor sits on slot 1 (drawn at that cell's position, y offset by 1).
+        + w.define_sprite(843, 8, 8, "vote cursor")
+        + w.define_object(700, 30, 19, 9, 0, 843)
+    )
+    resolved = resolve_scene(scene, tick=1)
+
+    by_slot = {c.slot: (c.color, c.alive) for c in resolved.voting.candidates}
+    assert by_slot == {0: ("red", True), 1: ("blue", True), 2: ("green", False)}
+    assert resolved.voting.cursor_present and resolved.voting.cursor_slot == 1
+
+
 def test_vote_result_ejected_color_resolves() -> None:
     scene = SceneState()
     scene.apply(

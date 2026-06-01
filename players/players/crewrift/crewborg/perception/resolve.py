@@ -52,6 +52,7 @@ from players.crewrift.crewborg.perception.entities import (
     TaskSignal,
     VisibleBody,
     VisiblePlayer,
+    VoteCandidate,
     VoteDot,
     VotingState,
 )
@@ -95,9 +96,12 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     crew_remaining: int | None = None
     phase_texts: set[str] = set()
     cursor = skip_cursor = timer = False
+    cursor_xy: tuple[int, int] | None = None
     self_marker_color: str | None = None
     reveal_colors: set[str] = set()
-    census: list[CensusEntry] = []
+    # Candidate-grid cells: (slot, color, alive, screen_x, screen_y). The slot is the
+    # cursor index; positions let us map the cursor to a slot after the loop.
+    candidate_cells: list[tuple[int, str, bool, int, int]] = []
     ejected_color: str | None = None
     # Chat is paired after the loop: collect candidate text lines (screen-y → text)
     # and speaker icons (screen-y → color), then match each icon to its line by y.
@@ -134,11 +138,12 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
                 chat_icon_rows.append((obj.y, color))
             continue
         elif VOTE_ICON_OBJECT_BASE <= object_id < VOTE_ICON_OBJECT_BASE + MAX_PLAYERS:
+            slot = object_id - VOTE_ICON_OBJECT_BASE
             if label.startswith(PREFIX_PLAYER):
                 color, _ = _parse_color_and_facing(label[len(PREFIX_PLAYER) :])
-                census.append(CensusEntry(color=color, alive=True))
+                candidate_cells.append((slot, color, True, obj.x, obj.y))
             elif label.startswith(PREFIX_BODY):
-                census.append(CensusEntry(color=label[len(PREFIX_BODY) :], alive=False))
+                candidate_cells.append((slot, label[len(PREFIX_BODY) :], False, obj.x, obj.y))
             continue
         elif object_id == RESULT_ICON_OBJECT_ID:
             if label.startswith(PREFIX_PLAYER):
@@ -147,6 +152,7 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
 
         if label == LABEL_VOTE_CURSOR:
             cursor = True
+            cursor_xy = (obj.x, obj.y)
         elif label == LABEL_VOTE_SKIP_CURSOR:
             skip_cursor = True
         elif label == LABEL_VOTE_TIMER:
@@ -221,6 +227,9 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     self_world_x = camera_x + SELF_OFFSET_X if scene.camera_ready else None
     self_world_y = camera_y + SELF_OFFSET_Y if scene.camera_ready else None
     chat_lines = _pair_chat(chat_icon_rows, chat_text_rows)
+    census = tuple(CensusEntry(color=c, alive=alive) for _slot, c, alive, _x, _y in candidate_cells)
+    candidates = tuple(VoteCandidate(slot=s, color=c, alive=alive) for s, c, alive, _x, _y in candidate_cells)
+    cursor_slot = _cursor_slot(cursor_xy, candidate_cells) if cursor else None
 
     return ResolvedScene(
         tick=tick,
@@ -242,13 +251,32 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             timer_present=timer,
             self_marker_color=self_marker_color,
             dots=tuple(dots),
+            candidates=candidates,
+            cursor_slot=cursor_slot,
         ),
         phase_texts=frozenset(phase_texts),
         reveal_player_colors=frozenset(reveal_colors),
         chat_lines=chat_lines,
-        census=tuple(census),
+        census=census,
         ejected_color=ejected_color,
     )
+
+
+def _cursor_slot(
+    cursor_xy: tuple[int, int] | None, cells: list[tuple[int, str, bool, int, int]]
+) -> int | None:
+    """The candidate-grid slot the cursor sits on, by nearest cell position.
+
+    The cursor on slot ``s`` is drawn at the same grid position as candidate cell
+    ``s`` (global.nim), so the nearest cell is the one it's on. Matching by position
+    avoids hardcoding the grid layout constants.
+    """
+
+    if cursor_xy is None or not cells:
+        return None
+    cx, cy = cursor_xy
+    slot, _color, _alive, _x, _y = min(cells, key=lambda c: (c[3] - cx) ** 2 + (c[4] - cy) ** 2)
+    return slot
 
 
 def _pair_chat(
