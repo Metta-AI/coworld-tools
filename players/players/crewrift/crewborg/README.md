@@ -101,11 +101,14 @@ compressed `replay.json.z`, and `logs/crewborg_slot{N}_v{V}.log` — crewborg's
 own per-tick stderr trace for each slot it controlled. The run is idempotent
 (`--force` to re-download); see `--help` for `--no-replay` / `--no-logs`.
 
-For ad-hoc inspection the official `coworld episodes` / `coworld replays
---download-dir` / `coworld episode-logs --download-dir` commands cover the same
-ground (they require **coworld ≥ 0.1.13** — 0.1.11 crashes on a stale
-`V2EpisodeRequestRow` model). This script complements them by filtering to
-crewborg and bundling everything per episode in one pass.
+The official `coworld episodes` / `coworld replays` / `coworld episode-logs`
+commands *would* cover similar ground, but as of 2026-06-02 they are **broken
+against the live server**: the server renamed its episode-request API
+(`/v2/episode-requests*` → `/v2/experience-request*`) and even the latest CLI
+(coworld 0.1.13) still calls the old paths, so those commands 404. This script
+calls the current routes directly (and reads raw JSON), so it keeps working
+across that kind of client/server drift — prefer it. (If you need the official
+CLI, check `<api>/observatory/openapi.json` for the live route names first.)
 
 ## Build the image
 
