@@ -61,8 +61,11 @@ def build_runtime(
     Registers all modes: idle / normal / attend_meeting / report_body / flee
     (crewmate) and hunt / pretend / evade (imposter). A ``CrewborgEventTracer``
     is wired as the runtime's ``on_step_complete`` hook so crewborg emits its
-    ``domain.*`` trace events (phase / sighting / objective / kill / vote)
-    through the configured sinks (design §11).
+    ``domain.*`` trace events through the configured sinks (design §11): the
+    phase / sighting / objective / kill / vote outcomes *and* the knowledge layer
+    behind them (per-player event log + suspicion posteriors, with a
+    ``suspicion_snapshot`` each meeting; ``CREWBORG_TRACE=debug`` adds a per-tick
+    dump).
     """
 
     registry: ModeRegistry[Belief, ActionState, Intent] = ModeRegistry()

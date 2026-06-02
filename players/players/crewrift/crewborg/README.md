@@ -76,6 +76,12 @@ players/crewrift/crewborg/scripts/play_local.sh
 `COGAMES_ENGINE_WS_URL` defaults to `ws://localhost:2000/player?slot=0&token=`;
 override it to point elsewhere.
 
+Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
+suspicion posteriors, a ranked `suspicion_snapshot` at every meeting, …; see
+`design.md` §11). Set `CREWBORG_TRACE=debug` for the heavy per-tick dump of the
+full `P(imposter)` vector — useful when debugging why a vote or flee did (not)
+happen.
+
 ## Fetch hosted episode data
 
 Download the full data for the most recent episodes crewborg played in the

@@ -807,12 +807,26 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   `role_resolved`, `body_sighted`, `task_completed`, `kill_landed`, `vote_cast`.
 - *attempt* (keyed on the wire command's button edge): `task_started`,
   `kill_attempted`, `report_attempted`, `vent_attempted`, `chat_sent`.
+- *knowledge layer* (the per-player event log §5.2 + the suspicion reasoning
+  §10.1 *behind* the actions — read off the finalized belief so `strategy/` stays
+  pure). Always on, lean enough for the tournament: `player_event` when a new
+  observation interval opens on someone's log; `player_died` on an alive→dead
+  transition; `imposter_confirmed` / `believed_changed` when the suspicion sets
+  move; and a full `suspicion_snapshot` (ranked posteriors + each suspect's event
+  log + the would-be vote and the bar) at the start of every meeting — the single
+  record that explains a vote after the fact.
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
 seen as the kill-ready→cooldown edge). Incoming meeting chat *is* now decoded into
 `belief.chat_log` (§4.3), but there is no `chat_received` domain event yet — the
 event seam for it is unbuilt.
+
+**Debug verbosity (`CREWBORG_TRACE=debug`).** Opt-in, heavy (~one line per tick):
+the entire live `P(imposter)` vector each tick (`suspicion_tick`) plus
+`suspicion.top_p` / `suspicion.believed_count` gauges — for deep single-game
+forensics (e.g. "did suspicion ever approach the flee bar?"). Off by default; the
+lean deltas + meeting snapshots above are what ships in the tournament image.
 
 Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
 events key on the produced `command`, which modes never see, and `task_completed`
