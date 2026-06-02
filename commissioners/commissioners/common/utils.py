@@ -23,6 +23,7 @@ from commissioners.common.models import (
 DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
 AMONG_THEM_RESULT_METADATA_VERSION = 2
 AMONG_THEM_SCORE_KIND = "mean_round_score"
+COMPLETED_EPISODE_COUNT_METADATA_KEY = "completed_episode_count"
 AMONG_THEM_SCORING_MECHANICS = (
     "Among Them rounds rank policies by the average score reported by the game across each policy's episode slots. "
     "The division leaderboard only uses current average-score round results and combines completed rounds with a "
@@ -206,7 +207,11 @@ def _qualification_round_membership_changes(
 
     assert qualifier_division.type == DIVISION_TYPE_STAGING, "qualifier division must be a staging division"
     assert competition_entry_division is not None, "qualification round requires a competition entry division"
-    qualified_policy_ids = {result.policy_version_id for result in ctx.round_results}
+    qualified_policy_ids = {
+        result.policy_version_id
+        for result in ctx.round_results
+        if result.result_metadata[COMPLETED_EPISODE_COUNT_METADATA_KEY] > 0
+    }
     return [
         MembershipChange(
             membership_id=membership.id,
