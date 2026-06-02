@@ -3,14 +3,32 @@
 from __future__ import annotations
 
 from players.crewrift.crewborg.strategy.opportunity import (
+    DEFAULT_KILL_COOLDOWN_TICKS,
     TRACK_WINDOW_TICKS,
     URGENCY_FULL_TICKS,
     has_trackable_victim,
     kill_urgency_ticks,
     select_victim,
+    ticks_until_kill_ready,
     unwitnessed,
 )
 from players.crewrift.crewborg.types import Belief, PlayerRecord
+
+
+def test_ticks_until_kill_ready() -> None:
+    # Ready now ⇒ 0.
+    assert ticks_until_kill_ready(Belief(self_kill_ready=True)) == 0
+    # No cooldown start observed yet ⇒ assume a full cooldown remains (don't pre-position).
+    assert ticks_until_kill_ready(Belief(self_kill_ready=False)) == DEFAULT_KILL_COOLDOWN_TICKS
+    # Mid-cooldown with a learned duration: start 100 + estimate 900 − now 700 = 300 left.
+    b = Belief(self_kill_ready=False, last_tick=700, kill_cooldown_start_tick=100, kill_cooldown_estimate=900)
+    assert ticks_until_kill_ready(b) == 300
+    # Past the estimate (overdue) clamps to 0, never negative.
+    b2 = Belief(self_kill_ready=False, last_tick=1200, kill_cooldown_start_tick=100, kill_cooldown_estimate=900)
+    assert ticks_until_kill_ready(b2) == 0
+    # No learned estimate falls back to the default duration.
+    b3 = Belief(self_kill_ready=False, last_tick=100, kill_cooldown_start_tick=0)
+    assert ticks_until_kill_ready(b3) == DEFAULT_KILL_COOLDOWN_TICKS - 100
 
 
 def _crew(belief: Belief, object_id: int, xy: tuple[int, int], color: str, tick: int) -> None:

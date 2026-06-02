@@ -23,10 +23,18 @@ def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "
 
 
 def test_hunt_strikes_a_victim_in_range_and_unwitnessed() -> None:
-    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5, self_kill_ready=True)
     _visible(belief, 1004, (108, 100), color="green")  # 8px away (<KillRange), alone
     intent = HuntMode().decide(belief, ActionState())
     assert intent.kind == "kill" and intent.target_color == "green"
+
+
+def test_hunt_shadows_in_range_until_the_cooldown_clears() -> None:
+    # In range + unwitnessed but NOT yet kill-ready (entered Hunt in the lead window):
+    # lie in wait, don't fire, so the strike lands the instant the cooldown clears.
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5, self_kill_ready=False)
+    _visible(belief, 1004, (108, 100), color="green")
+    assert HuntMode().decide(belief, ActionState()).kind == "navigate_to"
 
 
 def test_hunt_stalks_a_distant_victim() -> None:
@@ -43,7 +51,7 @@ def test_hunt_idles_with_no_victim_in_view() -> None:
 
 
 def test_hunt_skips_teammates() -> None:
-    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
+    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5, self_kill_ready=True)
     belief.teammate_colors = {"red"}
     _visible(belief, 1004, (108, 100), color="red")  # teammate — never a victim
     assert HuntMode().decide(belief, ActionState()).kind == "idle"

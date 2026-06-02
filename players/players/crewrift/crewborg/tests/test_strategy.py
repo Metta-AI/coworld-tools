@@ -120,6 +120,23 @@ def test_imposter_self_reports_a_visible_body() -> None:
     assert _select(belief) == "report_body"
 
 
+def test_imposter_prehunts_within_the_lead_window_before_ready() -> None:
+    # Not yet kill-ready, but the cooldown clears in ~50 ticks (≤ HUNT_LEAD_TICKS) and a
+    # victim is in view ⇒ enter Hunt early to pre-position, so the window opens "hot".
+    belief = _imposter_with_visible_target(self_kill_ready=False)
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.kill_cooldown_estimate = 50  # ticks_until_ready = start + 50 − now = 50
+    assert _select(belief) == "hunt"
+
+
+def test_imposter_pretends_when_kill_is_far_off_cooldown() -> None:
+    # A victim is in view but the kill is a long way off ⇒ blend (Pretend), don't tail.
+    belief = _imposter_with_visible_target(self_kill_ready=False)
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.kill_cooldown_estimate = 900
+    assert _select(belief) == "pretend"
+
+
 def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:
     # Kill ready but the only visible player is a teammate ⇒ no target ⇒ pretend.
     belief = _imposter_with_visible_target(self_kill_ready=True)

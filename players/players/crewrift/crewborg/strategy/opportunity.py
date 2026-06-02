@@ -34,6 +34,10 @@ URGENCY_FULL_TICKS = 240
 # (to its last-known / predicted position) even while it is briefly out of view.
 TRACK_WINDOW_TICKS = 120
 
+# The kill cooldown's full length (ticks), used to estimate time-to-ready before we
+# have measured a real cooldown from the binary HUD (design §7.2). The game default.
+DEFAULT_KILL_COOLDOWN_TICKS = 900
+
 
 def kill_urgency_ticks(belief: Belief) -> int:
     """How long we have been able to kill without doing so (0 if not kill-ready)."""
@@ -41,6 +45,25 @@ def kill_urgency_ticks(belief: Belief) -> int:
     if not belief.self_kill_ready or belief.kill_ready_since_tick is None:
         return 0
     return max(0, belief.last_tick - belief.kill_ready_since_tick)
+
+
+def ticks_until_kill_ready(belief: Belief) -> int:
+    """Estimated ticks until the kill becomes available (0 if ready now).
+
+    The HUD is binary (ready / cooldown, no countdown), so this reconstructs the
+    countdown from the tracked cooldown start (`kill_cooldown_start_tick`) plus the
+    learned duration (`kill_cooldown_estimate`, falling back to the game default
+    before anything has been measured). With no cooldown start observed yet it
+    assumes a full cooldown remains, so callers won't pre-position on no information.
+    Lets the selector enter Hunt *slightly before* the window so it opens "hot".
+    """
+
+    if belief.self_kill_ready:
+        return 0
+    if belief.kill_cooldown_start_tick is None:
+        return DEFAULT_KILL_COOLDOWN_TICKS
+    duration = belief.kill_cooldown_estimate or DEFAULT_KILL_COOLDOWN_TICKS
+    return max(0, belief.kill_cooldown_start_tick + duration - belief.last_tick)
 
 
 def has_trackable_victim(belief: Belief) -> bool:

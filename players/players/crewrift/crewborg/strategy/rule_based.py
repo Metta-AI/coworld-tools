@@ -19,7 +19,8 @@ Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
 2. a body in view → Report Body (**self-report** — see below)
-3. kill ready + a trackable victim → Hunt (commit to a victim, stalk it, strike when isolated)
+3. kill ready *or within ``HUNT_LEAD_TICKS`` of ready* + a trackable victim → Hunt
+   (commit to a victim, stalk it, shadow in range until the cooldown clears, strike when isolated)
 4. otherwise → Pretend (blend in: follow the crew, fake tasks, wander rooms when none in sight)
 
 (2) is a deliberate tempo play, not a crewmate hand-me-down. A body on the floor
@@ -31,16 +32,20 @@ whole discovery lag, and denies the crew the task-time they would have banked wh
 the body sat unfound (tasks pause during meetings). The old Evade behaviour — slink
 away and leave the body — handed the crew that time for free; it is gone.
 
-(3) fires whenever the kill is ready and some crewmate is trackable — Hunt then
-*stalks* the chosen victim and only fires the kill when it would go unwitnessed
-(``strategy.opportunity``), the witness bar relaxing with urgency. When no crewmate
+(3) fires once the kill is ready *or within a short lead window of being ready*
+(`ticks_until_kill_ready ≤ HUNT_LEAD_TICKS`, reconstructed from the binary HUD via
+`strategy.opportunity`) and some crewmate is trackable — so Hunt pre-positions: it
+*stalks* the chosen victim and shadows it in range while the cooldown ticks down,
+firing the instant the kill is both ready and unwitnessed (witness bar relaxing with
+urgency). Entering early is what makes the window open *hot* — most of the cooldown
+is still spent in Pretend (blending), only the lead window in Hunt. When no crewmate
 is trackable (e.g. none seen recently), the imposter stays in Pretend and wanders to
 find the crew.
 """
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim
+from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim, ticks_until_kill_ready
 from players.crewrift.crewborg.types import ActionState, Belief
 from players.player_sdk import ModeDirective
 from players.player_sdk.types import BeliefSnapshot
@@ -48,6 +53,13 @@ from players.player_sdk.types import BeliefSnapshot
 # A believed imposter within this distance (squared, world px) counts as
 # "approaching" and triggers Flee.
 FLEE_APPROACH_SQ = 60**2
+
+# Enter Hunt this many ticks *before* the kill comes off cooldown, so the imposter
+# closes range on a victim and the window opens "hot" (a strike on the first ready
+# tick) instead of cold (scrambling to find someone after the cooldown clears). Hunt
+# only strikes once actually kill-ready; before that it shadows in range. Kept small
+# so the imposter spends most of the cooldown blending in Pretend, not tailing.
+HUNT_LEAD_TICKS = 96
 
 
 class RuleBasedStrategy:
@@ -85,12 +97,15 @@ class RuleBasedStrategy:
     def _select_imposter(self, belief: Belief) -> ModeDirective:
         # Imposter priority (design §10): self-report a visible body (tempo — fire the
         # inevitable meeting + cooldown reset at once, denying the crew task-time);
-        # else kill ready *and* a victim trackable -> Hunt (commit + stalk + strike when
+        # else kill ready *or about to be* (within HUNT_LEAD_TICKS) and a victim
+        # trackable -> Hunt (pre-position: stalk + shadow in range, strike when ready &
         # isolated); else Pretend (blend in: follow crew, fake tasks, wander rooms).
         if any(bid in belief.bodies for bid in belief.visible_body_ids):
             return ModeDirective(mode="report_body", source="strategy", reason="self-report the body (tempo)")
-        if belief.self_kill_ready and has_trackable_victim(belief):
-            return ModeDirective(mode="hunt", source="strategy", reason="kill ready: stalk a victim")
+        # Hunt within the lead window before the kill is ready (so it opens hot), not
+        # only once ready — Hunt shadows in range until the cooldown clears, then strikes.
+        if ticks_until_kill_ready(belief) <= HUNT_LEAD_TICKS and has_trackable_victim(belief):
+            return ModeDirective(mode="hunt", source="strategy", reason="kill window near: stalk a victim")
         return ModeDirective(mode="pretend", source="strategy", reason="blend in")
 
 

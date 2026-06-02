@@ -1,21 +1,28 @@
 """Hunt mode: stalk a committed victim and strike when isolated (imposter; design §7.2).
 
-Selected when the kill is ready and a victim is trackable. Rather than only firing on
-a fleeting "visible + reachable + already-isolated" opportunity (which rarely lined
-up, so imposters managed ~one kill a game), Hunt **commits to a victim and stalks
-it**, leading its motion so it actually closes range on a moving target, and strikes
-the moment the kill would go **unwitnessed**:
+Selected when a victim is trackable and the kill is ready *or about to be*: the
+selector enters Hunt within a lead window before the cooldown clears
+(``ticks_until_kill_ready ≤ HUNT_LEAD_TICKS``) so the imposter is already in range
+when the window opens ("hot") rather than scrambling to find someone after (measured:
+the window otherwise opens with no victim adjacent and a kill takes ~50+ ticks to line
+up). Rather than firing on a fleeting "visible + reachable + already-isolated"
+opportunity (which rarely lined up, so imposters managed ~one kill a game), Hunt
+**commits to a victim and stalks it**, leading its motion so it actually closes range
+on a moving target, and strikes the moment the kill is ready *and* would go
+**unwitnessed**:
 
 - pick the most-isolated reachable crewmate (``strategy.opportunity.select_victim``)
   and stick with it until it's killed or lost;
 - navigate to its **predicted intercept** point (``strategy.trajectory``) — leading a
   moving target instead of tail-chasing its live position at equal speed;
-- when within KillRange and unwitnessed → ``kill``; while a witness is near, keep
-  shadowing (lie in wait) rather than blowing the kill — the urgency bar relaxes the
-  witness requirement over time, so a perpetually-shadowed kill still eventually fires.
+- when ready, within KillRange, and unwitnessed → ``kill``; while still on cooldown
+  (pre-window) or a witness is near, keep shadowing (lie in wait) rather than blowing
+  the kill — the urgency bar relaxes the witness requirement over time, so a
+  perpetually-shadowed kill still eventually fires.
 
-Two-imposter coordination (don't both stalk the same victim) and shadowing the victim
-while the kill recharges are later refinements (design §7.4).
+Shadowing the victim through the cooldown is the lead-window behaviour above.
+Two-imposter coordination (don't both stalk the same victim) is a later refinement
+(design §7.4).
 """
 
 from __future__ import annotations
@@ -48,16 +55,21 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
 
         victim_xy = (victim.world_x, victim.world_y)
         visible = victim.last_seen_tick == belief.last_tick
+        in_range = visible and ic.dist2(self_xy, victim_xy) <= KILL_RANGE_SQ
 
-        # Strike: in range, victim present, and the kill goes unseen.
-        if visible and ic.dist2(self_xy, victim_xy) <= KILL_RANGE_SQ and unwitnessed(belief, victim):
+        # Strike: kill ready, in range, victim present, and the kill goes unseen.
+        if in_range and belief.self_kill_ready and unwitnessed(belief, victim):
             return Intent(kind="kill", target_color=victim.color, reason="striking isolated victim")
 
-        # Stalk: close on the predicted intercept (lead a moving target). If a witness
-        # is near, we still shadow — just don't fire — until it isolates.
+        # Otherwise close on the predicted intercept (lead a moving target) and shadow.
+        # When already in range we lie in wait — pre-window (kill still on cooldown, the
+        # point of entering Hunt early) or a witness is near — striking the instant it
+        # is both ready and unwitnessed. The urgency bar relaxes the witness test over time.
         intercept = predict(victim, lead_ticks(self_xy, victim_xy))
-        lying_in_wait = visible and not unwitnessed(belief, victim)
-        reason = "lying in wait for an opening" if lying_in_wait else "stalking the victim"
+        if in_range:
+            reason = "lying in wait (cooldown)" if not belief.self_kill_ready else "lying in wait (witness)"
+        else:
+            reason = "stalking the victim"
         return Intent(kind="navigate_to", point=intercept, reason=reason)
 
     def _resolve_victim(self, belief: Belief) -> PlayerRecord | None:

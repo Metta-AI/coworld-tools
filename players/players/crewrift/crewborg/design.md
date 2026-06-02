@@ -491,7 +491,7 @@ re-decides.
 | Mode | Active when | Intents emitted |
 |---|---|---|
 | **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
-| **Hunt** | kill ready *and* a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); `kill` when in KillRange *and* unwitnessed, else keep shadowing (lie in wait) |
+| **Hunt** | kill ready *or within `HUNT_LEAD_TICKS` of ready* **and** a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); when **ready**, in KillRange *and* unwitnessed → `kill`, else keep shadowing in range (lie in wait). Entering within the lead window before the cooldown clears (`strategy.opportunity.ticks_until_kill_ready`, reconstructed from the binary HUD) pre-positions so the window opens **hot** |
 | **Report Body** (self-report) | a body is in view | `report` the nearest visible body — reuses the crewmate Report Body mode. This is a deliberate **tempo** play: a body always triggers a meeting eventually, and a meeting resets the kill cooldown, so the reset is inevitable; self-reporting the instant we see the body (usually our own fresh kill, while on cooldown anyway) fires that meeting at the earliest moment — advancing our next kill window by the discovery lag and denying the crew the task-time a body buys while unfound (tasks pause during meetings). Replaced the old **Evade** (slink away, leave the body), which handed the crew that time for free |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` — currently **skip** (suspicion is crewmate-only, so `top_suspect` is empty for an imposter); suspicion-aware bluff/deflect is future |
 
@@ -692,7 +692,8 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 1. phase = `Voting` → **Attend Meeting**
 2. a body in view → **Report Body** (self-report for tempo — fire the inevitable
    meeting + kill-cooldown reset now, denying the crew task-time; see §7.2)
-3. kill ready **and** a victim is trackable → **Hunt** (commit + stalk + strike when isolated)
+3. kill ready **or within `HUNT_LEAD_TICKS` of ready** (`ticks_until_kill_ready`) **and** a victim
+   is trackable → **Hunt** (pre-position: commit + stalk + shadow in range, strike when ready & isolated)
 4. otherwise → **Pretend** (whose own FSM follows a crewmate, fakes tasks, and
    wanders rooms when none are in sight — see §7.2; it never idles)
 
@@ -850,6 +851,7 @@ structural, and each still awaits tuning against a live server.
 | Report policy | **always report** a visible body — for *both* roles: a crewmate reports to act on it, an imposter **self-reports** for tempo (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
+| Hunt pre-position lead | enter Hunt `HUNT_LEAD_TICKS = 96` before the kill is ready (so the window opens hot). Time-to-ready is reconstructed from the binary HUD: a learned `kill_cooldown_estimate` (or `DEFAULT_KILL_COOLDOWN_TICKS = 900` until measured) from the tracked cooldown start |
 | Hunt victim tracking | stalk a victim seen within `TRACK_WINDOW_TICKS = 120`; lead its motion up to `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
 
 ---
