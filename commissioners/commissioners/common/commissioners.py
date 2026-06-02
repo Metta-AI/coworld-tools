@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -81,6 +82,7 @@ from commissioners.common.utils import (
     _count_text,
     _plural_word,
     _leaderboard_rules_description,
+    COMPLETED_EPISODE_COUNT_METADATA_KEY,
     AMONG_THEM_SCORING_MECHANICS,
     AMONG_THEM_RESULT_METADATA_VERSION,
     AMONG_THEM_SCORE_KIND,
@@ -380,6 +382,10 @@ class BaselineCommissioner(Commissioner):
         episode_results: list[EpisodeResult],
     ) -> CommissionerRoundComplete:
         score_lists = _score_lists_by_policy(episode_results)
+        completed_episode_counts: dict[UUID, int] = defaultdict(int)
+        for result in episode_results:
+            for policy_version_id in {score.policy_version_id for score in result.scores}:
+                completed_episode_counts[policy_version_id] += 1
         avg_score_by_policy = {
             entry.policy_version_id: (
                 sum(score_lists.get(entry.policy_version_id, [])) / len(score_lists.get(entry.policy_version_id, []))
@@ -402,7 +408,10 @@ class BaselineCommissioner(Commissioner):
                 player_id=str(entry.player_id) if entry.player_id is not None else None,
                 rank=rank,
                 score=avg_score_by_policy[entry.policy_version_id],
-                result_metadata={"seed_order": entry.seed_order},
+                result_metadata={
+                    "seed_order": entry.seed_order,
+                    COMPLETED_EPISODE_COUNT_METADATA_KEY: completed_episode_counts[entry.policy_version_id],
+                },
             )
             for rank, entry in enumerate(ranked_entries, start=1)
         ]

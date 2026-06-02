@@ -25,6 +25,7 @@ from commissioners.common.protocol import (
 from commissioners.common.commissioners import (
     AMONG_THEM_RESULT_METADATA_VERSION,
     AMONG_THEM_SCORE_KIND,
+    COMPLETED_EPISODE_COUNT_METADATA_KEY,
     AmongThemCommissioner,
     BaselineCommissioner,
     CogsVsClipsCommissioner,
@@ -321,12 +322,123 @@ def test_among_them_scoring_metadata_and_dirt_wood_changes() -> None:
     rankings = complete.results[0].rankings
     assert rankings[0].result_metadata == {
         "seed_order": 0,
+        COMPLETED_EPISODE_COUNT_METADATA_KEY: 1,
         "score_kind": AMONG_THEM_SCORE_KIND,
         "version": AMONG_THEM_RESULT_METADATA_VERSION,
     }
     assert len(complete.graduation_changes) == 1
     assert complete.graduation_changes[0].to_division_id == wood_id
     assert complete.graduation_changes[0].reason == "average score > 0: promoted to Wood"
+
+
+def test_among_them_round_results_track_completed_episode_count() -> None:
+    division_id = uuid4()
+    completed_policy_id = uuid4()
+    failed_policy_id = uuid4()
+    pool = PolicyPool(
+        id=uuid4(),
+        label="Round",
+        pool_type="round",
+        config={"num_episodes": 2, "min_episodes_per_entrant": 2, "self_play": True},
+    )
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=completed_policy_id, seed_order=0),
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=failed_policy_id, seed_order=1),
+    ]
+
+    complete = AmongThemCommissioner().complete_round(
+        round_row=Round(
+            id=uuid4(),
+            division_id=division_id,
+            round_number=1,
+            commissioner_key="among_them",
+        ),
+        pool=pool,
+        entries=entries,
+        episode_results=[
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[RoundPolicyScore(policy_version_id=completed_policy_id, score=-1.0) for _ in range(8)],
+            )
+        ],
+    )
+
+    metadata_by_policy = {
+        ranking.policy_version_id: ranking.result_metadata for ranking in complete.results[0].rankings
+    }
+    assert metadata_by_policy[completed_policy_id][COMPLETED_EPISODE_COUNT_METADATA_KEY] == 1
+    assert metadata_by_policy[failed_policy_id][COMPLETED_EPISODE_COUNT_METADATA_KEY] == 0
+    assert metadata_by_policy[completed_policy_id]["score_kind"] == AMONG_THEM_SCORE_KIND
+    assert metadata_by_policy[completed_policy_id]["version"] == AMONG_THEM_RESULT_METADATA_VERSION
+
+
+def test_among_them_qualifier_graduation_requires_completed_episode() -> None:
+    league_id = uuid4()
+    round_id = uuid4()
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    completed_membership_id = uuid4()
+    failed_membership_id = uuid4()
+    completed_policy_id = uuid4()
+    failed_policy_id = uuid4()
+
+    response = round_completed_for_request(
+        AmongThemCommissioner(),
+        RoundCompletedRequest(
+            league=LeagueInfo(
+                id=league_id,
+                commissioner_config={
+                    "qualifiers_division_name": "Qualifiers",
+                    "minimum_champions": 2,
+                },
+            ),
+            division=DivisionInfo(id=qualifier_id, name="Qualifiers", level=0, type="staging"),
+            all_divisions=[
+                DivisionInfo(id=qualifier_id, name="Qualifiers", level=0, type="staging"),
+                DivisionInfo(id=competition_id, name="Dirt", level=1, type="competition"),
+            ],
+            round_config=RoundConfig(),
+            round_results=[
+                RoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=completed_policy_id,
+                    rank=2,
+                    score=-1.0,
+                    result_metadata={COMPLETED_EPISODE_COUNT_METADATA_KEY: 1},
+                ),
+                RoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=failed_policy_id,
+                    rank=1,
+                    score=0.0,
+                    result_metadata={COMPLETED_EPISODE_COUNT_METADATA_KEY: 0},
+                ),
+            ],
+            division_memberships=[
+                MembershipInfo(
+                    id=completed_membership_id,
+                    division_id=qualifier_id,
+                    policy_version_id=completed_policy_id,
+                ),
+                MembershipInfo(
+                    id=failed_membership_id,
+                    division_id=qualifier_id,
+                    policy_version_id=failed_policy_id,
+                ),
+            ],
+            recent_results=[],
+            commissioner_config={
+                "qualifiers_division_name": "Qualifiers",
+                "minimum_champions": 2,
+            },
+        ),
+    )
+
+    change_by_membership = {change.membership_id: change for change in response.membership_changes}
+    assert change_by_membership[completed_membership_id].to_division_id == competition_id
+    assert change_by_membership[completed_membership_id].is_active is True
+    assert change_by_membership[failed_membership_id].to_division_id is None
+    assert change_by_membership[failed_membership_id].is_active is False
 
 
 def test_among_them_relegates_from_wood_to_dirt_when_average_score_is_zero() -> None:

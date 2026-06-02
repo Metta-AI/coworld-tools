@@ -235,8 +235,7 @@ class AmongThemCommissioner(BaselineCommissioner):
         )
         for division_ranking in complete.results:
             for ranking in division_ranking.rankings:
-                ranking.result_metadata = {
-                    "seed_order": ranking.result_metadata["seed_order"],
+                ranking.result_metadata = dict(ranking.result_metadata) | {
                     "score_kind": AMONG_THEM_SCORE_KIND,
                     "version": AMONG_THEM_RESULT_METADATA_VERSION,
                 }
