@@ -295,6 +295,45 @@ def test_debug_tick_dump_is_gated() -> None:
     assert on.gauges("domain.suspicion.believed_count")[0].value == 0.0
 
 
+def test_kill_ready_changed_on_cooldown_edges_imposter_only() -> None:
+    h = _Harness()
+    # A crewmate never emits kill-readiness, even though self_kill_ready may be set.
+    h.step(belief=Belief(self_role="crewmate", self_kill_ready=True))
+    assert not h.events("domain.kill_ready_changed")
+
+    # Imposter: first sight (cooldown) → ready → cooldown each emit one edge.
+    imp = Belief(self_role="imposter", self_kill_ready=False)
+    h.step(belief=imp)  # first sight: not ready
+    imp2 = Belief(self_role="imposter", self_kill_ready=True, kill_ready_since_tick=10, last_tick=15)
+    h.step(belief=imp2)  # edge → ready
+    h.step(belief=imp2)  # still ready: no re-emit
+    imp3 = Belief(self_role="imposter", self_kill_ready=False, last_kill_tick=20)
+    h.step(belief=imp3)  # edge → cooldown (killed)
+
+    edges = h.events("domain.kill_ready_changed")
+    assert [e.data["ready"] for e in edges] == [False, True, False]
+    assert edges[1].data["ready_since_tick"] == 10
+    assert edges[1].data["urgency_ticks"] == 5  # last_tick 15 − ready_since 10
+    assert edges[2].data["last_kill_tick"] == 20
+    assert {s.tags["ready"] for s in h.counters("domain.kill_ready_changed")} == {"True", "False"}
+
+
+def test_kill_state_debug_tick_imposter_only() -> None:
+    off = _Harness(debug=False)
+    off.step(belief=Belief(self_role="imposter", self_kill_ready=True))
+    assert not off.events("domain.kill_state")
+
+    on = _Harness(debug=True)
+    on.step(belief=Belief(self_role="crewmate", self_kill_ready=True))
+    assert not on.events("domain.kill_state")  # crewmate: nothing
+    on.step(belief=Belief(self_role="imposter", self_kill_ready=True, kill_ready_since_tick=3, last_tick=8))
+    [state] = on.events("domain.kill_state")
+    assert state.data["ready"] is True
+    assert state.data["urgency_ticks"] == 5
+    assert on.gauges("domain.kill.ready")[0].value == 1.0
+    assert on.gauges("domain.kill.urgency_ticks")[0].value == 5.0
+
+
 def test_env_flag_enables_debug_dump(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_TRACE", "debug")
     tracer = CrewborgEventTracer()

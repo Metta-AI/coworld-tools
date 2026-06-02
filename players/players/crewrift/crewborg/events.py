@@ -35,10 +35,15 @@ in two tiers:
   ``player_died`` on an alive→dead transition, ``imposter_confirmed`` /
   ``believed_changed`` when the suspicion sets move, and a full ``suspicion_snapshot``
   (ranked posteriors + each suspect's event log + the would-be vote and the bar)
-  at the start of every meeting.
+  at the start of every meeting. For the imposter, ``kill_ready_changed`` fires on
+  every kill cooldown→ready / ready→cooldown edge (with ``ready_since_tick``,
+  ``urgency_ticks``, and whether a victim is trackable) — so kill-window utilization
+  (how promptly the strike follows the cooldown clearing, and whether the gap is
+  cooldown vs. no-victim) is readable without the debug stream.
 - **Debug only (``CREWBORG_TRACE=debug``):** the entire live ``P(imposter)`` vector
   every tick (``suspicion_tick``) plus ``suspicion.top_p`` / ``believed_count``
-  gauges — heavy (~one line per tick), for deep single-game forensics.
+  gauges, and (imposter) a per-tick ``kill_state`` snapshot + ``kill.ready`` /
+  ``kill.urgency_ticks`` gauges — heavy (~one line per tick), for deep forensics.
 """
 
 from __future__ import annotations
@@ -46,6 +51,7 @@ from __future__ import annotations
 import os
 
 from players.crewrift.crewborg.action import BTN_A, BTN_B
+from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
 from players.crewrift.crewborg.strategy.suspicion import (
     VOTE_PROBABILITY,
     _prior_imposter_p,
@@ -78,6 +84,7 @@ class CrewborgEventTracer:
         self._confirmed: set[str] = set()  # last confirmed_imposters (witnessed catches)
         self._believed: set[str] = set()  # last believed_imposters (over the flee bar)
         self._meeting_snapshotted: bool = False  # one suspicion snapshot per meeting
+        self._kill_ready: bool | None = None  # last self_kill_ready (imposter cooldown edges)
         # Full per-tick suspicion dump is opt-in: heavy, for single-game forensics.
         self._debug: bool = (
             os.environ.get("CREWBORG_TRACE", "").strip().lower() == "debug" if debug is None else debug
@@ -98,8 +105,10 @@ class CrewborgEventTracer:
         self._observe_deaths(belief, emit)
         self._observe_suspicion_deltas(belief, emit)
         self._observe_meeting_suspicion(belief, emit)
+        self._observe_kill_readiness(belief, emit, context.active_mode_name)
         if self._debug:
             self._observe_debug_tick(belief, emit)
+            self._observe_kill_debug(belief, emit, context.active_mode_name)
 
     # --- state-transition / outcome events (belief & action-state deltas) ---
 
@@ -279,6 +288,26 @@ class CrewborgEventTracer:
             },
         )
 
+    def _observe_kill_readiness(self, belief: Belief, emit: EventEmitter, mode: str) -> None:
+        """Emit a kill cooldown→ready / ready→cooldown edge for the imposter.
+
+        Fires on every transition of ``self_kill_ready`` (and once on first sight),
+        carrying the cooldown context so kill-window utilization — how promptly the
+        strike follows the cooldown clearing, and whether the gap is cooldown vs.
+        no-victim — is readable from the lean stream alone.
+        """
+
+        if belief.self_role != "imposter":
+            return
+        ready = bool(belief.self_kill_ready)
+        if ready == self._kill_ready:
+            return
+        self._kill_ready = ready
+        data = _kill_state(belief)
+        data["mode"] = mode
+        emit.event("kill_ready_changed", data)
+        emit.counter("kill_ready_changed", tags={"ready": str(ready)})
+
     def _observe_debug_tick(self, belief: Belief, emit: EventEmitter) -> None:
         """Debug-only: the entire live P(imposter) vector + summary gauges, per tick."""
 
@@ -287,6 +316,29 @@ class CrewborgEventTracer:
         emit.event("suspicion_tick", {"p": {c: round(p, 4) for c, p in belief.suspicion.items()}})
         emit.gauge("suspicion.top_p", max(belief.suspicion.values()))
         emit.gauge("suspicion.believed_count", float(len(belief.believed_imposters)))
+
+    def _observe_kill_debug(self, belief: Belief, emit: EventEmitter, mode: str) -> None:
+        """Debug-only (imposter): the full kill state every tick + ready/urgency gauges."""
+
+        if belief.self_role != "imposter":
+            return
+        data = _kill_state(belief)
+        data["mode"] = mode
+        emit.event("kill_state", data)
+        emit.gauge("kill.ready", 1.0 if data["ready"] else 0.0)
+        emit.gauge("kill.urgency_ticks", float(data["urgency_ticks"]))
+
+
+def _kill_state(belief: Belief) -> dict[str, object]:
+    """The imposter's current kill-cooldown context (shared by the edge + debug traces)."""
+
+    return {
+        "ready": bool(belief.self_kill_ready),
+        "ready_since_tick": belief.kill_ready_since_tick,
+        "last_kill_tick": belief.last_kill_tick,
+        "urgency_ticks": kill_urgency_ticks(belief),
+        "has_trackable_victim": has_trackable_victim(belief),
+    }
 
 
 def _event_summary(record: PlayerRecord | None) -> list[dict[str, object]]:
