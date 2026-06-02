@@ -110,9 +110,14 @@ def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
     assert _select(belief) == "hunt"
 
 
-def test_imposter_evades_right_after_a_kill() -> None:
-    belief = _imposter_with_visible_target(self_kill_ready=False, last_kill_tick=8)
-    assert _select(belief) == "evade"  # last_tick 10 − last_kill_tick 8 < EVADE_TICKS
+def test_imposter_self_reports_a_visible_body() -> None:
+    from players.crewrift.crewborg.types import BodyEntry
+
+    # A body in view → the imposter reports it itself (tempo: fire the inevitable
+    # meeting + cooldown reset now), outranking Hunt even with the kill ready.
+    belief = _imposter_with_visible_target(self_kill_ready=True, visible_body_ids={2003})
+    belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=60, world_y=60, first_seen_tick=10)
+    assert _select(belief) == "report_body"
 
 
 def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:

@@ -335,7 +335,7 @@ class Belief(BaseModel):
     teammate_colors: set[str] = Field(default_factory=set)
 
     # Imposter: tick of the most recent self kill (kill-ready → cooldown edge),
-    # used to evade the fresh body briefly (design §7.2).
+    # surfaced in the kill-readiness trace (events.py §11).
     last_kill_tick: int | None = None
     # Imposter: tick the kill last became ready (cooldown → kill-ready edge), reset
     # to ``None`` whenever the kill is on cooldown. The strategy reads

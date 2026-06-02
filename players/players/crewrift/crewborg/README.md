@@ -21,16 +21,17 @@ ratios for witnessed kills/vents and graded event-log cues); it flees anyone ove
 probability threshold and at meetings votes the highest-`P` player above the vote
 bar (else skips), with reporting a visible body taking priority over fleeing. As an
 imposter the
-role-aware selector runs a priority order during `Playing`: **Evade** (just killed
-→ brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
-*and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
+role-aware selector runs a priority order during `Playing`: **Report Body**
+(self-report any body in view — fire the inevitable meeting + kill-cooldown reset at
+once, denying the crew the task-time a body would buy while unfound), **Hunt** (kill
+ready *and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
 trajectory-led intercept, and strike when in range and unwitnessed), and
 **Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
 tails one into a room, and wanders rooms when none are in sight, never idling);
 meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
 (shared with the selector) whose isolation bar relaxes with urgency, not merely on
-the cooldown ending. The action layer covers `kill` (edge-A in KillRange), `vent`
-(level-B in VentRange), and `escape` (vent-aware flee routing). The LLM strategy
+the cooldown ending. The action layer covers `kill` (edge-A in KillRange) and `vent`
+(level-B in VentRange). The LLM strategy
 seam (`design.md` §10) remains in place but unused.
 
 ## Layout
@@ -43,7 +44,7 @@ crewborg/
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade (+ imposter_common helpers)
+  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)

@@ -18,9 +18,18 @@ Crewmate priority order (design §10):
 Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
-2. just killed → Evade
+2. a body in view → Report Body (**self-report** — see below)
 3. kill ready + a trackable victim → Hunt (commit to a victim, stalk it, strike when isolated)
 4. otherwise → Pretend (blend in: follow the crew, fake tasks, wander rooms when none in sight)
+
+(2) is a deliberate tempo play, not a crewmate hand-me-down. A body on the floor
+*always* triggers a meeting eventually (some crewmate finds it), and a meeting resets
+our kill cooldown — so the reset is inevitable. Self-reporting the instant we see the
+body (typically our own fresh kill, while we are on cooldown anyway) fires that
+meeting at the earliest possible moment: it advances our *next* kill window by the
+whole discovery lag, and denies the crew the task-time they would have banked while
+the body sat unfound (tasks pause during meetings). The old Evade behaviour — slink
+away and leave the body — handed the crew that time for free; it is gone.
 
 (3) fires whenever the kill is ready and some crewmate is trackable — Hunt then
 *stalks* the chosen victim and only fires the kill when it would go unwitnessed
@@ -39,9 +48,6 @@ from players.player_sdk.types import BeliefSnapshot
 # A believed imposter within this distance (squared, world px) counts as
 # "approaching" and triggers Flee.
 FLEE_APPROACH_SQ = 60**2
-
-# Ticks after a kill during which the imposter prefers to Evade (≈ 3s at 24 Hz).
-EVADE_TICKS = 72
 
 
 class RuleBasedStrategy:
@@ -77,11 +83,12 @@ class RuleBasedStrategy:
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
-        # Imposter priority (design §10): just killed -> Evade; kill ready *and* a
-        # victim is trackable -> Hunt (commit + stalk + strike when isolated);
-        # otherwise -> Pretend (blend in: follow the crew, fake tasks, wander rooms).
-        if belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS:
-            return ModeDirective(mode="evade", source="strategy", reason="just killed: lay low")
+        # Imposter priority (design §10): self-report a visible body (tempo — fire the
+        # inevitable meeting + cooldown reset at once, denying the crew task-time);
+        # else kill ready *and* a victim trackable -> Hunt (commit + stalk + strike when
+        # isolated); else Pretend (blend in: follow crew, fake tasks, wander rooms).
+        if any(bid in belief.bodies for bid in belief.visible_body_ids):
+            return ModeDirective(mode="report_body", source="strategy", reason="self-report the body (tempo)")
         if belief.self_kill_ready and has_trackable_victim(belief):
             return ModeDirective(mode="hunt", source="strategy", reason="kill ready: stalk a victim")
         return ModeDirective(mode="pretend", source="strategy", reason="blend in")

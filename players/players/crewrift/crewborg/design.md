@@ -492,7 +492,7 @@ re-decides.
 |---|---|---|
 | **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
 | **Hunt** | kill ready *and* a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); `kill` when in KillRange *and* unwitnessed, else keep shadowing (lie in wait) |
-| **Evade** | just killed | brief (`EVADE_TICKS`) and **local**: `escape(point)` to a reachable point just outside the body's immediate vicinity (≈ `EVADE_RADIUS`), then back to Pretend — *not* the globally furthest point, which stranded the imposter away from the crew. Routes via the vent-aware graph (a short hop won't take a far teleport) |
+| **Report Body** (self-report) | a body is in view | `report` the nearest visible body — reuses the crewmate Report Body mode. This is a deliberate **tempo** play: a body always triggers a meeting eventually, and a meeting resets the kill cooldown, so the reset is inevitable; self-reporting the instant we see the body (usually our own fresh kill, while on cooldown anyway) fires that meeting at the earliest moment — advancing our next kill window by the discovery lag and denying the crew the task-time a body buys while unfound (tasks pause during meetings). Replaced the old **Evade** (slink away, leave the body), which handed the crew that time for free |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` — currently **skip** (suspicion is crewmate-only, so `top_suspect` is empty for an imposter); suspicion-aware bluff/deflect is future |
 
 **Pretend is the imposter's default blending behaviour** — a four-state FSM that
@@ -550,7 +550,7 @@ stays among the crew so Hunt (which preempts it) gets openings.
 Notes: the **starting room never triggers DO_TASK** (every player is co-located
 there at spawn, and anchoring a task there strands the imposter when the crew
 disperses). DO_TASK **holds the full duration** even if crewmates pass by — only
-Hunt/Evade (via the selector) can preempt it. RECOVER re-acquires **only its own
+Hunt / Report Body (via the selector) can preempt it. RECOVER re-acquires **only its own
 target**; a *different* visible crewmate is picked up at the next DISPATCH.
 "Random" crewmate/room choices are **arbitrary-but-deterministic** (nearest crewmate;
 round-robin rooms) — no RNG — so runs are reproducible.
@@ -690,7 +690,8 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 **Imposter selection** (priority order):
 
 1. phase = `Voting` → **Attend Meeting**
-2. just killed (within `EVADE_TICKS`) → **Evade**
+2. a body in view → **Report Body** (self-report for tempo — fire the inevitable
+   meeting + kill-cooldown reset now, denying the crew task-time; see §7.2)
 3. kill ready **and** a victim is trackable → **Hunt** (commit + stalk + strike when isolated)
 4. otherwise → **Pretend** (whose own FSM follows a crewmate, fakes tasks, and
    wanders rooms when none are in sight — see §7.2; it never idles)
@@ -780,7 +781,7 @@ crewborg/
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
-  modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
+  modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
@@ -846,9 +847,8 @@ structural, and each still awaits tuning against a live server.
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
-| Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
+| Report policy | **always report** a visible body — for *both* roles: a crewmate reports to act on it, an imposter **self-reports** for tempo (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
-| Evade flee distance | leave the body's vicinity by ≈ `EVADE_RADIUS = 128` px (local, not the farthest point), for `EVADE_TICKS = 72` |
 | Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
 | Hunt victim tracking | stalk a victim seen within `TRACK_WINDOW_TICKS = 120`; lead its motion up to `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
 

@@ -1,13 +1,13 @@
-"""Hunt / Pretend / Evade imposter mode tests (design §7.2)."""
+"""Hunt / Pretend imposter mode tests (design §7.2)."""
 
 from __future__ import annotations
 
 import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Room, TaskStation
-from players.crewrift.crewborg.modes import EvadeMode, HuntMode, PretendMode
+from players.crewrift.crewborg.modes import HuntMode, PretendMode
 from players.crewrift.crewborg.nav import build_nav_graph
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, PlayerRecord
+from players.crewrift.crewborg.types import ActionState, Belief, PlayerRecord
 
 
 def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "red", tick: int | None = None) -> None:
@@ -195,39 +195,3 @@ def test_pretend_wandering_switches_to_follow_on_sighting_a_crewmate() -> None:
     mode._state, mode._goto_point = "goto_room", (160, 60)  # mid-wander
     intent = mode.decide(belief, ActionState())
     assert intent.kind == "navigate_to" and intent.point == (80, 60)  # dropped the wander to follow
-
-
-# --------------------------------------------------------------------------- #
-# Evade — escape far from the body (venting only if it is on the fast route)   #
-# --------------------------------------------------------------------------- #
-
-
-def test_evade_leaves_the_immediate_vicinity_but_stays_local() -> None:
-    from players.crewrift.crewborg.modes.evade import EVADE_RADIUS
-
-    # A large open map so a node near the EVADE_RADIUS ring around the body exists.
-    map_data = MapData(
-        width=600, height=600, tasks=(), vents=(), rooms=(),
-        button=MapRect(x=0, y=590, w=8, h=8), home=MapPoint(x=300, y=300),
-    )
-    nav = build_nav_graph(np.ones((600, 600), dtype=bool), map_data=map_data)
-    belief = Belief(map=map_data, nav=nav, self_world_x=300, self_world_y=300, last_tick=10)
-    belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=300, world_y=300, first_seen_tick=8)
-
-    intent = EvadeMode().decide(belief, ActionState())
-    assert intent.kind == "escape"
-    dist = ((intent.point[0] - 300) ** 2 + (intent.point[1] - 300) ** 2) ** 0.5
-    # Left the immediate vicinity, but stayed ~EVADE_RADIUS away — not a far corner.
-    assert abs(dist - EVADE_RADIUS) <= 16
-
-
-def test_evade_moves_away_from_body_before_the_nav_graph_exists() -> None:
-    map_data = MapData(
-        width=1000, height=1000, tasks=(), vents=(), rooms=(),
-        button=MapRect(x=0, y=0, w=28, h=34), home=MapPoint(x=0, y=0),
-    )
-    belief = Belief(map=map_data, self_world_x=100, self_world_y=100, last_tick=10)
-    belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=110, world_y=100, first_seen_tick=1)
-    intent = EvadeMode().decide(belief, ActionState())
-    # No graph: reflect the body at (110,100) through self ⇒ (90,100), to our left.
-    assert intent.kind == "escape" and intent.point == (90, 100)
