@@ -28,6 +28,8 @@ diagnosers/
     |   `-- diagnoser_template/
     |-- among_them/
     |   `-- among_them_diagnoser/
+    |-- crewrift/
+    |   `-- crewrift_diagnoser/
     |-- paint_arena/
     |   `-- paint_arena_diagnoser/
     `-- cogs_v_clips/
@@ -48,6 +50,7 @@ Each leaf diagnoser directory follows the same placeholder shape:
 | --- | --- | --- |
 | `templates/diagnoser_template` | (template) | Scaffold only - no implementation |
 | `among_them/among_them_diagnoser` | Among Them | Starter implementation - emits Markdown policy-assay advice from a target policy and optional episode artifacts |
+| `crewrift/crewrift_diagnoser` | Crewrift | Starter implementation - emits Markdown policy-assay advice from a target policy and optional episode artifacts |
 | `paint_arena/paint_arena_diagnoser` | PaintArena | Scaffold only - no implementation |
 | `cogs_v_clips/cogs_v_clips_diagnoser` | Cogs vs Clips | Scaffold only - no implementation |
 
