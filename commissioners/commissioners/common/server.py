@@ -37,6 +37,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
         round_start: RoundStart | None = None
         expected_request_ids: set[str] = set()
         results_by_request_id: dict[str, EpisodeResult] = {}
+        failed_by_request_id: dict[str, EpisodeFailed] = {}
 
         try:
             while True:
@@ -99,8 +100,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     if expected_request_ids and failed.request_id not in expected_request_ids:
                         await websocket.close(code=1008, reason=f"unknown episode request id: {failed.request_id!r}")
                         return
-                    await websocket.close(code=1011, reason=f"scheduled episode failed: {failed.request_id}")
-                    return
+                    failed_by_request_id[failed.request_id] = failed
                 elif msg_type == "episodes_accepted":
                     continue
                 elif msg_type == "episodes_rejected":
@@ -115,11 +115,15 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     return
 
                 completed_request_ids = set(results_by_request_id)
-                if round_start is not None and expected_request_ids and expected_request_ids <= completed_request_ids:
+                settled_request_ids = completed_request_ids | set(failed_by_request_id)
+                if round_start is not None and expected_request_ids and expected_request_ids <= settled_request_ids:
+                    if not completed_request_ids:
+                        await websocket.close(code=1011, reason="all scheduled episodes failed")
+                        return
                     ordered_results = [
                         results_by_request_id[request_id]
                         for request_id in sorted(
-                            results_by_request_id,
+                            completed_request_ids,
                             key=lambda value: int(value) if value.isdigit() else value,
                         )
                     ]
