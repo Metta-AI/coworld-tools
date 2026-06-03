@@ -154,6 +154,18 @@ class OccupancySnapshot(BaseModel):
     support_cell_count: int = 0
 
 
+@dataclass(frozen=True)
+class OccupancyRoomTarget:
+    """Room-level target for imposter Pretend routing."""
+
+    room_name: str
+    point: Point
+    expected: float
+    density: float
+    teammate_density: float
+    score: float
+
+
 class ReacquisitionEvent(BaseModel):
     """A predicted-vs-actual observation when a lost player re-enters view."""
 
@@ -177,7 +189,9 @@ class AgentTrackingState(BaseModel):
 
     substrate: OccupancySubstrate | None = None
     estimates: dict[str, AgentPositionEstimate] = Field(default_factory=dict)
+    teammate_estimates: dict[str, AgentPositionEstimate] = Field(default_factory=dict)
     snapshot: OccupancySnapshot | None = None
+    teammate_snapshot: OccupancySnapshot | None = None
     previous_visible_colors: set[str] = Field(default_factory=set)
     reacquisitions: list[ReacquisitionEvent] = Field(default_factory=list)
 
@@ -223,20 +237,44 @@ def update_agent_tracking(belief: "Belief") -> None:
 
     frame = belief.recent_frames[-1] if belief.recent_frames and belief.recent_frames[-1].tick == belief.last_tick else None
     visible_colors = set(frame.players) if frame is not None else set()
-    live_colors = {
+    live_crew_colors = {
         color
         for color, record in belief.roster.items()
         if color not in belief.teammate_colors and record.life_status != "dead"
     }
+    live_teammate_colors = {
+        color
+        for color, record in belief.roster.items()
+        if color in belief.teammate_colors and record.life_status != "dead"
+    }
 
-    for color in visible_colors & live_colors:
+    for color in visible_colors & live_crew_colors:
         previous = tracking.estimates.get(color)
         if previous is not None and color not in tracking.previous_visible_colors and previous.top_point is not None:
             actual_point = frame.players[color] if frame is not None else (belief.roster[color].world_x, belief.roster[color].world_y)
             tracking.reacquisitions.append(_reacquisition(substrate, previous, belief.last_tick, color, actual_point))
 
+    estimates = _estimate_colors(substrate, belief, live_crew_colors, visible_colors, frame)
+    teammate_estimates = _estimate_colors(substrate, belief, live_teammate_colors, visible_colors, frame)
+
+    tracking.estimates = estimates
+    tracking.teammate_estimates = teammate_estimates
+    tracking.snapshot = _snapshot(substrate, belief.last_tick, estimates.values())
+    tracking.teammate_snapshot = (
+        _snapshot(substrate, belief.last_tick, teammate_estimates.values()) if teammate_estimates else None
+    )
+    tracking.previous_visible_colors = visible_colors
+
+
+def _estimate_colors(
+    substrate: OccupancySubstrate,
+    belief: "Belief",
+    colors: set[str],
+    visible_colors: set[str],
+    frame: "PerceptionFrame | None",
+) -> dict[str, AgentPositionEstimate]:
     estimates: dict[str, AgentPositionEstimate] = {}
-    for color in sorted(live_colors):
+    for color in sorted(colors):
         record = belief.roster[color]
         if color in visible_colors and frame is not None:
             estimates[color] = _observed_estimate(substrate, color, belief.last_tick, frame.players[color])
@@ -253,29 +291,127 @@ def update_agent_tracking(belief: "Belief") -> None:
                 last_seen=last_seen,
                 frame=frame,
             )
-
-    tracking.estimates = estimates
-    tracking.snapshot = _snapshot(substrate, belief.last_tick, estimates.values())
-    tracking.previous_visible_colors = visible_colors
+    return estimates
 
 
 def best_seek_point(belief: "Belief", self_xy: Point | None = None) -> Point | None:
     """Return the hottest reachable occupancy cell for imposter search."""
 
     del self_xy  # cells are prefiltered to the reachable component; no live A* here
+    points = ranked_seek_points(belief)
+    return points[0] if points else None
+
+
+def ranked_seek_points(belief: "Belief") -> list[Point]:
+    """Return occupancy cell centers from hottest to coldest for active search."""
+
     substrate = belief.agent_tracking.substrate
     snapshot = belief.agent_tracking.snapshot
     if substrate is None or snapshot is None or not snapshot.expected_by_cell:
-        return None
+        return []
 
+    points: list[Point] = []
     ranked = sorted(snapshot.expected_by_cell.items(), key=lambda item: item[1], reverse=True)
     for cell_id, expected in ranked:
         if expected <= 0:
             break
         cell = substrate.cells.get(cell_id)
         if cell is not None:
-            return cell.center
-    return None
+            points.append(cell.center)
+    return points
+
+
+ROOM_TARGET_HYSTERESIS = 0.80
+TEAMMATE_ROOM_PENALTY = 3.0
+
+
+def best_pretend_room_target(
+    belief: "Belief",
+    self_xy: Point,
+    *,
+    current_room_name: str | None = None,
+    eligible_room_names: set[str] | None = None,
+) -> OccupancyRoomTarget | None:
+    """Return the best room-level Pretend target from crew density and imposter pressure.
+
+    Crew occupancy is useful at room scale; cell-level maxima are too twitchy once
+    the per-agent support becomes broad. Teammate pressure is kept separate from
+    crew occupancy so an imposter can blend near likely crew while avoiding a
+    second imposter already occupying or searching the same room.
+    """
+
+    substrate = belief.agent_tracking.substrate
+    snapshot = belief.agent_tracking.snapshot
+    if substrate is None or snapshot is None or belief.map is None:
+        return None
+
+    room_cells = _cells_by_room(substrate)
+    expected_by_room = _room_expected(substrate, snapshot.expected_by_cell)
+    if not expected_by_room:
+        return None
+    teammate_expected_by_room = _room_expected(
+        substrate,
+        belief.agent_tracking.teammate_snapshot.expected_by_cell
+        if belief.agent_tracking.teammate_snapshot is not None
+        else {},
+    )
+
+    targets: list[OccupancyRoomTarget] = []
+    for room_name, expected in expected_by_room.items():
+        if eligible_room_names is not None and room_name not in eligible_room_names:
+            continue
+        cells = room_cells.get(room_name)
+        if not cells:
+            continue
+        density = expected / len(cells)
+        teammate_density = teammate_expected_by_room.get(room_name, 0.0) / len(cells)
+        score = density - TEAMMATE_ROOM_PENALTY * teammate_density
+        targets.append(
+            OccupancyRoomTarget(
+                room_name=room_name,
+                point=_room_center_cell(room_name, room_cells, belief.map),
+                expected=expected,
+                density=density,
+                teammate_density=teammate_density,
+                score=score,
+            )
+        )
+    if not targets:
+        return None
+
+    best = max(targets, key=lambda target: (target.score, target.expected, -_dist2(self_xy, target.point), target.room_name))
+    if current_room_name is not None:
+        current = next((target for target in targets if target.room_name == current_room_name), None)
+        if current is not None and current.score > 0 and current.score >= best.score * ROOM_TARGET_HYSTERESIS:
+            return current
+    return best if best.expected > 0 else None
+
+
+def _cells_by_room(substrate: OccupancySubstrate) -> dict[str, list[OccupancyCell]]:
+    out: dict[str, list[OccupancyCell]] = {}
+    for cell in substrate.cells.values():
+        if cell.label is not None:
+            out.setdefault(cell.label, []).append(cell)
+    return out
+
+
+def _room_expected(substrate: OccupancySubstrate, expected_by_cell: dict[int, float]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for cell_id, expected in expected_by_cell.items():
+        cell = substrate.cells.get(cell_id)
+        if cell is None or cell.label is None:
+            continue
+        out[cell.label] = out.get(cell.label, 0.0) + expected
+    return out
+
+
+def _room_center_cell(room_name: str, room_cells: dict[str, list[OccupancyCell]], map_data: "MapData") -> Point:
+    room = next((candidate for candidate in map_data.rooms if candidate.name == room_name), None)
+    cells = room_cells[room_name]
+    if room is None:
+        return cells[0].center
+    center = (room.center.x, room.center.y)
+    return min(cells, key=lambda cell: _dist2(center, cell.center)).center
 
 
 def _anchors(nav: NavGraph, map_data: "MapData") -> list[TrackingAnchor]:

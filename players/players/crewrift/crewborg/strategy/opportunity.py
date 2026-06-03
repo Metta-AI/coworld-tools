@@ -2,10 +2,9 @@
 
 Hunt commits to a *victim* and stalks it, striking only when the kill would go
 **unwitnessed**. This module is the single source of truth for: which crewmate to
-commit to (``select_victim`` — the most-isolated straggler, easiest to finish off
-unseen), whether a kill on a given target is currently unwitnessed (``unwitnessed``),
-and whether any victim is even trackable right now (``has_trackable_victim``, which
-gates Hunt vs. Pretend in the selector).
+commit to (``select_victim`` — the most-isolated visible straggler, easiest to
+finish off unseen), whether a kill on a given target is currently unwitnessed
+(``unwitnessed``), and whether any victim is visible or trackable right now.
 
 The witness bar is not fixed: the longer the imposter has been *able* to kill
 without doing so, the more it relaxes (``kill_urgency_ticks``), so a cautious
@@ -30,18 +29,26 @@ WITNESS_WINDOW_TICKS = 72
 # i.e. the imposter will strike any victim regardless of witnesses (~10s at 24 Hz).
 URGENCY_FULL_TICKS = 240
 
-# A non-teammate seen within this many ticks is still "trackable" — Hunt can stalk it
-# (to its last-known / predicted position) even while it is briefly out of view.
+# A non-teammate seen within this many ticks is still "trackable" — Search can
+# follow it to its last-known position even while it is briefly out of view.
 TRACK_WINDOW_TICKS = 120
+
+# If a fellow imposter was seen closer than us to a victim within this radius, treat
+# that victim as "claimed" and prefer another target when one exists.
+TEAMMATE_CLAIM_RADIUS = 80
 
 # The kill cooldown's full length (ticks), used to estimate time-to-ready before we
 # have measured a real cooldown from the binary HUD (design §7.2). The game default.
 DEFAULT_KILL_COOLDOWN_TICKS = 900
 
-# Enter hunt/seek behaviour this many ticks before the kill comes off cooldown.
-# Hunt uses it when a victim is already trackable; Pretend uses the same window to
-# search the occupancy grid when no victim is currently trackable.
-HUNT_LEAD_TICKS = 96
+# Enter Search this many ticks before the kill comes off cooldown. Search finds
+# and follows a victim; Hunt only activates once the kill is ready and a victim is
+# visible.
+SEARCH_LEAD_TICKS = 100
+
+# Backwards-compatible name for docs/tests that still refer to the old Hunt lead
+# term. New code should use SEARCH_LEAD_TICKS.
+HUNT_LEAD_TICKS = SEARCH_LEAD_TICKS
 
 
 def kill_urgency_ticks(belief: Belief) -> int:
@@ -59,8 +66,8 @@ def ticks_until_kill_ready(belief: Belief) -> int:
     countdown from the tracked cooldown start (`kill_cooldown_start_tick`) plus the
     learned duration (`kill_cooldown_estimate`, falling back to the game default
     before anything has been measured). With no cooldown start observed yet it
-    assumes a full cooldown remains, so callers won't pre-position on no information.
-    Lets the selector enter Hunt *slightly before* the window so it opens "hot".
+        assumes a full cooldown remains, so callers won't enter Search on no
+        information.
     """
 
     if belief.self_kill_ready:
@@ -72,10 +79,9 @@ def ticks_until_kill_ready(belief: Belief) -> int:
 
 
 def has_trackable_victim(belief: Belief) -> bool:
-    """Whether any non-teammate has been seen recently enough for Hunt to stalk.
+    """Whether any non-teammate has been seen recently enough for Search to follow.
 
-    Gates the selector: kill-ready + a trackable victim → Hunt (stalk); otherwise the
-    imposter blends/wanders via Pretend (and so goes looking for crew when it has none).
+    Kept as a useful readout; Hunt itself requires current visibility.
     """
 
     return any(
@@ -86,21 +92,33 @@ def has_trackable_victim(belief: Belief) -> bool:
     )
 
 
+def visible_victims(belief: Belief) -> list[PlayerRecord]:
+    """Live non-teammates visible on the current tick."""
+
+    return [
+        entry
+        for entry in belief.roster.values()
+        if entry.color not in belief.teammate_colors
+        and entry.life_status != "dead"
+        and entry.last_seen_tick == belief.last_tick
+    ]
+
+
+def has_visible_victim(belief: Belief) -> bool:
+    """Whether a live non-teammate crewmate is visible right now."""
+
+    return bool(visible_victims(belief))
+
+
 def select_victim(belief: Belief) -> PlayerRecord | None:
-    """The crewmate to commit to hunting: the most-isolated reachable crewmate in
-    view (a straggler — easiest to finish off unwitnessed), tie-broken by nearest to
-    us. ``None`` when no non-teammate is currently visible/reachable to commit to."""
+    """The crewmate to commit to hunting: the most-isolated reachable visible
+    crewmate (a straggler — easiest to finish off unwitnessed), tie-broken by
+    nearest to us. ``None`` when no non-teammate is visible/reachable."""
 
     self_xy = _self_xy(belief)
     if self_xy is None:
         return None
-    crew = [
-        entry
-        for entry in belief.roster.values()
-        if entry.last_seen_tick == belief.last_tick
-        and entry.color not in belief.teammate_colors
-        and entry.life_status != "dead"
-    ]
+    crew = visible_victims(belief)
     if not crew:
         return None
     candidates = crew
@@ -108,6 +126,9 @@ def select_victim(belief: Belief) -> PlayerRecord | None:
         candidates = [t for t in crew if plan_route(belief.nav, self_xy, (t.world_x, t.world_y))]
         if not candidates:
             return None
+    unclaimed = [target for target in candidates if not _claimed_by_teammate(target, belief, self_xy)]
+    if unclaimed:
+        candidates = unclaimed
     # Prefer the most isolated (largest gap to its nearest other crewmate), then nearest.
     return max(candidates, key=lambda t: (_isolation(t, belief), -_dist2(self_xy, (t.world_x, t.world_y))))
 
@@ -147,6 +168,22 @@ def _is_unwitnessed(target: PlayerRecord, belief: Belief, radius_sq: float, wind
         if _dist2(target_xy, (other.world_x, other.world_y)) <= radius_sq:
             return False
     return True
+
+
+def _claimed_by_teammate(target: PlayerRecord, belief: Belief, self_xy: tuple[int, int]) -> bool:
+    target_xy = (target.world_x, target.world_y)
+    self_dist = _dist2(self_xy, target_xy)
+    for teammate in belief.roster.values():
+        if teammate.color not in belief.teammate_colors:
+            continue
+        if teammate.life_status == "dead":
+            continue
+        if belief.last_tick - teammate.last_seen_tick > TRACK_WINDOW_TICKS:
+            continue
+        teammate_dist = _dist2((teammate.world_x, teammate.world_y), target_xy)
+        if teammate_dist < self_dist and teammate_dist <= TEAMMATE_CLAIM_RADIUS**2:
+            return True
+    return False
 
 
 def _self_xy(belief: Belief) -> tuple[int, int] | None:

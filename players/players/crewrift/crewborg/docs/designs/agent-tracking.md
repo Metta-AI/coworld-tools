@@ -1,20 +1,21 @@
 # Agent location tracking — a probabilistic occupancy belief
 
-**Status:** stages 1-2 implemented (2026-06-03): static substrate, reachability-disc
-occupancy with negative LoS, `domain.occupancy_*` traces, and imposter hunt-seek are
-live. The task-assignment/destination mixture remains the next gated stage. Sibling
-of [`suspicion.md`](./suspicion.md) (a tunable belief layer with learnable params +
-provenance).
+**Status:** stages 1-2 implemented (2026-06-03): static substrate,
+reachability-disc occupancy with negative LoS, `domain.occupancy_*` traces,
+room-level Pretend targeting, separate teammate-imposter pressure, and imposter
+Search-mode occupancy seeking are live. The task-assignment/destination mixture remains the next
+gated stage. Sibling of [`suspicion.md`](./suspicion.md) (a tunable belief layer
+with learnable params + provenance).
 
 ## 1. Goal
 
 Maintain, for every *other* agent, a belief about **where they are now** that stays
 useful after they leave view — a distribution over the ship that collapses to a point
 when we see them and degrades *intelligently* (not uniformly) when we don't. First
-consumer: the **imposter**, to drive the **pre-cooldown search** — during the Hunt lead
-window (kill almost ready, see [`design.md`](../../design.md) §7.2) when no victim is
-currently visible, walk toward where crew most likely are, so a victim is in view by the
-time the cooldown clears (the "window opens hot" other half; the timing half is done).
+consumer: the **imposter**, especially Pretend: walk toward rooms where crew most
+likely are while subtracting pressure from the teammate-imposter distribution, so a
+victim is in view by the time the cooldown clears (the "window opens hot" other
+half; the timing half is done).
 The engine is **role-agnostic on purpose**: a crewmate will later use the same beliefs
 for alibi-based deduction in voting. v1 ships the imposter consumer only.
 
@@ -73,7 +74,8 @@ Built once (extends main design §6), all from the existing `NavGraph`/`plan_rou
 
 ## 6. The per-agent filter
 
-Per other agent `a` (teammates and the dead are dropped):
+Per other agent `a` (dead players are dropped; teammate-imposters are tracked in
+a separate pressure distribution):
 
 - **Task-assignment belief `A_a(t) = P(a is assigned task t)`** (§11-5). Prior: uniform
   over all tasks scaled to the known per-player count (`tasksPerPlayer`). Updated by
@@ -105,12 +107,14 @@ Per other agent `a` (teammates and the dead are dropped):
 ## 7. Readout & use
 
 - **Coarse occupancy grid.** Sum every tracked crewmate's predicted mass into the grid:
-  `E[cell] = Σ_a P_a(cell)`. (Rooms/corridors both light up automatically.)
-- **Imposter hunt-seek (v1).** During the Hunt lead window with no currently-trackable
-  victim, walk to the **hottest reachable grid cell** (most expected crew), replacing
-  Pretend's round-robin wander ([`rule_based`](../../strategy/rule_based.py) §10). On
-  arrival a crewmate is (hopefully) visible → micro-layer Hunt strikes. Optimize for **any**
-  crew, not lone (§11-2: these opponents don't punish witnessed kills; left as a knob).
+  `E[cell] = Σ_a P_a(cell)`. Track teammate-imposters in a separate distribution,
+  not in the crew grid.
+- **Imposter room/search targeting (v1).** Pretend aggregates crew occupancy to
+  room density, subtracts teammate-imposter pressure, and chooses a real task
+  station in the selected room. Search uses the ranked cell readout during the
+  kill lead window, walking hot spots until a crewmate is visible → micro-layer
+  Hunt strikes. Optimize for **any** crew, not lone (§11-2: these opponents don't
+  punish witnessed kills; left as a knob).
 - **Crew (later, out of scope):** alibi/anti-alibi for suspicion/voting. Engine kept
   role-agnostic for it.
 
@@ -141,10 +145,12 @@ reacquire) before building the next stage.
    `domain.occupancy_*`/predicted-vs-actual trace. **Implemented in
    `agent_tracking.py` + `events.py`.** Check: polylines & grid sane in traces; bake
    cost fine.
-2. **Reachability-disc occupancy** (§4) + negative LoS (§6). Wire into hunt-seek (§7):
-   walk to the hottest reachable cell. **Implemented in `agent_tracking.py` +
-   `modes/pretend.py`: Pretend's no-crew-visible wander uses the hottest occupancy
-   cell during the Hunt lead window when no victim is trackable.** Check: beats
+2. **Reachability-disc occupancy** (§4) + negative LoS (§6). Wire into Pretend
+   task targeting and Search hot-spot walking (§7). **Implemented in
+   `agent_tracking.py` + `modes/pretend.py` + `modes/search.py`: Pretend uses
+   room-level crew occupancy density to pick fake-task stations, with
+   teammate-imposter pressure and a long Pretend-window target commitment; Search
+   walks ranked occupancy cells in the kill lead window.** Check: beats
    round-robin (time-to-reacquire, kills).
 3. **Destination model** (§6): task-assignment belief + destination mixture + pixel-path
    prediction + in-view sharpening. **Not implemented yet.** Re-measure accuracy & kills.

@@ -23,18 +23,18 @@ ratios for witnessed kills/vents and graded event-log cues); it flees anyone ove
 probability threshold and at meetings votes the highest-`P` player above the vote
 bar (else skips), with reporting a visible body taking priority over fleeing. As an
 imposter the
-role-aware selector runs a priority order during `Playing`: **Report Body**
-(self-report any body in view — fire the inevitable meeting + kill-cooldown reset at
-once, denying the crew the task-time a body would buy while unfound), **Hunt** (kill
-ready *and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
-trajectory-led intercept, and strike when in range and unwitnessed), and
-**Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
-tails one into a room, and searches likely crew occupancy during the kill lead
-window when none are trackable, falling back to room wandering otherwise, never idling);
-meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
-(shared with the selector) whose isolation bar relaxes with urgency, not merely on
-the cooldown ending. The action layer covers `kill` (edge-A in KillRange) and `vent`
-(level-B in VentRange). The LLM strategy
+role-aware selector runs a priority order during `Playing`: **Evade** immediately
+after its own kill (vent if possible, else move away from the body), **Report Body**
+for non-fresh visible bodies, **Hunt** (kill ready *and* a victim visible → commit
+to the most-isolated visible crewmate, close via a trajectory-led intercept, and
+strike when in range and unwitnessed),
+**Search** (within the kill lead window, walk ranked occupancy hot spots until a
+victim is visible, then follow that target), and **Pretend** (the default — pick a
+real task station in the highest-scoring occupancy room, penalizing rooms another
+imposter is likely occupying, then fake the task for one task duration). Meetings
+reuse **Attend Meeting**. Hunt is gated on a visible kill opportunity whose
+isolation bar relaxes with urgency, not merely on the cooldown ending. The action
+layer covers `kill` (edge-A in KillRange) and `vent` (level-B in VentRange). The LLM strategy
 seam (`design.md` §10) remains in place but unused.
 
 ## Layout
@@ -48,7 +48,7 @@ crewborg/
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend (+ imposter_common helpers)
+  modes/             idle/normal/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)

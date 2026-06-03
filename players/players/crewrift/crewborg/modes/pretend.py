@@ -1,39 +1,30 @@
 """Pretend mode: the imposter's default blending behaviour (design §7.2).
 
-A small four-state FSM that keeps the imposter doing crewmate-like things and never
-standing still. It carries no notion of a "victim" — it just looks busy and stays
-among the crew so Hunt (which preempts it via the selector) gets openings.
+A small FSM that keeps the imposter doing crewmate-like things and never standing
+still. It carries no notion of a "victim" — Search owns target acquisition near
+the kill window. Pretend just looks busy by moving to real task stations in rooms
+where crew occupancy is high.
 
-    DISPATCH (transient): crewmate visible? → FOLLOW(nearest) ; else → GOTO_ROOM(next)
-
-    FOLLOW(target)    navigate to the target's live position
-        • same room as target, room non-start with a station → DO_TASK
-        • target not visible                                  → RECOVER
-    RECOVER(target)   navigate to the target's last-seen position
-        • target visible again                                → FOLLOW(target)
-        • arrived, target still not visible                   → DISPATCH
-    GOTO_ROOM(R)      wander to room R (round-robin, R ≠ current room); never idles
-        • any crewmate visible                                → DISPATCH
-        • arrived, still no crew                              → next room
+    DISPATCH (transient): occupancy room with task? → DO_TASK(best task)
+                          else → GOTO_ROOM(next task room)
+    GOTO_ROOM(R)      fallback movement to a real task station; never idles
+        • arrived near fallback station                        → DO_TASK
     DO_TASK(station)  go to the station, then hold TASK_TICKS (a fake task) → DISPATCH
 
-"Random" crewmate/room choices are arbitrary-but-deterministic (nearest crewmate,
-round-robin rooms) so runs are reproducible. The starting room never triggers a fake
-task (every player spawns there, and anchoring a task there stranded the imposter
-when the crew dispersed). The mode keeps its state across ticks: the runtime
-preserves one Pretend instance while the directive stays ``pretend``.
+Occupancy room choices are deterministic but no longer synchronized round-robin:
+room density comes from the crew occupancy grid, while a separate teammate estimate
+penalizes rooms another imposter is likely to occupy. Rooms without fake-task
+stations are skipped. The starting room never triggers a fake task (every player
+spawns there, and anchoring a task there stranded the imposter when the crew
+dispersed). The mode keeps its state across ticks: the runtime preserves one
+Pretend instance while the directive stays ``pretend``.
 """
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.agent_tracking import best_seek_point
+from players.crewrift.crewborg.agent_tracking import best_pretend_room_target
 from players.crewrift.crewborg.modes import imposter_common as ic
 from players.crewrift.crewborg.map.types import Room
-from players.crewrift.crewborg.strategy.opportunity import (
-    HUNT_LEAD_TICKS,
-    has_trackable_victim,
-    ticks_until_kill_ready,
-)
 from players.crewrift.crewborg.types import ActionState, Belief, Intent
 from players.player_sdk import EmptyModeParams, Mode, ModeParams
 
@@ -41,6 +32,9 @@ from players.player_sdk import EmptyModeParams, Mode, ModeParams
 ARRIVE_RADIUS_SQ = 24**2
 # One task-time hold (≈ the 72-tick task progress in sim.nim).
 TASK_TICKS = 72
+# Keep an occupancy room target for effectively the whole Pretend window. Search/Hunt
+# can still preempt Pretend immediately through the strategy.
+ROOM_TARGET_MIN_TICKS = 10_000
 
 
 class PretendMode(Mode[Belief, ActionState, Intent]):
@@ -50,8 +44,9 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
     def __init__(self, params: ModeParams | None = None) -> None:
         super().__init__(params)
         self._state: str | None = None  # None ⇒ needs DISPATCH
-        self._target_color: str | None = None  # the crewmate being followed / recovered
         self._goto_point: ic.Point | None = None  # current wander destination
+        self._target_room_name: str | None = None
+        self._room_chosen_tick: int | None = None
         self._room_cursor: int = 0  # round-robin index over rooms
         self._task_station: ic.Point | None = None
         self._hold_until: int | None = None
@@ -68,10 +63,6 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
     # --- state routing --------------------------------------------------------
 
     def _act(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        if self._state == "follow":
-            return self._follow(belief, self_xy)
-        if self._state == "recover":
-            return self._recover(belief, self_xy)
         if self._state == "goto_room":
             return self._goto_room(belief, self_xy)
         if self._state == "do_task":
@@ -79,62 +70,37 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         return Intent(kind="idle", reason="no behaviour")  # degenerate (no map)
 
     def _dispatch(self, belief: Belief, self_xy: ic.Point) -> None:
-        """Choose the next behaviour: follow the nearest visible crewmate, else wander."""
+        """Choose the next fake task from occupancy, else keep moving."""
 
-        visible = ic.visible_crew(belief)
-        if visible:
-            target = min(visible, key=lambda e: ic.dist2(self_xy, (e.world_x, e.world_y)))
-            self._state, self._target_color = "follow", target.color
-        else:
-            self._state, self._goto_point = "goto_room", None
+        if self._choose_occupancy_task(belief, self_xy):
+            return
+        self._state, self._goto_point, self._target_room_name = "goto_room", None, None
 
     # --- states ---------------------------------------------------------------
 
-    def _follow(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        target = belief.roster.get(self._target_color) if self._target_color is not None else None
-        if target is None or target.last_seen_tick != belief.last_tick:
-            self._state = "recover"  # lost sight — go to the last-seen spot
-            return self._recover(belief, self_xy)
+    def _goto_room(self, belief: Belief, self_xy: ic.Point) -> Intent:
+        committed = self._room_target_committed(belief, self_xy)
+        if not committed and self._choose_occupancy_task(belief, self_xy):
+            return self._act(belief, self_xy)
 
-        target_xy = (target.world_x, target.world_y)
-        room = ic.room_containing(belief, self_xy)
-        if room is not None and ic.room_containing(belief, target_xy) is room:
-            station = _station_in_room(belief, room, self_xy)
-            if station is not None:  # non-start room with a station ⇒ fake a task
+        target_room = _room_named(belief, self._target_room_name)
+        if target_room is not None and self._goto_point is not None and ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
+            station = _station_in_room(belief, target_room, self_xy)
+            if station is not None and ic.dist2(self_xy, station) <= ARRIVE_RADIUS_SQ:
                 self._state, self._task_station, self._hold_until = "do_task", station, None
                 return self._do_task(belief, self_xy)
-        return Intent(kind="navigate_to", point=target_xy, reason="following a crewmate")
+            self._target_room_name = None
+            self._goto_point = None
+            self._room_chosen_tick = None
 
-    def _recover(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        target = belief.roster.get(self._target_color) if self._target_color is not None else None
-        if target is None:
-            self._state = None
-            self._dispatch(belief, self_xy)
-            return self._act(belief, self_xy)
-        if target.last_seen_tick == belief.last_tick:  # re-acquired
-            self._state = "follow"
-            return self._follow(belief, self_xy)
-        last_seen = (target.world_x, target.world_y)
-        if ic.dist2(self_xy, last_seen) <= ARRIVE_RADIUS_SQ:  # arrived, still gone
-            self._state = None
-            self._dispatch(belief, self_xy)
-            return self._act(belief, self_xy)
-        return Intent(kind="navigate_to", point=last_seen, reason="recovering: heading to last-seen spot")
-
-    def _goto_room(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        if ic.visible_crew(belief):  # encountered the crew — follow them
-            self._state = None
-            self._dispatch(belief, self_xy)
-            return self._act(belief, self_xy)
-        seek_point = _occupancy_seek_point(belief, self_xy)
-        if seek_point is not None:
-            self._goto_point = seek_point
-            return Intent(kind="navigate_to", point=seek_point, reason="searching likely crew occupancy")
         if self._goto_point is None or ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
-            self._goto_point = self._next_room_point(belief, self_xy)
+            self._target_room_name = None
+            self._goto_point = self._next_task_point(belief, self_xy)
+            self._room_chosen_tick = None
         if self._goto_point is None:
-            return Intent(kind="idle", reason="no rooms to wander")  # degenerate
-        return Intent(kind="navigate_to", point=self._goto_point, reason="wandering to a room")
+            return Intent(kind="idle", reason="no fake-task target")  # degenerate
+        reason = "pretending at likely crew task" if self._room_chosen_tick is not None else "pretending at fallback task"
+        return Intent(kind="navigate_to", point=self._goto_point, reason=reason)
 
     def _do_task(self, belief: Belief, self_xy: ic.Point) -> Intent:
         if self._task_station is None:
@@ -148,11 +114,14 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         if belief.last_tick < self._hold_until:
             return Intent(kind="idle", reason="faking a task")
         self._state = None  # hold complete — re-dispatch
+        self._target_room_name = None
+        self._goto_point = None
+        self._room_chosen_tick = None
         self._dispatch(belief, self_xy)
         return self._act(belief, self_xy)
 
-    def _next_room_point(self, belief: Belief, self_xy: ic.Point) -> ic.Point | None:
-        """Round-robin to the next room that isn't the one we're standing in."""
+    def _next_task_point(self, belief: Belief, self_xy: ic.Point) -> ic.Point | None:
+        """Round-robin to the next real task station outside the current room."""
 
         rooms = belief.map.rooms if belief.map is not None else ()
         if not rooms:
@@ -161,9 +130,42 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
         for _ in range(len(rooms)):
             self._room_cursor = (self._room_cursor + 1) % len(rooms)
             room = rooms[self._room_cursor]
-            if current is None or room.name != current.name:
-                return ic.reachable_point(belief, (room.center.x, room.center.y))
+            if current is not None and room.name == current.name:
+                continue
+            station = _station_in_room(belief, room, self_xy)
+            if station is not None:
+                self._target_room_name = room.name
+                return station
         return None  # only one room, and we are in it
+
+    def _choose_occupancy_task(self, belief: Belief, self_xy: ic.Point) -> bool:
+        target = best_pretend_room_target(
+            belief,
+            self_xy,
+            current_room_name=self._target_room_name,
+            eligible_room_names=_fake_task_room_names(belief),
+        )
+        if target is None:
+            return False
+        room = _room_named(belief, target.room_name)
+        if room is None:
+            return False
+        station = _station_in_room(belief, room, self_xy)
+        if station is None:
+            return False
+        self._state = "goto_room"
+        self._target_room_name = target.room_name
+        self._goto_point = station
+        self._task_station = station
+        self._room_chosen_tick = belief.last_tick
+        return True
+
+    def _room_target_committed(self, belief: Belief, self_xy: ic.Point) -> bool:
+        if self._target_room_name is None or self._goto_point is None or self._room_chosen_tick is None:
+            return False
+        if ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
+            return False
+        return belief.last_tick - self._room_chosen_tick < ROOM_TARGET_MIN_TICKS
 
 
 def _station_in_room(belief: Belief, room: Room, self_xy: ic.Point) -> ic.Point | None:
@@ -180,14 +182,22 @@ def _station_in_room(belief: Belief, room: Room, self_xy: ic.Point) -> ic.Point 
     return ic.task_point(belief, nearest)
 
 
-def _occupancy_seek_point(belief: Belief, self_xy: ic.Point) -> ic.Point | None:
-    """Likely crew location to search during the pre-kill lead window."""
+def _fake_task_room_names(belief: Belief) -> set[str]:
+    if belief.map is None:
+        return set()
+    out: set[str] = set()
+    start = ic.starting_room(belief)
+    for room in belief.map.rooms:
+        if start is not None and room.name == start.name:
+            continue
+        for task in belief.map.tasks:
+            if ic.in_rect((task.center.x, task.center.y), room):
+                out.add(room.name)
+                break
+    return out
 
-    if ticks_until_kill_ready(belief) > HUNT_LEAD_TICKS:
+
+def _room_named(belief: Belief, name: str | None) -> Room | None:
+    if name is None or belief.map is None:
         return None
-    if has_trackable_victim(belief):
-        return None  # the selector should put us in Hunt instead
-    point = best_seek_point(belief, self_xy)
-    if point is None or ic.dist2(self_xy, point) <= ARRIVE_RADIUS_SQ:
-        return None
-    return point
+    return next((room for room in belief.map.rooms if room.name == name), None)

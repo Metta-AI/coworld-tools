@@ -13,12 +13,14 @@ from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.map import MapData, load_croatoan_map
 from players.crewrift.crewborg.modes import (
     AttendMeetingMode,
+    EvadeMode,
     FleeMode,
     HuntMode,
     IdleMode,
     NormalMode,
     PretendMode,
     ReportBodyMode,
+    SearchMode,
 )
 from players.crewrift.crewborg.strategy import RuleBasedStrategy, update_event_log, update_suspicion
 from players.crewrift.crewborg.types import (
@@ -60,8 +62,7 @@ def build_runtime(
     is baked once here (design §6) — ``map_data`` overrides the vendored
     ``croatoan`` bake (tests).
     Registers all modes: idle / normal / attend_meeting / report_body / flee
-    (crewmate) and hunt / pretend (imposter; the imposter also self-reports via
-    report_body). A ``CrewborgEventTracer``
+    (crewmate) and evade / pretend / search / hunt (imposter). A ``CrewborgEventTracer``
     is wired as the runtime's ``on_step_complete`` hook so crewborg emits its
     ``domain.*`` trace events through the configured sinks (design §11): the
     phase / sighting / objective / kill / vote outcomes *and* the knowledge layer
@@ -76,8 +77,10 @@ def build_runtime(
     registry.register(AttendMeetingMode)
     registry.register(ReportBodyMode)
     registry.register(FleeMode)
+    registry.register(EvadeMode)
     registry.register(HuntMode)
     registry.register(PretendMode)
+    registry.register(SearchMode)
 
     if map_data is None:
         map_data = load_croatoan_map()

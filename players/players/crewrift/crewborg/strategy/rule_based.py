@@ -18,36 +18,28 @@ Crewmate priority order (design §10):
 Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
-2. a body in view → Report Body (**self-report** — see below)
-3. kill ready *or within ``HUNT_LEAD_TICKS`` of ready* + a trackable victim → Hunt
-   (commit to a victim, stalk it, shadow in range until the cooldown clears, strike when isolated)
-4. otherwise → Pretend (blend in: follow the crew, fake tasks, wander rooms when none in sight)
+2. just killed → Evade (vent / leave the body)
+3. a body in view → Report Body (non-fresh bodies only)
+4. kill ready + a visible victim → Hunt (commit to a victim and strike / close)
+5. kill ready or within ``SEARCH_LEAD_TICKS`` of ready → Search (find/follow a target)
+6. otherwise → Pretend (fake tasks in likely occupied rooms)
 
-(2) is a deliberate tempo play, not a crewmate hand-me-down. A body on the floor
-*always* triggers a meeting eventually (some crewmate finds it), and a meeting resets
-our kill cooldown — so the reset is inevitable. Self-reporting the instant we see the
-body (typically our own fresh kill, while we are on cooldown anyway) fires that
-meeting at the earliest possible moment: it advances our *next* kill window by the
-whole discovery lag, and denies the crew the task-time they would have banked while
-the body sat unfound (tasks pause during meetings). The old Evade behaviour — slink
-away and leave the body — handed the crew that time for free; it is gone.
+(2) prevents instant self-reports after our own kill: the imposter first leaves the
+scene, preferably through a vent. A non-fresh body can still be reported later if it
+remains visible after the evade window.
 
-(3) fires once the kill is ready *or within a short lead window of being ready*
-(`ticks_until_kill_ready ≤ HUNT_LEAD_TICKS`, reconstructed from the binary HUD via
-`strategy.opportunity`) and some crewmate is trackable — so Hunt pre-positions: it
-*stalks* the chosen victim and shadows it in range while the cooldown ticks down,
-firing the instant the kill is both ready and unwitnessed (witness bar relaxing with
-urgency). Entering early is what makes the window open *hot* — most of the cooldown
-is still spent in Pretend (blending), only the lead window in Hunt. When no crewmate
-is trackable (e.g. none seen recently), the imposter stays in Pretend and wanders to
-find the crew.
+(5) fires once the kill cooldown is within a short lead window of being ready
+(`ticks_until_kill_ready ≤ SEARCH_LEAD_TICKS`, reconstructed from the binary HUD via
+`strategy.opportunity`). Search walks occupancy hot spots until it sees a crewmate,
+then follows that target. Hunt does not pre-position anymore; it activates only when
+the kill is ready and a victim is visible.
 """
 
 from __future__ import annotations
 
 from players.crewrift.crewborg.strategy.opportunity import (
-    HUNT_LEAD_TICKS,
-    has_trackable_victim,
+    SEARCH_LEAD_TICKS,
+    has_visible_victim,
     ticks_until_kill_ready,
 )
 from players.crewrift.crewborg.types import ActionState, Belief
@@ -57,6 +49,9 @@ from players.player_sdk.types import BeliefSnapshot
 # A believed imposter within this distance (squared, world px) counts as
 # "approaching" and triggers Flee.
 FLEE_APPROACH_SQ = 60**2
+# Ticks after a kill during which the imposter prefers to Evade (≈3s at 24 Hz).
+EVADE_TICKS = 72
+
 
 class RuleBasedStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
@@ -91,18 +86,22 @@ class RuleBasedStrategy:
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
-        # Imposter priority (design §10): self-report a visible body (tempo — fire the
-        # inevitable meeting + cooldown reset at once, denying the crew task-time);
-        # else kill ready *or about to be* (within HUNT_LEAD_TICKS) and a victim
-        # trackable -> Hunt (pre-position: stalk + shadow in range, strike when ready &
-        # isolated); else Pretend (blend in: follow crew, fake tasks, wander rooms).
+        # Imposter priority (design §10): just killed -> Evade; non-fresh visible
+        # body -> Report; kill ready and a victim visible -> Hunt; kill ready or
+        # about to be -> Search; else Pretend.
+        if _recent_self_kill(belief):
+            return ModeDirective(mode="evade", source="strategy", reason="just killed: evade")
         if any(bid in belief.bodies for bid in belief.visible_body_ids):
-            return ModeDirective(mode="report_body", source="strategy", reason="self-report the body (tempo)")
-        # Hunt within the lead window before the kill is ready (so it opens hot), not
-        # only once ready — Hunt shadows in range until the cooldown clears, then strikes.
-        if ticks_until_kill_ready(belief) <= HUNT_LEAD_TICKS and has_trackable_victim(belief):
-            return ModeDirective(mode="hunt", source="strategy", reason="kill window near: stalk a victim")
+            return ModeDirective(mode="report_body", source="strategy", reason="body in view after evade window")
+        if belief.self_kill_ready and has_visible_victim(belief):
+            return ModeDirective(mode="hunt", source="strategy", reason="kill ready: hunt visible victim")
+        if ticks_until_kill_ready(belief) <= SEARCH_LEAD_TICKS:
+            return ModeDirective(mode="search", source="strategy", reason="kill window near: search for target")
         return ModeDirective(mode="pretend", source="strategy", reason="blend in")
+
+
+def _recent_self_kill(belief: Belief) -> bool:
+    return belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS
 
 
 def _threat_approaching(belief: Belief) -> bool:

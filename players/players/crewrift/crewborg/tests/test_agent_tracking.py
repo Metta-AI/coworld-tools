@@ -7,6 +7,7 @@ import numpy as np
 from players.crewrift.crewborg.agent_tracking import (
     OccupancySnapshot,
     build_occupancy_substrate,
+    best_pretend_room_target,
     best_seek_point,
     update_agent_tracking,
 )
@@ -120,16 +121,88 @@ def test_best_seek_point_reads_the_hottest_reachable_cell() -> None:
     assert best_seek_point(belief, (8, 8)) == right_cell.center
 
 
-def test_pretend_uses_occupancy_seek_during_the_kill_lead_window() -> None:
+def test_best_pretend_room_target_aggregates_room_density() -> None:
     belief = _belief()
-    belief.last_tick = 850
-    belief.self_kill_ready = False
-    belief.kill_cooldown_start_tick = 0
-    belief.kill_cooldown_estimate = 900
     update_agent_tracking(belief)
     substrate = belief.agent_tracking.substrate
     assert substrate is not None
-    right_cell = next(cell for cell in substrate.cells.values() if cell.center[0] >= 64)
+    right_cells = [cell for cell in substrate.cells.values() if cell.label == "Right"]
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={cell.index: 0.25 for cell in right_cells},
+        top_cell=right_cells[0].index,
+        top_point=right_cells[0].center,
+        top_expected=0.25,
+        tracked_count=1,
+        support_cell_count=len(right_cells),
+    )
+
+    target = best_pretend_room_target(belief, (8, 8))
+    assert target is not None
+    assert target.room_name == "Right"
+    assert target.expected == 1.0
+
+
+def test_best_pretend_room_target_penalizes_teammate_pressure() -> None:
+    belief = _belief()
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    left_cell = next(cell for cell in substrate.cells.values() if cell.label == "Left")
+    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={left_cell.index: 0.8, right_cell.index: 1.0},
+        top_cell=right_cell.index,
+        top_point=right_cell.center,
+        top_expected=1.0,
+        tracked_count=2,
+        support_cell_count=2,
+    )
+    belief.agent_tracking.teammate_snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={right_cell.index: 1.0},
+        top_cell=right_cell.index,
+        top_point=right_cell.center,
+        top_expected=1.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+
+    target = best_pretend_room_target(belief, (8, 8))
+    assert target is not None
+    assert target.room_name == "Left"
+
+
+def test_best_pretend_room_target_has_hysteresis() -> None:
+    belief = _belief()
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    left_cell = next(cell for cell in substrate.cells.values() if cell.label == "Left")
+    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={left_cell.index: 1.1, right_cell.index: 1.0},
+        top_cell=left_cell.index,
+        top_point=left_cell.center,
+        top_expected=1.1,
+        tracked_count=2,
+        support_cell_count=2,
+    )
+
+    target = best_pretend_room_target(belief, (8, 8), current_room_name="Right")
+    assert target is not None
+    assert target.room_name == "Right"
+
+
+def test_pretend_uses_occupancy_room_target() -> None:
+    belief = _belief()
+    belief.last_tick = 850
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
     belief.agent_tracking.snapshot = OccupancySnapshot(
         tick=850,
         expected_by_cell={right_cell.index: 1.0},
@@ -142,5 +215,49 @@ def test_pretend_uses_occupancy_seek_during_the_kill_lead_window() -> None:
 
     intent = PretendMode().decide(belief, ActionState())
     assert intent.kind == "navigate_to"
-    assert intent.point == right_cell.center
-    assert intent.reason == "searching likely crew occupancy"
+    assert intent.point[0] >= 64
+    assert intent.reason == "pretending at likely crew task"
+
+
+def test_pretend_commits_to_an_occupancy_room_until_mode_preemption() -> None:
+    belief = _belief()
+    # Put spawn outside the test rooms so both Left and Right are eligible fake-task
+    # rooms; this isolates target commitment from starting-room filtering.
+    belief.map = belief.map.model_copy(update={"home": MapPoint(x=-10, y=-10)})
+    belief.last_tick = 10
+    belief.self_world_y = 60
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    left_cell = next(cell for cell in substrate.cells.values() if cell.label == "Left")
+    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=10,
+        expected_by_cell={right_cell.index: 1.0},
+        top_cell=right_cell.index,
+        top_point=right_cell.center,
+        top_expected=1.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+
+    mode = PretendMode()
+    first = mode.decide(belief, ActionState())
+    assert first.kind == "navigate_to" and first.point[0] >= 64
+
+    belief.last_tick = 20
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=20,
+        expected_by_cell={left_cell.index: 2.0},
+        top_cell=left_cell.index,
+        top_point=left_cell.center,
+        top_expected=2.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+    still_committed = mode.decide(belief, ActionState())
+    assert still_committed.kind == "navigate_to" and still_committed.point == first.point
+
+    belief.last_tick = 1000
+    still_committed = mode.decide(belief, ActionState())
+    assert still_committed.kind == "navigate_to" and still_committed.point == first.point

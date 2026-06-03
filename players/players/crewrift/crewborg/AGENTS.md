@@ -10,10 +10,12 @@ active development; **verify any specific symbol, path, or constant against the
 cited file before relying on it.**
 
 > **Status:** Implemented end-to-end — the agent plays both roles (crewmate
-> tasks / meetings / voting / report / flee, plus imposter Hunt / Pretend and the
-> `kill`/`vent` intents; the imposter also **self-reports** bodies for tempo;
-> imposter Pretend shadows the crew, and
-> Hunt is gated on a shared, urgency-relaxing kill opportunity). The LLM strategy seam stays in place but
+> tasks / meetings / voting / report / flee, plus imposter Evade / Pretend / Search / Hunt and the
+> `kill`/`vent` intents; the imposter **evades after fresh kills** and may report
+> non-fresh visible bodies;
+> imposter Pretend fakes real task stations in likely occupied rooms, Search owns
+> pre-kill target acquisition, and
+> Hunt is gated on a visible kill opportunity). The LLM strategy seam stays in place but
 > unused. See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
