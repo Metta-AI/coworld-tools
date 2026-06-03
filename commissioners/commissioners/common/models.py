@@ -175,11 +175,14 @@ class RoundSchedulingConfig(BaseModel):
     minimum_champions: int = Field(default=2, gt=0)
     qualifiers_minimum_champions: int = Field(default=1, gt=0)
     stages: list[V2StageConfig] | None = None
+    qualifier_stages: list[V2StageConfig] | None = None
 
     @model_validator(mode="after")
     def require_single_stage(self) -> RoundSchedulingConfig:
         if self.stages is not None and len(self.stages) != 1:
             raise ValueError("RoundSchedulingConfig.stages must have exactly one stage")
+        if self.qualifier_stages is not None and len(self.qualifier_stages) != 1:
+            raise ValueError("RoundSchedulingConfig.qualifier_stages must have exactly one stage")
         return self
 
     def effective_execution_backend(self) -> RoundExecutionBackend:

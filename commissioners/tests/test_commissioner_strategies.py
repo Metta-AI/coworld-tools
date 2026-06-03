@@ -201,6 +201,121 @@ def test_cogs_vs_clips_schedule_uses_slot_balanced_rotation() -> None:
     assert schedule.episodes[-1].policy_version_ids == [policy_version_ids[i] for i in (15, 0, 1, 2, 3, 4, 5, 6)]
 
 
+def test_cogs_vs_clips_qualifier_round_uses_qualifier_stage() -> None:
+    qualifier_id = uuid4()
+    daily_id = uuid4()
+    qualifier_policy_id = uuid4()
+    daily_policy_ids = [uuid4(), uuid4()]
+
+    response = schedule_rounds_for_request(
+        CogsVsClipsCommissioner(),
+        ScheduleRoundsRequest(
+            league=LeagueInfo(
+                id=uuid4(),
+                commissioner_config={
+                    "minimum_champions": 2,
+                    "qualifiers_division_name": "Qualifiers",
+                    "qualifiers_minimum_champions": 1,
+                    "stages": [{"label": "Slot-balanced round", "num_episodes": 1, "min_episodes_per_entrant": 8}],
+                    "qualifier_stages": [
+                        {"label": "Qualifier", "num_episodes": 2, "min_episodes_per_entrant": 2, "self_play": True}
+                    ],
+                },
+            ),
+            divisions=[
+                DivisionInfo(id=qualifier_id, name="Qualifiers", level=-1, type="staging"),
+                DivisionInfo(id=daily_id, name="Daily", level=1, type="competition"),
+            ],
+            active_memberships=[
+                MembershipInfo(
+                    id=uuid4(),
+                    division_id=qualifier_id,
+                    policy_version_id=qualifier_policy_id,
+                    is_champion=False,
+                ),
+                *[
+                    MembershipInfo(
+                        id=uuid4(),
+                        division_id=daily_id,
+                        policy_version_id=policy_version_id,
+                        is_champion=True,
+                    )
+                    for policy_version_id in daily_policy_ids
+                ],
+            ],
+            recent_rounds=[],
+        ),
+    )
+
+    rounds = {round_spec.division_id: round_spec.round_config.stages[0] for round_spec in response.rounds}
+    assert rounds[qualifier_id].label == "Qualifier"
+    assert rounds[qualifier_id].num_episodes == 2
+    assert rounds[qualifier_id].min_episodes_per_entrant == 2
+    assert "self_play" not in rounds[qualifier_id].model_dump()
+    assert rounds[daily_id].label == "Slot-balanced round"
+
+
+def test_cogs_vs_clips_self_play_pool_fills_each_episode_with_one_entrant() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    pool = PolicyPool(
+        id=uuid4(),
+        label="Qualifier",
+        pool_type="round",
+        config={"num_episodes": 1, "min_episodes_per_entrant": 2, "self_play": True},
+    )
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+
+    schedule = CogsVsClipsCommissioner().schedule_episodes(pool=pool, entries=entries, num_agents=8, variant_id="default")
+
+    assert [episode.request_id for episode in schedule.episodes] == ["0", "1", "2", "3"]
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0]] * 8,
+        [policy_version_ids[0]] * 8,
+        [policy_version_ids[1]] * 8,
+        [policy_version_ids[1]] * 8,
+    ]
+
+
+def test_cogs_vs_clips_qualifier_round_start_restores_private_self_play() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=8,
+        commissioner_config={
+            "minimum_champions": 5,
+            "qualifiers_division_name": "Qualifiers",
+            "qualifier_stages": [
+                {"label": "Qualifier", "num_episodes": 2, "min_episodes_per_entrant": 2, "self_play": True}
+            ],
+        },
+        division_name="Qualifiers",
+        division_type="staging",
+        state={
+            "round_config": {
+                "stages": [
+                    {
+                        "label": "Qualifier",
+                        "num_episodes": 2,
+                        "min_episodes_per_entrant": 2,
+                    }
+                ]
+            }
+        },
+    )
+
+    schedule = schedule_episodes_for_round_start(CogsVsClipsCommissioner(), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0]] * 8,
+        [policy_version_ids[0]] * 8,
+        [policy_version_ids[1]] * 8,
+        [policy_version_ids[1]] * 8,
+    ]
+
+
 def test_self_play_pool_fills_each_episode_with_one_entrant() -> None:
     policy_version_ids = [uuid4(), uuid4()]
     pool = PolicyPool(

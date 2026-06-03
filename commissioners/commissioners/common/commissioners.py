@@ -282,11 +282,15 @@ class BaselineCommissioner(Commissioner):
     def describe_division(self, ctx: DivisionDescriptionContext) -> DivisionCommissionerDescriptionPublic:
         config = self._scheduling_config(ctx.league.commissioner_config)
         active_round = next((r for r in ctx.recent_rounds if r.status in ("pending", "claimed", "running")), None)
-        champion_count = sum(1 for m in ctx.active_memberships if m.is_champion)
+        is_qualifier = select_qualifier_division(ctx.league.commissioner_config, [ctx.division]) is not None
+        minimum_entrants = config.qualifiers_minimum_champions if is_qualifier else config.minimum_champions
+        entrant_label = "qualifying entrant" if is_qualifier else "champion entrant"
+        stages = config.qualifier_stages if is_qualifier and config.qualifier_stages is not None else config.stages
+        entrant_count = len(division_entrants(ctx.active_memberships, ctx.division, is_qualifier=is_qualifier))
         next_round = None
-        if champion_count < config.minimum_champions:
-            needed = config.minimum_champions - champion_count
-            next_round = f"Add {needed} more champion {_plural_word(needed, 'entrant')} before scheduling can continue."
+        if entrant_count < minimum_entrants:
+            needed = minimum_entrants - entrant_count
+            next_round = f"Add {needed} more {_plural_word(needed, entrant_label)} before scheduling can continue."
         elif active_round is not None:
             next_round = f"The next round waits for round #{active_round.round_number} to finish."
 
@@ -294,10 +298,10 @@ class BaselineCommissioner(Commissioner):
             round_schedule=(
                 f"Rounds start every {_duration_text(config.schedule_interval_minutes)}"
                 f"{_schedule_slot_description(config)} if there are at least "
-                f"{_count_text(config.minimum_champions)} champions in the division."
+                f"{_count_text(minimum_entrants)} {_plural_word(minimum_entrants, entrant_label)} in the division."
             ),
             next_round=next_round,
-            round_structure=_round_structure_description(config.stages),
+            round_structure=_round_structure_description(stages),
             leaderboard_rules=_leaderboard_rules_description(),
         )
 
@@ -325,11 +329,12 @@ class BaselineCommissioner(Commissioner):
             if len(entrants) < min_champs:
                 continue
 
+            stages = config.qualifier_stages if is_qualifier and config.qualifier_stages is not None else config.stages
             specs.append(
                 RoundSpec(
                     division_id=division.id,
                     round_config=V2RoundConfig(
-                        stages=config.stages,
+                        stages=stages,
                     ),
                     execution_backend=config.effective_execution_backend(),
                     notes=f"auto-scheduled by {type(self).__name__}",

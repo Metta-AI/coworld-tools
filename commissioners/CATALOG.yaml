@@ -22,4 +22,4 @@ entries:
     target: cogs_vs_clips
     status: active
     owner: Metta-AI
-    description: Cogs vs Clips slot-balanced commissioner with mean-score rankings.
+    description: Cogs vs Clips commissioner with slot-balanced competition rounds and isolated qualifier rounds.
