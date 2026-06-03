@@ -803,6 +803,7 @@ crewborg/
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
   coworld/           # policy_player.py (bridge), Dockerfile, entrypoint.sh
+  viewer/            # browser UI for inspecting trace-driven agent-perspective replays
   scripts/play_local.sh
   build.sh
   tests/             # action/modes/strategy/trace/runtime + bridge smoke + scene-decode tests
@@ -837,6 +838,12 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   are built, `occupancy_reacquired` when a lost player re-enters view
   (predicted-vs-actual cell and distance error), and `occupancy_seek_target` when
   the imposter's hottest search cell changes.
+- *trace replay viewer* (opt-in via `CREWBORG_TRACE=viewer` or `debug`):
+  `viewer_map` emits static map geometry, `viewer_occupancy_grid` emits the
+  reachable coarse grid once available, and `viewer_frame` emits one browser-ready
+  frame per tick with active mode + directive params, current intent, command,
+  camera/self, nav route/target, roster/body/task beliefs, and the live occupancy
+  grid.
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
@@ -844,13 +851,14 @@ seen as the kill-ready→cooldown edge). Incoming meeting chat *is* now decoded 
 `belief.chat_log` (§4.3), but there is no `chat_received` domain event yet — the
 event seam for it is unbuilt.
 
-**Debug verbosity (`CREWBORG_TRACE=debug`).** Opt-in, heavy (~one line per tick):
-the entire live `P(imposter)` vector each tick (`suspicion_tick`) plus
-`suspicion.top_p` / `suspicion.believed_count` gauges, and an
-`occupancy_snapshot` with the top grid cells plus per-agent support sizes — for
-deep single-game forensics (e.g. "did suspicion ever approach the flee bar?" or
-"where did the tracker think the crew were?"). Off by default; the lean deltas +
-meeting snapshots above are what ships in the tournament image.
+**Viewer/debug verbosity.** `CREWBORG_TRACE=viewer` is opt-in and heavy: it emits
+the `viewer_*` records used by [`viewer/index.html`](./viewer/index.html) to draw
+agent-perspective replays over the map. `CREWBORG_TRACE=debug` includes those
+viewer records plus the deeper per-tick debugging stream: the entire live
+`P(imposter)` vector each tick (`suspicion_tick`), `suspicion.top_p` /
+`suspicion.believed_count` gauges, `kill_state`, and `occupancy_snapshot` with
+the top grid cells plus per-agent support sizes. Off by default; the lean deltas
+and meeting snapshots above are what ships in the tournament image.
 
 Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
 events key on the produced `command`, which modes never see, and `task_completed`

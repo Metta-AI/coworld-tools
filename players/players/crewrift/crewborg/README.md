@@ -53,6 +53,7 @@ crewborg/
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
+  viewer/            browser trace replay UI for agent-perspective forensics
   scripts/play_local.sh      run crewborg against a local Crewrift server
   scripts/fetch_episodes.py  download full data for the N most recent hosted episodes
   build.sh
@@ -83,9 +84,26 @@ override it to point elsewhere.
 
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
 suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
-every meeting, …; see `design.md` §11). Set `CREWBORG_TRACE=debug` for the heavy
-per-tick dump of the full `P(imposter)` vector and occupancy snapshot — useful
-when debugging why a vote, flee, or pre-kill search did (not) happen.
+every meeting, …; see `design.md` §11). Set `CREWBORG_TRACE=viewer` for the
+per-tick replay view model consumed by the browser UI, or `CREWBORG_TRACE=debug`
+for the viewer frames plus the heavier suspicion / kill / occupancy debug dump.
+
+## View trace replays
+
+Open [`viewer/index.html`](./viewer/index.html) in a browser and load a
+`logs/crewborg_slot{N}_v{V}.log` file from `scripts/fetch_episodes.sh`, or any
+local stderr trace captured from `scripts/play_local.sh`. Logs generated with
+`CREWBORG_TRACE=viewer` or `CREWBORG_TRACE=debug` include:
+
+- `domain.viewer_map`: static rooms, task stations, vents, button, and home.
+- `domain.viewer_occupancy_grid`: the reachable coarse grid used by the tracker.
+- `domain.viewer_frame`: one per tick, with active mode + directive params,
+  current intent, self/camera, nav route and target, roster/body beliefs, task
+  state, and the live occupancy belief grid.
+
+The viewer can still load older lean logs, but without `domain.viewer_frame` it
+falls back to a sparse event timeline and cannot draw full map-space belief
+overlays.
 
 ## Fetch hosted episode data
 

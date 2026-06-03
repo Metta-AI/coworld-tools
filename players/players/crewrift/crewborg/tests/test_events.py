@@ -11,19 +11,19 @@ from players.crewrift.crewborg.action import BTN_A, BTN_B, BTN_LEFT
 from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.strategy.suspicion import VOTE_PROBABILITY
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Command, Intent
-from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, StepContext
+from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, ModeDirective, StepContext
 
 
 class _Harness:
     """A tracer plus list sinks and a tick-advancing StepContext builder."""
 
-    def __init__(self, *, debug: bool | None = None) -> None:
+    def __init__(self, *, debug: bool | None = None, viewer: bool = False) -> None:
         self.trace = ListTraceSink()
         self.metrics = ListMetricsSink()
         self.emit = EventEmitter(self.trace, self.metrics, tick=0)
         # Pin debug explicitly (default off) so an ambient CREWBORG_TRACE=debug in the
         # test environment can't perturb the lean-mode assertions.
-        self.tracer = CrewborgEventTracer(debug=bool(debug))
+        self.tracer = CrewborgEventTracer(debug=bool(debug), viewer=viewer)
 
     def step(
         self,
@@ -32,15 +32,18 @@ class _Harness:
         action_state: ActionState | None = None,
         intent: Intent | None = None,
         command: Command | None = None,
+        active_directive: ModeDirective | None = None,
     ) -> None:
         self.emit.tick += 1
+        directive = active_directive or ModeDirective(mode="test", source="test", reason="unit test")
         context: StepContext[Belief, ActionState, Intent, Command] = StepContext(
             tick=self.emit.tick,
             belief=belief if belief is not None else Belief(),
             action_state=action_state if action_state is not None else ActionState(),
             intent=intent if intent is not None else Intent(kind="idle"),
             command=command if command is not None else Command(),
-            active_mode_name="test",
+            active_mode_name=directive.mode,
+            active_directive=directive,
             emit=self.emit,
         )
         self.tracer(context)
@@ -415,12 +418,87 @@ def test_occupancy_reacquisition_events_are_emitted_once() -> None:
     assert len(h.counters("domain.occupancy_reacquired")) == 1
 
 
+def test_viewer_trace_emits_map_and_frame_payloads() -> None:
+    from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, Room, TaskStation, Vent
+
+    map_data = MapData(
+        width=320,
+        height=180,
+        tasks=(TaskStation(name="wires", x=40, y=50, w=10, h=12),),
+        vents=(Vent(x=100, y=80, w=12, h=12, group="a", group_index=0),),
+        rooms=(Room(name="Engine", x=20, y=30, w=120, h=70),),
+        button=MapRect(x=150, y=40, w=16, h=16),
+        home=MapPoint(x=12, y=14),
+    )
+    belief = Belief(
+        map=map_data,
+        phase="Playing",
+        self_role="imposter",
+        camera_ready=True,
+        camera_x=8,
+        camera_y=16,
+        self_world_x=72,
+        self_world_y=88,
+    )
+    action_state = ActionState(
+        route=[(72, 88), (160, 100)],
+        route_cursor=1,
+        route_goal=(160, 100),
+    )
+    intent = Intent(kind="navigate_to", point=(160, 100), reason="inspect target")
+    h = _Harness(viewer=True)
+
+    h.step(belief=belief, action_state=action_state, intent=intent)
+
+    [viewer_map] = h.events("domain.viewer_map")
+    assert viewer_map.data["width"] == 320
+    assert viewer_map.data["tasks"][0]["name"] == "wires"
+
+    [frame] = h.events("domain.viewer_frame")
+    assert frame.data["mode"]["name"] == "test"
+    assert frame.data["intent"]["kind"] == "navigate_to"
+    assert frame.data["nav"]["target"] == [160, 100]
+    assert frame.data["nav"]["next_waypoint"] == [160, 100]
+    assert frame.data["self"] == {"x": 72, "y": 88}
+
+
+def test_viewer_trace_emits_occupancy_grid_once() -> None:
+    from players.crewrift.crewborg.agent_tracking import OccupancyCell, OccupancySubstrate
+
+    belief = Belief()
+    belief.agent_tracking.substrate = OccupancySubstrate(
+        anchors=(),
+        polylines={},
+        cells={
+            7: OccupancyCell(index=7, row=1, col=2, center=(80, 48), label="Engine"),
+        },
+        cell_size=32,
+        rows=4,
+        cols=5,
+    )
+    h = _Harness(viewer=True)
+
+    h.step(belief=belief)
+    h.step(belief=belief)
+
+    grid_events = h.events("domain.viewer_occupancy_grid")
+    assert len(grid_events) == 1
+    assert grid_events[0].data["cells"] == [
+        {"index": 7, "row": 1, "col": 2, "center": [80, 48], "label": "Engine"}
+    ]
+
+
 def test_env_flag_enables_debug_dump(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_TRACE", "debug")
     tracer = CrewborgEventTracer()
     assert tracer._debug is True
+    assert tracer._viewer is True
     monkeypatch.setenv("CREWBORG_TRACE", "")
     assert CrewborgEventTracer()._debug is False
+    monkeypatch.setenv("CREWBORG_TRACE", "viewer")
+    tracer = CrewborgEventTracer()
+    assert tracer._viewer is True
+    assert tracer._debug is False
 
 
 def test_build_runtime_wires_the_tracer_as_on_step_complete() -> None:

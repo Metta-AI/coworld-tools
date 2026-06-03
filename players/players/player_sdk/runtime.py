@@ -49,6 +49,7 @@ class StepContext(Generic[BeliefT, ActionStateT, IntentT, CommandT]):
     intent: IntentT
     command: CommandT
     active_mode_name: str
+    active_directive: ModeDirective
     emit: EventEmitter
 
 
@@ -376,6 +377,7 @@ class AgentRuntime(Generic[ObservationT, PerceptT, BeliefT, ActionStateT, Intent
                 intent=intent,
                 command=command,
                 active_mode_name=mode_name,
+                active_directive=self.active_directive,
                 emit=self.emit,
             )
         )
