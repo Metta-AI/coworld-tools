@@ -78,7 +78,7 @@ def test_round_websocket_schedules_and_completes() -> None:
     assert [ranking["rank"] for ranking in rankings] == [1, 2]
 
 
-def test_round_websocket_fails_round_when_episode_fails() -> None:
+def test_round_websocket_fails_round_when_all_episodes_fail() -> None:
     client = TestClient(app)
     round_start, _policy_version_ids = _round_start_json()
 
@@ -96,7 +96,43 @@ def test_round_websocket_fails_round_when_episode_fails() -> None:
             websocket.receive_json()
 
     assert exc_info.value.code == 1011
-    assert "scheduled episode failed" in exc_info.value.reason
+    assert "all scheduled episodes failed" in exc_info.value.reason
+
+
+def test_round_websocket_completes_when_one_episode_fails() -> None:
+    client = TestClient(app)
+    round_start, policy_version_ids = _round_start_json()
+    round_start["league"]["commissioner_config"]["num_episodes"] = 2
+
+    with client.websocket_connect("/round") as websocket:
+        websocket.send_json(round_start)
+        schedule = websocket.receive_json()
+        assert schedule["type"] == "schedule_episodes"
+        assert len(schedule["episodes"]) == 2
+
+        websocket.send_json(
+            {
+                "type": "episode_failed",
+                "request_id": schedule["episodes"][0]["request_id"],
+                "error": "container exited",
+            }
+        )
+        websocket.send_json(
+            {
+                "type": "episode_result",
+                "request_id": schedule["episodes"][1]["request_id"],
+                "scores": [
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=3.0).model_dump(mode="json"),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=1.0).model_dump(mode="json"),
+                ],
+            }
+        )
+        complete = websocket.receive_json()
+
+    assert complete["type"] == "round_complete"
+    rankings = complete["results"][0]["rankings"]
+    assert [ranking["policy_version_id"] for ranking in rankings] == [policy_version_ids[0], policy_version_ids[1]]
+    assert [ranking["result_metadata"]["completed_episode_count"] for ranking in rankings] == [1, 1]
 
 
 def test_round_websocket_rejects_unknown_episode_result_request_id() -> None:
