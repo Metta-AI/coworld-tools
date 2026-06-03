@@ -26,8 +26,14 @@ preserves one Pretend instance while the directive stays ``pretend``.
 
 from __future__ import annotations
 
+from players.crewrift.crewborg.agent_tracking import best_seek_point
 from players.crewrift.crewborg.modes import imposter_common as ic
 from players.crewrift.crewborg.map.types import Room
+from players.crewrift.crewborg.strategy.opportunity import (
+    HUNT_LEAD_TICKS,
+    has_trackable_victim,
+    ticks_until_kill_ready,
+)
 from players.crewrift.crewborg.types import ActionState, Belief, Intent
 from players.player_sdk import EmptyModeParams, Mode, ModeParams
 
@@ -120,6 +126,10 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
             self._state = None
             self._dispatch(belief, self_xy)
             return self._act(belief, self_xy)
+        seek_point = _occupancy_seek_point(belief, self_xy)
+        if seek_point is not None:
+            self._goto_point = seek_point
+            return Intent(kind="navigate_to", point=seek_point, reason="searching likely crew occupancy")
         if self._goto_point is None or ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
             self._goto_point = self._next_room_point(belief, self_xy)
         if self._goto_point is None:
@@ -168,3 +178,16 @@ def _station_in_room(belief: Belief, room: Room, self_xy: ic.Point) -> ic.Point 
         return None
     nearest = min(indices, key=lambda i: ic.dist2(self_xy, (tasks[i].center.x, tasks[i].center.y)))
     return ic.task_point(belief, nearest)
+
+
+def _occupancy_seek_point(belief: Belief, self_xy: ic.Point) -> ic.Point | None:
+    """Likely crew location to search during the pre-kill lead window."""
+
+    if ticks_until_kill_ready(belief) > HUNT_LEAD_TICKS:
+        return None
+    if has_trackable_victim(belief):
+        return None  # the selector should put us in Hunt instead
+    point = best_seek_point(belief, self_xy)
+    if point is None or ic.dist2(self_xy, point) <= ARRIVE_RADIUS_SQ:
+        return None
+    return point

@@ -334,6 +334,87 @@ def test_kill_state_debug_tick_imposter_only() -> None:
     assert on.gauges("domain.kill.urgency_ticks")[0].value == 5.0
 
 
+def test_occupancy_substrate_and_seek_target_events_are_lean() -> None:
+    import numpy as np
+
+    from players.crewrift.crewborg.agent_tracking import OccupancySnapshot, update_agent_tracking
+    from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect
+    from players.crewrift.crewborg.nav import build_nav_graph
+
+    map_data = MapData(
+        width=64,
+        height=64,
+        tasks=(),
+        vents=(),
+        rooms=(),
+        button=MapRect(x=8, y=8, w=8, h=8),
+        home=MapPoint(x=4, y=4),
+    )
+    belief = Belief(
+        map=map_data,
+        nav=build_nav_graph(np.ones((64, 64), dtype=bool), map_data=map_data),
+        self_role="imposter",
+    )
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    cell = next(iter(substrate.cells.values()))
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={cell.index: 1.0},
+        top_cell=cell.index,
+        top_point=cell.center,
+        top_expected=1.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+
+    h = _Harness()
+    h.step(belief=belief)
+    [substrate_event] = h.events("domain.occupancy_substrate")
+    assert substrate_event.data["anchors"] == 2
+    assert substrate_event.data["grid_cells"] == len(substrate.cells)
+    [seek_event] = h.events("domain.occupancy_seek_target")
+    assert seek_event.data["cell"] == cell.index
+    assert seek_event.data["tracked"] == 1
+
+
+def test_occupancy_reacquisition_events_are_emitted_once() -> None:
+    from players.crewrift.crewborg.agent_tracking import ReacquisitionEvent
+
+    belief = Belief()
+    belief.agent_tracking.reacquisitions.append(
+        ReacquisitionEvent(
+            tick=20,
+            color="green",
+            predicted_cell=2,
+            actual_cell=5,
+            predicted_point=(20, 20),
+            actual_point=(80, 16),
+            top_probability=0.25,
+            distance_error=60.13,
+            disc_radius=44.0,
+        )
+    )
+
+    h = _Harness()
+    h.step(belief=belief)
+    h.step(belief=belief)
+
+    [event] = h.events("domain.occupancy_reacquired")
+    assert event.data == {
+        "color": "green",
+        "predicted_cell": 2,
+        "actual_cell": 5,
+        "predicted_point": [20, 20],
+        "actual_point": [80, 16],
+        "top_probability": 0.25,
+        "distance_error": 60.13,
+        "disc_radius": 44.0,
+    }
+    assert len(h.counters("domain.occupancy_reacquired")) == 1
+
+
 def test_env_flag_enables_debug_dump(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_TRACE", "debug")
     tracer = CrewborgEventTracer()

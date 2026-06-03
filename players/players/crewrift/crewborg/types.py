@@ -27,6 +27,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from players.crewrift.crewborg.agent_tracking import AgentTrackingState
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map.types import MapData
 from players.crewrift.crewborg.nav import NavGraph, build_nav_graph
@@ -296,6 +297,9 @@ class Belief(BaseModel):
     # frames (oldest first), appended only on camera-ready frames. The substrate
     # for frame-to-frame transition detection; aggregates below are folded from it.
     recent_frames: list[PerceptionFrame] = Field(default_factory=list)
+    # Probabilistic per-agent location tracker (docs/designs/agent-tracking.md):
+    # static occupancy substrate plus per-player reachability-disc beliefs.
+    agent_tracking: AgentTrackingState = Field(default_factory=AgentTrackingState)
 
     # Roster + bodies (design §5). The roster is keyed by player **color** — the
     # one identity stable and unique across every Crewrift namespace — and carries

@@ -45,7 +45,11 @@ find the crew.
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim, ticks_until_kill_ready
+from players.crewrift.crewborg.strategy.opportunity import (
+    HUNT_LEAD_TICKS,
+    has_trackable_victim,
+    ticks_until_kill_ready,
+)
 from players.crewrift.crewborg.types import ActionState, Belief
 from players.player_sdk import ModeDirective
 from players.player_sdk.types import BeliefSnapshot
@@ -53,14 +57,6 @@ from players.player_sdk.types import BeliefSnapshot
 # A believed imposter within this distance (squared, world px) counts as
 # "approaching" and triggers Flee.
 FLEE_APPROACH_SQ = 60**2
-
-# Enter Hunt this many ticks *before* the kill comes off cooldown, so the imposter
-# closes range on a victim and the window opens "hot" (a strike on the first ready
-# tick) instead of cold (scrambling to find someone after the cooldown clears). Hunt
-# only strikes once actually kill-ready; before that it shadows in range. Kept small
-# so the imposter spends most of the cooldown blending in Pretend, not tailing.
-HUNT_LEAD_TICKS = 96
-
 
 class RuleBasedStrategy:
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:

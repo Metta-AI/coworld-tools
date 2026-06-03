@@ -7,6 +7,7 @@ parameters, three pure functions, modes, and the rule-based strategy. See
 
 from __future__ import annotations
 
+from players.crewrift.crewborg.agent_tracking import update_agent_tracking
 from players.crewrift.crewborg.action import resolve_action
 from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.map import MapData, load_croatoan_map
@@ -50,12 +51,13 @@ def build_runtime(
 ) -> AgentRuntime[Observation, Percept, Belief, ActionState, Intent, Command]:
     """Assemble the crewborg ``AgentRuntime``.
 
-    The inner loop runs ``perceive -> update_belief (+ event log + suspicion) ->
-    mode.decide -> resolve_action`` each tick; the rule-based strategy publishes
-    mode directives via ``SynchronousStrategyRunner``. The per-player event log
-    (design §5.2) and suspicion scoring (§10.1) are folded into belief right after
-    perception so the strategy snapshot sees a current ``believed_imposters``. The
-    static map is baked once here (design §6) — ``map_data`` overrides the vendored
+    The inner loop runs ``perceive -> update_belief (+ agent tracking + event log
+    + suspicion) -> mode.decide -> resolve_action`` each tick; the rule-based
+    strategy publishes mode directives via ``SynchronousStrategyRunner``. The
+    per-agent location tracker, per-player event log (design §5.2), and suspicion
+    scoring (§10.1) are folded into belief right after perception so the strategy
+    snapshot sees current search and ``believed_imposters`` state. The static map
+    is baked once here (design §6) — ``map_data`` overrides the vendored
     ``croatoan`` bake (tests).
     Registers all modes: idle / normal / attend_meeting / report_body / flee
     (crewmate) and hunt / pretend (imposter; the imposter also self-reports via
@@ -81,9 +83,10 @@ def build_runtime(
         map_data = load_croatoan_map()
 
     def fold_belief(belief: Belief, percept: Percept) -> None:
-        """Fast-loop belief update: perception folding, event log, then suspicion."""
+        """Fast-loop belief update: perception, tracking, event log, then suspicion."""
 
         update_belief(belief, percept)
+        update_agent_tracking(belief)
         update_event_log(belief)
         update_suspicion(belief)
 

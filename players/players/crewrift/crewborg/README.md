@@ -9,7 +9,9 @@ as a Docker image the Coworld runner launches.
 - **Orientation:** [`AGENTS.md`](./AGENTS.md) — codebases, protocol, source pointers.
 - **Design docs:** [`docs/designs/`](./docs/designs/) — living deep-dives, e.g.
   [`suspicion.md`](./docs/designs/suspicion.md) (the Bayesian model + likelihood-ratio
-  table + how we learn/improve the weights).
+  table + how we learn/improve the weights) and
+  [`agent-tracking.md`](./docs/designs/agent-tracking.md) (probabilistic location
+  tracking for imposter search).
 
 ## What it does
 
@@ -27,7 +29,8 @@ once, denying the crew the task-time a body would buy while unfound), **Hunt** (
 ready *and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
 trajectory-led intercept, and strike when in range and unwitnessed), and
 **Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
-tails one into a room, and wanders rooms when none are in sight, never idling);
+tails one into a room, and searches likely crew occupancy during the kill lead
+window when none are trackable, falling back to room wandering otherwise, never idling);
 meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
 (shared with the selector) whose isolation bar relaxes with urgency, not merely on
 the cooldown ending. The action layer covers `kill` (edge-A in KillRange) and `vent`
@@ -39,6 +42,7 @@ seam (`design.md` §10) remains in place but unused.
 ```
 crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
+  agent_tracking.py  reachability-disc location beliefs + coarse occupancy grid search
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
@@ -78,10 +82,10 @@ players/crewrift/crewborg/scripts/play_local.sh
 override it to point elsewhere.
 
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
-suspicion posteriors, a ranked `suspicion_snapshot` at every meeting, …; see
-`design.md` §11). Set `CREWBORG_TRACE=debug` for the heavy per-tick dump of the
-full `P(imposter)` vector — useful when debugging why a vote or flee did (not)
-happen.
+suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
+every meeting, …; see `design.md` §11). Set `CREWBORG_TRACE=debug` for the heavy
+per-tick dump of the full `P(imposter)` vector and occupancy snapshot — useful
+when debugging why a vote, flee, or pre-kill search did (not) happen.
 
 ## Fetch hosted episode data
 

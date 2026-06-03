@@ -85,6 +85,9 @@ class CrewborgEventTracer:
         self._believed: set[str] = set()  # last believed_imposters (over the flee bar)
         self._meeting_snapshotted: bool = False  # one suspicion snapshot per meeting
         self._kill_ready: bool | None = None  # last self_kill_ready (imposter cooldown edges)
+        self._occupancy_substrate_seen: bool = False
+        self._occupancy_reacquisition_count: int = 0
+        self._occupancy_seek_cell: int | None = None
         # Full per-tick suspicion dump is opt-in: heavy, for single-game forensics.
         self._debug: bool = (
             os.environ.get("CREWBORG_TRACE", "").strip().lower() == "debug" if debug is None else debug
@@ -106,9 +109,11 @@ class CrewborgEventTracer:
         self._observe_suspicion_deltas(belief, emit)
         self._observe_meeting_suspicion(belief, emit)
         self._observe_kill_readiness(belief, emit, context.active_mode_name)
+        self._observe_occupancy(belief, emit)
         if self._debug:
             self._observe_debug_tick(belief, emit)
             self._observe_kill_debug(belief, emit, context.active_mode_name)
+            self._observe_occupancy_debug(belief, emit)
 
     # --- state-transition / outcome events (belief & action-state deltas) ---
 
@@ -327,6 +332,95 @@ class CrewborgEventTracer:
         emit.event("kill_state", data)
         emit.gauge("kill.ready", 1.0 if data["ready"] else 0.0)
         emit.gauge("kill.urgency_ticks", float(data["urgency_ticks"]))
+
+    def _observe_occupancy(self, belief: Belief, emit: EventEmitter) -> None:
+        """Lean occupancy traces: substrate summary, reacquisition, and seek target."""
+
+        tracking = belief.agent_tracking
+        substrate = tracking.substrate
+        if substrate is not None and not self._occupancy_substrate_seen:
+            self._occupancy_substrate_seen = True
+            emit.event(
+                "occupancy_substrate",
+                {
+                    "anchors": len(substrate.anchors),
+                    "polylines": len(substrate.polylines),
+                    "grid_cells": len(substrate.cells),
+                    "cell_size": substrate.cell_size,
+                },
+            )
+
+        for event in tracking.reacquisitions[self._occupancy_reacquisition_count :]:
+            emit.event(
+                "occupancy_reacquired",
+                {
+                    "color": event.color,
+                    "predicted_cell": event.predicted_cell,
+                    "actual_cell": event.actual_cell,
+                    "predicted_point": list(event.predicted_point) if event.predicted_point is not None else None,
+                    "actual_point": list(event.actual_point),
+                    "top_probability": round(event.top_probability, 4),
+                    "distance_error": round(event.distance_error, 2) if event.distance_error is not None else None,
+                    "disc_radius": round(event.disc_radius, 2),
+                },
+            )
+            emit.counter("occupancy_reacquired")
+        self._occupancy_reacquisition_count = len(tracking.reacquisitions)
+
+        snapshot = tracking.snapshot
+        if belief.self_role != "imposter" or snapshot is None:
+            self._occupancy_seek_cell = None
+            return
+        if snapshot.top_cell is None or snapshot.top_cell == self._occupancy_seek_cell:
+            return
+        self._occupancy_seek_cell = snapshot.top_cell
+        emit.event(
+            "occupancy_seek_target",
+            {
+                "cell": snapshot.top_cell,
+                "point": list(snapshot.top_point) if snapshot.top_point is not None else None,
+                "expected": round(snapshot.top_expected, 4),
+                "tracked": snapshot.tracked_count,
+                "support_cells": snapshot.support_cell_count,
+            },
+        )
+
+    def _observe_occupancy_debug(self, belief: Belief, emit: EventEmitter) -> None:
+        """Debug-only: top occupancy cells and current per-agent support sizes."""
+
+        snapshot = belief.agent_tracking.snapshot
+        substrate = belief.agent_tracking.substrate
+        if snapshot is None or substrate is None:
+            return
+        top = [
+            {
+                "cell": cell_id,
+                "expected": round(expected, 4),
+                "point": list(substrate.cells[cell_id].center),
+                "label": substrate.cells[cell_id].label,
+            }
+            for cell_id, expected in sorted(snapshot.expected_by_cell.items(), key=lambda item: item[1], reverse=True)[
+                :5
+            ]
+            if cell_id in substrate.cells
+        ]
+        emit.event(
+            "occupancy_snapshot",
+            {
+                "tracked": snapshot.tracked_count,
+                "support_cells": snapshot.support_cell_count,
+                "top": top,
+                "agents": {
+                    color: {
+                        "age_ticks": estimate.age_ticks,
+                        "support_cells": estimate.support_cell_count,
+                        "top_cell": estimate.top_cell,
+                        "top_probability": round(estimate.top_probability, 4),
+                    }
+                    for color, estimate in belief.agent_tracking.estimates.items()
+                },
+            },
+        )
 
 
 def _kill_state(belief: Belief) -> dict[str, object]:

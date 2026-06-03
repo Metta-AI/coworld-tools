@@ -38,6 +38,11 @@ TRACK_WINDOW_TICKS = 120
 # have measured a real cooldown from the binary HUD (design §7.2). The game default.
 DEFAULT_KILL_COOLDOWN_TICKS = 900
 
+# Enter hunt/seek behaviour this many ticks before the kill comes off cooldown.
+# Hunt uses it when a victim is already trackable; Pretend uses the same window to
+# search the occupancy grid when no victim is currently trackable.
+HUNT_LEAD_TICKS = 96
+
 
 def kill_urgency_ticks(belief: Belief) -> int:
     """How long we have been able to kill without doing so (0 if not kill-ready)."""
