@@ -552,6 +552,7 @@ pixel parity.
 | Crewrift reference bots + guides | `~/coding/games/coworld-crewrift/players/` |
 | Coworld platform/runner contract | `~/coding/metta/packages/coworld/src/coworld/docs/README.md` + `runner/runner.py` *(read-only)* |
 | Fetch hosted episodes crewborg played | `players/crewrift/crewborg/scripts/fetch_episodes.py` (the typed `coworld episodes`/`replays`/`episode-logs` are 404-broken since the server's `episode-requests`→`experience-request` rename) |
+| View crewborg trace replays | `players/crewrift/crewborg/viewer/index.html` (load logs captured with `CREWBORG_TRACE=viewer` or `CREWBORG_TRACE=debug`) |
 
 Absolute roots:
 - Player SDK & this workspace: `~/coding/players_checkouts/players` (pkg `players`)

@@ -44,13 +44,19 @@ in two tiers:
   every tick (``suspicion_tick``) plus ``suspicion.top_p`` / ``believed_count``
   gauges, and (imposter) a per-tick ``kill_state`` snapshot + ``kill.ready`` /
   ``kill.urgency_ticks`` gauges — heavy (~one line per tick), for deep forensics.
+- **Trace replay viewer (``CREWBORG_TRACE=viewer`` or ``debug``):** browser-ready
+  map/grid bootstraps plus one ``viewer_frame`` per tick with mode params, intent,
+  nav target/route, and live belief overlays. Heavy, opt-in, and intended for
+  single-game inspection in ``viewer/index.html``.
 """
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from players.crewrift.crewborg.action import BTN_A, BTN_B
+from players.crewrift.crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
 from players.crewrift.crewborg.strategy.suspicion import (
     VOTE_PROBABILITY,
@@ -67,7 +73,7 @@ class CrewborgEventTracer:
     Usable directly as an ``on_step_complete`` hook: ``on_step_complete=tracer``.
     """
 
-    def __init__(self, *, debug: bool | None = None) -> None:
+    def __init__(self, *, debug: bool | None = None, viewer: bool | None = None) -> None:
         # Previous-tick state for edge/delta detection. ``phase`` starts at the
         # Belief default so the first real transition (unknown → …) is reported.
         self._phase: str = "unknown"
@@ -88,10 +94,13 @@ class CrewborgEventTracer:
         self._occupancy_substrate_seen: bool = False
         self._occupancy_reacquisition_count: int = 0
         self._occupancy_seek_cell: int | None = None
+        self._viewer_map_seen: bool = False
+        self._viewer_grid_seen: bool = False
         # Full per-tick suspicion dump is opt-in: heavy, for single-game forensics.
-        self._debug: bool = (
-            os.environ.get("CREWBORG_TRACE", "").strip().lower() == "debug" if debug is None else debug
-        )
+        trace_level = os.environ.get("CREWBORG_TRACE", "").strip().lower()
+        self._debug: bool = trace_level == "debug" if debug is None else debug
+        # Viewer frames are also heavy, but are the clean input for the trace replay UI.
+        self._viewer: bool = trace_level in {"viewer", "debug"} if viewer is None else viewer
 
     def __call__(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
         belief = context.belief
@@ -110,6 +119,8 @@ class CrewborgEventTracer:
         self._observe_meeting_suspicion(belief, emit)
         self._observe_kill_readiness(belief, emit, context.active_mode_name)
         self._observe_occupancy(belief, emit)
+        if self._viewer:
+            self._observe_viewer(context)
         if self._debug:
             self._observe_debug_tick(belief, emit)
             self._observe_kill_debug(belief, emit, context.active_mode_name)
@@ -422,6 +433,46 @@ class CrewborgEventTracer:
             },
         )
 
+    # --- viewer snapshots --------------------------------------------------
+
+    def _observe_viewer(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
+        """Emit trace records consumed by the browser replay viewer.
+
+        ``viewer_map`` and ``viewer_occupancy_grid`` are static bootstraps; the
+        per-tick ``viewer_frame`` carries only live belief/action state.
+        """
+
+        belief = context.belief
+        emit = context.emit
+        if not self._viewer_map_seen and belief.map is not None:
+            self._viewer_map_seen = True
+            emit.event("viewer_map", _viewer_map_payload(belief))
+
+        substrate = belief.agent_tracking.substrate
+        if not self._viewer_grid_seen and substrate is not None:
+            self._viewer_grid_seen = True
+            emit.event(
+                "viewer_occupancy_grid",
+                {
+                    "schema_version": 1,
+                    "cell_size": substrate.cell_size,
+                    "rows": substrate.rows,
+                    "cols": substrate.cols,
+                    "cells": [
+                        {
+                            "index": cell.index,
+                            "row": cell.row,
+                            "col": cell.col,
+                            "center": list(cell.center),
+                            "label": cell.label,
+                        }
+                        for cell in sorted(substrate.cells.values(), key=lambda item: item.index)
+                    ],
+                },
+            )
+
+        emit.event("viewer_frame", _viewer_frame_payload(context))
+
 
 def _kill_state(belief: Belief) -> dict[str, object]:
     """The imposter's current kill-cooldown context (shared by the edge + debug traces)."""
@@ -450,3 +501,171 @@ def _event_summary(record: PlayerRecord | None) -> list[dict[str, object]]:
         }
         for event in record.events
     ]
+
+
+def _viewer_map_payload(belief: Belief) -> dict[str, Any]:
+    """Static map geometry for the browser viewer."""
+
+    assert belief.map is not None
+    return {
+        "schema_version": 1,
+        "width": belief.map.width,
+        "height": belief.map.height,
+        "home": belief.map.home.model_dump(mode="json"),
+        "button": belief.map.button.model_dump(mode="json"),
+        "rooms": [room.model_dump(mode="json") for room in belief.map.rooms],
+        "tasks": [
+            {"index": index, **task.model_dump(mode="json")}
+            for index, task in enumerate(belief.map.tasks)
+        ],
+        "vents": [
+            {"index": index, **vent.model_dump(mode="json")}
+            for index, vent in enumerate(belief.map.vents)
+        ],
+    }
+
+
+def _viewer_frame_payload(context: StepContext[Belief, ActionState, Intent, Command]) -> dict[str, Any]:
+    """Live per-tick view model for replay inspection."""
+
+    belief = context.belief
+    action_state = context.action_state
+    route = [list(point) for point in action_state.route]
+    next_waypoint = (
+        list(action_state.route[action_state.route_cursor])
+        if 0 <= action_state.route_cursor < len(action_state.route)
+        else None
+    )
+    return {
+        "schema_version": 1,
+        "tick": context.tick,
+        "phase": belief.phase,
+        "role": belief.self_role,
+        "camera": {
+            "ready": belief.camera_ready,
+            "x": belief.camera_x,
+            "y": belief.camera_y,
+            "width": SCREEN_WIDTH,
+            "height": SCREEN_HEIGHT,
+        },
+        "self": _viewer_point(belief.self_world_x, belief.self_world_y),
+        "mode": _viewer_mode_payload(context),
+        "intent": _json_model(context.intent),
+        "command": _json_model(context.command),
+        "nav": {
+            "target": _viewer_nav_target(context.intent, action_state),
+            "route_goal": _point_list(action_state.route_goal),
+            "route_cursor": action_state.route_cursor,
+            "next_waypoint": next_waypoint,
+            "route": route,
+            "teleports": {str(key): value for key, value in action_state.route_teleports.items()},
+        },
+        "tasks": {
+            "assigned": sorted(belief.assigned_task_indices),
+            "visible": sorted(belief.visible_task_indices),
+            "completed": sorted(belief.completed_task_indices),
+            "crew_remaining": belief.crew_tasks_remaining,
+            "active_progress_pct": belief.active_task_progress_pct,
+        },
+        "players": [
+            {
+                "color": color,
+                "x": record.world_x,
+                "y": record.world_y,
+                "last_seen_tick": record.last_seen_tick,
+                "life_status": record.life_status,
+                "body_xy": _point_list(record.body_xy),
+                "suspicion": round(belief.suspicion[color], 4) if color in belief.suspicion else None,
+                "believed_imposter": color in belief.believed_imposters,
+                "confirmed_imposter": color in belief.confirmed_imposters,
+                "teammate": color in belief.teammate_colors,
+            }
+            for color, record in sorted(belief.roster.items())
+        ],
+        "bodies": [
+            {
+                "id": body.object_id,
+                "color": body.color,
+                "x": body.world_x,
+                "y": body.world_y,
+                "visible": body.object_id in belief.visible_body_ids,
+                "first_seen_tick": body.first_seen_tick,
+            }
+            for body in sorted(belief.bodies.values(), key=lambda item: item.object_id)
+        ],
+        "occupancy": _viewer_occupancy_payload(belief),
+    }
+
+
+def _viewer_mode_payload(context: StepContext[Belief, ActionState, Intent, Command]) -> dict[str, Any]:
+    directive = context.active_directive
+    return {
+        "name": context.active_mode_name,
+        "source": directive.source,
+        "reason": directive.reason,
+        "params_type": type(directive.params).__name__,
+        "params": directive.params.model_dump(mode="json"),
+        "issued_at_tick": directive.issued_at_tick,
+        "ttl_ticks": directive.ttl_ticks,
+        "age_ticks": max(0, context.tick - directive.issued_at_tick),
+        "metadata": dict(directive.metadata),
+    }
+
+
+def _viewer_occupancy_payload(belief: Belief) -> dict[str, Any] | None:
+    snapshot = belief.agent_tracking.snapshot
+    if snapshot is None:
+        return None
+    teammate_snapshot = belief.agent_tracking.teammate_snapshot
+    return {
+        "tick": snapshot.tick,
+        "top_cell": snapshot.top_cell,
+        "top_point": _point_list(snapshot.top_point),
+        "top_expected": round(snapshot.top_expected, 4),
+        "tracked": snapshot.tracked_count,
+        "support_cells": snapshot.support_cell_count,
+        "cells": [
+            [cell, round(expected, 4)]
+            for cell, expected in sorted(snapshot.expected_by_cell.items())
+            if expected > 0
+        ],
+        "teammate_cells": [
+            [cell, round(expected, 4)]
+            for cell, expected in sorted((teammate_snapshot.expected_by_cell if teammate_snapshot else {}).items())
+            if expected > 0
+        ],
+        "agents": {
+            color: {
+                "age_ticks": estimate.age_ticks,
+                "support_cells": estimate.support_cell_count,
+                "top_cell": estimate.top_cell,
+                "top_point": _point_list(estimate.top_point),
+                "top_probability": round(estimate.top_probability, 4),
+            }
+            for color, estimate in sorted(belief.agent_tracking.estimates.items())
+        },
+    }
+
+
+def _viewer_nav_target(intent: Intent, action_state: ActionState) -> list[int] | None:
+    if action_state.route_goal is not None:
+        return _point_list(action_state.route_goal)
+    if intent.point is not None:
+        return _point_list(intent.point)
+    return None
+
+
+def _viewer_point(x: int | None, y: int | None) -> dict[str, int] | None:
+    if x is None or y is None:
+        return None
+    return {"x": x, "y": y}
+
+
+def _point_list(point: tuple[int, int] | None) -> list[int] | None:
+    return list(point) if point is not None else None
+
+
+def _json_model(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
