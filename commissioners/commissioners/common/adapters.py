@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from commissioners.common.models import (
-    AMONG_THEM_QUALIFIER_STAGE,
     DivisionDescriptionContext,
     DivisionLeaderboardContext,
     DivisionSnapshot,
@@ -71,7 +70,7 @@ from commissioners.common.protocol import (
 from commissioners.common.utils import select_qualifier_division
 
 if TYPE_CHECKING:
-    from commissioners.common.commissioners import Commissioner, AmongThemCommissioner
+    from commissioners.common.commissioners import Commissioner
 
 
 # ---------------------------------------------------------------------------
@@ -145,17 +144,17 @@ def _round_start_stage_config(
             "mock_scores": config.get("mock_scores"),
             "self_play": config.get("self_play", False),
         }
-    if commissioner is not None:
-        from commissioners.among_them.commissioner import AmongThemCommissioner
-        if isinstance(commissioner, AmongThemCommissioner):
-            qualifier_division = select_qualifier_division(
-                round_start.league.commissioner_config,
-                _round_start_divisions(round_start),
-            )
-            if qualifier_division is not None and _current_division(round_start).id == qualifier_division.id:
-                scheduling_config = commissioner._scheduling_config(round_start.league.commissioner_config)
-                qualifier_stage = (scheduling_config.qualifier_stages or [AMONG_THEM_QUALIFIER_STAGE])[0]
-                stage_config["self_play"] = qualifier_stage.self_play
+    scheduling_config_fn = getattr(commissioner, "_scheduling_config", None)
+    if scheduling_config_fn is not None:
+        qualifier_division = select_qualifier_division(
+            round_start.league.commissioner_config,
+            _round_start_divisions(round_start),
+        )
+        if qualifier_division is not None and _current_division(round_start).id == qualifier_division.id:
+            scheduling_config = scheduling_config_fn(round_start.league.commissioner_config)
+            qualifier_stages = scheduling_config.qualifier_stages
+            if qualifier_stages:
+                stage_config["self_play"] = qualifier_stages[0].self_play
     return stage_config
 
 

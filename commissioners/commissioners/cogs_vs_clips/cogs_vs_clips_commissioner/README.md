@@ -6,7 +6,8 @@ Runnable commissioner for the Cogs vs Clips Coworld.
 
 - `GET /healthz` returns `200`.
 - `WEBSOCKET /round` accepts `round_start`, schedules slot-balanced episodes, collects `episode_result` messages, and emits `round_complete`.
-- Entrants are rotated across seats with the same slot-balanced scheduling used by the hosted Cogs vs Clips commissioner.
+- Competition entrants are rotated across seats with the same slot-balanced scheduling used by the hosted Cogs vs Clips commissioner.
+- Qualifier self-play stages isolate each entrant by filling every seat with that entrant's policy.
 - Scores are averaged across all reported episode slots for each policy.
 - Rankings are sorted by average score descending, then by input order.
 

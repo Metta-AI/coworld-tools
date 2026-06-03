@@ -30,6 +30,21 @@ class CogsVsClipsCommissioner(BaselineCommissioner):
         variant_id: str,
     ) -> CommissionerScheduleEpisodes:
         config = PoolConfig.model_validate(pool.config)
+        if config.self_play:
+            episodes_per_entrant = config.min_episodes_per_entrant or config.num_episodes
+            return CommissionerScheduleEpisodes(
+                episodes=[
+                    CommissionerEpisodeRequest(
+                        request_id=str(entry_index * episodes_per_entrant + episode_index),
+                        variant_id=variant_id,
+                        policy_version_ids=[entry.policy_version_id] * num_agents,
+                        tags={"pool_id": str(pool.id)},
+                    )
+                    for entry_index, entry in enumerate(entries)
+                    for episode_index in range(episodes_per_entrant)
+                ]
+            )
+
         num_episodes = _pool_episode_count(
             config=config,
             num_entries=len(entries),
