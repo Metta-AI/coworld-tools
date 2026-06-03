@@ -27,6 +27,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from players.crewrift.crewborg.agent_tracking import AgentTrackingState
 from players.crewrift.crewborg.coworld.scene import SceneState
 from players.crewrift.crewborg.map.types import MapData
 from players.crewrift.crewborg.nav import NavGraph, build_nav_graph
@@ -296,6 +297,9 @@ class Belief(BaseModel):
     # frames (oldest first), appended only on camera-ready frames. The substrate
     # for frame-to-frame transition detection; aggregates below are folded from it.
     recent_frames: list[PerceptionFrame] = Field(default_factory=list)
+    # Probabilistic per-agent location tracker (docs/designs/agent-tracking.md):
+    # static occupancy substrate plus per-player reachability-disc beliefs.
+    agent_tracking: AgentTrackingState = Field(default_factory=AgentTrackingState)
 
     # Roster + bodies (design §5). The roster is keyed by player **color** — the
     # one identity stable and unique across every Crewrift namespace — and carries
@@ -335,7 +339,7 @@ class Belief(BaseModel):
     teammate_colors: set[str] = Field(default_factory=set)
 
     # Imposter: tick of the most recent self kill (kill-ready → cooldown edge),
-    # used to evade the fresh body briefly (design §7.2).
+    # surfaced in the kill-readiness trace (events.py §11).
     last_kill_tick: int | None = None
     # Imposter: tick the kill last became ready (cooldown → kill-ready edge), reset
     # to ``None`` whenever the kill is on cooldown. The strategy reads
@@ -343,6 +347,16 @@ class Belief(BaseModel):
     # without doing so" urgency signal that loosens the kill-opportunity bar over
     # time (design §10).
     kill_ready_since_tick: int | None = None
+    # Imposter cooldown timing, so the strategy can pre-position *before* the kill is
+    # ready (design §7.2/§10). The HUD gives only a binary ready/cooldown icon — no
+    # countdown — so we reconstruct "how soon": ``kill_cooldown_start_tick`` is when
+    # the current cooldown began (our own kill, OR the first Playing tick after a
+    # meeting / role-reveal, since both reset killCooldown), and
+    # ``kill_cooldown_estimate`` is the duration learned the first time we watch a
+    # cooldown run to ready. ``strategy.opportunity.ticks_until_kill_ready`` combines
+    # them (falling back to a default before anything is learned).
+    kill_cooldown_start_tick: int | None = None
+    kill_cooldown_estimate: int | None = None
 
 
 class Intent(BaseModel):
@@ -611,8 +625,19 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         if resolved.self_role == "imposter":
             if resolved.self_kill_ready is True and belief.self_kill_ready is not True:
                 belief.kill_ready_since_tick = percept.tick
+                # Cooldown just ran to ready: learn its duration (for pre-positioning).
+                if belief.kill_cooldown_start_tick is not None:
+                    belief.kill_cooldown_estimate = percept.tick - belief.kill_cooldown_start_tick
             elif resolved.self_kill_ready is False:
                 belief.kill_ready_since_tick = None
+            # Mark when the current cooldown began. Both events that restart it are
+            # observable: our own kill (ready → cooldown during continuous play), and
+            # returning to Playing from a meeting / role-reveal (the game resets
+            # killCooldown then — also covers the game-start initial cooldown).
+            if previous_phase != "Playing" and belief.phase == "Playing":
+                belief.kill_cooldown_start_tick = percept.tick
+            elif belief.self_kill_ready is True and resolved.self_kill_ready is False:
+                belief.kill_cooldown_start_tick = percept.tick
         belief.self_role = resolved.self_role
         belief.self_kill_ready = resolved.self_kill_ready
     elif belief.self_role is None and belief.phase == "Playing":

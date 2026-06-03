@@ -82,12 +82,12 @@ def test_imposter_pretends_by_default() -> None:
 
 def test_imposter_hunts_when_kill_ready_with_opportunity() -> None:
     assert _select(_imposter_with_visible_target(self_kill_ready=True)) == "hunt"
-    # Kill ready but no target in view ⇒ no opportunity ⇒ pretend.
+    # Kill ready but no target in view ⇒ Search owns target acquisition.
     no_target = Belief(
         phase="Playing", self_role="imposter", self_kill_ready=True, last_tick=10,
         self_world_x=100, self_world_y=100,
     )
-    assert _select(no_target) == "pretend"
+    assert _select(no_target) == "search"
 
 
 def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
@@ -110,13 +110,44 @@ def test_imposter_hunts_to_stalk_even_when_targets_are_clustered() -> None:
     assert _select(belief) == "hunt"
 
 
-def test_imposter_evades_right_after_a_kill() -> None:
-    belief = _imposter_with_visible_target(self_kill_ready=False, last_kill_tick=8)
-    assert _select(belief) == "evade"  # last_tick 10 − last_kill_tick 8 < EVADE_TICKS
+def test_imposter_evades_before_reporting_a_fresh_kill_body() -> None:
+    from players.crewrift.crewborg.types import BodyEntry
+
+    # A fresh self-kill body in view -> evade first, outranking the old
+    # report-first path even if the kill is otherwise ready.
+    belief = _imposter_with_visible_target(self_kill_ready=True, last_kill_tick=9, visible_body_ids={2003})
+    belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=60, world_y=60, first_seen_tick=10)
+    assert _select(belief) == "evade"
+
+
+def test_imposter_can_report_a_non_fresh_visible_body() -> None:
+    from players.crewrift.crewborg.types import BodyEntry
+
+    belief = _imposter_with_visible_target(self_kill_ready=True, last_kill_tick=1, visible_body_ids={2003})
+    belief.last_tick = 100
+    belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=60, world_y=60, first_seen_tick=10)
+    assert _select(belief) == "report_body"
+
+
+def test_imposter_searches_within_the_lead_window_before_ready() -> None:
+    # Not yet kill-ready, but the cooldown clears in ~50 ticks (≤ SEARCH_LEAD_TICKS)
+    # ⇒ enter Search, not Hunt. Search follows visible targets until Hunt activates.
+    belief = _imposter_with_visible_target(self_kill_ready=False)
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.kill_cooldown_estimate = 50  # ticks_until_ready = start + 50 − now = 50
+    assert _select(belief) == "search"
+
+
+def test_imposter_pretends_when_kill_is_far_off_cooldown() -> None:
+    # A victim is in view but the kill is a long way off ⇒ blend (Pretend), don't tail.
+    belief = _imposter_with_visible_target(self_kill_ready=False)
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.kill_cooldown_estimate = 900
+    assert _select(belief) == "pretend"
 
 
 def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:
-    # Kill ready but the only visible player is a teammate ⇒ no target ⇒ pretend.
+    # Kill ready but the only visible player is a teammate ⇒ no kill target, so Search.
     belief = _imposter_with_visible_target(self_kill_ready=True)
     belief.teammate_colors = {"red"}  # the visible target is red (see helper)
-    assert _select(belief) == "pretend"
+    assert _select(belief) == "search"

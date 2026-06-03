@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from players.crewrift.crewborg.action import BTN_A, BTN_B, BTN_LEFT
 from players.crewrift.crewborg.events import CrewborgEventTracer
+from players.crewrift.crewborg.strategy.suspicion import VOTE_PROBABILITY
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Command, Intent
 from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, StepContext
 
@@ -16,11 +17,13 @@ from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, Ste
 class _Harness:
     """A tracer plus list sinks and a tick-advancing StepContext builder."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, debug: bool | None = None) -> None:
         self.trace = ListTraceSink()
         self.metrics = ListMetricsSink()
         self.emit = EventEmitter(self.trace, self.metrics, tick=0)
-        self.tracer = CrewborgEventTracer()
+        # Pin debug explicitly (default off) so an ambient CREWBORG_TRACE=debug in the
+        # test environment can't perturb the lean-mode assertions.
+        self.tracer = CrewborgEventTracer(debug=bool(debug))
 
     def step(
         self,
@@ -47,6 +50,9 @@ class _Harness:
 
     def counters(self, name: str) -> list:
         return [s for s in self.metrics.samples if s.name == name and s.kind == "counter"]
+
+    def gauges(self, name: str) -> list:
+        return [s for s in self.metrics.samples if s.name == name and s.kind == "gauge"]
 
 
 def test_events_are_domain_prefixed_and_carry_runtime_tick() -> None:
@@ -163,6 +169,258 @@ def test_report_vent_and_chat_attempts() -> None:
     assert h.events("domain.report_attempted")[0].data == {"body_id": 2003}
     assert h.events("domain.vent_attempted")
     assert h.events("domain.chat_sent")[0].data == {"text": "no read, skipping"}
+
+
+# --- knowledge layer: per-player event log + suspicion reasoning -----------
+
+
+def _crewmate_belief(**kwargs) -> Belief:
+    return Belief(self_role="crewmate", total_player_count=8, **kwargs)
+
+
+def test_player_event_emitted_for_each_newly_opened_interval() -> None:
+    from players.crewrift.crewborg.types import PlayerEvent, PlayerRecord
+
+    h = _Harness()
+    belief = Belief()
+    record = belief.roster["red"] = PlayerRecord(color="red")
+    record.events.append(PlayerEvent(kind="vent", start_tick=5, end_tick=5, region_index=2))
+    h.step(belief=belief)
+    # Extending the open interval (same list length) emits nothing new...
+    record.events[0].end_tick = 9
+    h.step(belief=belief)
+    # ...a freshly opened interval does.
+    record.events.append(PlayerEvent(kind="near_body", start_tick=10, end_tick=10, target_color="green", min_dist=7))
+    h.step(belief=belief)
+
+    events = h.events("domain.player_event")
+    assert [(e.data["kind"], e.data["color"]) for e in events] == [("vent", "red"), ("near_body", "red")]
+    assert events[1].data["min_dist"] == 7
+    assert [s.tags["kind"] for s in h.counters("domain.player_event")] == ["vent", "near_body"]
+
+
+def test_player_died_fires_once_on_the_alive_to_dead_edge() -> None:
+    from players.crewrift.crewborg.types import PlayerRecord
+
+    h = _Harness()
+    belief = Belief()
+    record = belief.roster["blue"] = PlayerRecord(color="blue", life_status="alive")
+    h.step(belief=belief)  # alive: nothing
+    record.mark_dead(tick=40, source="body", body_xy=(120, 80))
+    h.step(belief=belief)  # edge
+    h.step(belief=belief)  # still dead: no re-emit
+
+    [event] = h.events("domain.player_died")
+    assert event.data == {"color": "blue", "source": "body", "death_tick": 40, "body_xy": [120, 80]}
+    assert len(h.counters("domain.player_died")) == 1
+
+
+def test_imposter_confirmed_and_believed_changed_on_set_moves() -> None:
+    h = _Harness()
+    belief = _crewmate_belief()
+    h.step(belief=belief)  # empty: nothing
+
+    belief.confirmed_imposters = {"red"}
+    belief.suspicion = {"red": 0.999}
+    belief.believed_imposters = {"red"}
+    h.step(belief=belief)
+
+    [confirmed] = h.events("domain.imposter_confirmed")
+    assert confirmed.data["color"] == "red"
+    [changed] = h.events("domain.believed_changed")
+    assert changed.data == {"added": ["red"], "removed": [], "believed": ["red"]}
+
+    # Believed set shrinking is reported too; confirmed (a fixed latent) is not re-emitted.
+    belief.believed_imposters = set()
+    h.step(belief=belief)
+    assert h.events("domain.believed_changed")[-1].data["removed"] == ["red"]
+    assert len(h.events("domain.imposter_confirmed")) == 1
+
+
+def test_suspicion_snapshot_once_per_meeting_with_ranking_and_vote() -> None:
+    from players.crewrift.crewborg.types import PlayerEvent, PlayerRecord
+
+    h = _Harness()
+    belief = _crewmate_belief(phase="Playing")
+    red = belief.roster["red"] = PlayerRecord(color="red", life_status="alive")
+    red.events.append(PlayerEvent(kind="near_body", start_tick=3, end_tick=6, target_color="green", min_dist=5))
+    belief.roster["blue"] = PlayerRecord(color="blue", life_status="alive")
+    belief.suspicion = {"red": 0.91, "blue": 0.12}
+    belief.believed_imposters = {"red"}
+    h.step(belief=belief)  # Playing: no snapshot
+
+    belief.phase = "Voting"
+    h.step(belief=belief)  # meeting opens: snapshot
+    h.step(belief=belief)  # still Voting: no re-emit
+
+    [snap] = h.events("domain.suspicion_snapshot")
+    assert [r["color"] for r in snap.data["ranking"]] == ["red", "blue"]  # sorted desc by P
+    assert snap.data["would_vote"] == "red"
+    assert snap.data["would_vote_p"] == 0.91
+    assert snap.data["vote_bar"] == VOTE_PROBABILITY
+    assert snap.data["ranking"][0]["events"][0] == {
+        "kind": "near_body", "dur": 4, "target": "green", "region": None, "min_dist": 5,
+    }
+
+    # Leaving and re-entering Voting arms a second snapshot.
+    belief.phase = "Playing"
+    h.step(belief=belief)
+    belief.phase = "Voting"
+    h.step(belief=belief)
+    assert len(h.events("domain.suspicion_snapshot")) == 2
+
+
+def test_suspicion_snapshot_skipped_when_no_suspicion() -> None:
+    # An imposter / ghost has its suspicion cleared, so a meeting yields no snapshot.
+    h = _Harness()
+    belief = Belief(self_role="imposter", phase="Voting")
+    h.step(belief=belief)
+    assert not h.events("domain.suspicion_snapshot")
+
+
+def test_debug_tick_dump_is_gated() -> None:
+    off = _Harness(debug=False)
+    belief = _crewmate_belief(phase="Playing")
+    belief.suspicion = {"red": 0.4, "blue": 0.2}
+    belief.believed_imposters = set()
+    off.step(belief=belief)
+    assert not off.events("domain.suspicion_tick")
+    assert not off.gauges("domain.suspicion.top_p")
+
+    on = _Harness(debug=True)
+    on.step(belief=belief)
+    [tick] = on.events("domain.suspicion_tick")
+    assert tick.data["p"] == {"red": 0.4, "blue": 0.2}
+    assert on.gauges("domain.suspicion.top_p")[0].value == 0.4
+    assert on.gauges("domain.suspicion.believed_count")[0].value == 0.0
+
+
+def test_kill_ready_changed_on_cooldown_edges_imposter_only() -> None:
+    h = _Harness()
+    # A crewmate never emits kill-readiness, even though self_kill_ready may be set.
+    h.step(belief=Belief(self_role="crewmate", self_kill_ready=True))
+    assert not h.events("domain.kill_ready_changed")
+
+    # Imposter: first sight (cooldown) → ready → cooldown each emit one edge.
+    imp = Belief(self_role="imposter", self_kill_ready=False)
+    h.step(belief=imp)  # first sight: not ready
+    imp2 = Belief(self_role="imposter", self_kill_ready=True, kill_ready_since_tick=10, last_tick=15)
+    h.step(belief=imp2)  # edge → ready
+    h.step(belief=imp2)  # still ready: no re-emit
+    imp3 = Belief(self_role="imposter", self_kill_ready=False, last_kill_tick=20)
+    h.step(belief=imp3)  # edge → cooldown (killed)
+
+    edges = h.events("domain.kill_ready_changed")
+    assert [e.data["ready"] for e in edges] == [False, True, False]
+    assert edges[1].data["ready_since_tick"] == 10
+    assert edges[1].data["urgency_ticks"] == 5  # last_tick 15 − ready_since 10
+    assert edges[2].data["last_kill_tick"] == 20
+    assert {s.tags["ready"] for s in h.counters("domain.kill_ready_changed")} == {"True", "False"}
+
+
+def test_kill_state_debug_tick_imposter_only() -> None:
+    off = _Harness(debug=False)
+    off.step(belief=Belief(self_role="imposter", self_kill_ready=True))
+    assert not off.events("domain.kill_state")
+
+    on = _Harness(debug=True)
+    on.step(belief=Belief(self_role="crewmate", self_kill_ready=True))
+    assert not on.events("domain.kill_state")  # crewmate: nothing
+    on.step(belief=Belief(self_role="imposter", self_kill_ready=True, kill_ready_since_tick=3, last_tick=8))
+    [state] = on.events("domain.kill_state")
+    assert state.data["ready"] is True
+    assert state.data["urgency_ticks"] == 5
+    assert on.gauges("domain.kill.ready")[0].value == 1.0
+    assert on.gauges("domain.kill.urgency_ticks")[0].value == 5.0
+
+
+def test_occupancy_substrate_and_seek_target_events_are_lean() -> None:
+    import numpy as np
+
+    from players.crewrift.crewborg.agent_tracking import OccupancySnapshot, update_agent_tracking
+    from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect
+    from players.crewrift.crewborg.nav import build_nav_graph
+
+    map_data = MapData(
+        width=64,
+        height=64,
+        tasks=(),
+        vents=(),
+        rooms=(),
+        button=MapRect(x=8, y=8, w=8, h=8),
+        home=MapPoint(x=4, y=4),
+    )
+    belief = Belief(
+        map=map_data,
+        nav=build_nav_graph(np.ones((64, 64), dtype=bool), map_data=map_data),
+        self_role="imposter",
+    )
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    cell = next(iter(substrate.cells.values()))
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=1,
+        expected_by_cell={cell.index: 1.0},
+        top_cell=cell.index,
+        top_point=cell.center,
+        top_expected=1.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+
+    h = _Harness()
+    h.step(belief=belief)
+    [substrate_event] = h.events("domain.occupancy_substrate")
+    assert substrate_event.data["anchors"] == 2
+    assert substrate_event.data["grid_cells"] == len(substrate.cells)
+    [seek_event] = h.events("domain.occupancy_seek_target")
+    assert seek_event.data["cell"] == cell.index
+    assert seek_event.data["tracked"] == 1
+
+
+def test_occupancy_reacquisition_events_are_emitted_once() -> None:
+    from players.crewrift.crewborg.agent_tracking import ReacquisitionEvent
+
+    belief = Belief()
+    belief.agent_tracking.reacquisitions.append(
+        ReacquisitionEvent(
+            tick=20,
+            color="green",
+            predicted_cell=2,
+            actual_cell=5,
+            predicted_point=(20, 20),
+            actual_point=(80, 16),
+            top_probability=0.25,
+            distance_error=60.13,
+            disc_radius=44.0,
+        )
+    )
+
+    h = _Harness()
+    h.step(belief=belief)
+    h.step(belief=belief)
+
+    [event] = h.events("domain.occupancy_reacquired")
+    assert event.data == {
+        "color": "green",
+        "predicted_cell": 2,
+        "actual_cell": 5,
+        "predicted_point": [20, 20],
+        "actual_point": [80, 16],
+        "top_probability": 0.25,
+        "distance_error": 60.13,
+        "disc_radius": 44.0,
+    }
+    assert len(h.counters("domain.occupancy_reacquired")) == 1
+
+
+def test_env_flag_enables_debug_dump(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_TRACE", "debug")
+    tracer = CrewborgEventTracer()
+    assert tracer._debug is True
+    monkeypatch.setenv("CREWBORG_TRACE", "")
+    assert CrewborgEventTracer()._debug is False
 
 
 def test_build_runtime_wires_the_tracer_as_on_step_complete() -> None:

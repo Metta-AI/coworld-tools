@@ -10,9 +10,12 @@ active development; **verify any specific symbol, path, or constant against the
 cited file before relying on it.**
 
 > **Status:** Implemented end-to-end — the agent plays both roles (crewmate
-> tasks / meetings / voting / report / flee, plus imposter Hunt / Pretend / Evade
-> and the `kill`/`vent`/`escape` intents; imposter Pretend shadows the crew, and
-> Hunt is gated on a shared, urgency-relaxing kill opportunity). The LLM strategy seam stays in place but
+> tasks / meetings / voting / report / flee, plus imposter Evade / Pretend / Search / Hunt and the
+> `kill`/`vent` intents; the imposter **evades after fresh kills** and may report
+> non-fresh visible bodies;
+> imposter Pretend fakes real task stations in likely occupied rooms, Search owns
+> pre-kill target acquisition, and
+> Hunt is gated on a visible kill opportunity). The LLM strategy seam stays in place but
 > unused. See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
@@ -460,23 +463,32 @@ coworld upload-policy crewborg:latest --name crewborg
 coworld submit crewborg:v1 --league <crewrift-league-id>
 ```
 Local episode/iteration uses `coworld run-episode` / `coworld play` against the
-game's `coworld_manifest.json`. Full platform contract:
+game's `coworld_manifest.json` — but `run-episode` needs two workarounds against
+crewrift 0.1.23 + coworld 0.1.13 (verified 2026-06-02): (1) the manifest's
+`config_schema` trips a legacy-schema validator — re-download fresh and delete
+`slots.items.properties.name`; (2) pass `--run /srv/players/players/crewrift/crewborg/coworld/entrypoint.sh`,
+else it reuses the manifest's reference-player command `/bin/notsus` (absent in
+our image) and the game hangs at `waiting for players: 0/8`. To exercise
+kills/meetings/voting, patch `certification.game_config = variants[0].game_config`
+(10k ticks, 8 tasks). Full platform contract:
 `coworld/src/coworld/docs/README.md` (platform overview + role/artifact docs
 under `docs/roles/` and `docs/artifacts/`) and `runner/runner.py` (protocol
 authority). *(The flat `COWORLD_README.md`/`GAME_RUNTIME_README.md` were
 reorganized into `docs/` as of coworld 0.1.13.)*
 
 **Retrieving hosted episodes crewborg played.** The Observatory API records
-every league episode. Official CLI: `coworld episodes`, `coworld replays
---download-dir`, `coworld episode-logs --download-dir` (need coworld **>= 0.1.13**
-— the 0.1.11 models crash with a `V2EpisodeRequestRow.assignments`
-`ValidationError` against the current server). For a crewborg-filtered bulk pull
-of replays + per-slot traces + metadata, use
-[`scripts/fetch_episodes.py`](./scripts/fetch_episodes.py) (raw-JSON, so
-version-skew-immune; see its docstring for the live endpoint map). The API is
-reached via the official gateway `<softmax-api-server>/observatory` (the
-`coworld` CLI's route) or directly at `https://api.observatory.softmax-research.net`
-with routes at the host root.
+every league episode. **Use [`scripts/fetch_episodes.py`](./scripts/fetch_episodes.py)**
+for a crewborg-filtered bulk pull of replays + per-slot traces + metadata: it
+reads raw JSON against the current routes, so it survives the client/server drift
+that periodically breaks the typed CLI. That drift is biting now — as of
+2026-06-02 the official `coworld episodes` / `coworld replays` / `coworld
+episode-logs` commands are **broken** even on the latest CLI (0.1.13): the server
+renamed `/v2/episode-requests*` → `/v2/experience-request*` and the CLI still
+calls the old paths (404). (Earlier instance: coworld 0.1.11's
+`V2EpisodeRequestRow.assignments` `ValidationError`.) When a route 404s, the live
+map is at `<api>/observatory/openapi.json`. The API is reached via the official
+gateway `<softmax-api-server>/observatory` (the `coworld` CLI's route) or directly
+at `https://api.observatory.softmax-research.net` with routes at the host root.
 
 ---
 
@@ -539,7 +551,7 @@ pixel parity.
 | Crewrift wire protocol | `~/coding/games/coworld-crewrift/docs/sprite_v1.md` |
 | Crewrift reference bots + guides | `~/coding/games/coworld-crewrift/players/` |
 | Coworld platform/runner contract | `~/coding/metta/packages/coworld/src/coworld/docs/README.md` + `runner/runner.py` *(read-only)* |
-| Fetch hosted episodes crewborg played | `players/crewrift/crewborg/scripts/fetch_episodes.py` (or `coworld episodes`/`replays`/`episode-logs`, coworld ≥ 0.1.13) |
+| Fetch hosted episodes crewborg played | `players/crewrift/crewborg/scripts/fetch_episodes.py` (the typed `coworld episodes`/`replays`/`episode-logs` are 404-broken since the server's `episode-requests`→`experience-request` rename) |
 
 Absolute roots:
 - Player SDK & this workspace: `~/coding/players_checkouts/players` (pkg `players`)

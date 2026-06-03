@@ -302,7 +302,13 @@ ghosts and during meetings (no camera).
   `imposter_count` (K) overrides the player-count-derived default. Maintained each
   tick by the suspicion model (§10.1). Consuming the `chat_log` + vote tally for
   suspicion-aware voting/chat remains to be built.
-- **inferences** — reserved slot for strategy-produced facts.
+- **agent tracking** — `agent_tracking` holds a static occupancy substrate
+  (anchors, pairwise route polylines, coarse reachable grid) plus per-player
+  reachability-disc location estimates, a separate teammate-imposter estimate,
+  and the latest expected-crew occupancy grid. It is maintained after perception
+  folding and feeds imposter Pretend room selection and pre-kill search (see
+  §10.2).
+- **inferences** — reserved slot for other strategy-produced facts.
 
 **Total player count.** Players appear as objects only when visible, but the
 roster spawns co-located at the first `Playing` tick, so the visible set ≈ the
@@ -490,79 +496,70 @@ re-decides.
 
 | Mode | Active when | Intents emitted |
 |---|---|---|
-| **Pretend** | no kill opening (the default imposter stance) | a small FSM that **follows a crewmate**, **fakes a task** when it shadows one into a room, and **wanders rooms** when none are in sight (never idles). See the FSM below |
-| **Hunt** | kill ready *and* a victim is trackable | **commit to a victim and stalk it**: `select_victim` picks the most-isolated reachable crewmate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); `kill` when in KillRange *and* unwitnessed, else keep shadowing (lie in wait) |
-| **Evade** | just killed | brief (`EVADE_TICKS`) and **local**: `escape(point)` to a reachable point just outside the body's immediate vicinity (≈ `EVADE_RADIUS`), then back to Pretend — *not* the globally furthest point, which stranded the imposter away from the crew. Routes via the vent-aware graph (a short hop won't take a far teleport) |
+| **Pretend** | default imposter stance, while kill cooldown is not near ready | pick a room from **expected crew occupancy density**, penalize rooms where a teammate-imposter is likely present, choose a real task station in that room, move there, and hold for one task duration. Rooms without fake-task stations and the start room are skipped |
+| **Search** | kill ready or within `SEARCH_LEAD_TICKS` of ready, but no visible kill target | walk ranked occupancy hot spots until a non-teammate crewmate is visible; once one is found, follow its live / recent last-seen position until Hunt can take over |
+| **Hunt** | kill ready **and** a victim is visible | **commit to a visible victim and close/strike**: `select_victim` picks the most-isolated reachable visible crewmate, preferring targets not already claimed by a closer teammate; navigate to its **predicted intercept** (`strategy.trajectory` — lead a moving target); when in KillRange *and* unwitnessed → `kill`, else keep shadowing in range (lie in wait) |
+| **Evade** | for `EVADE_TICKS` after our own kill | `vent` if a vent exists; otherwise move away from the nearest known body. This avoids instant self-reports and gets the imposter away from the corpse before Search/Hunt/Pretend resume |
+| **Report Body** | a non-fresh body is in view after the evade window | `report` the nearest visible body — reuses the crewmate Report Body mode. Fresh self-kill bodies are handled by **Evade** first |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` — currently **skip** (suspicion is crewmate-only, so `top_suspect` is empty for an imposter); suspicion-aware bluff/deflect is future |
 
-**Pretend is the imposter's default blending behaviour** — a four-state FSM that
-keeps the imposter doing crewmate-like things (tailing people, faking tasks) and
-*never standing still*. It carries no notion of a "victim"; it just looks busy and
-stays among the crew so Hunt (which preempts it) gets openings.
+**Pretend is the imposter's default blending behaviour.** It does not follow
+visible crew and it carries no victim state. It chooses a highest-scoring
+occupancy room that has a real task station, moves to that station, and idles for
+`TASK_TICKS` (72) to fake task completion. If no occupancy room is available, it
+falls back to deterministic task-station wandering outside the start room.
 
 ```
                  ╔══════════════════════════════════════════════════╗
                  ║                     DISPATCH                       ║
-                 ║   (entry; re-entered after a task or failed         ║
-                 ║    recovery — not a resident state)                 ║
+                 ║   (entry; re-entered after a fake task)             ║
                  ║                                                     ║
-                 ║     a crewmate visible?  ── yes ──▶ FOLLOW          ║
-                 ║                          ── no  ──▶ GOTO_ROOM       ║
+                 ║     occupancy task room? ─ yes ─▶ GOTO_TASK         ║
+                 ║     else ──────────────────────▶ GOTO_TASK          ║
                  ╚══════════════════════════════════════════════════╝
-                        │                                  │
-            nearest     │                                  │   next room
-            visible     ▼                                  ▼   (≠ current)
-       ┌────────────────────────────┐        ┌────────────────────────────┐
-       │           FOLLOW           │         │          GOTO_ROOM          │
-       │  navigate to the target    │         │  wander to room R           │
-       │  crewmate's live position  │         │  (round-robin, R ≠ here)    │
-       └────────────────────────────┘        └────────────────────────────┘
-          │                      │                │                      │
-   same room as target,         │ target          │ a crewmate           │ arrived at R,
-   room is non-start            │ no longer        │ becomes visible      │ still no crew
-   and has a station            │ visible          │                      │
-          │                      │                │                      │ pick next room
-          ▼                      ▼                ▼                      ▼ (stay GOTO_ROOM)
-   ┌──────────────┐       ┌──────────────┐    ╴╴▶ DISPATCH          ╶╶▶ (loop)
-   │   DO_TASK    │       │   RECOVER    │
-   │ go to the    │       │ navigate to  │
-   │ nearest      │       │ the target's │
-   │ station in   │       │ last-seen    │
-   │ that room;   │       │ position     │
-   │ HOLD 72 ticks│       └──────────────┘
-   └──────────────┘          │          │
-          │              target          │ arrived, target
-          │ hold         visible          │ still not visible
-          │ complete     again            │
-          ▼                  │            ▼
-      DISPATCH ◀╴╴╴╴╴╴╴╴╴╴╴╴╴┘╴╴╴╴╴╴╴╴╴▶ DISPATCH
-                          (→ FOLLOW)
+                               │
+                               ▼
+                    ┌────────────────────┐
+                    │      GOTO_TASK      │
+                    │ navigate to station │
+                    └────────────────────┘
+                               │ arrived
+                               ▼
+                    ┌────────────────────┐
+                    │       DO_TASK       │
+                    │ idle for 72 ticks   │
+                    └────────────────────┘
+                               │ hold complete
+                               ▼
+                            DISPATCH
 ```
 
 | State | Behaviour | Transitions |
 |---|---|---|
-| **DISPATCH** | transient chooser | crewmate visible → **FOLLOW**(nearest visible); else → **GOTO_ROOM**(next room ≠ current) |
-| **FOLLOW**(target) | `navigate_to` the target crewmate's live position | same room as target *and* that room is **non-start with a task station** → **DO_TASK**; target not visible → **RECOVER**; else keep following |
-| **RECOVER**(target) | `navigate_to` the target's **last-seen** position | target visible again → **FOLLOW**(target); arrived and target still not visible → **DISPATCH**; else keep going |
-| **GOTO_ROOM**(R) | `navigate_to` room R (a round-robin pick over the rooms, skipping the current one) — the never-idle wander | any crewmate visible → **DISPATCH**; arrived and still no crew → pick the next room (stay GOTO_ROOM); else keep going |
-| **DO_TASK**(station) | `navigate_to` the nearest station in the shared room, then **hold `TASK_TICKS` (72)** (`idle` — a fake task) | hold complete → **DISPATCH** |
+| **DISPATCH** | transient chooser | occupancy target available → **GOTO_TASK**(best room's task station); else → **GOTO_TASK**(fallback station outside current/start room) |
+| **GOTO_TASK**(station) | `navigate_to` a real task station in the selected room. Keep the chosen occupancy room for `ROOM_TARGET_MIN_TICKS` unless arriving, so noisy room scores do not cause route thrash | arrived at station → **DO_TASK**; no station/target exhausted → pick another station |
+| **DO_TASK**(station) | **hold `TASK_TICKS` (72)** (`idle` — a fake task) | hold complete → **DISPATCH** |
 
 Notes: the **starting room never triggers DO_TASK** (every player is co-located
 there at spawn, and anchoring a task there strands the imposter when the crew
 disperses). DO_TASK **holds the full duration** even if crewmates pass by — only
-Hunt/Evade (via the selector) can preempt it. RECOVER re-acquires **only its own
-target**; a *different* visible crewmate is picked up at the next DISPATCH.
-"Random" crewmate/room choices are **arbitrary-but-deterministic** (nearest crewmate;
-round-robin rooms) — no RNG — so runs are reproducible.
+Evade / Search / Hunt / Report Body (via the selector) can preempt it. Occupancy and
+fallback choices are **arbitrary-but-deterministic** — no RNG — so runs are
+reproducible without synchronizing both imposters onto the same round-robin path.
 
-**Hunt stalks; it doesn't wait for a perfect opening.** Whenever the kill is ready
-and a crewmate is trackable, Hunt commits to a victim and shadows it — leading its
-motion to close range — and fires only when the kill would go **unwitnessed**.
-Holding off the *kill* (not the *stalk*) until the victim isolates is what
-manufactures kills: the imposter is already next to the straggler when it peels off.
-The witness bar relaxes with urgency (how long we have been able to kill without
-doing so), so a perpetually-shadowed kill still eventually fires rather than never
-(§10). It commits to **one** victim until it's killed or lost (re-picking otherwise).
+**Search owns the pre-kill lead window.** When the cooldown is ready or within
+`SEARCH_LEAD_TICKS`, but no visible victim is available, Search walks ranked
+occupancy cells. When it sees a non-teammate crewmate, it follows that target's
+live or recent last-seen position until Hunt can take over.
+
+**Hunt is kill-ready and visible-target only.** It commits to one visible victim,
+leads that victim's motion to close range, and fires only when the kill would go
+**unwitnessed**. The witness bar relaxes with urgency (how long we have been able
+to kill without doing so), so a perpetually-shadowed kill still eventually fires
+rather than never (§10). If a recently seen teammate-imposter is closer to a
+victim within the claim radius, Hunt prefers another victim when one exists; this
+is a lightweight coordination rule that also helps against non-crewborg teammates
+who happen to be near a target.
 
 ### 7.3 Division of labour
 
@@ -576,12 +573,11 @@ opened, target dead — and changes the intent. A ghost crewmate keeps Normal mo
 Mode-level enhancements to keep in view: arrow-bearing **task triangulation** under
 arrows-only; **travelling-salesman** task ordering over the nav graph; **safety in
 numbers** (prefer routes/tasks near other crewmates); **strategic flee targets**
-(toward a trusted player / the button / a sightline-breaking corner); **imposter
-coordination** (fan the two imposters onto different victims/areas rather than both
-stalking one); **shadow the committed victim while the kill recharges** (Hunt's
-commitment currently lives only while kill-ready; during cooldown the imposter
-Pretends generically). Victim commitment, the most-isolated-straggler pick, and
-trajectory-led interception are now implemented (Hunt, `strategy.trajectory`).
+(toward a trusted player / the button / a sightline-breaking corner); richer
+**imposter coordination** (shared claims, role assignment, or bluff-aware spacing
+beyond the current local teammate-pressure/claim heuristic). Victim commitment,
+the most-isolated visible-target pick, trajectory-led interception, lead-window
+Search, and lightweight teammate avoidance are now implemented.
 
 ---
 
@@ -690,23 +686,22 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 **Imposter selection** (priority order):
 
 1. phase = `Voting` → **Attend Meeting**
-2. just killed (within `EVADE_TICKS`) → **Evade**
-3. kill ready **and** a victim is trackable → **Hunt** (commit + stalk + strike when isolated)
-4. otherwise → **Pretend** (whose own FSM follows a crewmate, fakes tasks, and
-   wanders rooms when none are in sight — see §7.2; it never idles)
+2. just killed → **Evade** for `EVADE_TICKS` (vent if possible, else leave the body)
+3. a body in view → **Report Body** only after the fresh-kill evade window
+4. kill ready **and** a visible victim → **Hunt** (commit + close, strike when isolated)
+5. kill ready **or within `SEARCH_LEAD_TICKS` of ready** (`ticks_until_kill_ready`) → **Search**
+   (walk occupancy hot spots; follow the first visible non-teammate target)
+6. otherwise → **Pretend** (choose likely crew rooms from occupancy density,
+   penalize teammate-imposter pressure, move to a real task station, fake the task)
 
-(3) fires whenever the kill is ready and *any* crewmate is trackable
-(`has_trackable_victim` — seen within `TRACK_WINDOW_TICKS`); Hunt then commits to a
-victim and stalks it (§7.2), firing the kill only when it would go **unwitnessed**.
+(4) fires only when the kill is ready and a live non-teammate is visible. Hunt then
+commits to a victim (§7.2), firing the kill only when it would go **unwitnessed**.
 The witness bar relaxes with **urgency** — `last_tick − kill_ready_since_tick`, how
 long we have been able to kill without doing so — shrinking the required clearance
 radius and the witness-staleness window to zero by `URGENCY_FULL_TICKS`, at which
-point the imposter strikes regardless of witnesses. This is the "always be killing,
-but subtly" behaviour: a kill-ready imposter is *always* stalking, but holds the
-actual kill until the victim isolates (growing less picky the longer it's denied).
-When no crewmate is trackable it stays in Pretend and wanders to find the crew.
-(`crew_tasks_remaining`-based escalation was considered and dropped — the imposter
-acts with constant urgency rather than only near a task win.)
+point the imposter strikes regardless of witnesses. When no visible victim is
+available, Search owns acquisition during the lead window rather than Hunt chasing
+stale targets.
 
 ### 10.1 Suspicion — Bayesian P(imposter) (`strategy/suspicion.py`)
 
@@ -768,6 +763,28 @@ deferred to the LLM seam as future evidence: *area-recency*, *alibi clearing*,
 (`chat_log`, §4.3). The posterior also feeds the still-unbuilt suspicion-aware
 **voting** and **chat generation**.
 
+### 10.2 Agent location tracking (`agent_tracking.py`)
+
+> **Full reference:** [`docs/designs/agent-tracking.md`](docs/designs/agent-tracking.md).
+
+`update_agent_tracking(belief)` runs every tick in the fast loop after
+`update_belief`. It builds a deterministic static substrate once the nav graph
+exists: task/home/button anchors, pairwise A* route polylines, and a coarse
+reachable occupancy grid (32px cells). For each live non-teammate, it maintains a
+position distribution bounded by the speed-limited reachability disc from the
+last sighting. A fresh sighting collapses that player to the observed cell; when
+the player is absent, line-of-sight-visible cells are removed from their mass.
+
+The readout sums all tracked crew into an expected-crew occupancy grid and tracks
+teammate-imposter occupancy separately. Pretend aggregates the crew grid to
+room-level density, subtracts teammate pressure, and commits to the chosen room
+for the full Pretend window so it reaches and fakes the task instead of
+periodically retargeting. Visible kills still require Hunt's existing victim
+selection, trajectory lead, KillRange check, and unwitnessed gate. The
+task-assignment/destination mixture from the design doc is not implemented yet;
+it is the next gated stage after measuring reachability-disc accuracy and kill
+impact.
+
 ---
 
 ## 11. Package layout and tracing
@@ -775,12 +792,13 @@ deferred to the LLM seam as future evidence: *area-recency*, *alibi clearing*,
 ```
 crewborg/
   __init__.py        # build_runtime(): assemble AgentRuntime
+  agent_tracking.py  # reachability-disc location beliefs + coarse occupancy search
   types.py           # the six types + perceive/update_belief
   action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
-  modes/             # idle, normal, attend_meeting, report_body, flee, hunt, pretend, evade
+  modes/             # idle, normal, attend_meeting, report_body, flee, evade, pretend, search, hunt
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
@@ -807,12 +825,32 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   `role_resolved`, `body_sighted`, `task_completed`, `kill_landed`, `vote_cast`.
 - *attempt* (keyed on the wire command's button edge): `task_started`,
   `kill_attempted`, `report_attempted`, `vent_attempted`, `chat_sent`.
+- *knowledge layer* (the per-player event log §5.2 + the suspicion reasoning
+  §10.1 *behind* the actions — read off the finalized belief so `strategy/` stays
+  pure). Always on, lean enough for the tournament: `player_event` when a new
+  observation interval opens on someone's log; `player_died` on an alive→dead
+  transition; `imposter_confirmed` / `believed_changed` when the suspicion sets
+  move; and a full `suspicion_snapshot` (ranked posteriors + each suspect's event
+  log + the would-be vote and the bar) at the start of every meeting — the single
+  record that explains a vote after the fact.
+- *location tracking* (§10.2): `occupancy_substrate` once the static grid/polylines
+  are built, `occupancy_reacquired` when a lost player re-enters view
+  (predicted-vs-actual cell and distance error), and `occupancy_seek_target` when
+  the imposter's hottest search cell changes.
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
 seen as the kill-ready→cooldown edge). Incoming meeting chat *is* now decoded into
 `belief.chat_log` (§4.3), but there is no `chat_received` domain event yet — the
 event seam for it is unbuilt.
+
+**Debug verbosity (`CREWBORG_TRACE=debug`).** Opt-in, heavy (~one line per tick):
+the entire live `P(imposter)` vector each tick (`suspicion_tick`) plus
+`suspicion.top_p` / `suspicion.believed_count` gauges, and an
+`occupancy_snapshot` with the top grid cells plus per-agent support sizes — for
+deep single-game forensics (e.g. "did suspicion ever approach the flee bar?" or
+"where did the tracker think the crew were?"). Off by default; the lean deltas +
+meeting snapshots above are what ships in the tournament image.
 
 Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
 events key on the produced `command`, which modes never see, and `task_completed`
@@ -832,11 +870,13 @@ structural, and each still awaits tuning against a live server.
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
-| Report policy | **always report** a visible body (suspicion-aware reporting is a possible refinement) |
+| Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
-| Evade flee distance | leave the body's vicinity by ≈ `EVADE_RADIUS = 128` px (local, not the farthest point), for `EVADE_TICKS = 72` |
+| Pretend room targeting | room score = expected crew density minus teammate-imposter pressure (`TEAMMATE_ROOM_PENALTY = 3.0`); choose a real task station in the selected room; keep a chosen room for `ROOM_TARGET_MIN_TICKS = 10000` unless arriving or being preempted |
 | Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
-| Hunt victim tracking | stalk a victim seen within `TRACK_WINDOW_TICKS = 120`; lead its motion up to `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
+| Search lead | enter Search `SEARCH_LEAD_TICKS = 100` before the kill is ready. Time-to-ready is reconstructed from the binary HUD: a learned `kill_cooldown_estimate` (or `DEFAULT_KILL_COOLDOWN_TICKS = 900` until measured) from the tracked cooldown start |
+| Hunt victim tracking | Hunt requires a visible victim; Search may follow a committed victim seen within `TRACK_WINDOW_TICKS = 120`; trajectory lead is capped at `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
+| Hunt teammate claim | prefer an unclaimed victim when a teammate-imposter seen within `TRACK_WINDOW_TICKS` is closer to another victim inside `TEAMMATE_CLAIM_RADIUS = 80` px |
 
 ---
 

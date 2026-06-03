@@ -9,7 +9,9 @@ as a Docker image the Coworld runner launches.
 - **Orientation:** [`AGENTS.md`](./AGENTS.md) — codebases, protocol, source pointers.
 - **Design docs:** [`docs/designs/`](./docs/designs/) — living deep-dives, e.g.
   [`suspicion.md`](./docs/designs/suspicion.md) (the Bayesian model + likelihood-ratio
-  table + how we learn/improve the weights).
+  table + how we learn/improve the weights) and
+  [`agent-tracking.md`](./docs/designs/agent-tracking.md) (probabilistic location
+  tracking for imposter search).
 
 ## What it does
 
@@ -21,16 +23,18 @@ ratios for witnessed kills/vents and graded event-log cues); it flees anyone ove
 probability threshold and at meetings votes the highest-`P` player above the vote
 bar (else skips), with reporting a visible body taking priority over fleeing. As an
 imposter the
-role-aware selector runs a priority order during `Playing`: **Evade** (just killed
-→ brief, local `escape` just outside the body's vicinity), **Hunt** (kill ready
-*and* a victim trackable → commit to the most-isolated crewmate, stalk it via a
-trajectory-led intercept, and strike when in range and unwitnessed), and
-**Pretend** (the default — a small FSM that follows a crewmate, fakes a task when it
-tails one into a room, and wanders rooms when none are in sight, never idling);
-meetings reuse **Attend Meeting**. Hunt is gated on an actual *kill opportunity*
-(shared with the selector) whose isolation bar relaxes with urgency, not merely on
-the cooldown ending. The action layer covers `kill` (edge-A in KillRange), `vent`
-(level-B in VentRange), and `escape` (vent-aware flee routing). The LLM strategy
+role-aware selector runs a priority order during `Playing`: **Evade** immediately
+after its own kill (vent if possible, else move away from the body), **Report Body**
+for non-fresh visible bodies, **Hunt** (kill ready *and* a victim visible → commit
+to the most-isolated visible crewmate, close via a trajectory-led intercept, and
+strike when in range and unwitnessed),
+**Search** (within the kill lead window, walk ranked occupancy hot spots until a
+victim is visible, then follow that target), and **Pretend** (the default — pick a
+real task station in the highest-scoring occupancy room, penalizing rooms another
+imposter is likely occupying, then fake the task for one task duration). Meetings
+reuse **Attend Meeting**. Hunt is gated on a visible kill opportunity whose
+isolation bar relaxes with urgency, not merely on the cooldown ending. The action
+layer covers `kill` (edge-A in KillRange) and `vent` (level-B in VentRange). The LLM strategy
 seam (`design.md` §10) remains in place but unused.
 
 ## Layout
@@ -38,12 +42,13 @@ seam (`design.md` §10) remains in place but unused.
 ```
 crewborg/
   __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
+  agent_tracking.py  reachability-disc location beliefs + coarse occupancy grid search
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/attend_meeting/report_body/flee + hunt/pretend/evade (+ imposter_common helpers)
+  modes/             idle/normal/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
@@ -76,6 +81,12 @@ players/crewrift/crewborg/scripts/play_local.sh
 `COGAMES_ENGINE_WS_URL` defaults to `ws://localhost:2000/player?slot=0&token=`;
 override it to point elsewhere.
 
+Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
+suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
+every meeting, …; see `design.md` §11). Set `CREWBORG_TRACE=debug` for the heavy
+per-tick dump of the full `P(imposter)` vector and occupancy snapshot — useful
+when debugging why a vote, flee, or pre-kill search did (not) happen.
+
 ## Fetch hosted episode data
 
 Download the full data for the most recent episodes crewborg played in the
@@ -95,11 +106,14 @@ compressed `replay.json.z`, and `logs/crewborg_slot{N}_v{V}.log` — crewborg's
 own per-tick stderr trace for each slot it controlled. The run is idempotent
 (`--force` to re-download); see `--help` for `--no-replay` / `--no-logs`.
 
-For ad-hoc inspection the official `coworld episodes` / `coworld replays
---download-dir` / `coworld episode-logs --download-dir` commands cover the same
-ground (they require **coworld ≥ 0.1.13** — 0.1.11 crashes on a stale
-`V2EpisodeRequestRow` model). This script complements them by filtering to
-crewborg and bundling everything per episode in one pass.
+The official `coworld episodes` / `coworld replays` / `coworld episode-logs`
+commands *would* cover similar ground, but as of 2026-06-02 they are **broken
+against the live server**: the server renamed its episode-request API
+(`/v2/episode-requests*` → `/v2/experience-request*`) and even the latest CLI
+(coworld 0.1.13) still calls the old paths, so those commands 404. This script
+calls the current routes directly (and reads raw JSON), so it keeps working
+across that kind of client/server drift — prefer it. (If you need the official
+CLI, check `<api>/observatory/openapi.json` for the live route names first.)
 
 ## Build the image
 

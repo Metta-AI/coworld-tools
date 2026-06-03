@@ -8,6 +8,7 @@ from players.crewrift.crewborg.modes.idle import IdleMode
 from players.crewrift.crewborg.modes.normal import NormalMode
 from players.crewrift.crewborg.modes.pretend import PretendMode
 from players.crewrift.crewborg.modes.report_body import ReportBodyMode
+from players.crewrift.crewborg.modes.search import SearchMode
 
 __all__ = [
     "AttendMeetingMode",
@@ -18,4 +19,5 @@ __all__ = [
     "NormalMode",
     "PretendMode",
     "ReportBodyMode",
+    "SearchMode",
 ]
