@@ -117,9 +117,6 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                 completed_request_ids = set(results_by_request_id)
                 settled_request_ids = completed_request_ids | set(failed_by_request_id)
                 if round_start is not None and expected_request_ids and expected_request_ids <= settled_request_ids:
-                    if not completed_request_ids:
-                        await websocket.close(code=1011, reason="all scheduled episodes failed")
-                        return
                     ordered_results = [
                         results_by_request_id[request_id]
                         for request_id in sorted(
