@@ -67,7 +67,7 @@ from commissioners.common.protocol import (
 from commissioners.common.protocol import (
     RoundComplete as CommissionerRoundComplete,
 )
-from commissioners.common.utils import select_qualifier_division
+from commissioners.common.utils import division_entrants, select_qualifier_division
 
 if TYPE_CHECKING:
     from commissioners.common.commissioners import Commissioner
@@ -173,10 +173,28 @@ def _round_start_pool(
 
 def _round_start_entries(round_start: CommissionerRoundStart) -> list[PolicyPoolEntry]:
     division = _current_division(round_start)
+    qualifier_division = select_qualifier_division(
+        round_start.league.commissioner_config,
+        _round_start_divisions(round_start),
+    )
+    is_qualifier = qualifier_division is not None and division.id == qualifier_division.id
+    entrants = division_entrants(
+        _round_start_memberships(round_start),
+        division,
+        is_qualifier=is_qualifier,
+    )
+    config = _round_start_config(round_start)
+    if isinstance(config.get("entrant_policy_version_ids"), list):
+        entrant_order = {
+            UUID(str(policy_version_id)): index
+            for index, policy_version_id in enumerate(config["entrant_policy_version_ids"])
+        }
+        entrants = [entrant for entrant in entrants if entrant.policy_version_id in entrant_order]
+        entrants = sorted(entrants, key=lambda entrant: entrant_order[entrant.policy_version_id])
     entries: list[PolicyPoolEntry] = []
     seen: set[UUID] = set()
-    for membership in round_start.memberships:
-        if membership.division_id != division.id or membership.policy_version_id in seen:
+    for membership in entrants:
+        if membership.policy_version_id in seen:
             continue
         seen.add(membership.policy_version_id)
         entries.append(

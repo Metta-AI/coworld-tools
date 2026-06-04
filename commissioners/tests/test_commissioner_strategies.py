@@ -601,6 +601,95 @@ def test_round_start_adapter_uses_extracted_commissioner_api() -> None:
     assert schedule.episodes[0].policy_version_ids == policy_version_ids
 
 
+def test_round_start_adapter_uses_configured_competition_division_entries() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_id = uuid4()
+    champion_policy_ids = [uuid4(), uuid4()]
+    non_champion_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[qualifier_policy_id],
+        num_agents=2,
+        commissioner_config={"qualifiers_division_name": "Qualifiers", "minimum_champions": 2},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Wood", level=1, type="competition")],
+        state={"round_config": {"current_division_id": str(competition_id)}},
+    )
+    round_start.memberships.extend(
+        [
+            MembershipInfo(
+                id=uuid4(),
+                division_id=competition_id,
+                policy_version_id=policy_version_id,
+                player_id=f"competition-player-{index}",
+                is_champion=True,
+            )
+            for index, policy_version_id in enumerate(champion_policy_ids)
+        ]
+    )
+    round_start.memberships.append(
+        MembershipInfo(
+            id=uuid4(),
+            division_id=competition_id,
+            policy_version_id=non_champion_policy_id,
+            player_id="non-champion-player",
+            is_champion=False,
+        )
+    )
+
+    schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
+
+    assert schedule.episodes
+    scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
+    assert scheduled_policy_ids == set(champion_policy_ids)
+
+
+def test_round_start_adapter_allows_non_champion_qualifier_entries() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_ids = [uuid4(), uuid4()]
+    competition_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={"qualifiers_division_name": "Qualifiers", "minimum_champions": 2},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Wood", level=1, type="competition")],
+        state={"round_config": {"current_division_id": str(qualifier_id)}},
+    )
+    round_start.memberships.extend(
+        [
+            MembershipInfo(
+                id=uuid4(),
+                division_id=qualifier_id,
+                policy_version_id=policy_version_id,
+                player_id=f"qualifier-player-{index}",
+                is_champion=False,
+            )
+            for index, policy_version_id in enumerate(qualifier_policy_ids)
+        ]
+    )
+    round_start.memberships.append(
+        MembershipInfo(
+            id=uuid4(),
+            division_id=competition_id,
+            policy_version_id=competition_policy_id,
+            player_id="competition-player",
+            is_champion=True,
+        )
+    )
+
+    schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
+
+    assert schedule.episodes
+    scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
+    assert scheduled_policy_ids == set(qualifier_policy_ids)
+
+
 class HookResponseCommissioner(BaselineCommissioner):
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         membership = ctx.division_memberships[0]
