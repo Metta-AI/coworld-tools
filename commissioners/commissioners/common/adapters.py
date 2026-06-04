@@ -245,7 +245,8 @@ def _round_start_memberships(round_start: CommissionerRoundStart) -> list[Member
             division_id=membership.division_id,
             policy_version_id=membership.policy_version_id,
             player_id=membership.player_id,
-            is_champion=membership.is_champion,
+            status=membership.status,
+            substatus=membership.substatus,
         )
         for membership in round_start.memberships
     ]
@@ -411,7 +412,8 @@ def schedule_rounds_for_request(
                     division_id=membership.division_id,
                     policy_version_id=membership.policy_version_id,
                     player_id=membership.player_id,
-                    is_champion=membership.is_champion,
+                    status=membership.status,
+                    substatus=membership.substatus,
                 )
                 for membership in request.active_memberships
             ],
@@ -483,7 +485,8 @@ def describe_division_for_request(
                     division_id=membership.division_id,
                     policy_version_id=membership.policy_version_id,
                     player_id=membership.player_id,
-                    is_champion=membership.is_champion,
+                    status=membership.status,
+                    substatus=membership.substatus,
                 )
                 for membership in request.active_memberships
             ],
@@ -539,7 +542,8 @@ def round_completed_for_request(
                     division_id=membership.division_id,
                     policy_version_id=membership.policy_version_id,
                     player_id=membership.player_id,
-                    is_champion=membership.is_champion,
+                    status=membership.status,
+                    substatus=membership.substatus,
                 )
                 for membership in request.division_memberships
             ],

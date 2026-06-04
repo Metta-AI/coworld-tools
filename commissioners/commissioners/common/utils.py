@@ -15,9 +15,11 @@ from commissioners.common.models import (
     MembershipChange,
     MembershipSnapshot,
     OnRoundCompletedContext,
+    PolicyMembershipStatus,
     PoolConfig,
     RoundSchedulingConfig,
     V2StageConfig,
+    policy_membership_has_champion_substatus,
 )
 
 DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
@@ -85,10 +87,17 @@ def division_entrants(
     *,
     is_qualifier: bool,
 ) -> list[MembershipSnapshot]:
+    if is_qualifier:
+        return [
+            membership
+            for membership in memberships
+            if membership.division_id == division.id and membership.status == PolicyMembershipStatus.qualifying
+        ]
     return [
         membership
         for membership in memberships
-        if membership.division_id == division.id and (is_qualifier or membership.is_champion)
+        if membership.division_id == division.id
+        and policy_membership_has_champion_substatus(membership.status, membership.substatus)
     ]
 
 
