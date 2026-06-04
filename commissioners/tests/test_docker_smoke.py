@@ -37,15 +37,23 @@ def _docker_available() -> bool:
 
 def _round_start_json() -> str:
     division_id = uuid4()
+    league_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]
     return json.dumps(
         RoundStart(
             round_id=uuid4(),
             round_number=1,
-            league=LeagueInfo(id=uuid4(), commissioner_config={"num_episodes": 1}),
+            league=LeagueInfo(id=league_id, commissioner_config={"num_episodes": 1}),
             divisions=[DivisionInfo(id=division_id, name="Dirt", level=0)],
             memberships=[
-                MembershipInfo(id=uuid4(), division_id=division_id, policy_version_id=policy_version_id)
+                MembershipInfo(
+                    id=uuid4(),
+                    league_id=league_id,
+                    division_id=division_id,
+                    policy_version_id=policy_version_id,
+                    status="competing",
+                    substatus="champion",
+                )
                 for policy_version_id in policy_version_ids
             ],
             recent_results=[],

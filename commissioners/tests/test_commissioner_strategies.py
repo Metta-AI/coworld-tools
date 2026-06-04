@@ -60,22 +60,30 @@ def _round_start(
     state: dict | None = None,
 ) -> RoundStart:
     active_division_id = division_id or uuid4()
+    league_id = uuid4()
     divisions = [
         DivisionInfo(id=active_division_id, name=division_name, level=0, type=division_type),
         *(extra_divisions or []),
     ]
+    # The helper's members are the active division's entrants: qualifying members in a
+    # staging division, champions in a competition division.
+    member_status, member_substatus = (
+        ("qualifying", None) if division_type == "staging" else ("competing", "champion")
+    )
     return RoundStart(
         round_id=uuid4(),
         round_number=1,
-        league=LeagueInfo(id=uuid4(), commissioner_config=commissioner_config or {}),
+        league=LeagueInfo(id=league_id, commissioner_config=commissioner_config or {}),
         divisions=divisions,
         memberships=[
             MembershipInfo(
                 id=uuid4(),
+                league_id=league_id,
                 division_id=active_division_id,
                 policy_version_id=policy_version_id,
                 player_id=f"player-{index}",
-                is_champion=True,
+                status=member_status,
+                substatus=member_substatus,
             )
             for index, policy_version_id in enumerate(policy_version_ids)
         ],
@@ -229,16 +237,19 @@ def test_cogs_vs_clips_qualifier_round_uses_qualifier_stage() -> None:
             active_memberships=[
                 MembershipInfo(
                     id=uuid4(),
+                    league_id=uuid4(),
                     division_id=qualifier_id,
                     policy_version_id=qualifier_policy_id,
-                    is_champion=False,
+                    status="qualifying",
                 ),
                 *[
                     MembershipInfo(
                         id=uuid4(),
+                        league_id=uuid4(),
                         division_id=daily_id,
                         policy_version_id=policy_version_id,
-                        is_champion=True,
+                        status="competing",
+                        substatus="champion",
                     )
                     for policy_version_id in daily_policy_ids
                 ],
@@ -357,9 +368,10 @@ def test_among_them_qualifier_schedule_does_not_expose_self_play_stage() -> None
             active_memberships=[
                 MembershipInfo(
                     id=uuid4(),
+                    league_id=uuid4(),
                     division_id=qualifier_id,
                     policy_version_id=uuid4(),
-                    is_champion=False,
+                    status="qualifying",
                 )
             ],
             recent_rounds=[],
@@ -532,13 +544,17 @@ def test_among_them_qualifier_graduation_requires_completed_episode() -> None:
             division_memberships=[
                 MembershipInfo(
                     id=completed_membership_id,
+                    league_id=uuid4(),
                     division_id=qualifier_id,
                     policy_version_id=completed_policy_id,
+                    status="qualifying",
                 ),
                 MembershipInfo(
                     id=failed_membership_id,
+                    league_id=uuid4(),
                     division_id=qualifier_id,
                     policy_version_id=failed_policy_id,
+                    status="qualifying",
                 ),
             ],
             recent_results=[],
@@ -601,6 +617,254 @@ def test_round_start_adapter_uses_extracted_commissioner_api() -> None:
     assert schedule.episodes[0].policy_version_ids == policy_version_ids
 
 
+def test_round_start_adapter_uses_configured_competition_division_entries() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_id = uuid4()
+    champion_policy_ids = [uuid4(), uuid4()]
+    non_champion_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[qualifier_policy_id],
+        num_agents=2,
+        commissioner_config={"qualifiers_division_name": "Qualifiers", "minimum_champions": 2},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Wood", level=1, type="competition")],
+        state={"round_config": {"current_division_id": str(competition_id)}},
+    )
+    round_start.memberships.extend(
+        [
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=competition_id,
+                policy_version_id=policy_version_id,
+                player_id=f"competition-player-{index}",
+                status="competing",
+                substatus="champion",
+            )
+            for index, policy_version_id in enumerate(champion_policy_ids)
+        ]
+    )
+    round_start.memberships.append(
+        MembershipInfo(
+            id=uuid4(),
+            league_id=round_start.league.id,
+            division_id=competition_id,
+            policy_version_id=non_champion_policy_id,
+            player_id="non-champion-player",
+            status="competing",
+        )
+    )
+
+    schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
+
+    assert schedule.episodes
+    scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
+    assert scheduled_policy_ids == set(champion_policy_ids)
+
+
+def test_round_start_adapter_allows_non_champion_qualifier_entries() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_ids = [uuid4(), uuid4()]
+    competition_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={"qualifiers_division_name": "Qualifiers", "minimum_champions": 2},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Wood", level=1, type="competition")],
+        state={"round_config": {"current_division_id": str(qualifier_id)}},
+    )
+    round_start.memberships.extend(
+        [
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=qualifier_id,
+                policy_version_id=policy_version_id,
+                player_id=f"qualifier-player-{index}",
+                status="qualifying",
+            )
+            for index, policy_version_id in enumerate(qualifier_policy_ids)
+        ]
+    )
+    round_start.memberships.append(
+        MembershipInfo(
+            id=uuid4(),
+            league_id=round_start.league.id,
+            division_id=competition_id,
+            policy_version_id=competition_policy_id,
+            player_id="competition-player",
+            status="competing",
+            substatus="champion",
+        )
+    )
+
+    schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
+
+    assert schedule.episodes
+    scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
+    assert scheduled_policy_ids == set(qualifier_policy_ids)
+
+
+def test_round_start_adapter_requires_division_id_to_target_the_round_division() -> None:
+    """Regression for the deployed bug, framed as a parity requirement.
+
+    The container commissioner must schedule episodes for the SAME entrants the
+    backend's non-container path would pick for the round's division. When the
+    backend sends memberships spanning multiple divisions, the only reliable way to
+    identify the round's division is ``current_division_id``. Without it,
+    ``_current_division`` falls back to a level/name heuristic and resolves to the
+    WRONG division (the production failure: Wood/Dirt rounds ran the wrong entrants
+    or none at all). With it, the adapter targets the intended division exactly.
+    """
+    qualifier_id = uuid4()
+    dirt_id = uuid4()
+    wood_id = uuid4()
+    dirt_champion_ids = [uuid4(), uuid4()]
+    wood_champion_ids = [uuid4(), uuid4()]
+
+    def _wood_round_start(state: dict | None) -> RoundStart:
+        round_start = _round_start(
+            policy_version_ids=[],
+            num_agents=2,
+            commissioner_config={"qualifiers_division_name": "Qualifiers", "minimum_champions": 2},
+            division_name="Qualifiers",
+            division_id=qualifier_id,
+            division_type="staging",
+            extra_divisions=[
+                DivisionInfo(id=dirt_id, name="Dirt", level=0, type="competition"),
+                DivisionInfo(id=wood_id, name="Wood", level=1, type="competition"),
+            ],
+            state=state,
+        )
+        round_start.memberships.extend(
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=division_id,
+                policy_version_id=policy_version_id,
+                player_id=f"champion-{index}",
+                status="competing",
+                substatus="champion",
+            )
+            for division_id, champion_ids in ((dirt_id, dirt_champion_ids), (wood_id, wood_champion_ids))
+            for index, policy_version_id in enumerate(champion_ids)
+        )
+        return round_start
+
+    # With current_division_id: the Wood round runs exactly the Wood champions.
+    targeted = schedule_episodes_for_round_start(
+        BaselineCommissioner(), _wood_round_start({"round_config": {"current_division_id": str(wood_id)}})
+    )
+    targeted_policy_ids = {policy_id for episode in targeted.episodes for policy_id in episode.policy_version_ids}
+    assert targeted_policy_ids == set(wood_champion_ids)
+    assert targeted_policy_ids.isdisjoint(dirt_champion_ids)
+
+    # Without current_division_id: the adapter cannot identify the Wood division and
+    # picks the wrong entrants — never the intended Wood champions in full.
+    misrouted = schedule_episodes_for_round_start(BaselineCommissioner(), _wood_round_start(None))
+    misrouted_policy_ids = {policy_id for episode in misrouted.episodes for policy_id in episode.policy_version_ids}
+    assert misrouted_policy_ids != set(wood_champion_ids)
+
+
+def test_round_start_adapter_separates_qualifier_and_competition_entrants_in_one_league() -> None:
+    """The Cogs vs Clips / Among Them production shape: a single league whose
+    membership set spans an active self-play qualifier division and a competition
+    division with champions. Each round must only run its own division's entrants.
+    """
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_ids = [uuid4(), uuid4()]
+    champion_policy_ids = [uuid4(), uuid4(), uuid4()]
+    non_champion_competition_id = uuid4()
+    commissioner_config = {
+        "qualifiers_division_name": "Qualifiers",
+        "minimum_champions": 2,
+        "stages": [{"label": "Round", "num_episodes": 1, "min_episodes_per_entrant": 8}],
+        "qualifier_stages": [
+            {"label": "Qualifier", "num_episodes": 2, "min_episodes_per_entrant": 2, "self_play": True}
+        ],
+    }
+    # The backend persists the division-appropriate stage list onto the round and
+    # threads it back through round_config.stages, exactly as schedule_rounds emits it.
+    qualifier_stages = commissioner_config["qualifier_stages"]
+    competition_stages = commissioner_config["stages"]
+
+    def _mixed_round_start(current_division_id: UUID, stages: list[dict]) -> RoundStart:
+        round_start = _round_start(
+            policy_version_ids=[],
+            num_agents=2,
+            commissioner_config=commissioner_config,
+            division_name="Qualifiers",
+            division_id=qualifier_id,
+            division_type="staging",
+            extra_divisions=[DivisionInfo(id=competition_id, name="Daily", level=1, type="competition")],
+            state={"round_config": {"current_division_id": str(current_division_id), "stages": stages}},
+        )
+        round_start.memberships.extend(
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=qualifier_id,
+                policy_version_id=policy_version_id,
+                player_id=f"qualifier-player-{index}",
+                status="qualifying",
+            )
+            for index, policy_version_id in enumerate(qualifier_policy_ids)
+        )
+        round_start.memberships.extend(
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=competition_id,
+                policy_version_id=policy_version_id,
+                player_id=f"champion-player-{index}",
+                status="competing",
+                substatus="champion",
+            )
+            for index, policy_version_id in enumerate(champion_policy_ids)
+        )
+        round_start.memberships.append(
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=competition_id,
+                policy_version_id=non_champion_competition_id,
+                player_id="non-champion-player",
+                status="competing",
+            )
+        )
+        return round_start
+
+    qualifier_schedule = schedule_episodes_for_round_start(
+        CogsVsClipsCommissioner(), _mixed_round_start(qualifier_id, qualifier_stages)
+    )
+    qualifier_scheduled = {
+        policy_id for episode in qualifier_schedule.episodes for policy_id in episode.policy_version_ids
+    }
+    # Qualifier round: self-play over the qualifier members only; no champions leak in.
+    assert qualifier_scheduled == set(qualifier_policy_ids)
+    for episode in qualifier_schedule.episodes:
+        assert len(set(episode.policy_version_ids)) == 1, "qualifier stage must be self-play"
+
+    competition_schedule = schedule_episodes_for_round_start(
+        CogsVsClipsCommissioner(), _mixed_round_start(competition_id, competition_stages)
+    )
+    competition_scheduled = {
+        policy_id for episode in competition_schedule.episodes for policy_id in episode.policy_version_ids
+    }
+    # Competition round: champions only; the non-champion and all qualifier members excluded.
+    assert competition_scheduled == set(champion_policy_ids)
+    assert non_champion_competition_id not in competition_scheduled
+    assert competition_scheduled.isdisjoint(qualifier_policy_ids)
+
+
 class HookResponseCommissioner(BaselineCommissioner):
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         membership = ctx.division_memberships[0]
@@ -639,9 +903,11 @@ def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None
             active_memberships=[
                 MembershipInfo(
                     id=membership_id,
+                    league_id=league_id,
                     division_id=division_id,
                     policy_version_id=policy_version_id,
-                    is_champion=True,
+                    status="competing",
+                    substatus="champion",
                 )
             ],
             recent_rounds=[],
@@ -688,9 +954,11 @@ def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None
             active_memberships=[
                 MembershipInfo(
                     id=membership_id,
+                    league_id=league_id,
                     division_id=division_id,
                     policy_version_id=policy_version_id,
-                    is_champion=True,
+                    status="competing",
+                    substatus="champion",
                 )
             ],
             recent_rounds=[],
@@ -717,8 +985,11 @@ def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None
             division_memberships=[
                 MembershipInfo(
                     id=membership_id,
+                    league_id=league_id,
                     division_id=division_id,
                     policy_version_id=policy_version_id,
+                    status="competing",
+                    substatus="champion",
                 )
             ],
             recent_results=[],

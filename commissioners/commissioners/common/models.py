@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
+from enum import Enum, StrEnum
 from math import ceil
 from os import getenv
 from typing import Any
@@ -15,6 +15,26 @@ SubmissionId = str
 
 DIVISION_TYPE_COMPETITION = "competition"
 DIVISION_TYPE_STAGING = "staging"
+
+
+class PolicyMembershipStatus(str, Enum):
+    submitted = "submitted"
+    qualifying = "qualifying"
+    competing = "competing"
+    disqualified = "disqualified"
+
+    @classmethod
+    def live(cls) -> tuple["PolicyMembershipStatus", ...]:
+        return (cls.submitted, cls.qualifying, cls.competing)
+
+
+POLICY_MEMBERSHIP_SUBSTATUS_CHAMPION = "champion"
+POLICY_MEMBERSHIP_SUBSTATUS_CRASH = "crash"
+POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE = "inactive"
+
+
+def policy_membership_has_champion_substatus(status: PolicyMembershipStatus | str, substatus: str | None) -> bool:
+    return status == PolicyMembershipStatus.competing and substatus == POLICY_MEMBERSHIP_SUBSTATUS_CHAMPION
 
 
 class RoundExecutionBackend(StrEnum):
@@ -60,7 +80,8 @@ class LeaguePolicyMembership(BaseModel):
     division_id: UUID
     policy_version_id: UUID
     player_id: PlayerId | None = None
-    is_champion: bool = False
+    status: PolicyMembershipStatus = PolicyMembershipStatus.competing
+    substatus: str | None = None
 
 
 class PolicyPool(BaseModel):
@@ -277,18 +298,12 @@ class MembershipSnapshot(BaseModel):
     division_id: UUID
     policy_version_id: UUID
     player_id: PlayerId | None
-    is_champion: bool
+    status: PolicyMembershipStatus = PolicyMembershipStatus.competing
+    substatus: str | None = None
 
-    @staticmethod
-    def from_orm(m: LeaguePolicyMembership) -> MembershipSnapshot:
-        return MembershipSnapshot(
-            id=m.id,
-            league_id=m.league_id,
-            division_id=m.division_id,
-            policy_version_id=m.policy_version_id,
-            player_id=m.player_id,
-            is_champion=m.is_champion,
-        )
+    @property
+    def has_champion_substatus(self) -> bool:
+        return policy_membership_has_champion_substatus(self.status, self.substatus)
 
 
 class RoundSnapshot(BaseModel):
