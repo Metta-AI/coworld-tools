@@ -10,7 +10,7 @@ from __future__ import annotations
 from players.crewrift.crewborg.action import BTN_A, BTN_B, BTN_LEFT
 from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.strategy.suspicion import VOTE_PROBABILITY
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Command, Intent
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Command, Intent, PlayerRecord
 from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, ModeDirective, StepContext
 
 
@@ -172,6 +172,113 @@ def test_report_vent_and_chat_attempts() -> None:
     assert h.events("domain.report_attempted")[0].data == {"body_id": 2003}
     assert h.events("domain.vent_attempted")
     assert h.events("domain.chat_sent")[0].data == {"text": "no read, skipping"}
+
+
+def test_decision_snapshot_includes_visibility_threat_task_and_command_geometry() -> None:
+    from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
+
+    map_data = MapData(
+        width=200,
+        height=200,
+        tasks=(TaskStation(name="wires", x=96, y=96, w=12, h=8),),
+        vents=(),
+        rooms=(),
+        button=MapRect(x=10, y=10, w=8, h=8),
+        home=MapPoint(x=20, y=20),
+    )
+    belief = Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=10,
+        self_world_x=100,
+        self_world_y=100,
+        map=map_data,
+        visible_task_indices={0},
+        active_task_progress_pct=12,
+    )
+    belief.roster["red"] = PlayerRecord(
+        color="red",
+        world_x=150,
+        world_y=100,
+        last_seen_tick=10,
+        life_status="alive",
+    )
+    belief.believed_imposters = {"red"}
+    belief.confirmed_imposters = {"red"}
+    belief.suspicion = {"red": 0.99991}
+
+    h = _Harness()
+    h.step(
+        belief=belief,
+        action_state=ActionState(route=[(100, 100), (110, 100)], route_cursor=1, route_goal=(102, 100)),
+        intent=Intent(kind="complete_task", task_index=0, reason="completing assigned task"),
+        command=Command(held_mask=BTN_LEFT),
+        active_directive=ModeDirective(mode="normal", source="strategy", reason="unit"),
+    )
+
+    [event] = h.events("domain.decision_snapshot")
+    data = event.data
+    assert data["mode"] == "normal"
+    assert data["intent"]["kind"] == "complete_task"
+    assert data["command"] == {"held_mask": BTN_LEFT, "buttons": ["left"], "chat": False}
+    assert data["self"] == {"x": 100, "y": 100}
+    assert data["visible_players"][0]["color"] == "red"
+    assert data["visible_players"][0]["believed_imposter"] is True
+    assert data["threats"][0]["color"] == "red"
+    assert data["threats"][0]["visible"] is True
+    assert data["threats"][0]["age_ticks"] == 0
+    assert data["threats"][0]["dist_sq"] == 2500
+    assert data["threats"][0]["flee_enter"] is True
+    assert data["task"]["task_index"] == 0
+    assert data["task"]["inside"] is True
+    assert data["task"]["goal"] == [102, 100]
+    assert data["task"]["dist"] == 2.0
+    assert data["nav"]["next_waypoint"] == [110, 100]
+
+
+def test_decision_snapshot_marks_offscreen_last_known_flee_target() -> None:
+    belief = Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=20,
+        self_world_x=100,
+        self_world_y=100,
+    )
+    belief.roster["red"] = PlayerRecord(
+        color="red",
+        world_x=150,
+        world_y=100,
+        last_seen_tick=18,
+        life_status="alive",
+    )
+    belief.believed_imposters = {"red"}
+    belief.suspicion = {"red": 0.99}
+
+    h = _Harness()
+    h.step(
+        belief=belief,
+        intent=Intent(kind="flee_from", target_color="red", reason="fleeing believed imposter"),
+        command=Command(held_mask=BTN_B),
+        active_directive=ModeDirective(mode="flee", source="strategy", reason="unit"),
+    )
+
+    [event] = h.events("domain.decision_snapshot")
+    data = event.data
+    assert data["visible_players"] == []
+    assert data["threats"][0]["visible"] is False
+    assert data["threats"][0]["age_ticks"] == 2
+    assert data["threats"][0]["flee_stale"] is False
+    assert data["flee"] == {
+        "active": True,
+        "target_color": "red",
+        "target_visible": False,
+        "target_last_seen_tick": 18,
+        "target_age_ticks": 2,
+        "target_xy": [150, 100],
+        "away_point": [50, 100],
+        "target_dist": 50.0,
+        "target_dist_sq": 2500,
+    }
 
 
 # --- knowledge layer: per-player event log + suspicion reasoning -----------

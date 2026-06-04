@@ -8,7 +8,8 @@ Crewmate priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
 2. a body in view → Report Body (a meeting protects us; outranks fleeing)
-3. a believed imposter approaching → Flee
+3. a believed imposter approaching → Flee, with hysteresis so we do not bounce
+   back to tasks while skirting the trigger radius
 4. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
 5. otherwise → idle
 
@@ -42,18 +43,25 @@ from players.crewrift.crewborg.strategy.opportunity import (
     has_visible_victim,
     ticks_until_kill_ready,
 )
-from players.crewrift.crewborg.types import ActionState, Belief
+from players.crewrift.crewborg.types import ActionState, Belief, PlayerRecord
 from players.player_sdk import ModeDirective
 from players.player_sdk.types import BeliefSnapshot
 
-# A believed imposter within this distance (squared, world px) counts as
-# "approaching" and triggers Flee.
-FLEE_APPROACH_SQ = 60**2
+# A recently seen believed imposter within this distance (squared, world px)
+# counts as "approaching" and triggers Flee.
+FLEE_ENTER_SQ = 60**2
+# Once Flee is active, keep it until the current threat is clearly farther away.
+FLEE_EXIT_SQ = 100**2
+# Stop fleeing a stale last-known position after this many unseen ticks.
+FLEE_STALE_TICKS = 48
 # Ticks after a kill during which the imposter prefers to Evade (≈3s at 24 Hz).
 EVADE_TICKS = 72
 
 
 class RuleBasedStrategy:
+    def __init__(self) -> None:
+        self._flee_target: str | None = None
+
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
         with snapshot.read() as memory:
             belief = memory.belief
@@ -64,25 +72,31 @@ class RuleBasedStrategy:
         phase = belief.phase
 
         if phase == "Voting":
+            self._clear_flee()
             return ModeDirective(mode="attend_meeting", source="strategy", reason="meeting open")
 
         if phase == "Playing":
             # A crewmate ghost can't report or be threatened; it only finishes its
             # own tasks (design §7.3), so it goes straight to Normal.
             if belief.self_role == "dead":
+                self._clear_flee()
                 return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
             if belief.self_role == "imposter":
+                self._clear_flee()
                 return self._select_imposter(belief)
             # Live crewmate (or not-yet-known role): full field priority. Reporting a
             # visible body outranks fleeing — a meeting protects us and lets the crew
             # act, which beats running from a suspect we could instead report.
             if any(bid in belief.bodies for bid in belief.visible_body_ids):
+                self._clear_flee()
                 return ModeDirective(mode="report_body", source="strategy", reason="body in view")
-            if _threat_approaching(belief):
+            if self._sticky_flee_target(belief) is not None:
                 return ModeDirective(mode="flee", source="strategy", reason="believed imposter near")
+            self._clear_flee()
             return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
         # All non-play phases (RoleReveal / Lobby / VoteResult / GameOver / unknown).
+        self._clear_flee()
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
@@ -99,19 +113,73 @@ class RuleBasedStrategy:
             return ModeDirective(mode="search", source="strategy", reason="kill window near: search for target")
         return ModeDirective(mode="pretend", source="strategy", reason="blend in")
 
+    def _sticky_flee_target(self, belief: Belief) -> str | None:
+        """Return the threat that should keep Flee active this tick.
+
+        Flee enters on the existing 60px trigger, then exits only when the same
+        threat is clearly farther away or its last-known position is stale. This
+        prevents the normal/task selector and flee selector from fighting at the
+        exact trigger radius.
+        """
+
+        if self._flee_target is not None and _should_continue_flee(belief, self._flee_target):
+            return self._flee_target
+        self._flee_target = _nearest_enter_threat(belief)
+        return self._flee_target
+
+    def _clear_flee(self) -> None:
+        self._flee_target = None
+
 
 def _recent_self_kill(belief: Belief) -> bool:
     return belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS
 
 
 def _threat_approaching(belief: Belief) -> bool:
-    if belief.self_world_x is None or belief.self_world_y is None:
-        return False
-    sx, sy = belief.self_world_x, belief.self_world_y
-    for pid in belief.believed_imposters:
-        entry = belief.roster.get(pid)
-        if entry is None:
+    return _nearest_enter_threat(belief) is not None
+
+
+def _nearest_enter_threat(belief: Belief) -> str | None:
+    self_xy = _self_xy(belief)
+    if self_xy is None:
+        return None
+    candidates: list[tuple[int, str]] = []
+    for color in belief.believed_imposters:
+        record = _fresh_believed_record(belief, color)
+        if record is None:
             continue
-        if (entry.world_x - sx) ** 2 + (entry.world_y - sy) ** 2 <= FLEE_APPROACH_SQ:
-            return True
-    return False
+        dist2 = _dist2(self_xy, (record.world_x, record.world_y))
+        if dist2 <= FLEE_ENTER_SQ:
+            candidates.append((dist2, color))
+    if not candidates:
+        return None
+    return min(candidates)[1]
+
+
+def _should_continue_flee(belief: Belief, color: str) -> bool:
+    self_xy = _self_xy(belief)
+    record = _fresh_believed_record(belief, color)
+    if self_xy is None or record is None:
+        return False
+    return _dist2(self_xy, (record.world_x, record.world_y)) <= FLEE_EXIT_SQ
+
+
+def _fresh_believed_record(belief: Belief, color: str) -> PlayerRecord | None:
+    if color not in belief.believed_imposters:
+        return None
+    record = belief.roster.get(color)
+    if record is None or record.life_status == "dead":
+        return None
+    if belief.last_tick - record.last_seen_tick > FLEE_STALE_TICKS:
+        return None
+    return record
+
+
+def _self_xy(belief: Belief) -> tuple[int, int] | None:
+    if belief.self_world_x is None or belief.self_world_y is None:
+        return None
+    return belief.self_world_x, belief.self_world_y
+
+
+def _dist2(a: tuple[int, int], b: tuple[int, int]) -> int:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2

@@ -79,23 +79,25 @@ class PretendMode(Mode[Belief, ActionState, Intent]):
     # --- states ---------------------------------------------------------------
 
     def _goto_room(self, belief: Belief, self_xy: ic.Point) -> Intent:
-        committed = self._room_target_committed(belief, self_xy)
-        if not committed and self._choose_occupancy_task(belief, self_xy):
-            return self._act(belief, self_xy)
-
         target_room = _room_named(belief, self._target_room_name)
         if target_room is not None and self._goto_point is not None and ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
-            station = _station_in_room(belief, target_room, self_xy)
+            station = self._task_station or _station_in_room(belief, target_room, self_xy)
             if station is not None and ic.dist2(self_xy, station) <= ARRIVE_RADIUS_SQ:
                 self._state, self._task_station, self._hold_until = "do_task", station, None
                 return self._do_task(belief, self_xy)
             self._target_room_name = None
             self._goto_point = None
+            self._task_station = None
             self._room_chosen_tick = None
+
+        committed = self._room_target_committed(belief, self_xy)
+        if not committed and self._choose_occupancy_task(belief, self_xy):
+            return self._act(belief, self_xy)
 
         if self._goto_point is None or ic.dist2(self_xy, self._goto_point) <= ARRIVE_RADIUS_SQ:
             self._target_room_name = None
             self._goto_point = self._next_task_point(belief, self_xy)
+            self._task_station = self._goto_point
             self._room_chosen_tick = None
         if self._goto_point is None:
             return Intent(kind="idle", reason="no fake-task target")  # degenerate

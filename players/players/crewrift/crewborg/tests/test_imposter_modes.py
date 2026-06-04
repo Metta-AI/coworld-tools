@@ -269,6 +269,39 @@ def test_pretend_fakes_a_task_at_the_occupancy_selected_station() -> None:
     assert 70 <= moving.point[0] < 90 and 40 <= moving.point[1] < 60  # room A's station rect
 
 
+def test_pretend_starts_fake_task_on_arrival_before_retargeting() -> None:
+    map_data = _shadow_map()
+    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
+    belief = _belief(map_data, nav, (80, 50), tick=20)
+    update_agent_tracking(belief)
+    substrate = belief.agent_tracking.substrate
+    assert substrate is not None
+    cell_b = next(cell for cell in substrate.cells.values() if cell.label == "B")
+    belief.agent_tracking.snapshot = OccupancySnapshot(
+        tick=20,
+        expected_by_cell={cell_b.index: 2.0},
+        top_cell=cell_b.index,
+        top_point=cell_b.center,
+        top_expected=2.0,
+        tracked_count=1,
+        support_cell_count=1,
+    )
+
+    mode = PretendMode()
+    mode._state = "goto_room"
+    mode._target_room_name = "A"
+    mode._goto_point = (80, 50)
+    mode._task_station = (80, 50)
+    mode._room_chosen_tick = 10
+
+    intent = mode.decide(belief, ActionState())
+    assert intent.kind == "idle"
+    assert intent.reason == "faking a task"
+    assert mode._state == "do_task"
+    assert mode._target_room_name == "A"
+    assert mode._hold_until == belief.last_tick + 72
+
+
 def test_pretend_does_not_fake_a_task_in_the_starting_room() -> None:
     map_data = _shadow_map()
     nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
