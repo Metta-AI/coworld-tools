@@ -3,16 +3,42 @@
 from __future__ import annotations
 
 from players.crewrift.crewborg.strategy import RuleBasedStrategy
-from players.crewrift.crewborg.types import ActionState, Belief
+from players.crewrift.crewborg.strategy.rule_based import FLEE_STALE_TICKS
+from players.crewrift.crewborg.types import ActionState, Belief, PlayerRecord
 from players.player_sdk.types import BeliefSnapshot, ModeDirective, SharedMemory
 
 
 def _select(belief: Belief) -> str:
+    return _select_with(RuleBasedStrategy(), belief)
+
+
+def _select_with(strategy: RuleBasedStrategy, belief: Belief, tick: int = 1) -> str:
     memory = SharedMemory(
         belief=belief, action_state=ActionState(), active_directive=ModeDirective(mode="idle")
     )
-    directive = RuleBasedStrategy().decide(BeliefSnapshot(tick=1, memory=memory))
+    directive = strategy.decide(BeliefSnapshot(tick=tick, memory=memory))
     return directive.mode
+
+
+def _crewmate_with_threat(*, tick: int, threat_x: int, threat_y: int = 100, last_seen_tick: int | None = None) -> Belief:
+    belief = Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=tick,
+        self_world_x=100,
+        self_world_y=100,
+    )
+    belief.roster["red"] = PlayerRecord(
+        object_id=1004,
+        color="red",
+        facing="left",
+        world_x=threat_x,
+        world_y=threat_y,
+        last_seen_tick=tick if last_seen_tick is None else last_seen_tick,
+        life_status="alive",
+    )
+    belief.believed_imposters = {"red"}
+    return belief
 
 
 def test_playing_crewmate_selects_normal() -> None:
@@ -46,15 +72,29 @@ def test_ghost_does_tasks_not_report() -> None:
 
 
 def test_approaching_believed_imposter_selects_flee() -> None:
-    from players.crewrift.crewborg.types import PlayerRecord
+    assert _select(_crewmate_with_threat(tick=1, threat_x=110)) == "flee"
 
-    belief = Belief(phase="Playing", self_role="crewmate", self_world_x=100, self_world_y=100)
-    belief.roster["red"] = PlayerRecord(
-        object_id=1004, color="red", facing="left", world_x=110, world_y=100, last_seen_tick=1,
-        life_status="alive",
+
+def test_flee_stays_active_until_threat_is_clearly_clear() -> None:
+    strategy = RuleBasedStrategy()
+
+    assert _select_with(strategy, _crewmate_with_threat(tick=1, threat_x=150), tick=1) == "flee"
+    # Outside the 60px enter radius but inside the wider exit radius: stay in Flee
+    # instead of returning to tasking and bouncing at the threshold.
+    assert _select_with(strategy, _crewmate_with_threat(tick=2, threat_x=175), tick=2) == "flee"
+    assert _select_with(strategy, _crewmate_with_threat(tick=3, threat_x=205), tick=3) == "normal"
+
+
+def test_flee_exits_when_last_known_threat_position_is_stale() -> None:
+    strategy = RuleBasedStrategy()
+
+    assert _select_with(strategy, _crewmate_with_threat(tick=10, threat_x=150), tick=10) == "flee"
+    stale = _crewmate_with_threat(
+        tick=10 + FLEE_STALE_TICKS + 1,
+        threat_x=150,
+        last_seen_tick=10,
     )
-    belief.believed_imposters = {"red"}
-    assert _select(belief) == "flee"
+    assert _select_with(strategy, stale, tick=stale.last_tick) == "normal"
 
 
 def test_non_playing_phases_idle() -> None:

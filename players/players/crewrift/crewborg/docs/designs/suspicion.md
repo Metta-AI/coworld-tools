@@ -183,10 +183,12 @@ These are still in the event log (they may feed the LLM later); they just map to
 | the per-event log-LR functions + their constants | §3.3 | how much each graded cue moves belief, *and its shape* vs. duration/distance. **The main thing to fit.** |
 
 **Consumers of the posterior.** `believed_imposters` (P ≥ `FLEE_PROBABILITY`) gates
-the Flee mode. `top_suspect(belief)` (the highest-P live player, if ≥
-`VOTE_PROBABILITY`) is the Attend Meeting vote target (design §7.1); the action layer
-maps that color → its candidate-grid slot and steps the cursor onto it (§4.3),
-falling back to skip if the target can't be resolved.
+the Flee mode; the rule-based selector then adds spatial hysteresis so Flee does
+not flicker on/off while the suspect is near the distance threshold.
+`top_suspect(belief)` (the highest-P live player, if ≥ `VOTE_PROBABILITY`) is the
+Attend Meeting vote target (design §7.1); the action layer maps that color → its
+candidate-grid slot and steps the cursor onto it (§4.3), falling back to skip if
+the target can't be resolved.
 
 ---
 

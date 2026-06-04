@@ -39,7 +39,10 @@ in two tiers:
   every kill cooldown→ready / ready→cooldown edge (with ``ready_since_tick``,
   ``urgency_ticks``, and whether a victim is trackable) — so kill-window utilization
   (how promptly the strike follows the cooldown clearing, and whether the gap is
-  cooldown vs. no-victim) is readable without the debug stream.
+  cooldown vs. no-victim) is readable without the debug stream. Also always on:
+  ``decision_snapshot``, a compact per-tick audit tying visible players/bodies,
+  believed threats, last-seen ages, flee gates, task/flee geometry, mode, intent,
+  and command together for log-only triage.
 - **Debug only (``CREWBORG_TRACE=debug``):** the entire live ``P(imposter)`` vector
   every tick (``suspicion_tick``) plus ``suspicion.top_p`` / ``believed_count``
   gauges, and (imposter) a per-tick ``kill_state`` snapshot + ``kill.ready`` /
@@ -53,11 +56,13 @@ in two tiers:
 from __future__ import annotations
 
 import os
+import math
 from typing import Any
 
 from players.crewrift.crewborg.action import BTN_A, BTN_B
 from players.crewrift.crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from players.crewrift.crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
+from players.crewrift.crewborg.strategy.rule_based import FLEE_ENTER_SQ, FLEE_EXIT_SQ, FLEE_STALE_TICKS
 from players.crewrift.crewborg.strategy.suspicion import (
     VOTE_PROBABILITY,
     _prior_imposter_p,
@@ -112,6 +117,7 @@ class CrewborgEventTracer:
         self._observe_kill_landed(belief, emit)
         self._observe_vote(context.action_state, emit)
         self._observe_action(context.intent, context.command, emit)
+        self._observe_decision_snapshot(context)
         # Knowledge layer: the event log + suspicion reasoning behind the actions.
         self._observe_player_events(belief, emit)
         self._observe_deaths(belief, emit)
@@ -200,6 +206,19 @@ class CrewborgEventTracer:
             # vent use just like the dedicated ``vent`` intent.
             emit.event("vent_attempted", {})
             emit.counter("vent_attempted")
+
+    # --- per-tick decision audit -----------------------------------------
+
+    def _observe_decision_snapshot(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
+        """Emit a compact per-tick record linking perception, belief gates, and action.
+
+        The SDK boundary traces show the selected mode/intent and final command,
+        while viewer frames carry the full heavy state only when explicitly enabled.
+        This lean snapshot is the default log-only bridge between them: enough to
+        explain why a tick held a movement mask without replay decoding.
+        """
+
+        context.emit.event("decision_snapshot", _decision_snapshot_payload(context))
 
     # --- knowledge layer: per-player event log + suspicion reasoning --------
 
@@ -501,6 +520,239 @@ def _event_summary(record: PlayerRecord | None) -> list[dict[str, object]]:
         }
         for event in record.events
     ]
+
+
+def _decision_snapshot_payload(context: StepContext[Belief, ActionState, Intent, Command]) -> dict[str, Any]:
+    """Compact log payload for explaining one tick's mode/action decision."""
+
+    belief = context.belief
+    action_state = context.action_state
+    visible_colors = _visible_colors(belief)
+    return {
+        "schema_version": 1,
+        "phase": belief.phase,
+        "role": belief.self_role,
+        "mode": context.active_mode_name,
+        "intent": _decision_intent_payload(context.intent),
+        "command": _decision_command_payload(context.command),
+        "self": _viewer_point(belief.self_world_x, belief.self_world_y),
+        "visible_players": _decision_visible_players(belief, visible_colors),
+        "visible_bodies": _decision_visible_bodies(belief),
+        "threats": _decision_threats(belief, visible_colors),
+        "task": _decision_task_payload(context),
+        "flee": _decision_flee_payload(context, visible_colors),
+        "nav": {
+            "route_goal": _point_list(action_state.route_goal),
+            "route_cursor": action_state.route_cursor,
+            "route_len": len(action_state.route),
+            "next_waypoint": _next_waypoint(action_state),
+        },
+    }
+
+
+def _decision_intent_payload(intent: Intent) -> dict[str, Any]:
+    return {
+        "kind": intent.kind,
+        "point": _point_list(intent.point),
+        "target_color": intent.target_color,
+        "target_id": intent.target_id,
+        "task_index": intent.task_index,
+        "reason": intent.reason,
+    }
+
+
+def _decision_command_payload(command: Command) -> dict[str, Any]:
+    return {
+        "held_mask": command.held_mask,
+        "buttons": _button_names(command.held_mask),
+        "chat": command.chat is not None,
+    }
+
+
+def _decision_visible_players(belief: Belief, visible_colors: set[str]) -> list[dict[str, Any]]:
+    players: list[dict[str, Any]] = []
+    for color in sorted(visible_colors):
+        record = belief.roster.get(color)
+        if record is None:
+            continue
+        players.append(
+            {
+                "color": color,
+                "xy": [record.world_x, record.world_y],
+                "life_status": record.life_status,
+                "suspicion": _rounded_p(belief.suspicion.get(color)),
+                "believed_imposter": color in belief.believed_imposters,
+                "confirmed_imposter": color in belief.confirmed_imposters,
+            }
+        )
+    return players
+
+
+def _decision_visible_bodies(belief: Belief) -> list[dict[str, Any]]:
+    return [
+        {"id": body.object_id, "color": body.color, "xy": [body.world_x, body.world_y]}
+        for body in sorted(
+            (belief.bodies[body_id] for body_id in belief.visible_body_ids if body_id in belief.bodies),
+            key=lambda item: item.object_id,
+        )
+    ]
+
+
+def _decision_threats(belief: Belief, visible_colors: set[str]) -> list[dict[str, Any]]:
+    threat_colors = belief.believed_imposters | belief.confirmed_imposters
+    return [
+        _decision_player_threat_payload(belief, color, visible_colors)
+        for color in sorted(threat_colors)
+    ]
+
+
+def _decision_player_threat_payload(
+    belief: Belief, color: str, visible_colors: set[str]
+) -> dict[str, Any]:
+    record = belief.roster.get(color)
+    dist_sq = _record_dist_sq(belief, record)
+    age_ticks = None if record is None else max(0, belief.last_tick - record.last_seen_tick)
+    return {
+        "color": color,
+        "p": _rounded_p(belief.suspicion.get(color)),
+        "believed": color in belief.believed_imposters,
+        "confirmed": color in belief.confirmed_imposters,
+        "visible": color in visible_colors,
+        "life_status": record.life_status if record is not None else None,
+        "last_seen_tick": record.last_seen_tick if record is not None else None,
+        "age_ticks": age_ticks,
+        "xy": [record.world_x, record.world_y] if record is not None else None,
+        "dist": _rounded_dist(dist_sq),
+        "dist_sq": dist_sq,
+        "flee_enter": dist_sq is not None and dist_sq <= FLEE_ENTER_SQ,
+        "flee_continue": dist_sq is not None and dist_sq <= FLEE_EXIT_SQ,
+        "flee_stale": age_ticks is not None and age_ticks > FLEE_STALE_TICKS,
+        "thresholds": {
+            "enter_sq": FLEE_ENTER_SQ,
+            "exit_sq": FLEE_EXIT_SQ,
+            "stale_ticks": FLEE_STALE_TICKS,
+        },
+    }
+
+
+def _decision_task_payload(context: StepContext[Belief, ActionState, Intent, Command]) -> dict[str, Any] | None:
+    intent = context.intent
+    belief = context.belief
+    if intent.kind != "complete_task" or intent.task_index is None:
+        return None
+    if belief.map is None or not (0 <= intent.task_index < len(belief.map.tasks)):
+        return {"task_index": intent.task_index, "valid": False}
+
+    task = belief.map.tasks[intent.task_index]
+    self_xy = _belief_self_xy(belief)
+    inside = (
+        self_xy is not None
+        and task.x <= self_xy[0] < task.x + task.w
+        and task.y <= self_xy[1] < task.y + task.h
+    )
+    anchor = belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
+    goal = anchor if anchor is not None else (task.center.x, task.center.y)
+    return {
+        "task_index": intent.task_index,
+        "valid": True,
+        "visible": intent.task_index in belief.visible_task_indices,
+        "completed": intent.task_index in belief.completed_task_indices,
+        "active_progress_pct": belief.active_task_progress_pct,
+        "rect": {"x": task.x, "y": task.y, "w": task.w, "h": task.h},
+        "inside": inside,
+        "goal": list(goal),
+        "anchor": _point_list(anchor),
+        "dist": _rounded_dist(_dist_sq(self_xy, goal) if self_xy is not None else None),
+    }
+
+
+def _decision_flee_payload(
+    context: StepContext[Belief, ActionState, Intent, Command], visible_colors: set[str]
+) -> dict[str, Any] | None:
+    intent = context.intent
+    belief = context.belief
+    target_color = intent.target_color if intent.kind == "flee_from" else None
+    if target_color is None and not belief.believed_imposters:
+        return None
+
+    target = belief.roster.get(target_color) if target_color is not None else None
+    self_xy = _belief_self_xy(belief)
+    target_xy = (target.world_x, target.world_y) if target is not None else None
+    away = (
+        (2 * self_xy[0] - target_xy[0], 2 * self_xy[1] - target_xy[1])
+        if self_xy is not None and target_xy is not None
+        else None
+    )
+    dist_sq = _dist_sq(self_xy, target_xy) if self_xy is not None and target_xy is not None else None
+    return {
+        "active": intent.kind == "flee_from",
+        "target_color": target_color,
+        "target_visible": target_color in visible_colors if target_color is not None else None,
+        "target_last_seen_tick": target.last_seen_tick if target is not None else None,
+        "target_age_ticks": (
+            max(0, belief.last_tick - target.last_seen_tick) if target is not None else None
+        ),
+        "target_xy": list(target_xy) if target_xy is not None else None,
+        "away_point": _point_list(away),
+        "target_dist": _rounded_dist(dist_sq),
+        "target_dist_sq": dist_sq,
+    }
+
+
+def _visible_colors(belief: Belief) -> set[str]:
+    return {
+        color
+        for color, record in belief.roster.items()
+        if record.life_status != "dead" and record.last_seen_tick == belief.last_tick
+    }
+
+
+def _record_dist_sq(belief: Belief, record: PlayerRecord | None) -> int | None:
+    self_xy = _belief_self_xy(belief)
+    if self_xy is None or record is None:
+        return None
+    return _dist_sq(self_xy, (record.world_x, record.world_y))
+
+
+def _belief_self_xy(belief: Belief) -> tuple[int, int] | None:
+    if belief.self_world_x is None or belief.self_world_y is None:
+        return None
+    return belief.self_world_x, belief.self_world_y
+
+
+def _dist_sq(a: tuple[int, int] | None, b: tuple[int, int] | None) -> int | None:
+    if a is None or b is None:
+        return None
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _rounded_dist(dist_sq: int | None) -> float | None:
+    return None if dist_sq is None else round(math.sqrt(dist_sq), 1)
+
+
+def _rounded_p(value: float | None) -> float | None:
+    return None if value is None else round(value, 4)
+
+
+def _button_names(mask: int) -> list[str]:
+    buttons: list[str] = []
+    for bit, name in (
+        (0x01, "up"),
+        (0x02, "down"),
+        (0x04, "left"),
+        (0x08, "right"),
+        (BTN_A, "a"),
+        (BTN_B, "b"),
+    ):
+        if mask & bit:
+            buttons.append(name)
+    return buttons
+
+
+def _next_waypoint(action_state: ActionState) -> list[int] | None:
+    if 0 <= action_state.route_cursor < len(action_state.route):
+        return list(action_state.route[action_state.route_cursor])
+    return None
 
 
 def _viewer_map_payload(belief: Belief) -> dict[str, Any]:

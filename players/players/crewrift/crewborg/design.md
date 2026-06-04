@@ -680,7 +680,10 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 1. phase = `Voting` → **Attend Meeting**; `RoleReveal`/`Lobby`/`GameOver` → **idle**
 2. body in view → **Report Body** (a meeting protects us and lets the crew act, so
    reporting outranks fleeing a suspect we could instead report)
-3. believed-imposter approaching → **Flee**
+3. believed-imposter approaching → **Flee**. This transition has spatial
+   hysteresis: enter when a recently seen believed imposter is close, then stay in
+   Flee until that same threat is clearly farther away or its last-known position
+   is stale. This prevents task/flee oscillation at the trigger radius.
 4. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
 
 **Imposter selection** (priority order):
@@ -826,6 +829,12 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   `role_resolved`, `body_sighted`, `task_completed`, `kill_landed`, `vote_cast`.
 - *attempt* (keyed on the wire command's button edge): `task_started`,
   `kill_attempted`, `report_attempted`, `vent_attempted`, `chat_sent`.
+- *decision audit* (one compact record per tick): `decision_snapshot` links the
+  active mode/directive, symbolic intent, held mask, self position, currently
+  visible players/bodies, believed/confirmed threats with last-seen age and flee
+  gate distances, and task/flee/nav geometry. This is the default log-only
+  forensic stream: small enough for tournament runs, but explicit enough to answer
+  "was the threat visible or just retained in belief?" without replay decoding.
 - *knowledge layer* (the per-player event log §5.2 + the suspicion reasoning
   §10.1 *behind* the actions — read off the finalized belief so `strategy/` stays
   pure). Always on, lean enough for the tournament: `player_event` when a new
