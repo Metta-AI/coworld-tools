@@ -45,7 +45,12 @@ def _round_start_json() -> str:
             league=LeagueInfo(id=uuid4(), commissioner_config={"num_episodes": 1}),
             divisions=[DivisionInfo(id=division_id, name="Dirt", level=0)],
             memberships=[
-                MembershipInfo(id=uuid4(), division_id=division_id, policy_version_id=policy_version_id)
+                MembershipInfo(
+                    id=uuid4(),
+                    division_id=division_id,
+                    policy_version_id=policy_version_id,
+                    is_champion=True,
+                )
                 for policy_version_id in policy_version_ids
             ],
             recent_results=[],
