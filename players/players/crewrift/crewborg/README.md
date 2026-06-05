@@ -12,6 +12,9 @@ as a Docker image the Coworld runner launches.
   table + how we learn/improve the weights) and
   [`agent-tracking.md`](./docs/designs/agent-tracking.md) (probabilistic location
   tracking for imposter search).
+- **Benchmark workflow:** [`docs/experience-request-benchmark-analysis.md`](./docs/experience-request-benchmark-analysis.md)
+  captures the Observatory experience-request process used to run and analyze
+  hosted Crewrift policy matchups.
 
 ## What it does
 
@@ -32,10 +35,13 @@ strike when in range and unwitnessed),
 victim is visible, then follow that target), and **Pretend** (the default — pick a
 real task station in the highest-scoring occupancy room, penalizing rooms another
 imposter is likely occupying, then fake the task for one task duration). Meetings
-reuse **Attend Meeting**. Hunt is gated on a visible kill opportunity whose
-isolation bar relaxes with urgency, not merely on the cooldown ending. The action
-layer covers `kill` (edge-A in KillRange) and `vent` (level-B in VentRange). The LLM strategy
-seam (`design.md` §10) remains in place but unused.
+reuse **Attend Meeting**. With `CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`,
+Attend Meeting uses a fast Haiku-class LLM call on the meeting fast path to chat,
+respond to other players, keep a tentative vote, and submit early when requested;
+otherwise it preserves the deterministic canned-chat + suspicion-vote fallback.
+Hunt is gated on a visible kill opportunity whose isolation bar relaxes with
+urgency, not merely on the cooldown ending. The action layer covers `kill` (edge-A
+in KillRange) and `vent` (level-B in VentRange).
 
 ## Layout
 
@@ -82,11 +88,17 @@ players/crewrift/crewborg/scripts/play_local.sh
 `COGAMES_ENGINE_WS_URL` defaults to `ws://localhost:2000/player?slot=0&token=`;
 override it to point elsewhere.
 
+Set `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) for the aggressive imposter experiment:
+during `Playing`, imposters skip Pretend/Evade/body reports and stay in Search
+unless kill-ready with a visible victim, then Hunt.
+
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
 suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
-every meeting, …; see `design.md` §11). Set `CREWBORG_TRACE=viewer` for the
-per-tick replay view model consumed by the browser UI, or `CREWBORG_TRACE=debug`
-for the viewer frames plus the heavier suspicion / kill / occupancy debug dump.
+every meeting, meeting LLM context/decisions when enabled, …; see `design.md`
+§11). Set `CREWBORG_TRACE=viewer` for the per-tick replay view model consumed by
+the browser UI, or `CREWBORG_TRACE=debug` for the viewer frames plus the heavier
+suspicion / kill / occupancy debug dump. Set `CREWBORG_LLM_TRACE_RAW=1` (or
+`CREWBORG_TRACE=debug`) to include raw LLM request/response text.
 
 ## View trace replays
 

@@ -11,7 +11,9 @@ FROM --platform=linux/amd64 python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    BE_DUMB=1 \
+    CREWBORG_LLM_MEETINGS=0
 
 WORKDIR /srv/players
 

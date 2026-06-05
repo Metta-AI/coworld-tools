@@ -10,7 +10,7 @@ from __future__ import annotations
 from players.crewrift.crewborg.action import BTN_A, BTN_B, BTN_LEFT
 from players.crewrift.crewborg.events import CrewborgEventTracer
 from players.crewrift.crewborg.strategy.suspicion import VOTE_PROBABILITY
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, Command, Intent, PlayerRecord
+from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, ChatEvent, Command, Intent, PlayerRecord
 from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink, ModeDirective, StepContext
 
 
@@ -172,6 +172,29 @@ def test_report_vent_and_chat_attempts() -> None:
     assert h.events("domain.report_attempted")[0].data == {"body_id": 2003}
     assert h.events("domain.vent_attempted")
     assert h.events("domain.chat_sent")[0].data == {"text": "no read, skipping"}
+
+
+def test_chat_received_emits_each_meeting_line_once_and_resets_per_meeting() -> None:
+    h = _Harness()
+    belief = Belief(phase="Voting", phase_start_tick=10)
+    belief.chat_log = [ChatEvent(tick=11, speaker_color="red", text="where")]
+
+    h.step(belief=belief)
+    h.step(belief=belief)
+
+    fresh_meeting = Belief(phase="Voting", phase_start_tick=99)
+    fresh_meeting.chat_log = [ChatEvent(tick=100, speaker_color="red", text="where")]
+    h.step(belief=fresh_meeting)
+
+    received = h.events("domain.chat_received")
+    assert [event.data["meeting_id"] for event in received] == [10, 99]
+    assert received[0].data == {
+        "meeting_id": 10,
+        "speaker_color": "red",
+        "text": "where",
+        "chat_tick": 11,
+    }
+    assert len(h.counters("domain.chat_received")) == 2
 
 
 def test_decision_snapshot_includes_visibility_threat_task_and_command_geometry() -> None:

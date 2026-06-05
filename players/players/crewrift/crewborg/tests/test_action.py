@@ -289,6 +289,13 @@ def test_chat_emitted_once() -> None:
     assert resolve_action(intent, Belief(), action_state).chat is None  # not resent
 
 
+def test_distinct_chat_intents_can_emit_after_an_intent_change() -> None:
+    action_state = ActionState()
+    assert resolve_action(Intent(kind="chat", text="first"), Belief(), action_state).chat == "first"
+    assert resolve_action(Intent(kind="idle"), Belief(), action_state).chat is None
+    assert resolve_action(Intent(kind="chat", text="second"), Belief(), action_state).chat == "second"
+
+
 def test_flee_moves_away_from_threat() -> None:
     belief = Belief(self_world_x=100, self_world_y=100)
     belief.roster["red"] = PlayerRecord(

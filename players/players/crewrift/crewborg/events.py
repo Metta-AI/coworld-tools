@@ -95,6 +95,8 @@ class CrewborgEventTracer:
         self._confirmed: set[str] = set()  # last confirmed_imposters (witnessed catches)
         self._believed: set[str] = set()  # last believed_imposters (over the flee bar)
         self._meeting_snapshotted: bool = False  # one suspicion snapshot per meeting
+        self._chat_meeting_id: int | None = None
+        self._chat_seen: set[tuple[int, str | None, str]] = set()
         self._kill_ready: bool | None = None  # last self_kill_ready (imposter cooldown edges)
         self._occupancy_substrate_seen: bool = False
         self._occupancy_reacquisition_count: int = 0
@@ -117,6 +119,7 @@ class CrewborgEventTracer:
         self._observe_kill_landed(belief, emit)
         self._observe_vote(context.action_state, emit)
         self._observe_action(context.intent, context.command, emit)
+        self._observe_chat_received(belief, emit)
         self._observe_decision_snapshot(context)
         # Knowledge layer: the event log + suspicion reasoning behind the actions.
         self._observe_player_events(belief, emit)
@@ -206,6 +209,32 @@ class CrewborgEventTracer:
             # vent use just like the dedicated ``vent`` intent.
             emit.event("vent_attempted", {})
             emit.counter("vent_attempted")
+
+    def _observe_chat_received(self, belief: Belief, emit: EventEmitter) -> None:
+        """Emit each newly heard meeting chat line once per meeting."""
+
+        if belief.phase != "Voting":
+            self._chat_meeting_id = None
+            self._chat_seen.clear()
+            return
+        if belief.phase_start_tick != self._chat_meeting_id:
+            self._chat_meeting_id = belief.phase_start_tick
+            self._chat_seen.clear()
+        for event in belief.chat_log:
+            key = (event.tick, event.speaker_color, event.text)
+            if key in self._chat_seen:
+                continue
+            self._chat_seen.add(key)
+            emit.event(
+                "chat_received",
+                {
+                    "meeting_id": belief.phase_start_tick,
+                    "speaker_color": event.speaker_color,
+                    "text": event.text,
+                    "chat_tick": event.tick,
+                },
+            )
+            emit.counter("chat_received")
 
     # --- per-tick decision audit -----------------------------------------
 

@@ -15,8 +15,10 @@ cited file before relying on it.**
 > non-fresh visible bodies;
 > imposter Pretend fakes real task stations in likely occupied rooms, Search owns
 > pre-kill target acquisition, and
-> Hunt is gated on a visible kill opportunity). The LLM strategy seam stays in place but
-> unused. See [`README.md`](./README.md) for a capability summary and
+> Hunt is gated on a visible kill opportunity). Attend Meeting has an opt-in
+> LLM chat/vote path with deterministic fallback. `CREWBORG_BE_DUMB=1` is an
+> aggressive imposter experiment that skips Pretend/Evade/body reports and keeps
+> the imposter in Search/Hunt. See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
 
@@ -498,7 +500,9 @@ The durable architecture and the full set of design decisions live in
 [`design.md`](./design.md) — read it before writing code. It owns the package
 layout (`__init__.py`/`types.py`/`action.py`/`nav.py`/`modes/`/`strategy/`/
 `perception/`/`map/`/`coworld/`/`tests/`), the type contracts, and the
-mode/intent/strategy design (the LLM strategy seam remains in place but unused).
+mode/intent/strategy design. The meeting LLM implementation lives under
+`strategy/meeting/` and is enabled only by `CREWBORG_LLM_MEETINGS=1` plus
+`ANTHROPIC_API_KEY`.
 
 Perception is **structured-scene maintenance**, not computer vision: there is no
 framebuffer parser, no pixel atlas, and no CV parity oracle. The only image steps

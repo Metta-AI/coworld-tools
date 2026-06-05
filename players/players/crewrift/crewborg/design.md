@@ -6,10 +6,10 @@ imposters kill, vent, and blend in). This document is the implementation spec.
 For codebase orientation, game constants, and source pointers, see
 [`AGENTS.md`](./AGENTS.md).
 
-> **Status:** This spec is implemented end-to-end for both roles. The LLM
-> strategy seam ([§10](#10-strategy-mode-selector)) remains in place but unused,
-> and the three tuning parameters in [§12](#12-tuning-parameters) await tuning
-> against a live server.
+> **Status:** This spec is implemented end-to-end for both roles. Attend Meeting
+> now has an opt-in LLM chat/vote path ([§10.3](#103-llm-meeting-decisions)) with
+> deterministic fallback, and the tuning parameters in
+> [§12](#12-tuning-parameters) await tuning against a live server.
 
 Conventions: paths like `sim:2464` cite the Crewrift Nim source (`sim` =
 `src/crewrift/sim.nim`, `global` = `src/crewrift/global.nim`, `protocols.nim` =
@@ -300,8 +300,8 @@ ghosts and during meetings (no camera).
   `confirmed_imposters` (near-certain catches contributed as overwhelming-LR
   evidence), and `believed_imposters` (alive colors over the flee probability).
   `imposter_count` (K) overrides the player-count-derived default. Maintained each
-  tick by the suspicion model (§10.1). Consuming the `chat_log` + vote tally for
-  suspicion-aware voting/chat remains to be built.
+  tick by the suspicion model (§10.1). The opt-in meeting LLM (§10.3) consumes the
+  `chat_log`, vote tally, roster, and suspicion posterior for chat/vote decisions.
 - **agent tracking** — `agent_tracking` holds a static occupancy substrate
   (anchors, pairwise route polylines, coarse reachable grid) plus per-player
   reachability-disc location estimates, a separate teammate-imposter estimate,
@@ -669,7 +669,9 @@ means "send nothing this tick."
 The strategy **selects the mode** (modes pick intents). For v1 it is a
 deterministic `Strategy.decide(snapshot) -> ModeDirective` run via
 `SynchronousStrategyRunner` **every tick** — pure rules over belief. The
-`AsyncStrategyRunner` LLM seam stays in place but unused.
+`AsyncStrategyRunner` LLM seam stays available for future mode-selection
+experiments, but the implemented LLM behavior is currently scoped to the
+meeting-mode chat/vote path (§10.3).
 
 Because the selector runs every tick, **v1 uses no reflexes** — transitions ("body
 sighted → Report", "Voting → Attend Meeting") are re-evaluated each cycle. The
@@ -705,6 +707,12 @@ radius and the witness-staleness window to zero by `URGENCY_FULL_TICKS`, at whic
 point the imposter strikes regardless of witnesses. When no visible victim is
 available, Search owns acquisition during the lead window rather than Hunt chasing
 stale targets.
+
+**Aggressive experiment.** `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) replaces the
+imposter `Playing` selector with only **Search**/**Hunt**: if kill-ready with a
+visible victim, Hunt; otherwise Search. This deliberately skips Pretend, Evade,
+and imposter body reports so hosted/local runs can isolate whether always preparing
+to kill improves imposter outcomes versus the default blend-in policy.
 
 ### 10.1 Suspicion — Bayesian P(imposter) (`strategy/suspicion.py`)
 
@@ -761,10 +769,10 @@ v1 simplifications (documented for later): **naive-Bayes** independence between
 evidence types; **positive-evidence-only** (no exculpatory terms — the prior is the
 baseline); and a **static** `K / (P − 1)` prior without redistributing the imposter
 budget as players are confirmed or die (a proper joint model is a refinement). Still
-deferred to the LLM seam as future evidence: *area-recency*, *alibi clearing*,
-*vote-tally* bandwagons (census-mapped `voting.dots`), and *chat semantics*
-(`chat_log`, §4.3). The posterior also feeds the still-unbuilt suspicion-aware
-**voting** and **chat generation**.
+future evidence for the deterministic Bayesian model: *area-recency*,
+*alibi clearing*, *vote-tally* bandwagons (census-mapped `voting.dots`), and
+*chat semantics* (`chat_log`, §4.3). The meeting LLM already sees those signals
+as serialized context, but it does not write back durable suspicion facts.
 
 ### 10.2 Agent location tracking (`agent_tracking.py`)
 
@@ -787,6 +795,34 @@ selection, trajectory lead, KillRange check, and unwitnessed gate. The
 task-assignment/destination mixture from the design doc is not implemented yet;
 it is the next gated stage after measuring reachability-disc accuracy and kill
 impact.
+
+### 10.3 LLM meeting decisions
+
+Attend Meeting remains a mode, not a strategy runner: meetings intentionally slow
+the game loop into a social phase, so the LLM call can run on the mode fast path
+without starving movement or combat decisions. The path is opt-in via
+`CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`; without both, the mode preserves
+the deterministic fallback (`"no read, skipping"` once, then the Bayesian
+`top_suspect` vote or skip).
+
+The implementation is split into three portable pieces under `strategy/meeting/`:
+
+- `context.py` serializes `Belief` into explicit meeting state: timer estimate,
+  self/team, legal vote targets, candidate grid, vote tally, chat transcript,
+  roster, event summaries, and suspicion ranking/fallback vote.
+- `schema.py` owns the `MeetingDecision` contract and sanitizes/validates chat and
+  vote targets against the current legal state.
+- `llm.py` owns provider-specific infra. The default client uses Anthropic's
+  Messages API with `claude-haiku-4-5-20251001`, configurable through
+  `CREWBORG_LLM_MODEL`.
+
+`MeetingDecision.action` is one of `send_chat`, `set_tentative_vote`,
+`submit_vote`, or `wait`. A tentative vote is stored in mode-local state and is
+auto-submitted near the deadline; `submit_vote` casts immediately. The mode calls
+the LLM on meeting start, new external chat, chat-cooldown readiness, and deadline
+pressure, with a small tick interval to avoid repeated calls from one visual
+state. Distinct chat messages can be sent across the same meeting; duplicate model
+text is suppressed.
 
 ---
 
@@ -856,9 +892,12 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
-seen as the kill-ready→cooldown edge). Incoming meeting chat *is* now decoded into
-`belief.chat_log` (§4.3), but there is no `chat_received` domain event yet — the
-event seam for it is unbuilt.
+seen as the kill-ready→cooldown edge). Incoming meeting chat is decoded into
+`belief.chat_log` (§4.3) and emitted once per meeting line as `chat_received`.
+When the meeting LLM is enabled, `meeting_context_serialized`,
+`meeting_llm_decision`, fallback reasons, selected chat/vote, and a latency
+histogram are always-on. Raw LLM request/response tracing is opt-in via
+`CREWBORG_LLM_TRACE_RAW=1` or `CREWBORG_TRACE=debug`.
 
 **Viewer/debug verbosity.** `CREWBORG_TRACE=viewer` is opt-in and heavy: it emits
 the `viewer_*` records used by [`viewer/index.html`](./viewer/index.html) to draw
@@ -887,6 +926,8 @@ structural, and each still awaits tuning against a live server.
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
+| LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; default model `claude-haiku-4-5-20251001`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
+| Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Pretend room targeting | room score = expected crew density minus teammate-imposter pressure (`TEAMMATE_ROOM_PENALTY = 3.0`); choose a real task station in the selected room; keep a chosen room for `ROOM_TARGET_MIN_TICKS = 10000` unless arriving or being preempted |
