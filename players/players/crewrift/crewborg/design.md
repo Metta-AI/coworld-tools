@@ -708,6 +708,12 @@ point the imposter strikes regardless of witnesses. When no visible victim is
 available, Search owns acquisition during the lead window rather than Hunt chasing
 stale targets.
 
+**Aggressive experiment.** `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) replaces the
+imposter `Playing` selector with only **Search**/**Hunt**: if kill-ready with a
+visible victim, Hunt; otherwise Search. This deliberately skips Pretend, Evade,
+and imposter body reports so hosted/local runs can isolate whether always preparing
+to kill improves imposter outcomes versus the default blend-in policy.
+
 ### 10.1 Suspicion — Bayesian P(imposter) (`strategy/suspicion.py`)
 
 > **Full reference:** [`docs/designs/suspicion.md`](docs/designs/suspicion.md) — the
@@ -921,6 +927,7 @@ structural, and each still awaits tuning against a live server.
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
 | LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; default model `claude-haiku-4-5-20251001`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
+| Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Pretend room targeting | room score = expected crew density minus teammate-imposter pressure (`TEAMMATE_ROOM_PENALTY = 3.0`); choose a real task station in the selected room; keep a chosen room for `ROOM_TARGET_MIN_TICKS = 10000` unless arriving or being preempted |

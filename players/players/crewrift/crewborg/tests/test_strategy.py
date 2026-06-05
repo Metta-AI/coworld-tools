@@ -178,6 +178,45 @@ def test_imposter_searches_within_the_lead_window_before_ready() -> None:
     assert _select(belief) == "search"
 
 
+def test_be_dumb_imposter_searches_instead_of_pretending(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_BE_DUMB", "1")
+
+    belief = Belief(phase="Playing", self_role="imposter", self_kill_ready=False, last_tick=10)
+    assert _select(belief) == "search"
+
+
+def test_be_dumb_imposter_hunts_when_kill_ready_with_visible_victim(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_BE_DUMB", "1")
+
+    assert _select(_imposter_with_visible_target(self_kill_ready=True)) == "hunt"
+
+
+def test_be_dumb_alias_enables_the_aggressive_imposter_path(monkeypatch) -> None:
+    monkeypatch.setenv("BE_DUMB", "true")
+
+    assert _select(_imposter_with_visible_target(self_kill_ready=True)) == "hunt"
+
+
+def test_be_dumb_imposter_skips_evade_and_report_body(monkeypatch) -> None:
+    from players.crewrift.crewborg.types import BodyEntry
+
+    monkeypatch.setenv("CREWBORG_BE_DUMB", "1")
+
+    fresh_kill = _imposter_with_visible_target(self_kill_ready=True, last_kill_tick=9, visible_body_ids={2003})
+    fresh_kill.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=60, world_y=60, first_seen_tick=10)
+    assert _select(fresh_kill) == "hunt"
+
+    body_only = Belief(phase="Playing", self_role="imposter", self_kill_ready=False, last_tick=10, visible_body_ids={2003})
+    body_only.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=60, world_y=60, first_seen_tick=10)
+    assert _select(body_only) == "search"
+
+
+def test_be_dumb_does_not_override_voting(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_BE_DUMB", "1")
+
+    assert _select(Belief(phase="Voting", self_role="imposter")) == "attend_meeting"
+
+
 def test_imposter_pretends_when_kill_is_far_off_cooldown() -> None:
     # A victim is in view but the kill is a long way off ⇒ blend (Pretend), don't tail.
     belief = _imposter_with_visible_target(self_kill_ready=False)

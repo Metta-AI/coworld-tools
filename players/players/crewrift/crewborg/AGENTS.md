@@ -16,8 +16,9 @@ cited file before relying on it.**
 > imposter Pretend fakes real task stations in likely occupied rooms, Search owns
 > pre-kill target acquisition, and
 > Hunt is gated on a visible kill opportunity). Attend Meeting has an opt-in
-> LLM chat/vote path with deterministic fallback. See [`README.md`](./README.md)
-> for a capability summary and
+> LLM chat/vote path with deterministic fallback. `CREWBORG_BE_DUMB=1` is an
+> aggressive imposter experiment that skips Pretend/Evade/body reports and keeps
+> the imposter in Search/Hunt. See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
 

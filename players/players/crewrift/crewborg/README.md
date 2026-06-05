@@ -12,6 +12,9 @@ as a Docker image the Coworld runner launches.
   table + how we learn/improve the weights) and
   [`agent-tracking.md`](./docs/designs/agent-tracking.md) (probabilistic location
   tracking for imposter search).
+- **Benchmark workflow:** [`docs/experience-request-benchmark-analysis.md`](./docs/experience-request-benchmark-analysis.md)
+  captures the Observatory experience-request process used to run and analyze
+  hosted Crewrift policy matchups.
 
 ## What it does
 
@@ -84,6 +87,10 @@ players/crewrift/crewborg/scripts/play_local.sh
 
 `COGAMES_ENGINE_WS_URL` defaults to `ws://localhost:2000/player?slot=0&token=`;
 override it to point elsewhere.
+
+Set `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) for the aggressive imposter experiment:
+during `Playing`, imposters skip Pretend/Evade/body reports and stay in Search
+unless kill-ready with a visible victim, then Hunt.
 
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
 suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at

@@ -34,9 +34,16 @@ remains visible after the evade window.
 `strategy.opportunity`). Search walks occupancy hot spots until it sees a crewmate,
 then follows that target. Hunt does not pre-position anymore; it activates only when
 the kill is ready and a victim is visible.
+
+Aggressive experiment: ``CREWBORG_BE_DUMB=1`` (or ``BE_DUMB=1``) replaces the
+imposter ``Playing`` priority with only Search/Hunt: Hunt when kill-ready with a
+visible victim, otherwise Search. It deliberately skips Pretend, Evade, and
+Report Body so we can isolate "always prepare to kill" behavior.
 """
 
 from __future__ import annotations
+
+import os
 
 from players.crewrift.crewborg.strategy.opportunity import (
     SEARCH_LEAD_TICKS,
@@ -103,6 +110,10 @@ class RuleBasedStrategy:
         # Imposter priority (design §10): just killed -> Evade; non-fresh visible
         # body -> Report; kill ready and a victim visible -> Hunt; kill ready or
         # about to be -> Search; else Pretend.
+        if _be_dumb_enabled():
+            if belief.self_kill_ready and has_visible_victim(belief):
+                return ModeDirective(mode="hunt", source="strategy", reason="be dumb: kill ready with visible victim")
+            return ModeDirective(mode="search", source="strategy", reason="be dumb: always seek kill setup")
         if _recent_self_kill(belief):
             return ModeDirective(mode="evade", source="strategy", reason="just killed: evade")
         if any(bid in belief.bodies for bid in belief.visible_body_ids):
@@ -133,6 +144,14 @@ class RuleBasedStrategy:
 
 def _recent_self_kill(belief: Belief) -> bool:
     return belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS
+
+
+def _be_dumb_enabled() -> bool:
+    return _truthy_env("CREWBORG_BE_DUMB") or _truthy_env("BE_DUMB")
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _threat_approaching(belief: Belief) -> bool:
