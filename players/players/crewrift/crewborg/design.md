@@ -800,10 +800,13 @@ impact.
 
 Attend Meeting remains a mode, not a strategy runner: meetings intentionally slow
 the game loop into a social phase, so the LLM call can run on the mode fast path
-without starving movement or combat decisions. The path is opt-in via
-`CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`; without both, the mode preserves
-the deterministic fallback (`"no read, skipping"` once, then the Bayesian
-`top_suspect` vote or skip).
+without starving movement or combat decisions. The direct Anthropic path is
+opt-in via `CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`; hosted Coworld
+Bedrock is enabled by `USE_BEDROCK=true` (`upload-policy --use-bedrock`), and
+local Bedrock can be forced with `CREWBORG_LLM_MEETINGS=1` plus
+`CLAUDE_CODE_USE_BEDROCK=1`. Without Anthropic or Bedrock opt-in, the mode
+preserves the deterministic fallback (`"no read, skipping"` once, then the
+Bayesian `top_suspect` vote or skip).
 
 The implementation is split into three portable pieces under `strategy/meeting/`:
 
@@ -812,9 +815,10 @@ The implementation is split into three portable pieces under `strategy/meeting/`
   roster, event summaries, and suspicion ranking/fallback vote.
 - `schema.py` owns the `MeetingDecision` contract and sanitizes/validates chat and
   vote targets against the current legal state.
-- `llm.py` owns provider-specific infra. The default client uses Anthropic's
-  Messages API with `claude-haiku-4-5-20251001`, configurable through
-  `CREWBORG_LLM_MODEL`.
+- `llm.py` owns provider-specific infra. The default direct Anthropic client uses
+  `claude-haiku-4-5-20251001`; the default Bedrock client uses
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Override either path with
+  `CREWBORG_LLM_MODEL`, or the Bedrock path with `BEDROCK_MODEL`.
 
 `MeetingDecision.action` is one of `send_chat`, `set_tentative_vote`,
 `submit_vote`, or `wait`. A tentative vote is stored in mode-local state and is
@@ -926,7 +930,7 @@ structural, and each still awaits tuning against a live server.
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
-| LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; default model `claude-haiku-4-5-20251001`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
+| LLM meetings | direct Anthropic opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; hosted/local Bedrock with `USE_BEDROCK=true` or `CREWBORG_LLM_MEETINGS=1` + `CLAUDE_CODE_USE_BEDROCK=1`; default direct model `claude-haiku-4-5-20251001`; default Bedrock model `us.anthropic.claude-haiku-4-5-20251001-v1:0`; deadline LLM prompt at <=96 ticks remaining and auto-submit at <=48 ticks remaining; chat cooldown is 100 ticks |
 | Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |

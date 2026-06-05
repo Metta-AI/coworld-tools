@@ -35,10 +35,12 @@ strike when in range and unwitnessed),
 victim is visible, then follow that target), and **Pretend** (the default — pick a
 real task station in the highest-scoring occupancy room, penalizing rooms another
 imposter is likely occupying, then fake the task for one task duration). Meetings
-reuse **Attend Meeting**. With `CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`,
-Attend Meeting uses a fast Haiku-class LLM call on the meeting fast path to chat,
-respond to other players, keep a tentative vote, and submit early when requested;
-otherwise it preserves the deterministic canned-chat + suspicion-vote fallback.
+reuse **Attend Meeting**. With `CREWBORG_LLM_MEETINGS=1` plus `ANTHROPIC_API_KEY`,
+or with Coworld Bedrock access (`USE_BEDROCK=true`, as set by
+`upload-policy --use-bedrock`), Attend Meeting uses a fast Haiku-class LLM call
+on the meeting fast path to chat, respond to other players, keep a tentative
+vote, and submit early when requested; otherwise it preserves the deterministic
+canned-chat + suspicion-vote fallback.
 Hunt is gated on a visible kill opportunity whose isolation bar relaxes with
 urgency, not merely on the cooldown ending. The action layer covers `kill` (edge-A
 in KillRange) and `vent` (level-B in VentRange).
@@ -91,6 +93,12 @@ override it to point elsewhere.
 Set `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) for the aggressive imposter experiment:
 during `Playing`, imposters skip Pretend/Evade/body reports and stay in Search
 unless kill-ready with a visible victim, then Hunt.
+
+For hosted Bedrock meetings, upload the image with `--use-bedrock`; the Coworld
+runner stores `USE_BEDROCK=true` for the policy and runs the player pod under the
+Bedrock-capable service account. Set `CREWBORG_LLM_MEETINGS=1` for direct
+Anthropic, or to force Bedrock locally with `CLAUDE_CODE_USE_BEDROCK=1`. Override
+the default Haiku model with `CREWBORG_LLM_MODEL` or `BEDROCK_MODEL`.
 
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
 suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
