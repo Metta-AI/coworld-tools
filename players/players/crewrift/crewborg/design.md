@@ -489,6 +489,7 @@ re-decides.
 |---|---|---|
 | **Normal** | default while `Playing` | target the nearest reachable **signalled** task (live arrows+bubbles = the remaining tasks) and `complete_task(T)`; conclude `T` done when its **bubble disappears**, gated on having seen ≥ `COMPLETION_PROGRESS_PCT` (≈90%) progress (so an occlusion/edge flicker doesn't false-complete); when **no task signal remains**, `navigate_to` the spawn / **start room** rather than standing still |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` the top suspect (`P(imp) ≥ VOTE_PROBABILITY`, §10.1) else skip, before the timer |
+| **Dick Mode** | opt-in with `CREWBORG_DICK_MODE=1`; live crewmate, one-shot, and first kill cooldown is within the worst-case button walk plus buffer | while `Playing`, `call_meeting`; during the triggered meeting only if our button press opened it, `chat("haha, fuck you imposters")`, then skip-vote until the meeting closes |
 | **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
 | **Flee** | a believed-imposter is approaching | `flee_from(player)`, or a strategic `navigate_to(point)` |
 
@@ -593,6 +594,7 @@ An intent is "what to do now" — above a button press, below a behavior. One
 | `flee_from` | player id | maximize distance from a player |
 | `complete_task` | task index | go to the task rect and complete it |
 | `report` | body id | go to a body and report |
+| `call_meeting` | none | go to the emergency button and call a meeting |
 | `vote` | choice (player id / skip) | cast a meeting vote |
 | `chat` | text | speak in a meeting |
 | `kill` | target player id | go to a crewmate and kill (imposter) |
@@ -628,6 +630,9 @@ transport mechanics live, and it is **stateful across ticks** (state in
   standing still** (movement suppressed — d-pad resets the 72-tick progress).
 - `report` / `kill` → navigate to the body/target (a dynamic point, no anchor),
   then edge-press A.
+- `call_meeting` → navigate to the emergency button's baked anchor, then
+  edge-press A inside the button rect. The action layer records the press tick so
+  the strategy can abandon the experiment cleanly if the server refuses the call.
 - `vent` → navigate to the vent's **baked anchor**, then press B (the trigger gate
   stays on the true vent center — `sim.nim` VentRange — even though nav aims at the
   anchor).
@@ -656,8 +661,8 @@ targets) use their live position.
 - Hand the held mask to the bridge, which de-dups (send-only-on-change).
 
 **`ActionState` holds:** the current intent (for the diff), the active nav route +
-progress cursor (+ which legs are vent teleports), the A-press FSM state, and the
-pending-chat buffer.
+progress cursor (+ which legs are vent teleports), the A-press FSM state,
+emergency-button attempt bookkeeping, and the pending-chat buffer.
 
 `Command` carries the per-tick wire payload (input packet ± chat); an empty payload
 means "send nothing this tick."
@@ -679,14 +684,16 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
 
 **Crewmate selection** (priority order):
 
-1. phase = `Voting` → **Attend Meeting**; `RoleReveal`/`Lobby`/`GameOver` → **idle**
-2. body in view → **Report Body** (a meeting protects us and lets the crew act, so
+1. phase = `Voting` → **Attend Meeting** (or **Dick Mode** if it opened the meeting);
+   `RoleReveal`/`Lobby`/`GameOver` → **idle**
+2. Dick Mode armed → **Dick Mode** until its emergency-button attempt resolves
+3. body in view → **Report Body** (a meeting protects us and lets the crew act, so
    reporting outranks fleeing a suspect we could instead report)
-3. believed-imposter approaching → **Flee**. This transition has spatial
+4. believed-imposter approaching → **Flee**. This transition has spatial
    hysteresis: enter when a recently seen believed imposter is close, then stay in
    Flee until that same threat is clearly farther away or its last-known position
    is stale. This prevents task/flee oscillation at the trigger radius.
-4. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
+5. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
 
 **Imposter selection** (priority order):
 
@@ -713,6 +720,35 @@ imposter `Playing` selector with only **Search**/**Hunt**: if kill-ready with a
 visible victim, Hunt; otherwise Search. This deliberately skips Pretend, Evade,
 and imposter body reports so hosted/local runs can isolate whether always preparing
 to kill improves imposter outcomes versus the default blend-in policy.
+
+**Dick Mode experiment.** `CREWBORG_DICK_MODE=1` (or `DICK_MODE=1`) arms a
+crewmate-only, one-shot interruption timed against the first imposter kill
+cooldown. The strategy reconstructs `ticks_until_kill_ready` from the globally
+visible Playing transition after role reveal / meetings, using the default
+`DEFAULT_KILL_COOLDOWN_TICKS = 900` until an imposter HUD can teach a better
+duration. When the remaining cooldown is no more than
+`DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS`, the selector
+switches to **Dick Mode**, which rushes to the emergency button and presses A.
+`DICK_MAX_BUTTON_TRAVEL_TICKS = 600` is a conservative hardcoded Croatoan bound:
+the map diagonal is about 1,400 px and the server max speed is about 2.75 px/tick,
+so the straight-line bound is about 510 ticks before path shape and controller
+settling. The 10-tick buffer aims to land before the cooldown clears. If that
+button press opens Voting, Dick Mode chats `haha, fuck you imposters`, casts a
+skip vote so it does not eat the no-vote penalty, then normal tasking resumes
+after the meeting closes. If Voting opens before our recorded button press, the
+strategy treats it as someone else's meeting/body report and routes to Attend
+Meeting, so the taunt is gated on our own call. Crewrift's default `ButtonCalls`
+is one per player, so the strategy does not re-arm Dick Mode within the same game;
+if the button press is refused, the attempt times out after
+`DICK_CALL_NO_MEETING_GRACE_TICKS` and stays spent.
+
+**Future imposter refinement.** Emergency-button rules imply a useful target
+priority: imposters should prefer killing crewmates who can still call an
+emergency meeting. The current Crewrift opponents tend to chat after calling the
+button (for example, "just resetting imposter cool downs"), which gives a noisy but
+actionable signal that their one `ButtonCalls` charge is spent. A future Search /
+Hunt selector should remove or heavily deprioritize those colors from hunt targets
+and keep pressure on crewmates who can still stop the next kill cooldown.
 
 ### 10.1 Suspicion — Bayesian P(imposter) (`strategy/suspicion.py`)
 
@@ -837,7 +873,7 @@ crewborg/
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
-  modes/             # idle, normal, attend_meeting, report_body, flee, evade, pretend, search, hunt
+  modes/             # idle, normal, dick_mode, attend_meeting, report_body, flee, evade, pretend, search, hunt
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)
@@ -928,6 +964,7 @@ structural, and each still awaits tuning against a live server.
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
 | LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; default model `claude-haiku-4-5-20251001`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
 | Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
+| Dick Mode selector | opt-in with `CREWBORG_DICK_MODE=1` or `DICK_MODE=1`; live crewmates make one emergency-button call when `ticks_until_kill_ready <= DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS`; `DICK_MAX_BUTTON_TRAVEL_TICKS = 600`, `DICK_KILL_COOLDOWN_BUFFER_TICKS = 10`; chat `haha, fuck you imposters` only when our recorded button press opened the meeting, skip-vote, then resume; refused calls time out after `DICK_CALL_NO_MEETING_GRACE_TICKS = 48` and do not re-arm |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Pretend room targeting | room score = expected crew density minus teammate-imposter pressure (`TEAMMATE_ROOM_PENALTY = 3.0`); choose a real task station in the selected room; keep a chosen room for `ROOM_TARGET_MIN_TICKS = 10000` unless arriving or being preempted |

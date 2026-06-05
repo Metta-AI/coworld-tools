@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from players.crewrift.crewborg.strategy import RuleBasedStrategy
-from players.crewrift.crewborg.strategy.rule_based import FLEE_STALE_TICKS
+from players.crewrift.crewborg.strategy.rule_based import (
+    DICK_CALL_NO_MEETING_GRACE_TICKS,
+    DICK_KILL_COOLDOWN_BUFFER_TICKS,
+    DICK_MAX_BUTTON_TRAVEL_TICKS,
+    FLEE_STALE_TICKS,
+)
 from players.crewrift.crewborg.types import ActionState, Belief, PlayerRecord
 from players.player_sdk.types import BeliefSnapshot, ModeDirective, SharedMemory
 
@@ -12,12 +17,20 @@ def _select(belief: Belief) -> str:
     return _select_with(RuleBasedStrategy(), belief)
 
 
-def _select_with(strategy: RuleBasedStrategy, belief: Belief, tick: int = 1) -> str:
+def _select_with(
+    strategy: RuleBasedStrategy, belief: Belief, tick: int = 1, action_state: ActionState | None = None
+) -> str:
+    return _directive_with(strategy, belief, tick=tick, action_state=action_state).mode
+
+
+def _directive_with(
+    strategy: RuleBasedStrategy, belief: Belief, tick: int = 1, action_state: ActionState | None = None
+) -> ModeDirective:
     memory = SharedMemory(
-        belief=belief, action_state=ActionState(), active_directive=ModeDirective(mode="idle")
+        belief=belief, action_state=action_state or ActionState(), active_directive=ModeDirective(mode="idle")
     )
     directive = strategy.decide(BeliefSnapshot(tick=tick, memory=memory))
-    return directive.mode
+    return directive
 
 
 def _crewmate_with_threat(*, tick: int, threat_x: int, threat_y: int = 100, last_seen_tick: int | None = None) -> Belief:
@@ -69,6 +82,104 @@ def test_ghost_does_tasks_not_report() -> None:
     belief = Belief(phase="Playing", self_role="dead", visible_body_ids={2003})
     belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=10, world_y=10, first_seen_tick=1)
     assert _select(belief) == "normal"
+
+
+def _crewmate_near_kill_cooldown_ready() -> Belief:
+    trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+    return Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=900 - trigger_window,
+        kill_cooldown_start_tick=0,
+        kill_cooldown_estimate=900,
+    )
+
+
+def test_dick_mode_disabled_by_default_near_kill_cooldown() -> None:
+    belief = _crewmate_near_kill_cooldown_ready()
+
+    assert _select(belief) == "normal"
+
+
+def test_dick_mode_triggers_once_before_kill_cooldown_ready(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
+    strategy = RuleBasedStrategy()
+    action_state = ActionState()
+    trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+    belief = Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=900 - trigger_window - 1,
+        kill_cooldown_start_tick=0,
+        kill_cooldown_estimate=900,
+    )
+
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
+
+    belief.last_tick += 1
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "dick_mode"
+
+    action_state.last_call_meeting_attempt_tick = belief.last_tick + 5
+    belief.phase = "Voting"
+    belief.phase_start_tick = action_state.last_call_meeting_attempt_tick + 1
+    belief.last_tick = belief.phase_start_tick
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "dick_mode"
+
+    belief.phase = "Playing"
+    belief.last_tick += 1
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
+
+    # A later cooldown window in the same game does not re-arm Dick Mode; Crewrift's
+    # default ButtonCalls is one per player.
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.last_tick = belief.kill_cooldown_start_tick + 900 - trigger_window
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
+
+
+def test_dick_mode_alias_triggers_crewmate_path(monkeypatch) -> None:
+    monkeypatch.setenv("DICK_MODE", "true")
+    belief = _crewmate_near_kill_cooldown_ready()
+
+    assert _select(belief) == "dick_mode"
+
+
+def test_dick_mode_does_not_override_dead_or_imposter_roles(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
+    crewmate = _crewmate_near_kill_cooldown_ready()
+
+    assert _select(crewmate.model_copy(update={"self_role": "dead"})) == "normal"
+    assert _select(crewmate.model_copy(update={"self_role": "imposter"})) == "pretend"
+
+
+def test_dick_mode_button_refusal_timeout_does_not_retry(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
+    strategy = RuleBasedStrategy()
+    action_state = ActionState()
+    belief = _crewmate_near_kill_cooldown_ready()
+
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "dick_mode"
+
+    action_state.last_call_meeting_attempt_tick = belief.last_tick + 1
+    belief.last_tick = action_state.last_call_meeting_attempt_tick + DICK_CALL_NO_MEETING_GRACE_TICKS
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
+
+    belief.kill_cooldown_start_tick = belief.last_tick
+    belief.last_tick += 1
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
+
+
+def test_dick_mode_does_not_taunt_meetings_we_did_not_call(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
+    strategy = RuleBasedStrategy()
+    action_state = ActionState()
+    belief = _crewmate_near_kill_cooldown_ready()
+
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "dick_mode"
+
+    belief.phase = "Voting"
+    belief.phase_start_tick = belief.last_tick + 1
+    belief.last_tick = belief.phase_start_tick
+    assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "attend_meeting"
 
 
 def test_approaching_believed_imposter_selects_flee() -> None:

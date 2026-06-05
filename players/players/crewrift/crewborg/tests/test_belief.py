@@ -32,6 +32,28 @@ def test_alive_crewmate_role_is_derived_during_play() -> None:
     assert belief.self_role == "crewmate"
 
 
+def test_crewmate_tracks_global_kill_cooldown_start() -> None:
+    from players.crewrift.crewborg.perception.entities import VotingState
+
+    belief = Belief()
+
+    _fold(belief, 10, phase_texts=frozenset({"CREWMATE"}))
+    _fold(belief, 11, crew_tasks_remaining=5)
+    assert belief.self_role == "crewmate"
+    assert belief.kill_cooldown_start_tick == 11
+
+    meeting = ResolvedScene(
+        tick=20,
+        camera_ready=True,
+        camera_x=0,
+        camera_y=0,
+        voting=VotingState(timer_present=True),
+    )
+    update_belief(belief, Percept(tick=20, messages_applied=20, resolved=meeting))
+    _fold(belief, 21, crew_tasks_remaining=5)
+    assert belief.kill_cooldown_start_tick == 21
+
+
 def test_imposter_hud_sets_role_and_kill_ready() -> None:
     belief = Belief()
     _fold(belief, 1, crew_tasks_remaining=5, self_role="imposter", self_kill_ready=True)

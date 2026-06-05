@@ -41,7 +41,11 @@ respond to other players, keep a tentative vote, and submit early when requested
 otherwise it preserves the deterministic canned-chat + suspicion-vote fallback.
 Hunt is gated on a visible kill opportunity whose isolation bar relaxes with
 urgency, not merely on the cooldown ending. The action layer covers `kill` (edge-A
-in KillRange) and `vent` (level-B in VentRange).
+in KillRange), `vent` (level-B in VentRange), and emergency-button calls. With
+`CREWBORG_DICK_MODE=1` (or `DICK_MODE=1`), live crewmates interrupt normal tasking
+once before the first kill cooldown can clear, rush the emergency button, chat
+`haha, fuck you imposters` only if their own button press opened the meeting,
+skip-vote, and resume normal operation once that meeting closes.
 
 ## Layout
 
@@ -54,7 +58,7 @@ crewborg/
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
+  modes/             idle/normal/dick_mode/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
@@ -91,6 +95,13 @@ override it to point elsewhere.
 Set `CREWBORG_BE_DUMB=1` (or `BE_DUMB=1`) for the aggressive imposter experiment:
 during `Playing`, imposters skip Pretend/Evade/body reports and stay in Search
 unless kill-ready with a visible victim, then Hunt.
+
+Set `CREWBORG_DICK_MODE=1` (or `DICK_MODE=1`) for the crewmate emergency-button
+experiment: once the first kill cooldown gets within the hardcoded worst-case
+button-walk budget plus a 10-tick buffer, the bot calls a meeting, sends
+`haha, fuck you imposters` only if that call opened the meeting, skip-votes, then
+resumes tasking. Crewrift's default config allows one emergency button call per
+player, so the strategy intentionally treats this as a one-shot interruption.
 
 Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
 suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at

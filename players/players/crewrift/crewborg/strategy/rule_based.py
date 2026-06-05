@@ -7,11 +7,14 @@ tick, transitions are re-evaluated each cycle (no reflexes).
 Crewmate priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
-2. a body in view → Report Body (a meeting protects us; outranks fleeing)
-3. a believed imposter approaching → Flee, with hysteresis so we do not bounce
+2. with ``CREWBORG_DICK_MODE=1``, once the first kill cooldown is near ready →
+   Dick Mode (call the emergency button, taunt only if that call opens the
+   meeting, then resume tasking)
+3. a body in view → Report Body (a meeting protects us; outranks fleeing)
+4. a believed imposter approaching → Flee, with hysteresis so we do not bounce
    back to tasks while skirting the trigger radius
-4. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
-5. otherwise → idle
+5. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
+6. otherwise → idle
 
 ``believed_imposters`` (which gates Flee) is filled by the suspicion model
 (``strategy.suspicion``, design §10.1), folded into belief each tick.
@@ -39,6 +42,12 @@ Aggressive experiment: ``CREWBORG_BE_DUMB=1`` (or ``BE_DUMB=1``) replaces the
 imposter ``Playing`` priority with only Search/Hunt: Hunt when kill-ready with a
 visible victim, otherwise Search. It deliberately skips Pretend, Evade, and
 Report Body so we can isolate "always prepare to kill" behavior.
+
+Crewmate nuisance experiment: ``CREWBORG_DICK_MODE=1`` (or ``DICK_MODE=1``)
+interrupts normal tasking once per game, far enough before the first kill
+cooldown clears that a worst-case walk to the emergency button should still land
+with a small buffer. The selector switches to ``dick_mode`` until either our
+button press opens the emergency meeting or the attempt times out.
 """
 
 from __future__ import annotations
@@ -63,37 +72,74 @@ FLEE_EXIT_SQ = 100**2
 FLEE_STALE_TICKS = 48
 # Ticks after a kill during which the imposter prefers to Evade (≈3s at 24 Hz).
 EVADE_TICKS = 72
+# Conservative upper bound for walking from the far side of Croatoan to the bridge
+# emergency button. Croatoan is 1235x659 px (diagonal ≈1400 px); with MaxSpeed
+# 704/256≈2.75 px/tick the straight-line bound is ≈510 ticks, rounded up for path
+# shape, controller settling, and route churn.
+DICK_MAX_BUTTON_TRAVEL_TICKS = 600
+# Start the button run this many ticks before the kill cooldown would clear after
+# the worst-case walk.
+DICK_KILL_COOLDOWN_BUFFER_TICKS = 10
+# Once the action layer has actually pressed A on the emergency button, wait this
+# long for a meeting before assuming the server refused the call (for example,
+# because ButtonCalls is already spent) and resuming normal tasking.
+DICK_CALL_NO_MEETING_GRACE_TICKS = 48
 
 
 class RuleBasedStrategy:
     def __init__(self) -> None:
         self._flee_target: str | None = None
+        self._dick_state: str = "idle"
+        self._dick_call_started_tick: int | None = None
+        self._dick_button_spent = False
 
     def decide(self, snapshot: BeliefSnapshot[Belief, ActionState]) -> ModeDirective:
         with snapshot.read() as memory:
             belief = memory.belief
-            directive = self._select(belief)
+            directive = self._select(belief, memory.action_state)
         return directive
 
-    def _select(self, belief: Belief) -> ModeDirective:
+    def _select(self, belief: Belief, action_state: ActionState) -> ModeDirective:
         phase = belief.phase
 
         if phase == "Voting":
             self._clear_flee()
+            if self._dick_state == "calling":
+                if self._did_press_emergency_button(action_state):
+                    self._dick_state = "meeting"
+                else:
+                    self._finish_dick_attempt()
+            if self._dick_state == "meeting":
+                return ModeDirective(mode="dick_mode", source="strategy", reason="dick mode: emergency meeting")
             return ModeDirective(mode="attend_meeting", source="strategy", reason="meeting open")
 
         if phase == "Playing":
+            if self._dick_state == "meeting":
+                self._finish_dick_attempt()
             # A crewmate ghost can't report or be threatened; it only finishes its
             # own tasks (design §7.3), so it goes straight to Normal.
             if belief.self_role == "dead":
                 self._clear_flee()
+                self._reset_dick_mode()
                 return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
             if belief.self_role == "imposter":
                 self._clear_flee()
+                self._reset_dick_mode()
                 return self._select_imposter(belief)
             # Live crewmate (or not-yet-known role): full field priority. Reporting a
             # visible body outranks fleeing — a meeting protects us and lets the crew
             # act, which beats running from a suspect we could instead report.
+            if self._dick_state == "calling":
+                if self._dick_call_timed_out(belief, action_state):
+                    self._finish_dick_attempt()
+                else:
+                    return ModeDirective(mode="dick_mode", source="strategy", reason="dick mode: call meeting")
+            if self._should_start_dick_mode(belief):
+                self._dick_state = "calling"
+                self._dick_call_started_tick = belief.last_tick
+                self._dick_button_spent = True
+                self._clear_flee()
+                return ModeDirective(mode="dick_mode", source="strategy", reason="dick mode: kill cooldown reset")
             if any(bid in belief.bodies for bid in belief.visible_body_ids):
                 self._clear_flee()
                 return ModeDirective(mode="report_body", source="strategy", reason="body in view")
@@ -104,6 +150,10 @@ class RuleBasedStrategy:
 
         # All non-play phases (RoleReveal / Lobby / VoteResult / GameOver / unknown).
         self._clear_flee()
+        if self._dick_state == "meeting":
+            self._finish_dick_attempt()
+        elif phase in {"Lobby", "RoleReveal", "GameOver", "unknown"}:
+            self._reset_dick_mode()
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
@@ -141,6 +191,39 @@ class RuleBasedStrategy:
     def _clear_flee(self) -> None:
         self._flee_target = None
 
+    def _should_start_dick_mode(self, belief: Belief) -> bool:
+        if not _dick_mode_enabled():
+            self._reset_dick_mode()
+            return False
+        if self._dick_button_spent:
+            return False
+        if belief.self_role not in {None, "crewmate"}:
+            return False
+        trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+        return ticks_until_kill_ready(belief) <= trigger_window
+
+    def _did_press_emergency_button(self, action_state: ActionState) -> bool:
+        if self._dick_call_started_tick is None or action_state.last_call_meeting_attempt_tick is None:
+            return False
+        return action_state.last_call_meeting_attempt_tick >= self._dick_call_started_tick
+
+    def _dick_call_timed_out(self, belief: Belief, action_state: ActionState) -> bool:
+        if self._dick_call_started_tick is None:
+            return False
+        attempt_tick = action_state.last_call_meeting_attempt_tick
+        if attempt_tick is None or attempt_tick < self._dick_call_started_tick:
+            return False
+        return belief.last_tick - attempt_tick >= DICK_CALL_NO_MEETING_GRACE_TICKS
+
+    def _finish_dick_attempt(self) -> None:
+        self._dick_state = "idle"
+        self._dick_call_started_tick = None
+
+    def _reset_dick_mode(self) -> None:
+        self._dick_state = "idle"
+        self._dick_call_started_tick = None
+        self._dick_button_spent = False
+
 
 def _recent_self_kill(belief: Belief) -> bool:
     return belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS
@@ -148,6 +231,10 @@ def _recent_self_kill(belief: Belief) -> bool:
 
 def _be_dumb_enabled() -> bool:
     return _truthy_env("CREWBORG_BE_DUMB") or _truthy_env("BE_DUMB")
+
+
+def _dick_mode_enabled() -> bool:
+    return _truthy_env("CREWBORG_DICK_MODE") or _truthy_env("DICK_MODE")
 
 
 def _truthy_env(name: str) -> bool:
