@@ -167,8 +167,8 @@ so they survive re-tuning unless the qualitative shape changes.
 - **`task` dwell as exculpation** — would lower suspicion for "looking busy", but
   imposters fake tasks (Pretend does exactly this), so it isn't reliable innocence.
 
-These are still in the event log (they may feed the LLM later); they just map to a
-`0` log-LR.
+These are still in the event log and are serialized for the opt-in meeting LLM;
+they just map to a `0` log-LR in the deterministic Bayesian model.
 
 ---
 
@@ -311,5 +311,6 @@ weight is a guess or earned.
 - **Dynamic/joint prior** (imposter-budget redistribution; §5.3).
 - **More evidence types** from the event log + `chat_log` (§4.3) and `voting.dots`.
 - **The offline LR-learning pipeline** (§6).
-- **LLM strategy seam** consuming the per-player view (identity + life + events +
-  posterior) for chat/voting reasoning.
+- ~~LLM meeting consumer~~ — **done**: the opt-in Attend Meeting LLM consumes the
+  per-player view (identity + life + events + posterior), chat transcript, and
+  vote tally for chat/voting reasoning.
