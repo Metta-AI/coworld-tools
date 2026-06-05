@@ -224,6 +224,19 @@ def test_report_out_of_range_navigates_to_body() -> None:
     assert command.held_mask == BTN_UP | BTN_LEFT  # toward (10, 10) from (200, 200)
 
 
+def test_call_meeting_navigates_then_edge_presses_a_on_button() -> None:
+    far = Belief(map=_one_task_map(), self_world_x=100, self_world_y=100)
+    command = resolve_action(Intent(kind="call_meeting"), far, ActionState())
+    assert command.held_mask == BTN_UP | BTN_LEFT  # toward button center (14, 17)
+
+    on_button = Belief(map=_one_task_map(), self_world_x=1, self_world_y=1, last_tick=42)
+    action_state = ActionState()
+    intent = Intent(kind="call_meeting")
+    assert resolve_action(intent, on_button, action_state).held_mask == BTN_A
+    assert action_state.last_call_meeting_attempt_tick == 42
+    assert resolve_action(intent, on_button, action_state).held_mask == 0  # release to reset edge
+
+
 def test_vote_skip_steps_to_skip_then_confirms_once() -> None:
     belief = Belief()
     belief.voting = VotingState(cursor_present=True)  # on a player cell, not skip
