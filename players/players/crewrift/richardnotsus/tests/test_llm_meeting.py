@@ -1,0 +1,59 @@
+from players.crewrift.richardnotsus import llm_meeting
+
+
+def _context() -> dict:
+    return {
+        "constraints": {"valid_vote_targets": ["red", "blue", "skip"]},
+        "state": {"fallback_vote": "skip"},
+    }
+
+
+def test_disabled_helper_returns_wait(monkeypatch):
+    for name in (
+        "RICHARDNOTSUS_LLM_MEETINGS",
+        "USE_BEDROCK",
+        "CLAUDE_CODE_USE_BEDROCK",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    decision = llm_meeting.decide(_context())
+
+    assert decision["action"] == "wait"
+    assert decision["vote_target"] == ""
+
+
+def test_validate_accepts_legal_vote_target():
+    decision = llm_meeting._validate_decision(
+        {
+            "action": "submit_vote",
+            "chat_text": "I saw red near body",
+            "vote_target": "red",
+            "reason": "body evidence",
+            "confidence": 0.8,
+        },
+        _context(),
+    )
+
+    assert decision == {
+        "schema_version": 1,
+        "action": "submit_vote",
+        "chat_text": "I saw red near body",
+        "vote_target": "red",
+        "reason": "body evidence",
+        "confidence": 0.8,
+    }
+
+
+def test_validate_rejects_illegal_vote_target():
+    decision = llm_meeting._validate_decision(
+        {
+            "action": "submit_vote",
+            "vote_target": "green",
+            "reason": "made up",
+            "confidence": 0.9,
+        },
+        _context(),
+    )
+
+    assert decision["action"] == "wait"
+    assert decision["vote_target"] == ""

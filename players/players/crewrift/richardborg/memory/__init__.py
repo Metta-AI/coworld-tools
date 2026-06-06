@@ -1,1 +1,0 @@
-"""Richardborg meeting-memory helpers."""

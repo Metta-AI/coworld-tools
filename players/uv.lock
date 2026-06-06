@@ -1097,7 +1097,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
-    { name = "boto3" },
     { name = "cramjam" },
     { name = "numpy" },
     { name = "pydantic" },
@@ -1123,7 +1122,6 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
-    { name = "boto3", specifier = ">=1.34.0" },
     { name = "cogames", marker = "extra == 'cogames'" },
     { name = "cogsguard", marker = "extra == 'cogsguard'", git = "https://github.com/Metta-AI/coworld-cogs-vs-clips.git?branch=relh%2Fcogsguard-semantic-surface" },
     { name = "cramjam", specifier = ">=2.8.0" },
