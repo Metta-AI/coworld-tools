@@ -7,6 +7,7 @@ import os
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -44,6 +45,7 @@ class MeetingLLMConfig:
     temperature: float = 0.2
     timeout_seconds: float = 3.0
     trace_raw: bool = False
+    system_prompt: str = SYSTEM_PROMPT
 
 
 class MeetingLLMResult(BaseModel):
@@ -137,7 +139,7 @@ class AnthropicMeetingClient:
             model=self.config.model,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system=SYSTEM_PROMPT,
+            system=self.config.system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
         latency_ms = (time.perf_counter() - start) * 1000.0
@@ -185,6 +187,7 @@ def build_meeting_llm_client_from_env(
         temperature=_env_float(env, "CREWBORG_LLM_TEMPERATURE", 0.2),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
         trace_raw=trace_raw,
+        system_prompt=_system_prompt(env),
     )
     return AnthropicMeetingClient(
         config,
@@ -208,6 +211,12 @@ def _meeting_model(env: Mapping[str, str], *, use_bedrock: bool) -> str:
     if use_bedrock:
         return env.get("BEDROCK_MODEL", DEFAULT_BEDROCK_MEETING_MODEL)
     return DEFAULT_MEETING_MODEL
+
+
+def _system_prompt(env: Mapping[str, str]) -> str:
+    if path := env.get("CREWBORG_LLM_SYSTEM_PROMPT_PATH"):
+        return Path(path).read_text(encoding="utf-8")
+    return SYSTEM_PROMPT
 
 
 def _response_text(response: Any) -> str:

@@ -14,6 +14,8 @@ from players.crewrift.crewborg.action import (
     BTN_UP,
     CHAT_HEADER,
     INPUT_HEADER,
+    VOTE_MOVE_HOLD_TICKS,
+    VOTE_MOVE_RELEASE_TICKS,
     encode_chat,
     encode_input,
     resolve_action,
@@ -289,17 +291,13 @@ def test_vote_skip_steps_to_skip_then_confirms_once() -> None:
     action_state = ActionState()
     intent = Intent(kind="vote")
 
-    assert (
-        resolve_action(intent, belief, action_state).held_mask == BTN_DOWN
-    )  # step toward skip
-    assert resolve_action(intent, belief, action_state).held_mask == 0  # release (edge)
+    _expect_vote_cursor_step(intent, belief, action_state)
+    confirm = resolve_action(intent, belief, action_state)
+    assert confirm.held_mask == BTN_A and not action_state.vote_confirmed
 
     belief.voting = VotingState(
         skip_cursor_present=True, self_marker_color="red", candidates=candidates
     )
-    confirm = resolve_action(intent, belief, action_state)
-    assert confirm.held_mask == BTN_A and not action_state.vote_confirmed
-
     belief.voting = belief.voting.model_copy(
         update={"dots": (VoteDot(voter=0, target=SKIP_VOTE_TARGET),)}
     )
@@ -319,28 +317,49 @@ def _vote_grid() -> VotingState:
     )
 
 
+def _expect_vote_cursor_step(
+    intent: Intent, belief: Belief, action_state: ActionState
+) -> None:
+    for _ in range(VOTE_MOVE_HOLD_TICKS):
+        assert resolve_action(intent, belief, action_state).held_mask == BTN_RIGHT
+    for _ in range(VOTE_MOVE_RELEASE_TICKS):
+        assert resolve_action(intent, belief, action_state).held_mask == 0
+
+
 def test_targeted_vote_steps_to_the_target_then_confirms() -> None:
     belief = Belief()
     belief.voting = _vote_grid()  # cursor on slot 0, target is blue (slot 1)
     action_state = ActionState()
     intent = Intent(kind="vote", target_color="blue")
 
-    assert (
-        resolve_action(intent, belief, action_state).held_mask == BTN_DOWN
-    )  # step toward blue
-    assert resolve_action(intent, belief, action_state).held_mask == 0  # release (edge)
+    _expect_vote_cursor_step(intent, belief, action_state)
+    confirm = resolve_action(intent, belief, action_state)
+    assert confirm.held_mask == BTN_A and not action_state.vote_confirmed
 
     belief.voting = belief.voting.model_copy(
         update={"cursor_slot": 1}
     )  # cursor reached blue
-    confirm = resolve_action(intent, belief, action_state)
-    assert confirm.held_mask == BTN_A and not action_state.vote_confirmed
-
     belief.voting = belief.voting.model_copy(
         update={"dots": (VoteDot(voter=0, target=1),)}
     )
     assert resolve_action(intent, belief, action_state).held_mask == 0
     assert action_state.vote_confirmed
+
+
+def test_vote_reason_change_preserves_cursor_move_progress() -> None:
+    belief = Belief()
+    belief.voting = _vote_grid()
+    action_state = ActionState()
+
+    first = Intent(kind="vote", target_color="blue", reason="initial vote")
+    continuing = Intent(kind="vote", target_color="blue", reason="continuing vote")
+
+    assert resolve_action(first, belief, action_state).held_mask == BTN_RIGHT
+    for _ in range(VOTE_MOVE_HOLD_TICKS - 1):
+        assert resolve_action(continuing, belief, action_state).held_mask == BTN_RIGHT
+    for _ in range(VOTE_MOVE_RELEASE_TICKS):
+        assert resolve_action(continuing, belief, action_state).held_mask == 0
+    assert resolve_action(continuing, belief, action_state).held_mask == BTN_A
 
 
 def test_targeted_vote_retries_confirm_until_vote_dot_appears() -> None:
@@ -351,6 +370,12 @@ def test_targeted_vote_retries_confirm_until_vote_dot_appears() -> None:
 
     assert resolve_action(intent, belief, action_state).held_mask == BTN_A
     assert not action_state.vote_confirmed
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_A
+    assert not action_state.vote_confirmed
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_A
+    assert not action_state.vote_confirmed
+    assert resolve_action(intent, belief, action_state).held_mask == 0
+    assert not action_state.vote_confirmed
     assert resolve_action(intent, belief, action_state).held_mask == 0
     assert not action_state.vote_confirmed
     assert resolve_action(intent, belief, action_state).held_mask == BTN_A
@@ -363,7 +388,7 @@ def test_targeted_vote_retries_confirm_until_vote_dot_appears() -> None:
     assert action_state.vote_confirmed
 
 
-def test_targeted_vote_confirms_current_selection_after_full_cycle() -> None:
+def test_targeted_vote_tracks_cursor_locally_when_rendered_cursor_stays_stale() -> None:
     belief = Belief()
     candidates = (
         VoteCandidate(slot=0, color="red", alive=True),
@@ -382,12 +407,12 @@ def test_targeted_vote_confirms_current_selection_after_full_cycle() -> None:
         candidates=candidates,
     )
     intent = Intent(kind="vote", target_color="blue")
-    action_state = ActionState(
-        current_intent=intent, vote_move_attempts=len(candidates) + 1
-    )
+    action_state = ActionState()
 
-    command = resolve_action(intent, belief, action_state)
-    assert command.held_mask == BTN_A
+    for _ in range(4):
+        _expect_vote_cursor_step(intent, belief, action_state)
+    assert action_state.vote_cursor_index == 6
+    assert resolve_action(intent, belief, action_state).held_mask == BTN_A
 
 
 def test_targeted_vote_confirms_immediately_when_already_on_target() -> None:

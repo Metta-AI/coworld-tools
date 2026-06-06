@@ -5,6 +5,7 @@ from __future__ import annotations
 from players.crewrift.crewborg.modes import AttendMeetingMode, FleeMode, ReportBodyMode
 from players.crewrift.crewborg.perception.entities import VoteCandidate, VotingState
 from players.crewrift.crewborg.strategy.meeting import MeetingDecision, MeetingLLMResult
+from players.crewrift.crewborg.strategy.meeting.context import serialize_meeting_context
 from players.crewrift.crewborg.types import (
     ActionState,
     Belief,
@@ -110,7 +111,7 @@ def test_attend_meeting_llm_sends_multiple_chats_after_new_chat_and_cooldown() -
     assert [trigger for trigger, _ in client.calls] == ["meeting_start", "new_chat"]
 
 
-def test_attend_meeting_llm_tentative_vote_auto_submits_near_deadline() -> None:
+def test_attend_meeting_llm_tentative_vote_auto_submits_next_tick() -> None:
     client = _FakeMeetingClient(
         [MeetingDecision(action="set_tentative_vote", vote_target="red")]
     )
@@ -118,7 +119,7 @@ def test_attend_meeting_llm_tentative_vote_auto_submits_near_deadline() -> None:
 
     assert mode.decide(_meeting_belief(tick=0), ActionState()).kind == "idle"
 
-    vote = mode.decide(_meeting_belief(tick=193), ActionState())
+    vote = mode.decide(_meeting_belief(tick=1), ActionState())
     assert vote.kind == "vote"
     assert vote.target_color == "red"
 
@@ -132,6 +133,28 @@ def test_attend_meeting_llm_can_submit_vote_early() -> None:
     vote = mode.decide(_meeting_belief(tick=0), ActionState())
     assert vote.kind == "vote"
     assert vote.target_color == "red"
+
+
+def test_attend_meeting_uses_injected_context_serializer() -> None:
+    client = _FakeMeetingClient(
+        [MeetingDecision(action="send_chat", chat_text="red was with green")]
+    )
+
+    def serialize_with_memory(*args, **kwargs):
+        context = serialize_meeting_context(*args, **kwargs)
+        context["memory"] = {"canonical_observations": ["I saw red with green."]}
+        return context
+
+    mode = AttendMeetingMode(
+        llm_client=client, context_serializer=serialize_with_memory
+    )
+
+    intent = mode.decide(_meeting_belief(tick=0), ActionState())
+
+    assert intent.kind == "chat"
+    assert client.calls[0][1]["memory"]["canonical_observations"] == [
+        "I saw red with green."
+    ]
 
 
 def test_attend_meeting_llm_keeps_vote_intent_until_action_confirms() -> None:

@@ -21,6 +21,7 @@ point" routine that follows the baked nav route (design §9):
 from __future__ import annotations
 
 from players.crewrift.crewborg.nav import plan_route, plan_route_via_vents
+from players.crewrift.crewborg.perception.entities import VotingState
 from players.crewrift.crewborg.types import ActionState, Belief, Command, Intent
 
 INPUT_HEADER = 0x84
@@ -123,6 +124,11 @@ def _velocity(action_state: ActionState, self_xy: tuple[int, int]) -> tuple[int,
 
 
 def _reset_execution(action_state: ActionState, intent: Intent) -> None:
+    preserve_vote_cursor = (
+        action_state.current_intent is not None
+        and action_state.current_intent.kind == "vote"
+        and intent.kind == "vote"
+    )
     action_state.current_intent = intent
     action_state.route = []
     action_state.route_cursor = 0
@@ -131,7 +137,27 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.ticks_since_plan = 0
     action_state.vote_confirmed = False
     action_state.vote_move_attempts = 0
+    if not preserve_vote_cursor:
+        action_state.vote_cursor_index = None
+        action_state.vote_cursor_candidate_count = 0
+    action_state.vote_move_hold_ticks = 0
+    action_state.vote_move_release_ticks = 0
+    action_state.vote_confirm_hold_ticks = 0
+    action_state.vote_confirm_release_ticks = 0
     action_state.chat_sent = False
+
+
+def _same_execution_intent(left: Intent, right: Intent | None) -> bool:
+    if right is None:
+        return False
+    return (
+        left.kind == right.kind
+        and left.point == right.point
+        and left.target_color == right.target_color
+        and left.target_id == right.target_id
+        and left.task_index == right.task_index
+        and left.text == right.text
+    )
 
 
 def _edge_press(action_state: ActionState, bit: int) -> int:
@@ -139,6 +165,12 @@ def _edge_press(action_state: ActionState, bit: int) -> int:
     tick, release first (return 0) so the next tick re-presses (sim.nim freshA)."""
 
     return 0 if action_state.held_mask & bit else bit
+
+
+VOTE_CONFIRM_HOLD_TICKS = 3
+VOTE_CONFIRM_RELEASE_TICKS = 2
+VOTE_MOVE_HOLD_TICKS = 2
+VOTE_MOVE_RELEASE_TICKS = 1
 
 
 def _navigate_mask(
@@ -239,8 +271,10 @@ def resolve_action(
     """Execute an intent into this tick's wire command (design §9)."""
 
     # Diff against the stored intent; a change discards in-progress execution.
-    if intent != action_state.current_intent:
+    if not _same_execution_intent(intent, action_state.current_intent):
         _reset_execution(action_state, intent)
+    else:
+        action_state.current_intent = intent
 
     self_xy = _self_xy(belief)
     command = _resolve(intent, belief, action_state, self_xy)
@@ -372,39 +406,105 @@ def _resolve_vote(intent: Intent, belief: Belief, action_state: ActionState) -> 
         action_state.vote_confirmed = True
         return Command(held_mask=0)
 
+    target_index = _vote_target_index(intent, voting)
+    if target_index is None:
+        return Command(held_mask=0)
+    _initialize_vote_cursor(action_state, voting)
+    if action_state.vote_cursor_index == target_index:
+        if _vote_move_in_progress(action_state):
+            return _continue_vote_cursor_step(action_state)
+        return _confirm_vote(action_state)
+    return _vote_cursor_step(action_state, voting)
+
+
+def _vote_target_index(intent: Intent, voting: VotingState) -> int | None:
+    candidates = voting.candidates
+    if not candidates:
+        return None
     if intent.target_color is not None:
         target_slot = next(
-            (
-                c.slot
-                for c in voting.candidates
-                if c.color == intent.target_color and c.alive
-            ),
+            (c.slot for c in candidates if c.color == intent.target_color and c.alive),
             None,
         )
         if target_slot is not None:
-            if voting.cursor_slot == target_slot:
-                return _confirm_vote(action_state)
-            if action_state.vote_move_attempts >= len(voting.candidates) + 1:
-                return _confirm_vote(action_state)
-            return _vote_cursor_step(action_state)
+            return target_slot
+    return len(candidates)
 
-    # Skip policy (default, or target unresolvable): step onto the skip cell, confirm.
-    if voting.skip_cursor_present:
-        return _confirm_vote(action_state)
-    if action_state.vote_move_attempts >= len(voting.candidates) + 1:
-        return _confirm_vote(action_state)
-    return _vote_cursor_step(action_state)
+
+def _initialize_vote_cursor(action_state: ActionState, voting: VotingState) -> None:
+    candidate_count = len(voting.candidates)
+    if (
+        action_state.vote_cursor_index is not None
+        and action_state.vote_cursor_candidate_count == candidate_count
+    ):
+        return
+    cursor_index: int | None
+    if voting.cursor_slot is not None:
+        cursor_index = voting.cursor_slot
+    elif voting.skip_cursor_present:
+        cursor_index = candidate_count
+    else:
+        cursor_index = next(
+            (candidate.slot for candidate in voting.candidates if candidate.alive),
+            None,
+        )
+    action_state.vote_cursor_index = cursor_index
+    action_state.vote_cursor_candidate_count = candidate_count
+
+
+def _next_vote_cursor(cursor_index: int, voting: VotingState) -> int:
+    candidate_count = len(voting.candidates)
+    total_positions = candidate_count + 1
+    alive_slots = {candidate.slot for candidate in voting.candidates if candidate.alive}
+    for _ in range(total_positions):
+        cursor_index = (cursor_index + 1 + total_positions) % total_positions
+        if cursor_index == candidate_count or cursor_index in alive_slots:
+            break
+    return cursor_index
 
 
 def _confirm_vote(action_state: ActionState) -> Command:
-    return Command(held_mask=_edge_press(action_state, BTN_A))
+    if action_state.vote_confirm_hold_ticks > 0:
+        action_state.vote_confirm_hold_ticks -= 1
+        if action_state.vote_confirm_hold_ticks == 0:
+            action_state.vote_confirm_release_ticks = VOTE_CONFIRM_RELEASE_TICKS
+        return Command(held_mask=BTN_A)
+    if action_state.vote_confirm_release_ticks > 0:
+        action_state.vote_confirm_release_ticks -= 1
+        return Command(held_mask=0)
+    action_state.vote_confirm_hold_ticks = VOTE_CONFIRM_HOLD_TICKS - 1
+    return Command(held_mask=BTN_A)
 
 
-def _vote_cursor_step(action_state: ActionState) -> Command:
-    held_mask = _edge_press(action_state, BTN_DOWN)
-    if held_mask:
-        action_state.vote_move_attempts += 1
-    return Command(held_mask=held_mask)
+def _vote_move_in_progress(action_state: ActionState) -> bool:
+    return (
+        action_state.vote_move_hold_ticks > 0
+        or action_state.vote_move_release_ticks > 0
+    )
+
+
+def _continue_vote_cursor_step(action_state: ActionState) -> Command:
+    if action_state.vote_move_hold_ticks > 0:
+        action_state.vote_move_hold_ticks -= 1
+        if action_state.vote_move_hold_ticks == 0:
+            action_state.vote_move_release_ticks = VOTE_MOVE_RELEASE_TICKS
+        return Command(held_mask=BTN_RIGHT)
+    if action_state.vote_move_release_ticks > 0:
+        action_state.vote_move_release_ticks -= 1
+        return Command(held_mask=0)
+    return Command(held_mask=0)
+
+
+def _vote_cursor_step(action_state: ActionState, voting: VotingState) -> Command:
+    if _vote_move_in_progress(action_state):
+        return _continue_vote_cursor_step(action_state)
+    action_state.vote_move_attempts += 1
+    if action_state.vote_cursor_index is not None:
+        action_state.vote_cursor_index = _next_vote_cursor(
+            action_state.vote_cursor_index, voting
+        )
+    action_state.vote_move_hold_ticks = VOTE_MOVE_HOLD_TICKS - 1
+    return Command(held_mask=BTN_RIGHT)
 
 
 def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:

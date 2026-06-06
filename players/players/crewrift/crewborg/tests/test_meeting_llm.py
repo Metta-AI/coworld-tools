@@ -98,3 +98,31 @@ def test_crewborg_llm_meetings_uses_direct_anthropic_when_api_key_is_set(
     assert isinstance(client, AnthropicMeetingClient)
     assert client.config.model == DEFAULT_MEETING_MODEL
     assert calls[0]["api_key"] == "test-key"
+
+
+def test_crewborg_llm_system_prompt_can_be_loaded_from_file(
+    monkeypatch, tmp_path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeAnthropic:
+        def __init__(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+    system_path = tmp_path / "system.md"
+    system_path.write_text("custom meeting system", encoding="utf-8")
+    monkeypatch.setitem(
+        sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic)
+    )
+
+    client = build_meeting_llm_client_from_env(
+        {
+            "CREWBORG_LLM_MEETINGS": "true",
+            "ANTHROPIC_API_KEY": "test-key",
+            "CREWBORG_LLM_SYSTEM_PROMPT_PATH": str(system_path),
+        }
+    )
+
+    assert client.enabled
+    assert isinstance(client, AnthropicMeetingClient)
+    assert client.config.system_prompt == "custom meeting system"

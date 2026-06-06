@@ -407,6 +407,17 @@ class ActionState(BaseModel):
     # never observes the target after a full cycle, confirm the current selection to
     # avoid a vote timeout.
     vote_move_attempts: int = 0
+    # Locally tracked server vote cursor. The rendered cursor is easy to miss for a
+    # few frames; this follows sim.nim's moveCursor rules for our own emitted inputs.
+    vote_cursor_index: int | None = None
+    vote_cursor_candidate_count: int = 0
+    vote_move_hold_ticks: int = 0
+    vote_move_release_ticks: int = 0
+    # Vote confirm uses a short A pulse plus an explicit release gap so the server's
+    # input sampler observes a fresh attack edge even when websocket updates arrive
+    # faster than game ticks.
+    vote_confirm_hold_ticks: int = 0
+    vote_confirm_release_ticks: int = 0
     # Whether the current chat intent's text has been emitted (sent once).
     chat_sent: bool = False
 

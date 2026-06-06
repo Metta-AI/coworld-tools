@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from players.crewrift.crewborg.strategy.meeting import (
@@ -36,7 +37,11 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     params_type = EmptyModeParams
 
     def __init__(
-        self, params=None, *, llm_client: MeetingLLMClient | None = None
+        self,
+        params=None,
+        *,
+        llm_client: MeetingLLMClient | None = None,
+        context_serializer: Callable[..., dict[str, Any]] = serialize_meeting_context,
     ) -> None:
         super().__init__(params)
         self._llm_client = (
@@ -44,6 +49,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             if llm_client is not None
             else build_meeting_llm_client_from_env()
         )
+        self._context_serializer = context_serializer
         self._meeting_id: int | None = None
         self._deterministic_chatted = False
         self._disabled_traced = False
@@ -55,6 +61,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._last_cooldown_prompt_chat_tick: int | None = None
         self._deadline_prompted = False
         self._tentative_vote: str | None = None
+        self._tentative_vote_ready_to_submit = False
         self._vote_submitted = False
         self._vote_submission_target: str | None = None
 
@@ -79,6 +86,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             return self._submit_vote_intent(
                 belief, reason="meeting deadline: auto-submit tentative vote"
             )
+        if self._should_submit_tentative_vote():
+            return self._submit_vote_intent(belief, reason="auto-submit tentative vote")
 
         if self._pending_chat_text is not None and self._chat_cooldown_ready(belief):
             return self._send_chat_intent(
@@ -89,7 +98,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         if trigger is None:
             return Intent(kind="idle", reason="waiting during meeting")
 
-        context = serialize_meeting_context(
+        context = self._context_serializer(
             belief,
             trigger=trigger,
             tentative_vote=self._tentative_vote,
@@ -223,6 +232,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     def _apply_decision(self, belief: Belief, decision: MeetingDecision) -> Intent:
         if decision.vote_target is not None:
             self._tentative_vote = decision.vote_target
+            self._tentative_vote_ready_to_submit = (
+                decision.action == "set_tentative_vote"
+            )
             self.emit.event(
                 "meeting_tentative_vote",
                 {
@@ -275,6 +287,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     def _submit_vote_intent(self, belief: Belief, *, reason: str) -> Intent:
         vote_target = self._resolved_vote_target(belief)
         self._vote_submission_target = vote_target
+        self._tentative_vote_ready_to_submit = False
         self.emit.event(
             "meeting_vote_selected", {"target": vote_target, "reason": reason}
         )
@@ -311,6 +324,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._last_cooldown_prompt_chat_tick = None
         self._deadline_prompted = False
         self._tentative_vote = None
+        self._tentative_vote_ready_to_submit = False
         self._vote_submitted = False
         self._vote_submission_target = None
 
@@ -345,6 +359,14 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             not self._vote_submitted
             and self._vote_submission_target is None
             and self._remaining_ticks(belief) <= AUTO_SUBMIT_REMAINING_TICKS
+        )
+
+    def _should_submit_tentative_vote(self) -> bool:
+        return (
+            not self._vote_submitted
+            and self._vote_submission_target is None
+            and self._tentative_vote is not None
+            and self._tentative_vote_ready_to_submit
         )
 
     def _resolved_vote_target(self, belief: Belief) -> str:
