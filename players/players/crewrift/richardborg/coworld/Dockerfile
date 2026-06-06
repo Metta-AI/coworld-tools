@@ -1,11 +1,21 @@
+# Richardborg player image.
+#
+# Built via the leaf ``build.sh`` (which uses tools/players_build/build_lib.sh).
+# The build context is the repo root so the image can install the local
+# ``players`` package. Unlike the cogsguard images, richardborg needs no mettagrid /
+# cogames stack — it speaks Crewrift's binary Sprite-v1 protocol over its own
+# websocket bridge, so the base ``players`` deps (numpy/pydantic/websockets)
+# suffice.
+
 FROM --platform=linux/amd64 python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    RICHARDBORG_POLICY_VARIANT=dumb \
     BE_DUMB=1 \
-    CREWBORG_LLM_MEETINGS=0 \
-    CREWBORG_LLM_SYSTEM_PROMPT_PATH=/srv/players/players/crewrift/richardborg/memory/system.md
+    RICHARDBORG_LLM_MEETINGS=0 \
+    RICHARDBORG_LLM_SYSTEM_PROMPT_PATH=/srv/players/players/crewrift/richardborg/memory/system.md
 
 WORKDIR /srv/players
 

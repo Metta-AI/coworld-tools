@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -19,7 +17,6 @@ from players.crewrift.crewborg.strategy.meeting.schema import (
 )
 
 DEFAULT_MEETING_MODEL = "claude-haiku-4-5-20251001"
-DEFAULT_BEDROCK_MEETING_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 SYSTEM_PROMPT = f"""You are controlling one Crewrift player during an active meeting.
 Choose exactly one JSON object matching the schema. Do not include markdown.
@@ -45,7 +42,6 @@ class MeetingLLMConfig:
     temperature: float = 0.2
     timeout_seconds: float = 3.0
     trace_raw: bool = False
-    system_prompt: str = SYSTEM_PROMPT
 
 
 class MeetingLLMResult(BaseModel):
@@ -62,11 +58,8 @@ class MeetingLLMResult(BaseModel):
 
 
 class MeetingLLMClient(Protocol):
-    @property
-    def enabled(self) -> bool: ...
-
-    @property
-    def disabled_reason(self) -> str | None: ...
+    enabled: bool
+    disabled_reason: str | None
 
     def decide(self, context: dict[str, Any], *, trigger: str) -> MeetingLLMResult: ...
 
@@ -84,41 +77,17 @@ class DisabledMeetingClient:
 class AnthropicMeetingClient:
     """Anthropic Messages API adapter, kept behind the meeting-client protocol."""
 
-    enabled: bool = True
-    disabled_reason: str | None = None
+    enabled = True
+    disabled_reason = None
 
-    def __init__(
-        self,
-        config: MeetingLLMConfig,
-        *,
-        client: Any | None = None,
-        api_key: str | None = None,
-        use_bedrock: bool = False,
-        aws_access_key: str | None = None,
-        aws_secret_key: str | None = None,
-        aws_session_token: str | None = None,
-        aws_region: str | None = None,
-        aws_profile: str | None = None,
-    ) -> None:
+    def __init__(self, config: MeetingLLMConfig, *, client: Any | None = None) -> None:
         self.config = config
         if client is not None:
             self._client = client
             return
-        if use_bedrock:
-            from anthropic import AnthropicBedrock
-
-            self._client = AnthropicBedrock(
-                aws_access_key=aws_access_key,
-                aws_secret_key=aws_secret_key,
-                aws_session_token=aws_session_token,
-                aws_region=aws_region,
-                aws_profile=aws_profile,
-                timeout=config.timeout_seconds,
-            )
-            return
         from anthropic import Anthropic
 
-        self._client = Anthropic(api_key=api_key, timeout=config.timeout_seconds)
+        self._client = Anthropic(timeout=config.timeout_seconds)
 
     def decide(self, context: dict[str, Any], *, trigger: str) -> MeetingLLMResult:
         request = {
@@ -139,7 +108,7 @@ class AnthropicMeetingClient:
             model=self.config.model,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system=self.config.system_prompt,
+            system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_content}],
         )
         latency_ms = (time.perf_counter() - start) * 1000.0
@@ -155,68 +124,22 @@ class AnthropicMeetingClient:
         )
 
 
-def build_meeting_llm_client_from_env(
-    env: Mapping[str, str] | None = None,
-) -> MeetingLLMClient:
-    env = os.environ if env is None else env
-    use_bedrock = _env_flag_enabled(env, "USE_BEDROCK") or (
-        _env_flag_enabled(env, "CREWBORG_LLM_MEETINGS")
-        and _env_flag_enabled(env, "CLAUDE_CODE_USE_BEDROCK")
-    )
-    if not (
-        _env_flag_enabled(env, "CREWBORG_LLM_MEETINGS")
-        or _env_flag_enabled(env, "USE_BEDROCK")
-    ):
-        return DisabledMeetingClient(
-            "CREWBORG_LLM_MEETINGS or USE_BEDROCK is not enabled"
-        )
-    if not use_bedrock and not env.get("ANTHROPIC_API_KEY"):
-        return DisabledMeetingClient(
-            "ANTHROPIC_API_KEY is not set and Bedrock is not enabled"
-        )
-    trace_raw = env.get("CREWBORG_LLM_TRACE_RAW", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+def build_meeting_llm_client_from_env(env: dict[str, str] | None = None) -> MeetingLLMClient:
+    env = env or os.environ
+    if env.get("CREWBORG_LLM_MEETINGS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return DisabledMeetingClient("CREWBORG_LLM_MEETINGS is not enabled")
+    if not env.get("ANTHROPIC_API_KEY"):
+        return DisabledMeetingClient("ANTHROPIC_API_KEY is not set")
+    trace_raw = env.get("CREWBORG_LLM_TRACE_RAW", "").strip().lower() in {"1", "true", "yes", "on"}
     trace_raw = trace_raw or env.get("CREWBORG_TRACE", "").strip().lower() == "debug"
     config = MeetingLLMConfig(
-        model=_meeting_model(env, use_bedrock=use_bedrock),
+        model=env.get("CREWBORG_LLM_MODEL", DEFAULT_MEETING_MODEL),
         max_tokens=_env_int(env, "CREWBORG_LLM_MAX_TOKENS", 512),
         temperature=_env_float(env, "CREWBORG_LLM_TEMPERATURE", 0.2),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
         trace_raw=trace_raw,
-        system_prompt=_system_prompt(env),
     )
-    return AnthropicMeetingClient(
-        config,
-        api_key=env.get("ANTHROPIC_API_KEY"),
-        use_bedrock=use_bedrock,
-        aws_access_key=env.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_key=env.get("AWS_SECRET_ACCESS_KEY"),
-        aws_session_token=env.get("AWS_SESSION_TOKEN"),
-        aws_region=env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION"),
-        aws_profile=env.get("AWS_PROFILE"),
-    )
-
-
-def _env_flag_enabled(env: Mapping[str, str], name: str) -> bool:
-    return env.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _meeting_model(env: Mapping[str, str], *, use_bedrock: bool) -> str:
-    if model := env.get("CREWBORG_LLM_MODEL"):
-        return model
-    if use_bedrock:
-        return env.get("BEDROCK_MODEL", DEFAULT_BEDROCK_MEETING_MODEL)
-    return DEFAULT_MEETING_MODEL
-
-
-def _system_prompt(env: Mapping[str, str]) -> str:
-    if path := env.get("CREWBORG_LLM_SYSTEM_PROMPT_PATH"):
-        return Path(path).read_text(encoding="utf-8")
-    return SYSTEM_PROMPT
+    return AnthropicMeetingClient(config)
 
 
 def _response_text(response: Any) -> str:
@@ -253,24 +176,19 @@ def _usage_dict(response: Any) -> dict[str, Any] | None:
         return usage.model_dump(mode="json")
     return {
         key: getattr(usage, key)
-        for key in (
-            "input_tokens",
-            "output_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        )
+        for key in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
         if hasattr(usage, key)
     }
 
 
-def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
+def _env_int(env: dict[str, str], name: str, default: int) -> int:
     try:
         return int(env.get(name, default))
     except (TypeError, ValueError):
         return default
 
 
-def _env_float(env: Mapping[str, str], name: str, default: float) -> float:
+def _env_float(env: dict[str, str], name: str, default: float) -> float:
     try:
         return float(env.get(name, default))
     except (TypeError, ValueError):

@@ -6,10 +6,12 @@ from functools import cache
 from importlib.resources import files
 from typing import Any
 
-from players.crewrift.crewborg.strategy.meeting.context import serialize_meeting_context
-from players.crewrift.crewborg.strategy.meeting.schema import VOTE_SKIP
-from players.crewrift.crewborg.strategy.suspicion import top_suspect
-from players.crewrift.crewborg.types import Belief, PlayerEvent, PlayerRecord
+from players.crewrift.richardborg.strategy.meeting.context import (
+    serialize_meeting_context,
+)
+from players.crewrift.richardborg.strategy.meeting.schema import VOTE_SKIP
+from players.crewrift.richardborg.strategy.suspicion import top_suspect
+from players.crewrift.richardborg.types import Belief, PlayerEvent, PlayerRecord
 
 MAX_OBSERVATIONS = 18
 

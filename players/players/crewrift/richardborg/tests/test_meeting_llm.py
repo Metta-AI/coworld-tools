@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from players.crewrift.crewborg.strategy.meeting.llm import (
+from players.crewrift.richardborg.strategy.meeting.llm import (
     AnthropicMeetingClient,
     DEFAULT_BEDROCK_MEETING_MODEL,
     DEFAULT_MEETING_MODEL,
@@ -44,11 +44,12 @@ def test_claude_code_bedrock_alone_does_not_enable_meeting_llm() -> None:
 
     assert not client.enabled
     assert (
-        client.disabled_reason == "CREWBORG_LLM_MEETINGS or USE_BEDROCK is not enabled"
+        client.disabled_reason
+        == "RICHARDBORG_LLM_MEETINGS or USE_BEDROCK is not enabled"
     )
 
 
-def test_crewborg_llm_meetings_can_force_bedrock(monkeypatch) -> None:
+def test_richardborg_llm_meetings_can_force_bedrock(monkeypatch) -> None:
     calls: list[dict[str, object]] = []
 
     class FakeAnthropicBedrock:
@@ -61,7 +62,7 @@ def test_crewborg_llm_meetings_can_force_bedrock(monkeypatch) -> None:
 
     client = build_meeting_llm_client_from_env(
         {
-            "CREWBORG_LLM_MEETINGS": "1",
+            "RICHARDBORG_LLM_MEETINGS": "1",
             "CLAUDE_CODE_USE_BEDROCK": "1",
             "AWS_DEFAULT_REGION": "us-west-2",
             "BEDROCK_MODEL": "us.anthropic.test-model-v1:0",
@@ -74,7 +75,7 @@ def test_crewborg_llm_meetings_can_force_bedrock(monkeypatch) -> None:
     assert calls[0]["aws_region"] == "us-west-2"
 
 
-def test_crewborg_llm_meetings_uses_direct_anthropic_when_api_key_is_set(
+def test_richardborg_llm_meetings_uses_direct_anthropic_when_api_key_is_set(
     monkeypatch,
 ) -> None:
     calls: list[dict[str, object]] = []
@@ -89,7 +90,7 @@ def test_crewborg_llm_meetings_uses_direct_anthropic_when_api_key_is_set(
 
     client = build_meeting_llm_client_from_env(
         {
-            "CREWBORG_LLM_MEETINGS": "true",
+            "RICHARDBORG_LLM_MEETINGS": "true",
             "ANTHROPIC_API_KEY": "test-key",
         }
     )
@@ -100,7 +101,7 @@ def test_crewborg_llm_meetings_uses_direct_anthropic_when_api_key_is_set(
     assert calls[0]["api_key"] == "test-key"
 
 
-def test_crewborg_llm_system_prompt_can_be_loaded_from_file(
+def test_richardborg_llm_system_prompt_can_be_loaded_from_file(
     monkeypatch, tmp_path
 ) -> None:
     calls: list[dict[str, object]] = []
@@ -117,9 +118,9 @@ def test_crewborg_llm_system_prompt_can_be_loaded_from_file(
 
     client = build_meeting_llm_client_from_env(
         {
-            "CREWBORG_LLM_MEETINGS": "true",
+            "RICHARDBORG_LLM_MEETINGS": "true",
             "ANTHROPIC_API_KEY": "test-key",
-            "CREWBORG_LLM_SYSTEM_PROMPT_PATH": str(system_path),
+            "RICHARDBORG_LLM_SYSTEM_PROMPT_PATH": str(system_path),
         }
     )
 

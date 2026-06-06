@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from players.crewrift.crewborg.perception.entities import VoteCandidate, VotingState
-from players.crewrift.crewborg.strategy.meeting import MeetingDecision, MeetingLLMResult
-from players.crewrift.crewborg.types import (
+from players.crewrift.richardborg.perception.entities import VoteCandidate, VotingState
+from players.crewrift.richardborg.strategy.meeting import (
+    MeetingDecision,
+    MeetingLLMResult,
+)
+from players.crewrift.richardborg.types import (
     ActionState,
     Belief,
     PlayerEvent,
