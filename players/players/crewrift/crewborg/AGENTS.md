@@ -18,7 +18,11 @@ cited file before relying on it.**
 > Hunt is gated on a visible kill opportunity). Attend Meeting has an opt-in
 > LLM chat/vote path with deterministic fallback. `CREWBORG_BE_DUMB=1` is an
 > aggressive imposter experiment that skips Pretend/Evade/body reports and keeps
-> the imposter in Search/Hunt. See [`README.md`](./README.md) for a capability summary and
+> the imposter in Search/Hunt. `CREWBORG_DICK_MODE=1` is an opt-in crewmate
+> experiment that calls the emergency button once before the first kill cooldown
+> can clear, chats `haha, fuck you imposters` only if its own button press opened
+> the meeting, skip-votes, then resumes after the meeting.
+> See [`README.md`](./README.md) for a capability summary and
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
 

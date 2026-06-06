@@ -16,6 +16,7 @@ point" routine that follows the baked nav route (design §9):
 - ``navigate_to`` → follow the route to the point.
 - ``complete_task`` → navigate to the task rect, then hold A with no d-pad
   (movement suppressed — any d-pad input resets the 72-tick task progress).
+- ``call_meeting`` → navigate to the emergency-button rect, then edge-press A.
 """
 
 from __future__ import annotations
@@ -328,6 +329,9 @@ def _resolve(
     if intent.kind == "report":
         return _resolve_report(intent, belief, action_state, self_xy)
 
+    if intent.kind == "call_meeting":
+        return _resolve_call_meeting(belief, action_state, self_xy)
+
     if intent.kind == "flee_from":
         return _resolve_flee(intent, belief, action_state, self_xy)
 
@@ -378,6 +382,23 @@ def _resolve_report(
         # In range: a fresh A press reports the body (sim.nim tryReport).
         return Command(held_mask=_edge_press(action_state, BTN_A))
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, body_xy))
+
+
+def _resolve_call_meeting(belief: Belief, action_state: ActionState, self_xy: tuple[int, int]) -> Command:
+    if belief.map is None:
+        return Command(held_mask=0)
+    button = belief.map.button
+    if button.x <= self_xy[0] < button.x + button.w and button.y <= self_xy[1] < button.y + button.h:
+        # In the button rect: a fresh A press calls the meeting if the server still
+        # allows this player to call one.
+        press = _edge_press(action_state, BTN_A)
+        if press:
+            action_state.last_call_meeting_attempt_tick = belief.last_tick
+        return Command(held_mask=press)
+
+    anchor = belief.nav.button_anchor if belief.nav is not None else None
+    goal = anchor if anchor is not None else (button.center.x, button.center.y)
+    return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
 
 
 def _resolve_vote(intent: Intent, belief: Belief, action_state: ActionState) -> Command:

@@ -44,6 +44,7 @@ IntentKind = Literal[
     "flee_from",
     "complete_task",
     "report",
+    "call_meeting",
     "vote",
     "chat",
     "kill",
@@ -351,14 +352,12 @@ class Belief(BaseModel):
     # without doing so" urgency signal that loosens the kill-opportunity bar over
     # time (design §10).
     kill_ready_since_tick: int | None = None
-    # Imposter cooldown timing, so the strategy can pre-position *before* the kill is
-    # ready (design §7.2/§10). The HUD gives only a binary ready/cooldown icon — no
-    # countdown — so we reconstruct "how soon": ``kill_cooldown_start_tick`` is when
-    # the current cooldown began (our own kill, OR the first Playing tick after a
-    # meeting / role-reveal, since both reset killCooldown), and
-    # ``kill_cooldown_estimate`` is the duration learned the first time we watch a
-    # cooldown run to ready. ``strategy.opportunity.ticks_until_kill_ready`` combines
-    # them (falling back to a default before anything is learned).
+    # Kill cooldown timing. Imposters use it to pre-position before a kill is ready;
+    # crewmates use the same estimate for button-timing experiments. The HUD gives
+    # only imposters a binary ready/cooldown icon, so ``kill_cooldown_start_tick`` is
+    # also set from the globally observable first Playing tick after role-reveal or
+    # a meeting, since both reset killCooldown. ``kill_cooldown_estimate`` is learned
+    # only when we can watch an imposter cooldown run to ready.
     kill_cooldown_start_tick: int | None = None
     kill_cooldown_estimate: int | None = None
 
@@ -420,6 +419,9 @@ class ActionState(BaseModel):
     vote_confirm_release_ticks: int = 0
     # Whether the current chat intent's text has been emitted (sent once).
     chat_sent: bool = False
+    # Tick of the most recent emergency-button A press. The strategy uses this to
+    # avoid wedging in call-button experiments if the server refuses the meeting.
+    last_call_meeting_attempt_tick: int | None = None
 
 
 class Command(BaseModel):
@@ -620,6 +622,12 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.phase = phase
         belief.phase_start_tick = percept.tick
 
+    # Game start and meeting close reset every alive imposter's killCooldown. This
+    # transition is visible to every role, so crewmate strategy can time emergency
+    # button calls even though only imposters see the HUD ready/cooldown icon.
+    if previous_phase != "Playing" and belief.phase == "Playing":
+        belief.kill_cooldown_start_tick = percept.tick
+
     # Chat is re-rendered every tick (the last few messages), so de-duplicate by
     # (speaker, text) and append only lines we have not logged this meeting.
     if resolved.chat_lines:
@@ -671,13 +679,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
                     )
             elif resolved.self_kill_ready is False:
                 belief.kill_ready_since_tick = None
-            # Mark when the current cooldown began. Both events that restart it are
-            # observable: our own kill (ready → cooldown during continuous play), and
-            # returning to Playing from a meeting / role-reveal (the game resets
-            # killCooldown then — also covers the game-start initial cooldown).
-            if previous_phase != "Playing" and belief.phase == "Playing":
-                belief.kill_cooldown_start_tick = percept.tick
-            elif belief.self_kill_ready is True and resolved.self_kill_ready is False:
+            # Mark when our own current cooldown began. The globally observable
+            # Playing transition above already covered role-reveal / meeting resets.
+            if belief.self_kill_ready is True and resolved.self_kill_ready is False:
                 belief.kill_cooldown_start_tick = percept.tick
         belief.self_role = resolved.self_role
         belief.self_kill_ready = resolved.self_kill_ready
