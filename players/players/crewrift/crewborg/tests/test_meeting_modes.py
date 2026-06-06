@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from players.crewrift.crewborg.modes import AttendMeetingMode, FleeMode, ReportBodyMode
 from players.crewrift.crewborg.perception.entities import VoteCandidate, VotingState
-from players.crewrift.crewborg.strategy.meeting import MeetingDecision, MeetingLLMResult
+from players.crewrift.crewborg.strategy.meeting import (
+    MeetingDecision,
+    MeetingLLMResult,
+    MeetingParams,
+    read_meeting_params_from_env,
+)
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, ChatEvent, PlayerRecord
 
 
@@ -118,6 +123,46 @@ def test_attend_meeting_invalid_llm_decision_falls_back_to_canned_chat() -> None
     intent = mode.decide(_meeting_belief(tick=0), ActionState())
     assert intent.kind == "chat"
     assert intent.text == "no read, skipping"
+
+
+def test_read_meeting_params_from_env_enables_llm_only_with_key() -> None:
+    enabled = read_meeting_params_from_env({"CREWBORG_LLM_MEETINGS": "1", "ANTHROPIC_API_KEY": "secret"})
+    assert enabled.use_llm is True
+
+    missing_key = read_meeting_params_from_env({"CREWBORG_LLM_MEETINGS": "1"})
+    assert missing_key.use_llm is False
+
+
+def test_read_meeting_params_from_env_parses_tuning_and_trace() -> None:
+    params = read_meeting_params_from_env(
+        {
+            "CREWBORG_LLM_MEETINGS": "yes",
+            "ANTHROPIC_API_KEY": "secret",
+            "CREWBORG_LLM_MODEL": "claude-test",
+            "CREWBORG_LLM_MAX_TOKENS": "123",
+            "CREWBORG_LLM_TEMPERATURE": "0.7",
+            "CREWBORG_LLM_TIMEOUT_SECONDS": "9.5",
+            "CREWBORG_TRACE": "debug",
+        }
+    )
+
+    assert params == MeetingParams(
+        use_llm=True,
+        model="claude-test",
+        max_tokens=123,
+        temperature=0.7,
+        timeout_seconds=9.5,
+        trace_raw=True,
+    )
+
+
+def test_attend_meeting_builds_client_from_params() -> None:
+    disabled = AttendMeetingMode(MeetingParams(use_llm=False))
+    assert disabled._llm_client.enabled is False
+
+    enabled = AttendMeetingMode(MeetingParams(use_llm=True, model="claude-test"))
+    assert enabled._llm_client.enabled is True
+    assert enabled._llm_client.config.model == "claude-test"
 
 
 def test_report_body_targets_nearest_visible_body() -> None:

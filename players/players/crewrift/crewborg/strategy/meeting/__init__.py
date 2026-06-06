@@ -8,7 +8,9 @@ from players.crewrift.crewborg.strategy.meeting.llm import (
     DisabledMeetingClient,
     MeetingLLMClient,
     MeetingLLMResult,
-    build_meeting_llm_client_from_env,
+    MeetingParams,
+    build_meeting_client,
+    read_meeting_params_from_env,
 )
 from players.crewrift.crewborg.strategy.meeting.schema import (
     CHAT_MAX_CHARS,
@@ -27,7 +29,9 @@ __all__ = [
     "MeetingDecisionValidationError",
     "MeetingLLMClient",
     "MeetingLLMResult",
-    "build_meeting_llm_client_from_env",
+    "MeetingParams",
+    "build_meeting_client",
+    "read_meeting_params_from_env",
     "sanitize_chat",
     "serialize_meeting_context",
     "valid_vote_targets",

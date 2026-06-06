@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from players.player_sdk import ModeParams
 from players.crewrift.crewborg.strategy.meeting.schema import (
     CHAT_MAX_CHARS,
     VOTE_SKIP,
@@ -37,6 +39,17 @@ Rules:
 
 @dataclass(frozen=True)
 class MeetingLLMConfig:
+    model: str = DEFAULT_MEETING_MODEL
+    max_tokens: int = 512
+    temperature: float = 0.2
+    timeout_seconds: float = 3.0
+    trace_raw: bool = False
+
+
+class MeetingParams(ModeParams):
+    """Strategy-supplied Attend Meeting parameters."""
+
+    use_llm: bool = False
     model: str = DEFAULT_MEETING_MODEL
     max_tokens: int = 512
     temperature: float = 0.2
@@ -82,12 +95,15 @@ class AnthropicMeetingClient:
 
     def __init__(self, config: MeetingLLMConfig, *, client: Any | None = None) -> None:
         self.config = config
-        if client is not None:
-            self._client = client
-            return
+        self._client = client
+
+    def _anthropic_client(self) -> Any:
+        if self._client is not None:
+            return self._client
         from anthropic import Anthropic
 
-        self._client = Anthropic(timeout=config.timeout_seconds)
+        self._client = Anthropic(timeout=self.config.timeout_seconds)
+        return self._client
 
     def decide(self, context: dict[str, Any], *, trigger: str) -> MeetingLLMResult:
         request = {
@@ -104,7 +120,7 @@ class AnthropicMeetingClient:
         }
         user_content = json.dumps(request, sort_keys=True, separators=(",", ":"))
         start = time.perf_counter()
-        response = self._client.messages.create(
+        response = self._anthropic_client().messages.create(
             model=self.config.model,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
@@ -124,20 +140,32 @@ class AnthropicMeetingClient:
         )
 
 
-def build_meeting_llm_client_from_env(env: dict[str, str] | None = None) -> MeetingLLMClient:
-    env = env or os.environ
-    if env.get("CREWBORG_LLM_MEETINGS", "").strip().lower() not in {"1", "true", "yes", "on"}:
-        return DisabledMeetingClient("CREWBORG_LLM_MEETINGS is not enabled")
-    if not env.get("ANTHROPIC_API_KEY"):
-        return DisabledMeetingClient("ANTHROPIC_API_KEY is not set")
-    trace_raw = env.get("CREWBORG_LLM_TRACE_RAW", "").strip().lower() in {"1", "true", "yes", "on"}
+def read_meeting_params_from_env(env: Mapping[str, str] | None = None) -> MeetingParams:
+    """Read meeting LLM behavior flags once for the strategy layer."""
+
+    env = os.environ if env is None else env
+    use_llm = _truthy_value(env.get("CREWBORG_LLM_MEETINGS", "")) and bool(env.get("ANTHROPIC_API_KEY"))
+    trace_raw = _truthy_value(env.get("CREWBORG_LLM_TRACE_RAW", ""))
     trace_raw = trace_raw or env.get("CREWBORG_TRACE", "").strip().lower() == "debug"
-    config = MeetingLLMConfig(
+    return MeetingParams(
+        use_llm=use_llm,
         model=env.get("CREWBORG_LLM_MODEL", DEFAULT_MEETING_MODEL),
         max_tokens=_env_int(env, "CREWBORG_LLM_MAX_TOKENS", 512),
         temperature=_env_float(env, "CREWBORG_LLM_TEMPERATURE", 0.2),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
         trace_raw=trace_raw,
+    )
+
+
+def build_meeting_client(params: MeetingParams) -> MeetingLLMClient:
+    if not params.use_llm:
+        return DisabledMeetingClient("meeting LLM disabled by strategy params")
+    config = MeetingLLMConfig(
+        model=params.model,
+        max_tokens=params.max_tokens,
+        temperature=params.temperature,
+        timeout_seconds=params.timeout_seconds,
+        trace_raw=params.trace_raw,
     )
     return AnthropicMeetingClient(config)
 
@@ -181,14 +209,18 @@ def _usage_dict(response: Any) -> dict[str, Any] | None:
     }
 
 
-def _env_int(env: dict[str, str], name: str, default: int) -> int:
+def _truthy_value(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
     try:
         return int(env.get(name, default))
     except (TypeError, ValueError):
         return default
 
 
-def _env_float(env: dict[str, str], name: str, default: float) -> float:
+def _env_float(env: Mapping[str, str], name: str, default: float) -> float:
     try:
         return float(env.get(name, default))
     except (TypeError, ValueError):
