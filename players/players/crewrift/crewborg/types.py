@@ -52,7 +52,9 @@ IntentKind = Literal[
 ]
 
 # Game phases (sim.nim phase machine). ``unknown`` until the first phase signal.
-Phase = Literal["unknown", "Lobby", "RoleReveal", "Playing", "Voting", "VoteResult", "GameOver"]
+Phase = Literal[
+    "unknown", "Lobby", "RoleReveal", "Playing", "Voting", "VoteResult", "GameOver"
+]
 
 
 class Observation(BaseModel):
@@ -119,7 +121,9 @@ class PlayerEvent(BaseModel):
     kind: PlayerEventKind
     start_tick: int
     end_tick: int
-    target_color: str | None = None  # near_body → body's color; proximity → other player
+    target_color: str | None = (
+        None  # near_body → body's color; proximity → other player
+    )
     region_index: int | None = None  # room/task/vent index into the baked map
     min_dist: int | None = None  # closest approach (world px) for near_body / proximity
 
@@ -396,9 +400,13 @@ class ActionState(BaseModel):
     # Last observed self world position, for estimating velocity (predictive stop).
     last_self_x: int | None = None
     last_self_y: int | None = None
-    # Whether the current vote intent has been confirmed (A pressed on the choice),
-    # so we don't re-press once the vote is cast.
+    # Whether the current vote intent has been confirmed by a server vote dot, so we
+    # don't re-press once the vote is cast.
     vote_confirmed: bool = False
+    # Number of cursor movement presses for the current vote intent. If perception
+    # never observes the target after a full cycle, confirm the current selection to
+    # avoid a vote timeout.
+    vote_move_attempts: int = 0
     # Whether the current chat intent's text has been emitted (sent once).
     chat_sent: bool = False
 
@@ -504,7 +512,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     # accumulate which tasks are assigned and which are visible this tick;
     # completion is concluded by Normal mode (which knows the task it is standing
     # on), since a task also leaves the visible set merely by going off-screen.
-    belief.visible_task_indices = {signal.task_index for signal in resolved.task_signals}
+    belief.visible_task_indices = {
+        signal.task_index for signal in resolved.task_signals
+    }
     belief.assigned_task_indices |= belief.visible_task_indices
     if resolved.crew_tasks_remaining is not None:
         belief.crew_tasks_remaining = resolved.crew_tasks_remaining
@@ -516,7 +526,13 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         entry = belief.roster.get(player.color)
         if entry is None:
             entry = belief.roster[player.color] = PlayerRecord(color=player.color)
-        entry.record(percept.tick, player.world_x, player.world_y, player.facing, player.object_id)
+        entry.record(
+            percept.tick,
+            player.world_x,
+            player.world_y,
+            player.facing,
+            player.object_id,
+        )
     # The roster spawns co-located at the first Playing tick, so the distinct
     # colors seen so far estimate the full player count (design §5); the meeting
     # census, when present, is authoritative.
@@ -536,7 +552,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
             )
         # Reflect the death onto the (color-keyed) roster, linking it to the last
         # time we saw that player alive.
-        _record_death(belief, body.color, percept.tick, "body", (body.world_x, body.world_y))
+        _record_death(
+            belief, body.color, percept.tick, "body", (body.world_x, body.world_y)
+        )
 
     # Append this frame to the perception tape — only camera-ready frames, so the
     # tape holds real in-world observations (with the viewport) for transition
@@ -548,8 +566,12 @@ def update_belief(belief: Belief, percept: Percept) -> None:
                 tick=percept.tick,
                 camera_x=resolved.camera_x,
                 camera_y=resolved.camera_y,
-                players={p.color: (p.world_x, p.world_y) for p in resolved.visible_players},
-                bodies={b.color: (b.world_x, b.world_y) for b in resolved.visible_bodies},
+                players={
+                    p.color: (p.world_x, p.world_y) for p in resolved.visible_players
+                },
+                bodies={
+                    b.color: (b.world_x, b.world_y) for b in resolved.visible_bodies
+                },
                 visible_mask=percept.visible_mask,
             )
         )
@@ -561,7 +583,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         if entry.alive:
             record = belief.roster.get(entry.color)
             if record is None:
-                belief.roster[entry.color] = PlayerRecord(color=entry.color, life_status="alive")
+                belief.roster[entry.color] = PlayerRecord(
+                    color=entry.color, life_status="alive"
+                )
             elif record.life_status == "unknown":
                 record.life_status = "alive"
         else:
@@ -594,7 +618,11 @@ def update_belief(belief: Belief, percept: Percept) -> None:
             if key not in seen:
                 seen.add(key)
                 belief.chat_log.append(
-                    ChatEvent(tick=percept.tick, speaker_color=line.speaker_color, text=line.text)
+                    ChatEvent(
+                        tick=percept.tick,
+                        speaker_color=line.speaker_color,
+                        text=line.text,
+                    )
                 )
 
     # The role-reveal "IMPS" interstitial confirms we are an imposter and shows
@@ -627,7 +655,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
                 belief.kill_ready_since_tick = percept.tick
                 # Cooldown just ran to ready: learn its duration (for pre-positioning).
                 if belief.kill_cooldown_start_tick is not None:
-                    belief.kill_cooldown_estimate = percept.tick - belief.kill_cooldown_start_tick
+                    belief.kill_cooldown_estimate = (
+                        percept.tick - belief.kill_cooldown_start_tick
+                    )
             elif resolved.self_kill_ready is False:
                 belief.kill_ready_since_tick = None
             # Mark when the current cooldown began. Both events that restart it are

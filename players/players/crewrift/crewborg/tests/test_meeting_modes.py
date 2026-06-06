@@ -5,7 +5,13 @@ from __future__ import annotations
 from players.crewrift.crewborg.modes import AttendMeetingMode, FleeMode, ReportBodyMode
 from players.crewrift.crewborg.perception.entities import VoteCandidate, VotingState
 from players.crewrift.crewborg.strategy.meeting import MeetingDecision, MeetingLLMResult
-from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, ChatEvent, PlayerRecord
+from players.crewrift.crewborg.types import (
+    ActionState,
+    Belief,
+    BodyEntry,
+    ChatEvent,
+    PlayerRecord,
+)
 
 
 class _FakeMeetingClient:
@@ -26,7 +32,12 @@ class _FakeMeetingClient:
 
 
 def _meeting_belief(*, tick: int = 0, start_tick: int = 0) -> Belief:
-    belief = Belief(phase="Voting", phase_start_tick=start_tick, last_tick=tick, total_player_count=2)
+    belief = Belief(
+        phase="Voting",
+        phase_start_tick=start_tick,
+        last_tick=tick,
+        total_player_count=2,
+    )
     belief.voting = VotingState(
         timer_present=True,
         self_marker_color="blue",
@@ -36,8 +47,12 @@ def _meeting_belief(*, tick: int = 0, start_tick: int = 0) -> Belief:
         ),
         cursor_slot=0,
     )
-    belief.roster["red"] = PlayerRecord(color="red", life_status="alive", last_seen_tick=1)
-    belief.roster["blue"] = PlayerRecord(color="blue", life_status="alive", last_seen_tick=1)
+    belief.roster["red"] = PlayerRecord(
+        color="red", life_status="alive", last_seen_tick=1
+    )
+    belief.roster["blue"] = PlayerRecord(
+        color="blue", life_status="alive", last_seen_tick=1
+    )
     belief.suspicion = {"red": 0.95}
     return belief
 
@@ -73,8 +88,12 @@ def test_attend_meeting_skips_when_no_one_is_suspicious_enough() -> None:
 def test_attend_meeting_llm_sends_multiple_chats_after_new_chat_and_cooldown() -> None:
     client = _FakeMeetingClient(
         [
-            MeetingDecision(action="send_chat", chat_text="red, where were you?", vote_target="red"),
-            MeetingDecision(action="send_chat", chat_text="that route does not clear red"),
+            MeetingDecision(
+                action="send_chat", chat_text="red, where were you?", vote_target="red"
+            ),
+            MeetingDecision(
+                action="send_chat", chat_text="that route does not clear red"
+            ),
         ]
     )
     mode = AttendMeetingMode(llm_client=client)
@@ -92,7 +111,9 @@ def test_attend_meeting_llm_sends_multiple_chats_after_new_chat_and_cooldown() -
 
 
 def test_attend_meeting_llm_tentative_vote_auto_submits_near_deadline() -> None:
-    client = _FakeMeetingClient([MeetingDecision(action="set_tentative_vote", vote_target="red")])
+    client = _FakeMeetingClient(
+        [MeetingDecision(action="set_tentative_vote", vote_target="red")]
+    )
     mode = AttendMeetingMode(llm_client=client)
 
     assert mode.decide(_meeting_belief(tick=0), ActionState()).kind == "idle"
@@ -103,7 +124,9 @@ def test_attend_meeting_llm_tentative_vote_auto_submits_near_deadline() -> None:
 
 
 def test_attend_meeting_llm_can_submit_vote_early() -> None:
-    client = _FakeMeetingClient([MeetingDecision(action="submit_vote", vote_target="red")])
+    client = _FakeMeetingClient(
+        [MeetingDecision(action="submit_vote", vote_target="red")]
+    )
     mode = AttendMeetingMode(llm_client=client)
 
     vote = mode.decide(_meeting_belief(tick=0), ActionState())
@@ -111,8 +134,34 @@ def test_attend_meeting_llm_can_submit_vote_early() -> None:
     assert vote.target_color == "red"
 
 
+def test_attend_meeting_llm_keeps_vote_intent_until_action_confirms() -> None:
+    client = _FakeMeetingClient(
+        [MeetingDecision(action="submit_vote", vote_target="red")]
+    )
+    mode = AttendMeetingMode(llm_client=client)
+    action_state = ActionState()
+
+    first = mode.decide(_meeting_belief(tick=0), action_state)
+    assert first.kind == "vote"
+    assert first.target_color == "red"
+
+    second = mode.decide(_meeting_belief(tick=1), action_state)
+    assert second.kind == "vote"
+    assert second.target_color == "red"
+
+    action_state.vote_confirmed = True
+    done = mode.decide(_meeting_belief(tick=2), action_state)
+    assert done.kind == "idle"
+
+
 def test_attend_meeting_invalid_llm_decision_falls_back_to_canned_chat() -> None:
-    client = _FakeMeetingClient([MeetingDecision(action="send_chat", chat_text="vote green", vote_target="green")])
+    client = _FakeMeetingClient(
+        [
+            MeetingDecision(
+                action="send_chat", chat_text="vote green", vote_target="green"
+            )
+        ]
+    )
     mode = AttendMeetingMode(llm_client=client)
 
     intent = mode.decide(_meeting_belief(tick=0), ActionState())
@@ -122,8 +171,12 @@ def test_attend_meeting_invalid_llm_decision_falls_back_to_canned_chat() -> None
 
 def test_report_body_targets_nearest_visible_body() -> None:
     belief = Belief(self_world_x=100, self_world_y=100, visible_body_ids={2001, 2005})
-    belief.bodies[2001] = BodyEntry(object_id=2001, color="red", world_x=400, world_y=400, first_seen_tick=1)
-    belief.bodies[2005] = BodyEntry(object_id=2005, color="blue", world_x=110, world_y=100, first_seen_tick=1)
+    belief.bodies[2001] = BodyEntry(
+        object_id=2001, color="red", world_x=400, world_y=400, first_seen_tick=1
+    )
+    belief.bodies[2005] = BodyEntry(
+        object_id=2005, color="blue", world_x=110, world_y=100, first_seen_tick=1
+    )
     intent = ReportBodyMode().decide(belief, ActionState())
     assert intent.kind == "report" and intent.target_id == 2005  # the nearer body
 
@@ -135,7 +188,12 @@ def test_report_body_idles_with_no_body_in_view() -> None:
 def test_flee_targets_believed_imposter_and_is_dormant_when_empty() -> None:
     belief = Belief(self_world_x=100, self_world_y=100)
     belief.roster["red"] = PlayerRecord(
-        object_id=1004, color="red", facing="left", world_x=120, world_y=100, last_seen_tick=1,
+        object_id=1004,
+        color="red",
+        facing="left",
+        world_x=120,
+        world_y=100,
+        last_seen_tick=1,
         life_status="alive",
     )
     # Empty evidence stub ⇒ dormant.

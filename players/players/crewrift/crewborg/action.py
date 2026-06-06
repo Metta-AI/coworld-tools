@@ -78,12 +78,18 @@ def _axis_input(delta: int, velocity: int) -> int:
         return 0
     # If already coasting toward the target and within stopping distance, release
     # so momentum carries us the rest of the way without overshooting.
-    if velocity != 0 and (velocity > 0) == (delta > 0) and abs(delta) <= STOP_FACTOR * abs(velocity):
+    if (
+        velocity != 0
+        and (velocity > 0) == (delta > 0)
+        and abs(delta) <= STOP_FACTOR * abs(velocity)
+    ):
         return 0
     return 1 if delta > 0 else -1
 
 
-def _movement_mask(self_xy: tuple[int, int], target_xy: tuple[int, int], velocity: tuple[int, int]) -> int:
+def _movement_mask(
+    self_xy: tuple[int, int], target_xy: tuple[int, int], velocity: tuple[int, int]
+) -> int:
     """Held d-pad mask to drive from ``self_xy`` toward ``target_xy``."""
 
     ix = _axis_input(target_xy[0] - self_xy[0], velocity[0])
@@ -124,6 +130,7 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route_teleports = {}
     action_state.ticks_since_plan = 0
     action_state.vote_confirmed = False
+    action_state.vote_move_attempts = 0
     action_state.chat_sent = False
 
 
@@ -158,7 +165,10 @@ def _navigate_mask(
     # task-approach wedging — a fresh route from where it actually is routes around
     # the wall it was mashing into).
     action_state.ticks_since_plan += 1
-    if action_state.route_goal != goal or action_state.ticks_since_plan >= REPLAN_INTERVAL:
+    if (
+        action_state.route_goal != goal
+        or action_state.ticks_since_plan >= REPLAN_INTERVAL
+    ):
         action_state.route_goal = goal
         action_state.route_cursor = 0
         action_state.route_teleports = {}
@@ -185,19 +195,25 @@ def _navigate_mask(
     # it, which is exactly when we press B below.
     while (
         action_state.route_cursor < len(action_state.route) - 1
-        and _dist2(self_xy, action_state.route[action_state.route_cursor]) <= WAYPOINT_RADIUS**2
+        and _dist2(self_xy, action_state.route[action_state.route_cursor])
+        <= WAYPOINT_RADIUS**2
     ):
         action_state.route_cursor += 1
 
     cursor = action_state.route_cursor
-    if cursor in action_state.route_teleports and _dist2(self_xy, action_state.route[cursor]) > WAYPOINT_RADIUS**2:
+    if (
+        cursor in action_state.route_teleports
+        and _dist2(self_xy, action_state.route[cursor]) > WAYPOINT_RADIUS**2
+    ):
         return _teleport_mask(belief, action_state, self_xy)
 
     waypoint = action_state.route[min(cursor, len(action_state.route) - 1)]
     return _movement_mask(self_xy, waypoint, velocity)
 
 
-def _teleport_mask(belief: Belief, action_state: ActionState, self_xy: tuple[int, int]) -> int:
+def _teleport_mask(
+    belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
+) -> int:
     """Drive the vent hop at the current cursor: press B in range, else close in.
 
     The cursor sits on a teleport-target waypoint; the leg before it walked us onto
@@ -217,7 +233,9 @@ def _teleport_mask(belief: Belief, action_state: ActionState, self_xy: tuple[int
     return _movement_mask(self_xy, entry, _velocity(action_state, self_xy))
 
 
-def resolve_action(intent: Intent, belief: Belief, action_state: ActionState) -> Command:
+def resolve_action(
+    intent: Intent, belief: Belief, action_state: ActionState
+) -> Command:
     """Execute an intent into this tick's wire command (design §9)."""
 
     # Diff against the stored intent; a change discards in-progress execution.
@@ -235,7 +253,10 @@ def resolve_action(intent: Intent, belief: Belief, action_state: ActionState) ->
 
 
 def _resolve(
-    intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int] | None
+    intent: Intent,
+    belief: Belief,
+    action_state: ActionState,
+    self_xy: tuple[int, int] | None,
 ) -> Command:
     if intent.kind in ("idle", "loiter"):
         return Command(held_mask=0)
@@ -253,13 +274,19 @@ def _resolve(
     if intent.kind == "navigate_to":
         if intent.point is None:
             return Command(held_mask=0)
-        return Command(held_mask=_navigate_mask(belief, action_state, self_xy, intent.point))
+        return Command(
+            held_mask=_navigate_mask(belief, action_state, self_xy, intent.point)
+        )
 
     if intent.kind == "escape":
         if intent.point is None:
             return Command(held_mask=0)
         # Flee toward the point, vanishing through a vent when one lies on the route.
-        return Command(held_mask=_navigate_mask(belief, action_state, self_xy, intent.point, via_vents=True))
+        return Command(
+            held_mask=_navigate_mask(
+                belief, action_state, self_xy, intent.point, via_vents=True
+            )
+        )
 
     if intent.kind == "complete_task":
         return _resolve_complete_task(intent, belief, action_state, self_xy)
@@ -282,17 +309,26 @@ def _resolve(
 def _resolve_complete_task(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    if intent.task_index is None or belief.map is None or intent.task_index >= len(belief.map.tasks):
+    if (
+        intent.task_index is None
+        or belief.map is None
+        or intent.task_index >= len(belief.map.tasks)
+    ):
         return Command(held_mask=0)
     task = belief.map.tasks[intent.task_index]
-    inside = task.x <= self_xy[0] < task.x + task.w and task.y <= self_xy[1] < task.y + task.h
+    inside = (
+        task.x <= self_xy[0] < task.x + task.w
+        and task.y <= self_xy[1] < task.y + task.h
+    )
     if inside:
         # On the station: hold A with no d-pad (any d-pad resets task progress);
         # residual momentum settles via friction while progress accrues.
         return Command(held_mask=BTN_A)
     # Otherwise drive onto the station's baked anchor (a reachable pixel inside the
     # rect), falling back to the geometric center before the nav graph exists.
-    anchor = belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
+    anchor = (
+        belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
+    )
     goal = anchor if anchor is not None else (task.center.x, task.center.y)
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
 
@@ -316,34 +352,59 @@ def _resolve_vote(intent: Intent, belief: Belief, action_state: ActionState) -> 
     ``intent.target_color`` is the player to eject (design §7.1); ``None`` ⇒ skip.
     A targeted vote whose target can't be resolved (grid not up yet, or the target
     has died) falls back to skip so we still vote and avoid the no-vote penalty
-    (design §12). The cursor steps with edge-triggered presses; stepping DOWN cycles
-    through every alive cell + skip, so it always reaches the goal.
+    (design §12). The cursor steps with edge-triggered presses. If perception never
+    observes the target after a full cycle, confirm the current selection to avoid a
+    no-vote penalty.
     """
 
-    if action_state.vote_confirmed:
-        return Command(held_mask=0)
     voting = belief.voting
+    self_slot = next(
+        (
+            candidate.slot
+            for candidate in voting.candidates
+            if candidate.color == voting.self_marker_color
+        ),
+        None,
+    )
+    if action_state.vote_confirmed or any(
+        dot.voter == self_slot for dot in voting.dots
+    ):
+        action_state.vote_confirmed = True
+        return Command(held_mask=0)
 
     if intent.target_color is not None:
         target_slot = next(
-            (c.slot for c in voting.candidates if c.color == intent.target_color and c.alive), None
+            (
+                c.slot
+                for c in voting.candidates
+                if c.color == intent.target_color and c.alive
+            ),
+            None,
         )
         if target_slot is not None:
             if voting.cursor_slot == target_slot:
                 return _confirm_vote(action_state)
-            return Command(held_mask=_edge_press(action_state, BTN_DOWN))  # step toward the target
+            if action_state.vote_move_attempts >= len(voting.candidates) + 1:
+                return _confirm_vote(action_state)
+            return _vote_cursor_step(action_state)
 
     # Skip policy (default, or target unresolvable): step onto the skip cell, confirm.
     if voting.skip_cursor_present:
         return _confirm_vote(action_state)
-    return Command(held_mask=_edge_press(action_state, BTN_DOWN))
+    if action_state.vote_move_attempts >= len(voting.candidates) + 1:
+        return _confirm_vote(action_state)
+    return _vote_cursor_step(action_state)
 
 
 def _confirm_vote(action_state: ActionState) -> Command:
-    press = _edge_press(action_state, BTN_A)
-    if press:  # the fresh-press tick casts the vote
-        action_state.vote_confirmed = True
-    return Command(held_mask=press)
+    return Command(held_mask=_edge_press(action_state, BTN_A))
+
+
+def _vote_cursor_step(action_state: ActionState) -> Command:
+    held_mask = _edge_press(action_state, BTN_DOWN)
+    if held_mask:
+        action_state.vote_move_attempts += 1
+    return Command(held_mask=held_mask)
 
 
 def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:
@@ -356,20 +417,30 @@ def _resolve_chat(intent: Intent, action_state: ActionState) -> Command:
 def _resolve_flee(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    threat = belief.roster.get(intent.target_color) if intent.target_color is not None else None
+    threat = (
+        belief.roster.get(intent.target_color)
+        if intent.target_color is not None
+        else None
+    )
     if threat is None:
         return Command(held_mask=0)
     # Steer directly away from the threat: reflect its position through ours.
     away = (2 * self_xy[0] - threat.world_x, 2 * self_xy[1] - threat.world_y)
     if away == self_xy:  # co-located: no flee direction
         return Command(held_mask=0)
-    return Command(held_mask=_movement_mask(self_xy, away, _velocity(action_state, self_xy)))
+    return Command(
+        held_mask=_movement_mask(self_xy, away, _velocity(action_state, self_xy))
+    )
 
 
 def _resolve_kill(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
-    target = belief.roster.get(intent.target_color) if intent.target_color is not None else None
+    target = (
+        belief.roster.get(intent.target_color)
+        if intent.target_color is not None
+        else None
+    )
     if target is None:
         return Command(held_mask=0)
     target_xy = (target.world_x, target.world_y)
@@ -386,6 +457,7 @@ def _resolve_vent(
     index = _select_vent_index(belief, intent.target_id, self_xy)
     if index is None:
         return Command(held_mask=0)
+    assert belief.map is not None
     vent = belief.map.vents[index]
     center_xy = (vent.center.x, vent.center.y)
     # Vent fires within VentRange of the vent center (sim.nim tryVent), so the trigger
@@ -398,11 +470,16 @@ def _resolve_vent(
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
 
 
-def _select_vent_index(belief: Belief, target_id: int | None, self_xy: tuple[int, int]) -> int | None:
+def _select_vent_index(
+    belief: Belief, target_id: int | None, self_xy: tuple[int, int]
+) -> int | None:
     if belief.map is None or not belief.map.vents:
         return None
     vents = belief.map.vents
     if target_id is not None and 0 <= target_id < len(vents):
         return target_id
     # Default: the nearest vent by center distance.
-    return min(range(len(vents)), key=lambda i: _dist2(self_xy, (vents[i].center.x, vents[i].center.y)))
+    return min(
+        range(len(vents)),
+        key=lambda i: _dist2(self_xy, (vents[i].center.x, vents[i].center.y)),
+    )
