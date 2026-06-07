@@ -36,7 +36,6 @@ const
   PatchMinVotes = 3
   PlayerIgnoreRadius = 9
   InterstitialBlackPercent = 30
-  HomeSearchRadius = 20
   PlayerDefaultPort = DefaultPort
   CrewriftGameDir = currentSourcePath()
     .parentDir()
@@ -142,11 +141,11 @@ const
   VoteListenJitterTicks = VoteDeadlineTicks div 16
   VoteImposterSkipTicks = VoteListenBaseTicks + VoteListenJitterTicks
   VoteCursorConfirmTicks = 2
+  VoteCursorFallbackTicks = VoteListenJitterTicks
+  VoteCursorForceSubmitTicks = VoteCursorFallbackTicks * 2
   BodySuspectRange = 64
   ImposterHuntDelayTicks = 500
-  ButtonResetCooldownLeadTicks = 150
   ProtocolMapName = "sprite protocol map"
-  ButtonResetChat = "just resetting imposter cool downs"
   ProwlPointSearchRadius = 24
   ProwlPoints = [
     (x: 216, y: 252),
@@ -298,10 +297,6 @@ type
     lastGameOverText: string
     gameStarted: bool
     roundStartTick: int
-    buttonResetDecided: bool
-    buttonResetPlanned: bool
-    buttonResetBanned: bool
-    buttonResetMeeting: bool
     homeSet: bool
     homeX: int
     homeY: int
@@ -1065,8 +1060,6 @@ proc voteSusColorAllowed(bot: Bot, colorIndex: int): bool
 
 proc randomVoteDelay(bot: var Bot): int
 
-proc clearButtonResetMeeting(bot: var Bot)
-
 proc asciiTextWidth(bot: Bot, text: string): int =
   ## Returns the tiny UI text width.
   texts.asciiTextWidth(bot.sim.asciiSprites, text)
@@ -1300,9 +1293,6 @@ proc resetRoundState(bot: var Bot) =
   bot.localized = false
   bot.gameStarted = false
   bot.roundStartTick = -1
-  bot.buttonResetDecided = false
-  bot.buttonResetPlanned = false
-  bot.buttonResetMeeting = false
   bot.homeSet = false
   bot.homeX = 0
   bot.homeY = 0
@@ -1626,8 +1616,6 @@ proc updateLocation(bot: var Bot) {.measure.} =
     bot.lastVoteFrame = ""
     bot.clearVotingState()
     bot.bodySusColor = VoteUnknown
-  if wasInterstitial and bot.buttonResetMeeting:
-    bot.clearButtonResetMeeting()
   if wasInterstitial:
     bot.roundStartTick = bot.frameTick
     if not protocolMapReady:
@@ -2873,8 +2861,6 @@ proc parseVotingScreen(bot: var Bot): bool {.measure.} =
       else:
         VoteUnknown
     return true
-  if bot.buttonResetMeeting and bot.voting:
-    return true
   if bot.voting:
     bot.lastVoteFrame = ""
   bot.clearVotingState()
@@ -3345,64 +3331,13 @@ proc checkoutTaskCount(bot: Bot): int =
     if checkoutTask:
       inc result
 
-proc buttonResetCooldownTick(bot: Bot): int =
-  ## Returns the round tick when a cooldown reset button is useful.
-  max(0, bot.sim.config.killCooldownTicks - ButtonResetCooldownLeadTicks)
-
-proc clearButtonResetMeeting(bot: var Bot) =
-  ## Clears transient state for one cooldown reset meeting.
-  bot.buttonResetDecided = false
-  bot.buttonResetPlanned = false
-  bot.buttonResetMeeting = false
-  if bot.pendingChat == ButtonResetChat:
-    bot.pendingChat = ""
-
-proc ensureButtonResetPlan(bot: var Bot) =
-  ## Records the mandatory cooldown reset plan for crewmates.
-  if bot.buttonResetDecided or bot.role != RoleCrewmate or bot.isGhost:
-    return
-  bot.buttonResetDecided = true
-  bot.buttonResetPlanned = true
-
-proc buttonResetShouldAct(bot: var Bot): bool =
-  ## Returns true when this crewmate should head to the button.
-  if bot.buttonResetBanned or bot.roundStartTick < 0:
-    return false
-  if bot.role != RoleCrewmate or bot.isGhost:
-    return false
-  bot.ensureButtonResetPlan()
-  if not bot.buttonResetPlanned:
-    return false
-  bot.frameTick - bot.roundStartTick >= bot.buttonResetCooldownTick()
-
-proc buttonResetReady(bot: Bot): bool =
-  ## Returns true when the emergency button can be pressed.
-  let
-    button = bot.sim.gameMap.button
-    x = bot.playerWorldX() + CollisionW div 2
-    y = bot.playerWorldY() + CollisionH div 2
-  if x < button.x or x >= button.x + button.w or
-      y < button.y or y >= button.y + button.h:
-    return false
-  abs(bot.velocityX) + abs(bot.velocityY) <= 1
-
 proc pendingChatReady(bot: Bot): bool =
   ## Returns true when pending chat is safe to send.
   if bot.pendingChat.len == 0 or not bot.interstitial:
     return false
   if bot.interstitialText.isGameOverText() or not bot.voting:
     return false
-  if bot.pendingChat == ButtonResetChat:
-    return bot.voteTarget == bot.votePlayerCount and
-      bot.voteCursor == bot.voteTarget
   true
-
-proc buttonFallbackReady(bot: Bot): bool =
-  ## Returns true when home is the only useful remaining goal.
-  bot.radarDots.len == 0 and
-    bot.radarTaskCount() == 0 and
-    bot.checkoutTaskCount() == 0 and
-    bot.taskStateCount(TaskMandatory) == 0
 
 proc rememberHome(bot: var Bot) =
   ## Records the first reliable round position as this bot's home.
@@ -3747,33 +3682,6 @@ proc buttonGoal(
   if bestDistance == high(int):
     return
   (true, -1, bestX, bestY, "Button", TaskMaybe)
-
-proc homeGoal(
-  bot: Bot
-): tuple[found: bool, index: int, x: int, y: int, name: string, state: TaskState] =
-  ## Returns this bot's remembered cafeteria home point.
-  if not bot.homeSet:
-    return bot.buttonGoal()
-  if bot.isGhost or bot.passable(bot.homeX, bot.homeY):
-    return (true, -1, bot.homeX, bot.homeY, "Home", TaskMaybe)
-  var
-    bestDistance = high(int)
-    bestX = 0
-    bestY = 0
-  for y in max(0, bot.homeY - HomeSearchRadius) ..
-      min(MapHeight - 1, bot.homeY + HomeSearchRadius):
-    for x in max(0, bot.homeX - HomeSearchRadius) ..
-        min(MapWidth - 1, bot.homeX + HomeSearchRadius):
-      if not bot.passable(x, y):
-        continue
-      let distance = heuristic(bot.homeX, bot.homeY, x, y)
-      if distance < bestDistance:
-        bestDistance = distance
-        bestX = x
-        bestY = y
-  if bestDistance == high(int):
-    return bot.buttonGoal()
-  (true, -1, bestX, bestY, "Home", TaskMaybe)
 
 proc fakeTargetCount(bot: Bot): int =
   ## Returns the number of imposter fake target areas.
@@ -4356,12 +4264,6 @@ proc desiredVotingDecision(
       false
     )
 
-  if bot.buttonResetMeeting:
-    return (
-      bot.votePlayerCount,
-      "reset imposter cool downs at button",
-      false
-    )
   let bodyTarget = bot.bodySusVotingTarget()
   if bodyTarget != VoteUnknown:
     return (
@@ -4411,7 +4313,7 @@ proc canonicalMeetingObservations(bot: Bot): JsonNode =
   ## Builds the compact canonical memory Richard asked for.
   result = newJArray()
   let bodyLocation = voteBodyLocationText(bot.voteChatText)
-  if bot.pendingChat.len > 0 and bot.pendingChat != ButtonResetChat:
+  if bot.pendingChat.len > 0:
     result.add(%("I found " & bot.pendingChat & "."))
   if bodyLocation != "none":
     result.add(%("A body was reported near " & bodyLocation & "."))
@@ -4523,7 +4425,7 @@ proc maybeApplyMeetingLlm(
     return
   if bot.voteStartTick < 0 or bot.votePlayerCount <= 0:
     return
-  if listenedTicks < LlmMinListenTicks or bot.buttonResetMeeting:
+  if listenedTicks < LlmMinListenTicks:
     return
   if VoteDeadlineTicks - listenedTicks < LlmMinRemainingTicks:
     return
@@ -4614,6 +4516,13 @@ proc decideVotingMask(bot: var Bot): uint8 {.measure.} =
     bot.voteTarget = bot.llmVoteTarget
     voteReason = bot.llmReason
     instantVote = instantVote or bot.llmInstantVote
+  if instantVote and
+      bot.voteTarget != bot.votePlayerCount and
+      bot.voteCursor != bot.voteTarget and
+      listenedTicks >= VoteCursorFallbackTicks:
+    bot.voteTarget = bot.votePlayerCount
+    voteReason = voteReason & "; cursor missed target, skipping to avoid timeout"
+    instantVote = true
   bot.printVotingFrame()
   if ownVote != VoteUnknown:
     bot.desiredMask = 0
@@ -4621,6 +4530,20 @@ proc decideVotingMask(bot: var Bot): uint8 {.measure.} =
     bot.intent = "voted " & bot.voteTargetName(ownVote)
     bot.thought(bot.intent)
     return 0
+  if bot.voteTarget == bot.votePlayerCount and
+      bot.voteCursor != bot.voteTarget and
+      listenedTicks >= VoteCursorForceSubmitTicks:
+    bot.desiredMask =
+      if bot.lastMask == ButtonA:
+        0
+      else:
+        ButtonA
+    bot.controllerMask = bot.desiredMask
+    bot.intent = "forcing skip vote after cursor timeout"
+    if bot.desiredMask == ButtonA:
+      bot.logVoteDecision(bot.voteTarget, voteReason)
+    bot.thought(bot.intent)
+    return bot.desiredMask
   if bot.voteCursor != bot.voteTarget:
     bot.voteConfirmTarget = VoteUnknown
     bot.voteConfirmTicks = 0
@@ -4790,8 +4713,6 @@ proc nearestTaskGoal(
       result = goal
   if result.found:
     return
-  if bot.buttonFallbackReady():
-    return bot.homeGoal()
 
 proc coastDistance(velocity: int): int =
   ## Returns how many pixels current velocity will carry without input.
@@ -4952,20 +4873,6 @@ proc reportBodyAction(bot: var Bot, x, y: int): uint8 =
   bot.taskHoldIndex = -1
   bot.queueBodyReport(x, y)
   bot.thought("reporting dead body")
-  ButtonA
-
-proc pressButtonResetAction(bot: var Bot): uint8 =
-  ## Presses the emergency button to reset imposter kill cooldowns.
-  bot.intent = "pressing button to reset imposter cool downs"
-  bot.desiredMask = ButtonA
-  bot.controllerMask = ButtonA
-  bot.clearPath()
-  bot.taskHoldTicks = 0
-  bot.taskHoldIndex = -1
-  bot.pendingChat = ButtonResetChat
-  bot.buttonResetBanned = true
-  bot.buttonResetMeeting = true
-  bot.thought(ButtonResetChat)
   ButtonA
 
 proc imposterHuntActive(bot: Bot): bool =
@@ -5199,17 +5106,6 @@ proc decideNextMask(bot: var Bot): uint8 {.measure.} =
         "dead body",
         KillApproachRadius
       )
-  if bot.buttonResetShouldAct():
-    if bot.buttonResetReady():
-      return bot.pressButtonResetAction()
-    let goal = bot.buttonGoal()
-    if goal.found:
-      bot.goalIndex = goal.index
-      return bot.navigateToPoint(
-        goal.x,
-        goal.y,
-        "reset kill cool downs at button"
-      )
   if bot.taskHoldTicks > 0:
     return bot.holdTaskAction(
       if bot.goalName.len > 0:
@@ -5219,11 +5115,7 @@ proc decideNextMask(bot: var Bot): uint8 {.measure.} =
     )
   let goal = bot.nearestTaskGoal()
   if not goal.found:
-    bot.clearPath()
-    bot.intent = "localized, no task goal"
-    bot.thought("localized near (" & $bot.playerWorldX() & ", " &
-      $bot.playerWorldY() & ")")
-    return 0
+    return bot.navigateProwlPoint()
   bot.hasGoal = true
   bot.goalX = goal.x
   bot.goalY = goal.y
