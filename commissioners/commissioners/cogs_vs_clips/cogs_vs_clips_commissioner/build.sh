@@ -2,7 +2,4 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
-docker build \
-  -f "$repo_root/commissioners/cogs_vs_clips/cogs_vs_clips_commissioner/Dockerfile" \
-  -t ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest \
-  "$repo_root"
+"$repo_root/commissioners/build_image.sh" cogs_vs_clips ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest

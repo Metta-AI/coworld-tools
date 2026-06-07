@@ -289,6 +289,9 @@ def schedule_episodes_for_round_start(
     commissioner: Commissioner,
     round_start: CommissionerRoundStart,
 ) -> CommissionerScheduleEpisodes:
+    custom_scheduler = getattr(commissioner, "schedule_episodes_for_round_start", None)
+    if callable(custom_scheduler):
+        return custom_scheduler(round_start)
     variant_id, num_agents = _round_start_variant(round_start)
     return commissioner.schedule_episodes(
         pool=_round_start_pool(round_start, commissioner),
@@ -321,6 +324,9 @@ def complete_round_for_round_start(
     round_start: CommissionerRoundStart,
     episode_results: list[CommissionerProtocolEpisodeResult],
 ) -> CommissionerRoundComplete:
+    custom_completer = getattr(commissioner, "complete_round_for_round_start", None)
+    if callable(custom_completer):
+        return custom_completer(round_start, episode_results)
     local_episode_results = [
         EpisodeResult(
             episode_request_id=UUID(int=index + 1),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -93,10 +93,12 @@ from commissioners.common.utils import (
     _round_structure_description,
     _build_entry_indices,
     _entry_index_offset,
-    _build_slot_balanced_entry_indices,
+    _build_rolling_window_entry_indices,
     _pool_episode_count,
     _score_lists_by_policy,
     _qualification_round_membership_changes,
+    MEAN_ROUND_SCORE_KIND,
+    MEAN_SCORE_EWMA_SCORING_MECHANICS,
 )
 
 # Re-export adapters for backwards compatibility
@@ -216,7 +218,7 @@ class BaselineCommissioner(Commissioner):
             assert round_row.completed_at is not None, f"Completed round {round_row.id} is missing completed_at"
             weight = 0.5 ** (
                 (latest_completed_at - round_row.completed_at).total_seconds()
-                / DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE.total_seconds()
+                / self._leaderboard_ewma_halflife(ctx).total_seconds()
             )
             aggs[player_round.player_id].policy_version_ids.add(player_round.policy_version_id)
             aggs[player_round.player_id].weighted_score_sum += player_round.score * weight
@@ -267,6 +269,9 @@ class BaselineCommissioner(Commissioner):
             )
             for rank, agg in enumerate(ranked_aggs, start=1)
         ]
+
+    def _leaderboard_ewma_halflife(self, ctx: DivisionLeaderboardContext) -> timedelta:
+        return DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         return OnRoundCompletedResult(
@@ -451,10 +456,13 @@ def get_commissioner(key: str) -> Commissioner:
 
 # Import game-specific commissioners for registration
 from commissioners.among_them.commissioner import AmongThemCommissioner
+from commissioners.common.ruleset_strategy.commissioner import RulesetStrategyCommissioner
 from commissioners.cogs_vs_clips.commissioner import CogsVsClipsCommissioner
 from commissioners.default.manual_commissioner import ManualCommissioner
 
 register_commissioner("auto", BaselineCommissioner)
+register_commissioner("config_driven", RulesetStrategyCommissioner)
+register_commissioner("ruleset_strategy", RulesetStrategyCommissioner)
 register_commissioner("manual", ManualCommissioner)
 register_commissioner("cogs_vs_clips", CogsVsClipsCommissioner)
 register_commissioner("among_them", AmongThemCommissioner)

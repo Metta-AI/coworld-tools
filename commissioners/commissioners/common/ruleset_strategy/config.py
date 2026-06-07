@@ -1,0 +1,454 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from commissioners.common.models import DIVISION_TYPE_COMPETITION, DIVISION_TYPE_STAGING, DivisionSnapshot, MembershipSnapshot
+from commissioners.common.models import V2StageConfig
+from commissioners.common.utils import MEAN_ROUND_SCORE_KIND, MEAN_SCORE_EWMA_SCORING_MECHANICS
+
+CONFIG_KEY = "ruleset_strategy"
+
+SeatingStrategy = Literal["baseline_window", "rolling_window"]
+FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
+EntrantShortcut = Literal["qualifying", "champions"]
+
+
+class _ConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DivisionMatch(_ConfigModel):
+    name: str | None = None
+    type: str | None = None
+
+    def matches(self, division: DivisionSnapshot) -> bool:
+        if self.name is not None and division.name != self.name:
+            return False
+        if self.type is not None and division.type != self.type:
+            return False
+        return True
+
+
+class EntrantSelector(_ConfigModel):
+    status: str | None = None
+    substatus: str | None = None
+    match_substatus: bool = False
+
+    def matches(self, membership: MembershipSnapshot) -> bool:
+        if self.status is not None and membership.status != self.status:
+            return False
+        if self.match_substatus and membership.substatus != self.substatus:
+            return False
+        return True
+
+
+class DivisionRule(_ConfigModel):
+    id: str
+    match: DivisionMatch = Field(default_factory=DivisionMatch)
+    entrants: EntrantSelector | None = None
+    minimum_entrants: int = Field(default=1, gt=0)
+    stages: list[V2StageConfig] | None = None
+    description: str | None = None
+
+
+class FillerSource(_ConfigModel):
+    match: DivisionMatch = Field(default_factory=DivisionMatch)
+    entrants: EntrantSelector = Field(
+        default_factory=lambda: EntrantSelector(
+            status="competing",
+            substatus="champion",
+            match_substatus=True,
+        )
+    )
+
+
+class InsufficientPlayersConfig(_ConfigModel):
+    strategy: FillSeatsStrategy = "duplicate"
+    sources: list[FillerSource] = Field(default_factory=list)
+    duplicate_after_fill: bool = True
+
+
+class RankingConfig(_ConfigModel):
+    result_metadata: dict[str, Any] = Field(default_factory=dict)
+    filter_metadata: dict[str, Any] = Field(default_factory=dict)
+    ewma_halflife_hours: float = Field(default=2.0, gt=0)
+
+
+class ChangeMatch(_ConfigModel):
+    division: DivisionMatch = Field(default_factory=DivisionMatch)
+    membership: EntrantSelector | None = None
+
+    def matches(self, division: DivisionSnapshot, membership: MembershipSnapshot) -> bool:
+        if not self.division.matches(division):
+            return False
+        if self.membership is not None and not self.membership.matches(membership):
+            return False
+        return True
+
+
+class TransitionCriteria(_ConfigModel):
+    completed_episodes_gt: int | None = None
+    completed_episodes_lte: int | None = None
+    score_gt: float | None = None
+    score_lte: float | None = None
+    otherwise: bool = False
+
+    @model_validator(mode="after")
+    def require_single_condition(self) -> TransitionCriteria:
+        conditions = [
+            self.completed_episodes_gt is not None,
+            self.completed_episodes_lte is not None,
+            self.score_gt is not None,
+            self.score_lte is not None,
+            self.otherwise,
+        ]
+        if sum(conditions) != 1:
+            raise ValueError("transition criteria must specify exactly one condition")
+        return self
+
+
+class TransitionTarget(_ConfigModel):
+    to_division_name: str | None = None
+    to_division_match: DivisionMatch | None = None
+    status: str | None = None
+    substatus: str | None = None
+    reason: str | None = None
+
+
+class Transition(_ConfigModel):
+    id: str | None = None
+    criteria: TransitionCriteria
+    to: TransitionTarget
+
+
+class TransitionRule(_ConfigModel):
+    type: Literal["transition"]
+    match: ChangeMatch = Field(default_factory=ChangeMatch)
+    transitions: list[Transition] = Field(min_length=1)
+
+
+MembershipChangeRule = TransitionRule
+
+
+class LeaderboardScoringConfig(_ConfigModel):
+    type: Literal["ewma"] = "ewma"
+    half_life_hours: float = Field(default=2.0, gt=0)
+
+
+class ScoringConfig(_ConfigModel):
+    round_score: Literal["mean"] = "mean"
+    leaderboard: LeaderboardScoringConfig = Field(default_factory=LeaderboardScoringConfig)
+    mechanics: str | None = None
+
+
+class StageScheduleConfig(_ConfigModel):
+    label: str = "Round"
+    episodes: int | None = Field(default=None, gt=0)
+    attempts: int | None = Field(default=None, gt=0)
+    min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    self_play: bool = False
+
+    @model_validator(mode="after")
+    def require_single_count(self) -> StageScheduleConfig:
+        if self.episodes is not None and self.attempts is not None:
+            raise ValueError("stage schedule may use either episodes or attempts, not both")
+        return self
+
+    def to_stage_config(self) -> V2StageConfig:
+        return V2StageConfig(
+            label=self.label,
+            num_episodes=self.attempts or self.episodes or 1,
+            min_episodes_per_entrant=self.min_episodes_per_entrant,
+            self_play=self.self_play,
+        )
+
+
+class RulesetDefaults(_ConfigModel):
+    seating: SeatingStrategy = "baseline_window"
+    fill_seats: FillSeatsStrategy = "duplicate"
+    fill_from: list[FillerSource] = Field(default_factory=list)
+    duplicate_after_fill: bool = True
+    min_entries_to_start: int = Field(default=1, gt=0)
+    stage: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
+
+    def insufficient_players(self) -> InsufficientPlayersConfig:
+        return InsufficientPlayersConfig(
+            strategy=self.fill_seats,
+            sources=self.fill_from,
+            duplicate_after_fill=self.fill_seats != "strict" and self.duplicate_after_fill,
+        )
+
+
+class TransitionCriteriaConfig(_ConfigModel):
+    completed_episodes_gt: int | None = None
+    completed_episodes_lte: int | None = None
+    score_gt: float | None = None
+    score_lte: float | None = None
+
+    @model_validator(mode="after")
+    def require_single_condition(self) -> TransitionCriteriaConfig:
+        conditions = [
+            self.completed_episodes_gt is not None,
+            self.completed_episodes_lte is not None,
+            self.score_gt is not None,
+            self.score_lte is not None,
+        ]
+        if sum(conditions) != 1:
+            raise ValueError("transition criteria must specify exactly one condition")
+        return self
+
+
+class UpdateMembershipAction(_ConfigModel):
+    type: Literal["update_membership"] = "update_membership"
+    division: str | None = None
+    status: str | None = None
+    substatus: str | None = None
+    reason: str | None = None
+
+
+class EpisodeCompleteTransition(_ConfigModel):
+    id: str | None = None
+    criteria: Literal["otherwise"] | TransitionCriteriaConfig
+    actions: list[UpdateMembershipAction] = Field(min_length=1, max_length=1)
+
+
+class DivisionStageConfig(_ConfigModel):
+    id: str
+    entrants: EntrantSelector | EntrantShortcut | None = None
+    schedule: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
+    on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
+
+
+class RulesetDivisionConfig(_ConfigModel):
+    match: DivisionMatch = Field(default_factory=DivisionMatch)
+    entrants: EntrantSelector | EntrantShortcut | None = None
+    min_entries_to_start: int | None = Field(default=None, gt=0)
+    stage: StageScheduleConfig | None = None
+    stages: list[DivisionStageConfig] = Field(default_factory=list)
+    on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_single_stage_shape(self) -> RulesetDivisionConfig:
+        if self.stage is not None and self.stages:
+            raise ValueError("division config may use either stage or stages, not both")
+        if self.on_episode_complete and self.stages:
+            raise ValueError("division-level on_episode_complete is only valid with a single stage")
+        return self
+
+
+class RulesetStrategyCommissionerConfig(_ConfigModel):
+    """Resolved ruleset config.
+
+    The accepted shape mirrors the public YAML shape. Lower-level division and
+    transition rules are derived by properties below instead of being part of
+    the config contract.
+    """
+
+    schedule_interval_minutes: int = Field(default=10, gt=0)
+    backend: str = "dispatch"
+    scoring: ScoringConfig | None = None
+    defaults: RulesetDefaults = Field(default_factory=RulesetDefaults)
+    divisions: dict[str, RulesetDivisionConfig]
+
+    @model_validator(mode="after")
+    def require_divisions(self) -> RulesetStrategyCommissionerConfig:
+        if not self.divisions:
+            raise ValueError("ruleset strategy commissioner requires at least one division")
+        return self
+
+    @classmethod
+    def from_commissioner_config(cls, commissioner_config: dict[str, Any] | None) -> RulesetStrategyCommissionerConfig:
+        config = commissioner_config or {}
+        nested = config.get(CONFIG_KEY)
+        if isinstance(nested, dict):
+            return cls.model_validate(nested)
+        return cls.model_validate(config)
+
+    @property
+    def default_execution_backend(self) -> str:
+        return self.backend
+
+    @property
+    def stages(self) -> list[V2StageConfig]:
+        return [self.defaults.stage.to_stage_config()]
+
+    @property
+    def seating(self) -> SeatingStrategy:
+        return self.defaults.seating
+
+    @property
+    def insufficient_players(self) -> InsufficientPlayersConfig:
+        return self.defaults.insufficient_players()
+
+    @property
+    def ranking(self) -> RankingConfig:
+        if self.scoring is None:
+            return RankingConfig()
+        return RankingConfig(
+            result_metadata={"score_kind": MEAN_ROUND_SCORE_KIND},
+            filter_metadata={"score_kind": MEAN_ROUND_SCORE_KIND},
+            ewma_halflife_hours=self.scoring.leaderboard.half_life_hours,
+        )
+
+    @property
+    def scoring_mechanics(self) -> str | None:
+        if self.scoring is None:
+            return None
+        if self.scoring.mechanics is not None:
+            return self.scoring.mechanics
+        half_life_hours = self.scoring.leaderboard.half_life_hours
+        if half_life_hours == 2:
+            return MEAN_SCORE_EWMA_SCORING_MECHANICS
+        half_life_text = int(half_life_hours) if half_life_hours.is_integer() else half_life_hours
+        return (
+            "Rounds rank policies by the average score reported by the game across each policy's episode slots. "
+            "The division leaderboard only uses current average-score round results and combines completed rounds "
+            f"with a {half_life_text}-hour half-life EWMA, so newer rounds count more than older rounds."
+        )
+
+    @property
+    def division_rules(self) -> list[DivisionRule]:
+        rules: list[DivisionRule] = []
+        for division_key, division in self.divisions.items():
+            rules.extend(self._division_rules(division_key, division))
+        return rules
+
+    @property
+    def membership_changes(self) -> list[TransitionRule]:
+        changes: list[TransitionRule] = []
+        for division in self.divisions.values():
+            changes.extend(self._membership_changes(division))
+        return changes
+
+    def _division_rules(self, division_key: str, division: RulesetDivisionConfig) -> list[DivisionRule]:
+        stages = self._expanded_stages(division)
+        if not stages:
+            return [
+                DivisionRule(
+                    id=division_key,
+                    match=division.match,
+                    entrants=self._entrant_selector(division.entrants, division.match),
+                    minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
+                    stages=[division.stage.to_stage_config()] if division.stage is not None else None,
+                )
+            ]
+
+        return [
+            DivisionRule(
+                id=f"{division_key}-{stage.id}",
+                match=division.match,
+                entrants=self._stage_entrant_selector(division, stage, index, len(stages)),
+                minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
+                stages=[stage.schedule.to_stage_config()],
+            )
+            for index, stage in reversed(list(enumerate(stages)))
+        ]
+
+    def _membership_changes(self, division: RulesetDivisionConfig) -> list[TransitionRule]:
+        changes: list[TransitionRule] = []
+        stages = self._expanded_stages(division)
+        for index, stage in enumerate(stages):
+            if not stage.on_episode_complete:
+                continue
+            match = ChangeMatch(
+                division=division.match,
+                membership=self._stage_entrant_selector(division, stage, index, len(stages)),
+            )
+            changes.append(self._transition_rule(match, stage.on_episode_complete))
+        if not stages and division.on_episode_complete:
+            match = ChangeMatch(
+                division=division.match,
+                membership=self._entrant_selector(division.entrants, division.match),
+            )
+            changes.append(self._transition_rule(match, division.on_episode_complete))
+        return changes
+
+    def _transition_rule(
+        self,
+        match: ChangeMatch,
+        transitions: list[EpisodeCompleteTransition],
+    ) -> TransitionRule:
+        return TransitionRule(
+            type="transition",
+            match=match,
+            transitions=[self._transition(transition) for transition in transitions],
+        )
+
+    def _transition(self, transition: EpisodeCompleteTransition) -> Transition:
+        action = transition.actions[0]
+        return Transition(
+            id=transition.id,
+            criteria=self._criteria(transition.criteria),
+            to=TransitionTarget(
+                to_division_match=self._move_to_match(action.division),
+                status=action.status,
+                substatus=action.substatus,
+                reason=action.reason,
+            ),
+        )
+
+    def _criteria(self, criteria: Literal["otherwise"] | TransitionCriteriaConfig) -> TransitionCriteria:
+        if criteria == "otherwise":
+            return TransitionCriteria(otherwise=True)
+        return TransitionCriteria(
+            completed_episodes_gt=criteria.completed_episodes_gt,
+            completed_episodes_lte=criteria.completed_episodes_lte,
+            score_gt=criteria.score_gt,
+            score_lte=criteria.score_lte,
+        )
+
+    def _expanded_stages(self, division: RulesetDivisionConfig) -> list[DivisionStageConfig]:
+        if division.stages:
+            return division.stages
+        if division.stage is None and not division.on_episode_complete:
+            return []
+        return [
+            DivisionStageConfig(
+                id="round",
+                schedule=division.stage or self.defaults.stage,
+                on_episode_complete=division.on_episode_complete,
+            )
+        ]
+
+    def _stage_entrant_selector(
+        self,
+        division: RulesetDivisionConfig,
+        stage: DivisionStageConfig,
+        index: int,
+        stage_count: int,
+    ) -> EntrantSelector:
+        selector = self._entrant_selector(stage.entrants or division.entrants, division.match)
+        if stage.entrants is not None or stage_count == 1:
+            return selector
+        return EntrantSelector(status=selector.status, substatus=None if index == 0 else stage.id, match_substatus=True)
+
+    def _entrant_selector(
+        self,
+        entrants: EntrantSelector | EntrantShortcut | None,
+        division_match: DivisionMatch,
+    ) -> EntrantSelector:
+        if isinstance(entrants, EntrantSelector):
+            return entrants
+        if entrants == "qualifying":
+            return EntrantSelector(status="qualifying")
+        if entrants == "champions":
+            return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+        if division_match.type == DIVISION_TYPE_STAGING:
+            return EntrantSelector(status="qualifying")
+        if division_match.type == DIVISION_TYPE_COMPETITION:
+            return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+        return EntrantSelector()
+
+    def _move_to_match(self, division_key: str | None) -> DivisionMatch | None:
+        if division_key is None:
+            return None
+        division = self.divisions.get(division_key)
+        return division.match if division is not None else DivisionMatch(name=division_key)
+
+
+def default_entrant_selector(division: DivisionSnapshot) -> EntrantSelector:
+    if division.type == DIVISION_TYPE_STAGING:
+        return EntrantSelector(status="qualifying")
+    return EntrantSelector(status="competing", substatus="champion", match_substatus=True)

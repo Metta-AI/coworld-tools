@@ -2,7 +2,4 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
-docker build \
-  -f "$repo_root/commissioners/default/default_commissioner/Dockerfile" \
-  -t ghcr.io/metta-ai/commissioners-default:latest \
-  "$repo_root"
+"$repo_root/commissioners/build_image.sh" auto ghcr.io/metta-ai/commissioners-default:latest
