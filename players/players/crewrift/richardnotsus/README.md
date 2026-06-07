@@ -13,9 +13,17 @@ the Nim binary, and copies a small Python helper into the runtime image.
 ## LLM meetings
 
 `RICHARDNOTSUS_LLM_MEETINGS=1` enables the helper. `USE_BEDROCK=1` uses
-Anthropic Bedrock via the tournament-provided AWS environment. Without Bedrock,
-set `ANTHROPIC_API_KEY` for direct Anthropic. If the helper is disabled, times
-out, or returns no legal target, the original notsus vote decision is used.
+Anthropic Bedrock via the tournament-provided AWS environment; pass the upload or
+runner option that injects Bedrock credentials when submitting this image. Without
+Bedrock, set `ANTHROPIC_API_KEY` for direct Anthropic. If the helper is disabled,
+times out, returns too late, or returns no legal target, the original notsus vote
+decision is used. The helper is intentionally time-boxed and advisory: low
+confidence `submit_vote` responses are treated as tentative votes, and the Nim
+runtime waits for the vote cursor target to remain stable before pressing vote.
+
+When Coworld provides a `slot=` in `COWORLD_PLAYER_WS_URL` or via `--slot`,
+RichardNotsus pins its self color from that slot. That keeps meeting context and
+self-vote filtering stable when vote-screen marker reads are noisy.
 
 The helper receives a compact JSON meeting frame with visible players, parsed
 votes, chat, deterministic fallback vote, and canonical memory observations such
@@ -36,4 +44,17 @@ Build locally:
 
 ```sh
 players/crewrift/richardnotsus/build.sh --tag richardnotsus:test
+```
+
+Run a local Crewrift slot gate with zero vote timeouts allowed:
+
+```sh
+uv run --project ~/Code/co-gas python -m co_gas.gates.crewrift_slot_matrix_runner \
+  --candidate-image richardnotsus:test \
+  --manifest ~/Code/co-gas/cogas-agents/coworlds/crewrift/vendor/coworld-crewrift/coworld_manifest.json \
+  --seed 679961 \
+  --slots 4,7 \
+  --pair 4,7 \
+  --max-candidate-vote-timeouts 0 \
+  --allow-fail
 ```

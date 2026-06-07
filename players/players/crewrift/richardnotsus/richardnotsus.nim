@@ -141,6 +141,7 @@ const
   VoteListenBaseTicks = VoteDeadlineTicks div 4
   VoteListenJitterTicks = VoteDeadlineTicks div 16
   VoteImposterSkipTicks = VoteListenBaseTicks + VoteListenJitterTicks
+  VoteCursorConfirmTicks = 2
   BodySuspectRange = 64
   ImposterHuntDelayTicks = 500
   ButtonResetCooldownLeadTicks = 150
@@ -162,7 +163,10 @@ const
   VoteChatChars = VoteChatCharsPerLine
   VoteChatSpeakerSearch = 24
   LlmHelperDefault = "/srv/richardnotsus/llm_meeting.py"
-  LlmProcessTimeoutDefault = "4"
+  LlmProcessTimeoutDefault = "1"
+  LlmMinListenTicks = 8
+  LlmMinRemainingTicks = TargetFps * 3
+  LlmRetrySuppressTicks = VoteDeadlineTicks
   TaskRadarResetTicks = 100
   SpriteTaskArrowObjectBase = 7000
   ProtocolTextObjectBase = 9000
@@ -335,6 +339,7 @@ type
     lastSeenTicks: array[PlayerColorCount, int]
     bodySeenTicks: array[PlayerColorCount, int]
     selfColorIndex: int
+    forcedSelfColorIndex: int
     knownImposters: array[PlayerColorCount, bool]
     voting: bool
     votePlayerCount: int
@@ -352,12 +357,15 @@ type
     voteChoices: array[PlayerColorCount, int]
     voteLoggedTarget: int
     voteLoggedReason: string
+    voteConfirmTarget: int
+    voteConfirmTicks: int
     llmMeetingStartTick: int
     llmDecisionReady: bool
     llmVoteTarget: int
     llmInstantVote: bool
     llmChatText: string
     llmReason: string
+    llmLastAttemptTick: int
     lastVoteFrame: string
     intent: string
     goalX: int
@@ -404,6 +412,21 @@ type
   VentGroupCount = object
     key: string
     count: int
+
+  VotingCarryState = object
+    voteDelayTicks: int
+    voteQueuedSusColor: int
+    voteImposterChatDecided: bool
+    voteLoggedTarget: int
+    voteLoggedReason: string
+    voteConfirmTarget: int
+    voteConfirmTicks: int
+    llmMeetingStartTick: int
+    llmDecisionReady: bool
+    llmVoteTarget: int
+    llmReason: string
+    llmInstantVote: bool
+    llmChatText: string
 
 proc gameDir(): string =
   ## Returns the Crewrift game directory.
@@ -1030,6 +1053,8 @@ proc updateRole(bot: var Bot)
 
 proc updateSelfColor(bot: var Bot)
 
+proc setSelfColor(bot: var Bot, colorIndex: int)
+
 proc parseVotingScreen(bot: var Bot): bool
 
 proc chatSusColorIndex(text: string): int
@@ -1105,12 +1130,52 @@ proc clearVotingState(bot: var Bot) =
     bot.voteChoices[i] = VoteUnknown
   bot.voteLoggedTarget = VoteUnknown
   bot.voteLoggedReason = ""
+  bot.voteConfirmTarget = VoteUnknown
+  bot.voteConfirmTicks = 0
   bot.llmMeetingStartTick = -1
   bot.llmDecisionReady = false
   bot.llmVoteTarget = VoteUnknown
   bot.llmInstantVote = false
   bot.llmChatText = ""
   bot.llmReason = ""
+
+proc votingCarryState(bot: Bot): VotingCarryState =
+  ## Captures meeting state that survives one vote-frame parser refresh.
+  VotingCarryState(
+    voteDelayTicks: bot.voteDelayTicks,
+    voteQueuedSusColor: bot.voteQueuedSusColor,
+    voteImposterChatDecided: bot.voteImposterChatDecided,
+    voteLoggedTarget: bot.voteLoggedTarget,
+    voteLoggedReason: bot.voteLoggedReason,
+    voteConfirmTarget: bot.voteConfirmTarget,
+    voteConfirmTicks: bot.voteConfirmTicks,
+    llmMeetingStartTick: bot.llmMeetingStartTick,
+    llmDecisionReady: bot.llmDecisionReady,
+    llmVoteTarget: bot.llmVoteTarget,
+    llmReason: bot.llmReason,
+    llmInstantVote: bot.llmInstantVote,
+    llmChatText: bot.llmChatText
+  )
+
+proc restoreVotingCarryState(bot: var Bot, state: VotingCarryState) =
+  ## Restores meeting state after fresh vote-screen observations are loaded.
+  bot.voteDelayTicks =
+    if state.voteDelayTicks >= 0:
+      state.voteDelayTicks
+    else:
+      bot.randomVoteDelay()
+  bot.voteQueuedSusColor = state.voteQueuedSusColor
+  bot.voteImposterChatDecided = state.voteImposterChatDecided
+  bot.voteLoggedTarget = state.voteLoggedTarget
+  bot.voteLoggedReason = state.voteLoggedReason
+  bot.voteConfirmTarget = state.voteConfirmTarget
+  bot.voteConfirmTicks = state.voteConfirmTicks
+  bot.llmMeetingStartTick = state.llmMeetingStartTick
+  bot.llmDecisionReady = state.llmDecisionReady
+  bot.llmVoteTarget = state.llmVoteTarget
+  bot.llmReason = state.llmReason
+  bot.llmInstantVote = state.llmInstantVote
+  bot.llmChatText = state.llmChatText
 
 proc clearPath(bot: var Bot) =
   ## Clears the cached A* route.
@@ -1266,6 +1331,8 @@ proc resetRoundState(bot: var Bot) =
   bot.lastBodyReportY = low(int)
   bot.bodySusColor = VoteUnknown
   bot.selfColorIndex = -1
+  bot.forcedSelfColorIndex = -1
+  bot.llmLastAttemptTick = -1
   bot.lastVoteFrame = ""
   bot.clearVotingState()
   for i in 0 ..< bot.lastSeenTicks.len:
@@ -1805,6 +1872,23 @@ proc protocolVoteCellAt(count, x, y: int): int =
   ## Returns the voting slot containing one protocol object point.
   voteReaderCellAtPoint(count, x, y)
 
+proc protocolVoteCursorCellAt(count, x, y: int): int =
+  ## Maps protocol vote cursor origins without overlapping adjacent cells.
+  if count <= 0:
+    return VoteUnknown
+  let
+    cols = min(count, VoteColsMax)
+    totalW = cols * VoteCellW
+    startX = (ScreenWidth - totalW) div 2
+  for i in 0 ..< count:
+    let
+      cellX = startX + (i mod cols) * VoteCellW
+      cellY = VoteStartY + (i div cols) * VoteCellH
+    if x >= cellX and x < cellX + VoteCellW and
+        y >= cellY - 3 and y < cellY + VoteCellH + 2:
+      return i
+  VoteUnknown
+
 proc protocolInterstitialLabel(label: string): bool =
   ## Returns true when a text sprite label identifies a modal screen.
   case label
@@ -1841,24 +1925,12 @@ proc applyProtocolVotingState(
         bot.voteStartTick
       else:
         bot.frameTick
-    previousDelay = bot.voteDelayTicks
-    previousQueuedSusColor = bot.voteQueuedSusColor
-    previousImposterChatDecided = bot.voteImposterChatDecided
-    previousLoggedTarget = bot.voteLoggedTarget
-    previousLoggedReason = bot.voteLoggedReason
+    carryState = bot.votingCarryState()
   bot.clearVotingState()
   bot.voting = true
   bot.votePlayerCount = playerCount
   bot.voteStartTick = startTick
-  bot.voteDelayTicks =
-    if previousDelay >= 0:
-      previousDelay
-    else:
-      bot.randomVoteDelay()
-  bot.voteQueuedSusColor = previousQueuedSusColor
-  bot.voteImposterChatDecided = previousImposterChatDecided
-  bot.voteLoggedTarget = previousLoggedTarget
-  bot.voteLoggedReason = previousLoggedReason
+  bot.restoreVotingCarryState(carryState)
   bot.voteCursor = cursor
   bot.voteSelfSlot = selfSlot
   for i in 0 ..< playerCount:
@@ -1866,7 +1938,7 @@ proc applyProtocolVotingState(
   for i in 0 ..< bot.voteChoices.len:
     bot.voteChoices[i] = choices[i]
   if selfSlot >= 0 and selfSlot < playerCount:
-    bot.selfColorIndex = slots[selfSlot].colorIndex
+    bot.setSelfColor(slots[selfSlot].colorIndex)
   for line in chatLines:
     bot.voteChatLines.add(line)
   bot.voteChatText = voteChatTextFromLines(bot.voteChatLines)
@@ -1997,7 +2069,7 @@ proc updateProtocolDetections(bot: var Bot, client: ProtocolClient) {.measure.} 
           item.sprite.width,
           item.sprite.height
         ):
-          bot.selfColorIndex = actor.colorIndex
+          bot.setSelfColor(actor.colorIndex)
           bot.isGhost = actor.ghost
         if actor.ghost:
           bot.visibleGhosts.add(GhostMatch(
@@ -2085,11 +2157,11 @@ proc updateProtocolDetections(bot: var Bot, client: ProtocolClient) {.measure.} 
         if voteCursorIsSkip:
           votePlayerCount
         else:
-          protocolVoteCellAt(votePlayerCount, voteCursorX, voteCursorY)
+          protocolVoteCursorCellAt(votePlayerCount, voteCursorX, voteCursorY)
     if voteSelfSeen:
       voteSelfSlot = protocolVoteCellAt(votePlayerCount, voteSelfX, voteSelfY)
       if voteSelfColor >= 0 and voteSelfColor < PlayerColorCount:
-        bot.selfColorIndex = voteSelfColor
+        bot.setSelfColor(voteSelfColor)
     for line in chatLines:
       var
         bestColor = VoteUnknown
@@ -2255,6 +2327,13 @@ proc scanCrewmates(bot: var Bot) {.measure.} =
         crewmate.colorIndex < bot.lastSeenTicks.len:
       bot.lastSeenTicks[crewmate.colorIndex] = bot.frameTick
 
+proc setSelfColor(bot: var Bot, colorIndex: int) =
+  ## Updates self color while respecting the Coworld slot identity.
+  if bot.forcedSelfColorIndex >= 0:
+    bot.selfColorIndex = bot.forcedSelfColorIndex
+  elif colorIndex >= 0 and colorIndex < PlayerColorCount:
+    bot.selfColorIndex = colorIndex
+
 proc updateSelfColor(bot: var Bot) {.measure.} =
   ## Learns the local player's color from the centered player sprite.
   let
@@ -2265,8 +2344,7 @@ proc updateSelfColor(bot: var Bot) {.measure.} =
     colorIndex = bot.crewmateColorIndex(x, y, false)
   elif bot.matchesCrewmate(x, y, true):
     colorIndex = bot.crewmateColorIndex(x, y, true)
-  if colorIndex >= 0 and colorIndex < PlayerColorCount:
-    bot.selfColorIndex = colorIndex
+  bot.setSelfColor(colorIndex)
 
 proc rememberRoleReveal(bot: var Bot) =
   ## Learns team colors from the role reveal interstitial screen.
@@ -2712,25 +2790,12 @@ proc parseVotingCandidate(
       return false
     seenColors[slots[i].colorIndex] = true
 
-  let
-    previousDelay = bot.voteDelayTicks
-    previousQueuedSusColor = bot.voteQueuedSusColor
-    previousImposterChatDecided = bot.voteImposterChatDecided
-    previousLoggedTarget = bot.voteLoggedTarget
-    previousLoggedReason = bot.voteLoggedReason
+  let carryState = bot.votingCarryState()
   bot.clearVotingState()
   bot.voting = true
   bot.votePlayerCount = count
   bot.voteStartTick = startTick
-  bot.voteDelayTicks =
-    if previousDelay >= 0:
-      previousDelay
-    else:
-      bot.randomVoteDelay()
-  bot.voteQueuedSusColor = previousQueuedSusColor
-  bot.voteImposterChatDecided = previousImposterChatDecided
-  bot.voteLoggedTarget = previousLoggedTarget
-  bot.voteLoggedReason = previousLoggedReason
+  bot.restoreVotingCarryState(carryState)
   bot.voteCursor = VoteUnknown
   bot.voteSelfSlot = VoteUnknown
   for i in 0 ..< count:
@@ -2739,7 +2804,7 @@ proc parseVotingCandidate(
       bot.voteCursor = i
     if bot.voteSelfMarkerPresent(count, i, slots[i].colorIndex):
       bot.voteSelfSlot = i
-      bot.selfColorIndex = slots[i].colorIndex
+      bot.setSelfColor(slots[i].colorIndex)
     let cell = voteCellOrigin(count, i)
     bot.parseVoteDotsForTarget(
       i,
@@ -2778,24 +2843,12 @@ proc parseVotingScreen(bot: var Bot): bool {.measure.} =
   )
   if read.found:
     let
-      previousDelay = bot.voteDelayTicks
-      previousQueuedSusColor = bot.voteQueuedSusColor
-      previousImposterChatDecided = bot.voteImposterChatDecided
-      previousLoggedTarget = bot.voteLoggedTarget
-      previousLoggedReason = bot.voteLoggedReason
+      carryState = bot.votingCarryState()
     bot.clearVotingState()
     bot.voting = true
     bot.votePlayerCount = read.playerCount
     bot.voteStartTick = startTick
-    bot.voteDelayTicks =
-      if previousDelay >= 0:
-        previousDelay
-      else:
-        bot.randomVoteDelay()
-    bot.voteQueuedSusColor = previousQueuedSusColor
-    bot.voteImposterChatDecided = previousImposterChatDecided
-    bot.voteLoggedTarget = previousLoggedTarget
-    bot.voteLoggedReason = previousLoggedReason
+    bot.restoreVotingCarryState(carryState)
     bot.voteCursor = read.cursor
     bot.voteSelfSlot = read.selfSlot
     for i in 0 ..< read.playerCount:
@@ -2804,7 +2857,7 @@ proc parseVotingScreen(bot: var Bot): bool {.measure.} =
     for i in 0 ..< min(bot.voteChoices.len, read.choices.len):
       bot.voteChoices[i] = read.choices[i]
     if read.selfSlot >= 0 and read.selfSlot < read.playerCount:
-      bot.selfColorIndex = read.slots[read.selfSlot].colorIndex
+      bot.setSelfColor(read.slots[read.selfSlot].colorIndex)
     bot.voteChatLines.setLen(0)
     for entry in read.chat:
       for line in entry.lines:
@@ -3986,7 +4039,9 @@ proc queueBodyReport(bot: var Bot, x, y: int) =
 
 proc voteTargetName(bot: Bot, target: int): string =
   ## Returns a short display name for a voting target.
-  if target == VoteSkip:
+  if target == VoteSkip or (
+      bot.votePlayerCount > 0 and target == bot.votePlayerCount
+  ):
     return "skip"
   if target >= 0 and target < bot.votePlayerCount:
     return playerColorName(bot.voteSlots[target].colorIndex)
@@ -4461,15 +4516,21 @@ proc maybeApplyMeetingLlm(
   listenedTicks: int
 ) =
   ## Lets one bounded helper call override meeting chat/vote, else keeps notsus.
-  if bot.llmDecisionReady and bot.llmMeetingStartTick == bot.voteStartTick:
+  if bot.llmDecisionReady:
+    return
+  if bot.llmLastAttemptTick >= 0 and
+      bot.frameTick - bot.llmLastAttemptTick < LlmRetrySuppressTicks:
     return
   if bot.voteStartTick < 0 or bot.votePlayerCount <= 0:
     return
-  if listenedTicks < 8 or bot.buttonResetMeeting:
+  if listenedTicks < LlmMinListenTicks or bot.buttonResetMeeting:
+    return
+  if VoteDeadlineTicks - listenedTicks < LlmMinRemainingTicks:
     return
   if not llmMeetingsEnabled():
     return
 
+  bot.llmLastAttemptTick = bot.frameTick
   bot.llmMeetingStartTick = bot.voteStartTick
   bot.llmDecisionReady = true
 
@@ -4561,6 +4622,8 @@ proc decideVotingMask(bot: var Bot): uint8 {.measure.} =
     bot.thought(bot.intent)
     return 0
   if bot.voteCursor != bot.voteTarget:
+    bot.voteConfirmTarget = VoteUnknown
+    bot.voteConfirmTicks = 0
     let direction = bot.voteMoveDirection(bot.voteTarget)
     let mask =
       if direction < 0:
@@ -4586,6 +4649,17 @@ proc decideVotingMask(bot: var Bot): uint8 {.measure.} =
     bot.controllerMask = 0
     bot.intent = "ready, listening in vote chat " &
       $listenedTicks & "/" & $waitTicks
+    bot.thought(bot.intent)
+    return 0
+  if bot.voteConfirmTarget == bot.voteTarget:
+    inc bot.voteConfirmTicks
+  else:
+    bot.voteConfirmTarget = bot.voteTarget
+    bot.voteConfirmTicks = 1
+  if bot.voteConfirmTicks < VoteCursorConfirmTicks:
+    bot.desiredMask = 0
+    bot.controllerMask = 0
+    bot.intent = "confirming vote cursor on " & bot.voteTargetName(bot.voteTarget)
     bot.thought(bot.intent)
     return 0
   bot.desiredMask =
@@ -5299,6 +5373,8 @@ proc initBot(mapPath = ""): Bot {.measure.} =
   result.cameraLock = NoLock
   result.role = RoleCrewmate
   result.selfColorIndex = -1
+  result.forcedSelfColorIndex = -1
+  result.llmLastAttemptTick = -1
   result.clearVotingState()
   result.intent = "waiting for first frame"
 
@@ -5961,6 +6037,10 @@ when not defined(italkalotLibrary):
     if not gui:
       startProfileTrace()
     var bot = initBot(mapPath)
+    if slot >= 0 and slot < PlayerColorCount:
+      bot.forcedSelfColorIndex = slot
+      bot.selfColorIndex = slot
+      echo "forcing self color from slot ", slot, " (", playerColorName(slot), ")"
     let endpoint =
       if url.len > 0: ensureWsPath(url, WebSocketPath)
       else: "ws://" & host & ":" & $port & WebSocketPath
@@ -6160,6 +6240,15 @@ when isMainModule and not defined(italkalotLibrary):
         discard
     if not urlSet and (addressSet or portSet):
       result.url = ""
+    if result.slot < 0 and result.url.len > 0:
+      let marker = "slot="
+      let start = result.url.find(marker)
+      if start >= 0:
+        var finish = start + marker.len
+        while finish < result.url.len and result.url[finish] in {'0'..'9'}:
+          inc finish
+        if finish > start + marker.len:
+          result.slot = parseInt(result.url[start + marker.len ..< finish])
     result.exitOnDisconnect = result.url.len > 0
 
   let config = readBotRunConfig()

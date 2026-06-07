@@ -8,6 +8,10 @@ from typing import Any
 
 DEFAULT_DIRECT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+DEFAULT_TIMEOUT_SECONDS = 0.75
+DEFAULT_MAX_TOKENS = 160
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_MIN_SUBMIT_CONFIDENCE = 0.75
 CHAT_MAX_CHARS = 160
 
 
@@ -25,7 +29,7 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
     from anthropic import Anthropic, AnthropicBedrock
 
-    timeout = float(os.environ.get("RICHARDNOTSUS_LLM_TIMEOUT_SECONDS", "2.0"))
+    timeout = float(os.environ.get("RICHARDNOTSUS_LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
     if use_bedrock:
         client = AnthropicBedrock(
             aws_access_key=os.environ.get("AWS_ACCESS_KEY_ID"),
@@ -47,8 +51,8 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
     response = client.messages.create(
         model=model,
-        max_tokens=int(os.environ.get("RICHARDNOTSUS_LLM_MAX_TOKENS", "512")),
-        temperature=float(os.environ.get("RICHARDNOTSUS_LLM_TEMPERATURE", "0.2")),
+        max_tokens=int(os.environ.get("RICHARDNOTSUS_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
+        temperature=float(os.environ.get("RICHARDNOTSUS_LLM_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
         system=_system_prompt(),
         messages=[
             {
@@ -137,12 +141,15 @@ def _validate_decision(
 
     chat_text = _sanitize_chat(raw.get("chat_text", ""))
     vote_target = str(raw.get("vote_target", "") or "").strip().lower()
+    confidence = _confidence(raw.get("confidence"))
     if action == "submit_vote" and not vote_target:
         vote_target = fallback_vote
     if vote_target and vote_target not in legal:
         vote_target = ""
         if action in {"set_tentative_vote", "submit_vote"}:
             action = "wait"
+    if action == "submit_vote" and (confidence is None or confidence < _min_submit_confidence()):
+        action = "set_tentative_vote"
     if action == "send_chat" and not chat_text:
         action = "wait"
     if action == "set_tentative_vote" and not vote_target:
@@ -154,7 +161,7 @@ def _validate_decision(
         "chat_text": chat_text,
         "vote_target": vote_target,
         "reason": _sanitize_chat(raw.get("reason", "")),
-        "confidence": _confidence(raw.get("confidence")),
+        "confidence": confidence,
     }
 
 
@@ -168,6 +175,15 @@ def _confidence(value: Any) -> float | None:
         return None
     confidence = float(value)
     return max(0.0, min(1.0, confidence))
+
+
+def _min_submit_confidence() -> float:
+    return float(
+        os.environ.get(
+            "RICHARDNOTSUS_LLM_MIN_SUBMIT_CONFIDENCE",
+            str(DEFAULT_MIN_SUBMIT_CONFIDENCE),
+        )
+    )
 
 
 def _fallback(reason: str) -> dict[str, Any]:

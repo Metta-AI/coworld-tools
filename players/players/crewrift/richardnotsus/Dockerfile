@@ -70,7 +70,11 @@ COPY players/crewrift/richardnotsus/memory /srv/richardnotsus/memory
 ENV RICHARDNOTSUS_LLM_HELPER=/srv/richardnotsus/llm_meeting.py \
     RICHARDNOTSUS_LLM_SYSTEM_PROMPT_PATH=/srv/richardnotsus/memory/system.md \
     RICHARDNOTSUS_LLM_MEETINGS=1 \
-    USE_BEDROCK=1 \
+    RICHARDNOTSUS_LLM_PROCESS_TIMEOUT_SECONDS=1 \
+    RICHARDNOTSUS_LLM_TIMEOUT_SECONDS=0.75 \
+    RICHARDNOTSUS_LLM_MAX_TOKENS=160 \
+    RICHARDNOTSUS_LLM_TEMPERATURE=0 \
+    RICHARDNOTSUS_LLM_MIN_SUBMIT_CONFIDENCE=0.75 \
     AWS_REGION=us-west-2
 
 CMD ["/bin/richardnotsus"]
