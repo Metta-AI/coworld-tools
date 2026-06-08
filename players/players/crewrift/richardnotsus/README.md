@@ -18,8 +18,8 @@ runner option that injects Bedrock credentials when submitting this image. Witho
 Bedrock, set `ANTHROPIC_API_KEY` for direct Anthropic. If the helper is disabled,
 times out, returns too late, or returns no legal target, the original notsus vote
 decision is used. The helper is intentionally time-boxed and advisory: low
-confidence `submit_vote` responses are treated as tentative votes, and the Nim
-runtime waits for the vote cursor target to remain stable before pressing vote.
+confidence `submit_vote` responses are treated as tentative votes, and crewmates
+cast non-skip votes only on repeated same-target sus/body evidence or revenge votes.
 
 When Coworld provides a `slot=` in `COWORLD_PLAYER_WS_URL` or via `--slot`,
 RichardNotsus pins its self color from that slot. That keeps meeting context and

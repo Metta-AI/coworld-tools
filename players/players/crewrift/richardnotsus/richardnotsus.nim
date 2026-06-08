@@ -143,6 +143,7 @@ const
   VoteCursorConfirmTicks = 2
   VoteCursorFallbackTicks = VoteListenJitterTicks
   VoteCursorForceSubmitTicks = VoteCursorFallbackTicks * 2
+  VoteEvidenceThreshold = 2
   BodySuspectRange = 64
   ImposterHuntDelayTicks = 500
   ProtocolMapName = "sprite protocol map"
@@ -343,7 +344,6 @@ type
     voteTarget: int
     voteStartTick: int
     voteDelayTicks: int
-    voteChatSusColor: int
     voteQueuedSusColor: int
     voteImposterChatDecided: bool
     voteChatText: string
@@ -1111,7 +1111,6 @@ proc clearVotingState(bot: var Bot) =
   bot.voteTarget = VoteUnknown
   bot.voteStartTick = -1
   bot.voteDelayTicks = -1
-  bot.voteChatSusColor = VoteUnknown
   bot.voteQueuedSusColor = VoteUnknown
   bot.voteImposterChatDecided = false
   bot.voteChatText = ""
@@ -1930,12 +1929,6 @@ proc applyProtocolVotingState(
   for line in chatLines:
     bot.voteChatLines.add(line)
   bot.voteChatText = voteChatTextFromLines(bot.voteChatLines)
-  let susColor = chatSusColorIndex(bot.voteChatText)
-  bot.voteChatSusColor =
-    if bot.voteSusColorAllowed(susColor):
-      susColor
-    else:
-      VoteUnknown
   true
 
 proc updateProtocolDetections(bot: var Bot, client: ProtocolClient) {.measure.} =
@@ -2745,18 +2738,6 @@ proc randomVoteDelay(bot: var Bot): int =
   VoteListenBaseTicks - VoteListenJitterTicks +
     bot.rng.rand(VoteListenJitterTicks * 2)
 
-proc ownSusVotingTarget(bot: Bot): int =
-  ## Returns this bot's own valid chat sus target, or unknown.
-  if bot.selfColorIndex < 0:
-    return VoteUnknown
-  for line in bot.voteChatLines:
-    if line.speakerColor != bot.selfColorIndex:
-      continue
-    let colorIndex = chatSusColorIndex(line.text)
-    if bot.voteSusColorAllowed(colorIndex):
-      return bot.voteSlotForColor(colorIndex)
-  VoteUnknown
-
 proc parseVotingCandidate(
   bot: var Bot,
   count,
@@ -2808,12 +2789,6 @@ proc parseVotingCandidate(
   )
   bot.voteChatLines = bot.readVoteChatLines(count)
   bot.voteChatText = voteChatTextFromLines(bot.voteChatLines)
-  let susColor = chatSusColorIndex(bot.voteChatText)
-  bot.voteChatSusColor =
-    if bot.voteSusColorAllowed(susColor):
-      susColor
-    else:
-      VoteUnknown
   true
 
 proc parseVotingScreen(bot: var Bot): bool {.measure.} =
@@ -2855,11 +2830,6 @@ proc parseVotingScreen(bot: var Bot): bool {.measure.} =
           text: line
         )
     bot.voteChatText = read.chatText
-    bot.voteChatSusColor =
-      if bot.voteSusColorAllowed(read.chatSusColor):
-        read.chatSusColor
-      else:
-        VoteUnknown
     return true
   if bot.voting:
     bot.lastVoteFrame = ""
@@ -4112,22 +4082,6 @@ proc voteMoveDirection(bot: Bot, target: int): int =
   else:
     1
 
-proc seenVotingTargetFrom(bot: Bot, ticks: openArray[int]): int =
-  ## Returns the latest seen living non-self voting target.
-  result = VoteUnknown
-  var bestTick = 0
-  for i, tick in ticks:
-    if i >= PlayerColorNames.len:
-      continue
-    if bot.knownImposterColor(i):
-      continue
-    let slot = bot.voteSlotForColor(i)
-    if not bot.voteTargetSafeForRole(slot):
-      continue
-    if tick > bestTick:
-      bestTick = tick
-      result = slot
-
 proc revengeVotingTarget(bot: Bot): int =
   ## Returns a living non-self voter who has voted for this bot.
   if bot.voteSelfSlot < 0:
@@ -4166,9 +4120,33 @@ proc hasAnyParsedVote(bot: Bot): bool =
     if choice != VoteUnknown:
       return true
 
-proc bodySusVotingTarget(bot: Bot): int =
-  ## Body-near sightings are useful chat context but too noisy for auto-votes.
-  VoteUnknown
+proc evidenceVotingTarget(bot: Bot): tuple[target: int, count: int] =
+  ## Returns a target with repeated same-target sus/body evidence.
+  var
+    counts: array[PlayerColorCount, int]
+    countedSpeakers: array[PlayerColorCount, array[PlayerColorCount, bool]]
+
+  proc addEvidence(colorIndex, speakerColor: int) =
+    if not bot.voteSusColorAllowed(colorIndex):
+      return
+    if speakerColor < 0 or speakerColor >= PlayerColorCount:
+      return
+    if countedSpeakers[colorIndex][speakerColor]:
+      return
+    countedSpeakers[colorIndex][speakerColor] = true
+    inc counts[colorIndex]
+
+  addEvidence(bot.bodySusColor, bot.selfColorIndex)
+  for line in bot.voteChatLines:
+    addEvidence(chatSusColorIndex(line.text), line.speakerColor)
+
+  result = (VoteUnknown, 0)
+  for colorIndex, count in counts:
+    if count < VoteEvidenceThreshold or count <= result.count:
+      continue
+    let slot = bot.voteSlotForColor(colorIndex)
+    if bot.voteTargetSafeForRole(slot):
+      result = (slot, count)
 
 proc susSpeakerTargetingSelf(bot: Bot): int =
   ## Returns a valid chat speaker who called this bot sus.
@@ -4258,12 +4236,12 @@ proc desiredVotingDecision(
       false
     )
 
-  let bodyTarget = bot.bodySusVotingTarget()
-  if bodyTarget != VoteUnknown:
+  let evidenceTarget = bot.evidenceVotingTarget()
+  if evidenceTarget.target != VoteUnknown:
     return (
-      bodyTarget,
-      "saw " & bot.voteTargetName(bodyTarget) &
-        " within " & $BodySuspectRange & "px of body",
+      evidenceTarget.target,
+      "heard " & $evidenceTarget.count & " same-target sus/body clues against " &
+        bot.voteTargetName(evidenceTarget.target),
       true
     )
   let revengeTarget = bot.revengeVotingTarget()
@@ -4275,7 +4253,7 @@ proc desiredVotingDecision(
     )
   (
     bot.votePlayerCount,
-    "crewmate has no body evidence or revenge vote",
+    "crewmate has no repeated evidence or revenge vote",
     false
   )
 
@@ -5851,8 +5829,7 @@ when not defined(italkalotLibrary) and not defined(botHeadless):
         " cursor=" & bot.voteTargetName(bot.voteCursor) &
         " target=" & bot.voteTargetName(bot.voteTarget) & "\n" &
       "votes: " & bot.voteSummary() & "\n" &
-      "vote chat sus: " & playerColorName(bot.voteChatSusColor) &
-        " text=" & bot.voteChatText & "\n" &
+      "vote chat: " & bot.voteChatText & "\n" &
       "camera: (" & $bot.cameraX & ", " & $bot.cameraY & ")\n" &
       "player: (" & $bot.playerWorldX() & ", " & $bot.playerWorldY() & ")\n" &
       "home: " & (
