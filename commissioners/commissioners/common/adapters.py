@@ -38,6 +38,9 @@ from commissioners.common.protocol import (
     MembershipChange as CommissionerMembershipChange,
 )
 from commissioners.common.protocol import (
+    PolicyMembershipEventChange as CommissionerPolicyMembershipEventChange,
+)
+from commissioners.common.protocol import (
     RankDivisionRequest,
     RankDivisionResponse,
 )
@@ -321,6 +324,10 @@ def _protocol_membership_change(change: Any) -> CommissionerMembershipChange:
     return CommissionerMembershipChange.model_validate(change.model_dump(mode="json"))
 
 
+def _protocol_policy_membership_event(change: Any) -> CommissionerPolicyMembershipEventChange:
+    return CommissionerPolicyMembershipEventChange.model_validate(change.model_dump(mode="json"))
+
+
 def complete_round_for_round_start(
     commissioner: Commissioner,
     round_start: CommissionerRoundStart,
@@ -381,6 +388,9 @@ def complete_round_for_round_start(
         )
     )
     complete.membership_changes = [_protocol_membership_change(change) for change in hook_result.membership_changes]
+    complete.policy_membership_events = [
+        _protocol_policy_membership_event(change) for change in hook_result.policy_membership_events
+    ]
     complete.graduation_changes = [
         CommissionerGraduationChange(
             membership_id=change.membership_id,
@@ -573,6 +583,9 @@ def round_completed_for_request(
         )
     )
     return RoundCompletedResponse(
+        policy_membership_events=[
+            _protocol_policy_membership_event(change) for change in result.policy_membership_events
+        ],
         membership_changes=[_protocol_membership_change(change) for change in result.membership_changes],
         follow_up_rounds=[_protocol_round_spec(round_spec) for round_spec in result.follow_up_rounds],
     )

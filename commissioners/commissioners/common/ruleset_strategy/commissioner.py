@@ -37,7 +37,11 @@ from commissioners.common.utils import (
 )
 from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig, load_image_ruleset_strategy_config
 from commissioners.common.ruleset_strategy.entrants import division_entries, select_rule
-from commissioners.common.ruleset_strategy.membership_events import build_membership_events, protocol_policy_membership_event
+from commissioners.common.ruleset_strategy.membership_events import (
+    build_membership_events,
+    build_competition_disqualification_events,
+    protocol_policy_membership_event,
+)
 from commissioners.common.ruleset_strategy.round_start import RoundStartView
 from commissioners.common.ruleset_strategy.scheduling import schedule_entries
 
@@ -213,5 +217,9 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         config = self._config()
         if not config.membership_changes:
-            return super().on_round_completed(ctx)
+            result = super().on_round_completed(ctx)
+            result.policy_membership_events = (
+                build_competition_disqualification_events(ctx) + result.policy_membership_events
+            )
+            return result
         return OnRoundCompletedResult(policy_membership_events=build_membership_events(ctx, config))

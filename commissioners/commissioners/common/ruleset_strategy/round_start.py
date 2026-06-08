@@ -171,15 +171,15 @@ class RoundStartView:
         scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None,
     ) -> dict[UUID, PolicyTransitionObservation]:
         if scheduled_episodes is None:
-            scheduled_policy_ids = {
-                score.policy_version_id for result in episode_results for score in result.scores
-            }
+            scheduled_episode_counts: dict[UUID, int] = defaultdict(int)
+            for result in episode_results:
+                for policy_version_id in {score.policy_version_id for score in result.scores}:
+                    scheduled_episode_counts[policy_version_id] += 1
         else:
-            scheduled_policy_ids = {
-                policy_version_id
-                for episode in scheduled_episodes
-                for policy_version_id in set(episode.policy_version_ids)
-            }
+            scheduled_episode_counts = defaultdict(int)
+            for episode in scheduled_episodes:
+                for policy_version_id in set(episode.policy_version_ids):
+                    scheduled_episode_counts[policy_version_id] += 1
 
         score_lists: dict[UUID, list[float]] = defaultdict(list)
         completed_episode_counts: dict[UUID, int] = defaultdict(int)
@@ -193,6 +193,7 @@ class RoundStartView:
 
         return {
             policy_version_id: PolicyTransitionObservation(
+                scheduled_episodes=scheduled_episode_counts[policy_version_id],
                 completed_episodes=completed_episode_counts[policy_version_id],
                 score=(
                     sum(score_lists[policy_version_id]) / len(score_lists[policy_version_id])
@@ -200,7 +201,7 @@ class RoundStartView:
                     else 0.0
                 ),
             )
-            for policy_version_id in scheduled_policy_ids
+            for policy_version_id in scheduled_episode_counts
         }
 
     def on_round_completed_context(
