@@ -2,7 +2,7 @@ import
   bitworld/[spriteprotocol, server],
   pixie,
   ../../src/crewrift/[sim, texts],
-  crewriftstarter/[protocols, votereader]
+  suspectra/[protocols, votereader]
 when defined(profileTracePath):
   import bitworld/profile
 else:
@@ -162,7 +162,7 @@ const
   VoteChatTextX = sim.VoteChatTextX
   VoteChatChars = VoteChatCharsPerLine
   VoteChatSpeakerSearch = 24
-  LlmHelperDefault = "/srv/crewriftstarter/llm_meeting.py"
+  LlmHelperDefault = "/srv/suspectra/llm_meeting.py"
   LlmProcessTimeoutDefault = "6"
   LlmMinListenTicks = 8
   LlmMinRemainingTicks = TargetFps * 3
@@ -4264,7 +4264,7 @@ proc envFlagEnabled(name: string): bool =
 
 proc llmMeetingsEnabled(): bool =
   ## Returns true when meeting LLM calls should be attempted.
-  envFlagEnabled("CREWRIFTSTARTER_LLM_MEETINGS") or
+  envFlagEnabled("SUSPECTRA_LLM_MEETINGS") or
     envFlagEnabled("USE_BEDROCK") or
     envFlagEnabled("CLAUDE_CODE_USE_BEDROCK")
 
@@ -4414,15 +4414,15 @@ proc maybeApplyMeetingLlm(
 
   let
     timeoutExe = findExe("timeout")
-    pythonExe = findExe(getEnv("CREWRIFTSTARTER_PYTHON", "python3"))
+    pythonExe = findExe(getEnv("SUSPECTRA_PYTHON", "python3"))
   if timeoutExe.len == 0 or pythonExe.len == 0:
     echo "meeting llm disabled: timeout/python3 command missing"
     return
 
   let
-    helper = getEnv("CREWRIFTSTARTER_LLM_HELPER", LlmHelperDefault)
+    helper = getEnv("SUSPECTRA_LLM_HELPER", LlmHelperDefault)
     seconds = getEnv(
-      "CREWRIFTSTARTER_LLM_PROCESS_TIMEOUT_SECONDS",
+      "SUSPECTRA_LLM_PROCESS_TIMEOUT_SECONDS",
       LlmProcessTimeoutDefault
     )
     command = timeoutExe.quoteShell() & " " & seconds.quoteShell() & " " &

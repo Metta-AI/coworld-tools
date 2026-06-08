@@ -1,4 +1,4 @@
-from players.crewrift.crewriftstarter import llm_meeting
+from players.crewrift.suspectra import llm_meeting
 
 
 def _context() -> dict:
@@ -10,7 +10,7 @@ def _context() -> dict:
 
 def test_disabled_helper_returns_wait(monkeypatch):
     for name in (
-        "CREWRIFTSTARTER_LLM_MEETINGS",
+        "SUSPECTRA_LLM_MEETINGS",
         "USE_BEDROCK",
         "CLAUDE_CODE_USE_BEDROCK",
     ):
