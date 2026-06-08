@@ -1,3 +1,5 @@
+schedule_interval_minutes: 30
+
 defaults:
   seating: rolling_window
   fill_seats: duplicate
