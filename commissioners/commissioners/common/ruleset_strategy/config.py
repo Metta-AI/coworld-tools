@@ -12,11 +12,11 @@ from commissioners.common.models import DIVISION_TYPE_COMPETITION, DIVISION_TYPE
 from commissioners.common.models import V2StageConfig
 from commissioners.common.utils import MEAN_ROUND_SCORE_KIND, MEAN_SCORE_EWMA_SCORING_MECHANICS
 
-CONFIG_KEY = "ruleset_strategy"
-IMAGE_CONFIG_NAME_ENV = "RULESET_STRATEGY_CONFIG_NAME"
-IMAGE_CONFIG_PATH_ENV = "RULESET_STRATEGY_CONFIG_PATH"
+CONFIG_KEY = "config_driven"
+IMAGE_CONFIG_NAME_ENV = "CONFIG_DRIVEN_CONFIG_NAME"
+IMAGE_CONFIG_PATH_ENV = "CONFIG_DRIVEN_CONFIG_PATH"
 DEFAULT_IMAGE_CONFIG_NAME = "default"
-BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "ruleset_strategy_commissioner" / "configs"
+BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "config_driven_commissioner" / "configs"
 
 SeatingStrategy = Literal["baseline_window", "rolling_window"]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]

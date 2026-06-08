@@ -2,7 +2,7 @@
 
 Commissioner implementations for **coworlds** - containers and tooling that orchestrate tournament rounds, schedule episodes, carry round state, and return scoring or graduation decisions to the platform.
 
-> **Status:** canonical Coworld role repo. The default and Among Them commissioners are runnable containers with `/healthz` and `/round` endpoints. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
+> **Status:** canonical Coworld role repo. The config-driven commissioner is the active runnable container with `/healthz` and `/round` endpoints. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
 
 ## What is a coworld commissioner?
 
@@ -26,17 +26,16 @@ commissioners/
     |   `-- ruleset_strategy/
     |-- templates/
     |   `-- commissioner_template/
-    |-- ruleset_strategy_commissioner/
-    |-- among_them/
-    |   `-- among_them_commissioner/
+    |-- config_driven_commissioner/
     |-- paint_arena/
     |   `-- paint_arena_commissioner/
-    `-- cogs_vs_clips/
-        `-- cogs_vs_clips_commissioner/
+    `-- default/
+        `-- manual_commissioner.py
 ```
 
 Runnable commissioners share `commissioners/Dockerfile` and select behavior with the `COMMISSIONER_KEY` build arg.
-Leaf runnable directories keep thin compatibility entrypoints and build scripts:
+The active config-driven runnable selects one of its bundled YAML configs with `CONFIG_DRIVEN_CONFIG_NAME`.
+Leaf runnable directories keep thin entrypoints and build scripts:
 
 | File | Purpose |
 | --- | --- |
@@ -49,11 +48,8 @@ Leaf runnable directories keep thin compatibility entrypoints and build scripts:
 | Commissioner | Coworld | Status |
 | --- | --- | --- |
 | `templates/commissioner_template` | (template) | Scaffold only - no implementation |
-| `default/default_commissioner` | Any | Active runnable commissioner |
-| `ruleset_strategy_commissioner` | Any | Active runnable commissioner |
-| `among_them/among_them_commissioner` | Among Them | Active runnable commissioner |
+| `config_driven_commissioner` | Any | Active runnable commissioner |
 | `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
-| `cogs_vs_clips/cogs_vs_clips_commissioner` | Cogs vs Clips | Active runnable commissioner |
 
 ## Related metta repo locations
 

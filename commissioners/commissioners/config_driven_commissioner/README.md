@@ -1,21 +1,21 @@
-# Ruleset Strategy Commissioner
+# Config-Driven Commissioner
 
 Configurable Coworld commissioner whose behavior is packaged in the container image.
 
 The runnable does not read `league.commissioner_config` for behavior. That field is a platform wire artifact and may
-contain legacy data while Coworlds roll over to container commissioners. Ruleset configs are authored in the readable
-shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
-`RULESET_STRATEGY_CONFIG_PATH` environment variables.
+contain legacy data while Coworlds roll over to container commissioners. Configs are authored in the readable
+shape below, copied into the image, and selected by the image's `CONFIG_DRIVEN_CONFIG_NAME` or
+`CONFIG_DRIVEN_CONFIG_PATH` environment variables.
 
 The shared Dockerfile bundles configs from `configs/` and defaults to `configs/default.yaml`. Build a different bundled
 config image with:
 
 ```bash
-commissioners/ruleset_strategy_commissioner/build.sh among_them
+commissioners/config_driven_commissioner/build.sh among_them
 ```
 
-For a downstream Coworld-specific image, derive from the ruleset strategy image, copy a config file into the image, and
-set `RULESET_STRATEGY_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
+For a downstream Coworld-specific image, derive from the config-driven image, copy a config file into the image, and
+set `CONFIG_DRIVEN_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
 
 Key config areas:
 

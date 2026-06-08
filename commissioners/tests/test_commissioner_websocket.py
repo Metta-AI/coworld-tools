@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from importlib import import_module
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from commissioners.common.app import commissioner_app
+from commissioners.common.server import create_app
+from commissioners.common.commissioners import RulesetStrategyCommissioner
 from commissioners.common.protocol import (
     CommissionerMessage,
     DivisionInfo,
@@ -19,7 +21,8 @@ from commissioners.common.protocol import (
     RoundStart,
     VariantInfo,
 )
-app = import_module("commissioners.default.default_commissioner.default_commissioner").app
+
+app = commissioner_app("config_driven")
 
 
 def _round_start_json() -> tuple[dict, list[str]]:
@@ -113,13 +116,14 @@ def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
     client = TestClient(app)
     qualifier_id = uuid4()
     competition_id = uuid4()
+    league_id = uuid4()
     membership_ids = [uuid4(), uuid4()]
     policy_version_ids = [uuid4(), uuid4()]
     round_start = RoundStart(
         round_id=uuid4(),
         round_number=1,
         league=LeagueInfo(
-            id=uuid4(),
+            id=league_id,
             commissioner_config={
                 "qualifiers_division_name": "Qualifiers",
                 "minimum_champions": 1,
@@ -131,7 +135,13 @@ def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
             DivisionInfo(id=competition_id, name="Daily", level=0, type="competition"),
         ],
         memberships=[
-            MembershipInfo(id=membership_id, division_id=qualifier_id, policy_version_id=policy_version_id)
+            MembershipInfo(
+                id=membership_id,
+                league_id=league_id,
+                division_id=qualifier_id,
+                policy_version_id=policy_version_id,
+                status="qualifying",
+            )
             for membership_id, policy_version_id in zip(membership_ids, policy_version_ids, strict=True)
         ],
         recent_results=[],
@@ -152,16 +162,30 @@ def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
         complete = websocket.receive_json()
 
     assert complete["type"] == "round_complete"
-    changes_by_membership_id = {change["membership_id"]: change for change in complete["membership_changes"]}
+    changes_by_membership_id = {
+        change["league_policy_membership_id"]: change for change in complete["policy_membership_events"]
+    }
     assert set(changes_by_membership_id) == {str(membership_id) for membership_id in membership_ids}
-    assert [change["is_active"] for change in changes_by_membership_id.values()] == [False, False]
     assert [change["to_division_id"] for change in changes_by_membership_id.values()] == [None, None]
+    assert [change["status"] for change in changes_by_membership_id.values()] == ["disqualified", "disqualified"]
+    assert [change["substatus"] for change in changes_by_membership_id.values()] == ["inactive", "inactive"]
 
 
 def test_round_websocket_completes_when_one_episode_fails() -> None:
-    client = TestClient(app)
+    client = TestClient(
+        create_app(
+            RulesetStrategyCommissioner(
+                {
+                    "defaults": {
+                        "min_entries_to_start": 2,
+                        "stage": {"label": "Round", "episodes": 2},
+                    },
+                    "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
+                }
+            )
+        )
+    )
     round_start, policy_version_ids = _round_start_json()
-    round_start["league"]["commissioner_config"]["num_episodes"] = 2
 
     with client.websocket_connect("/round") as websocket:
         websocket.send_json(round_start)

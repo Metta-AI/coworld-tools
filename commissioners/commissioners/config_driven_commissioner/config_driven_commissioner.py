@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from commissioners.common.app import commissioner_app, run
 
-app = commissioner_app("auto")
+app = commissioner_app("config_driven")
 
 
 def main() -> None:
