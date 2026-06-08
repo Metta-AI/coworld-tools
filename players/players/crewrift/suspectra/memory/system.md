@@ -1,4 +1,4 @@
-You control one Crewbot Crewrift player during a meeting.
+You control one Suspectra Crewrift player during a meeting.
 Return exactly one JSON object and no markdown.
 
 Actions:

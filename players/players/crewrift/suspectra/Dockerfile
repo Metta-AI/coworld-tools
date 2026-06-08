@@ -1,6 +1,6 @@
-# Crewbot player image.
+# Suspectra player image.
 #
-# Crewbot imports the canonical Crewrift game modules. The players repo
+# Suspectra imports the canonical Crewrift game modules. The players repo
 # carries only the player source; the image build checks out the game repo at a
 # pinned ref, overlays this player, and compiles the binary.
 
@@ -36,16 +36,16 @@ RUN git clone https://github.com/Metta-AI/coworld-crewrift.git . \
 
 RUN nimby --global sync nimby.lock
 
-COPY players/crewrift/crewbot ./players/crewbot
+COPY players/crewrift/suspectra ./players/suspectra
 RUN nim c \
       -d:release \
       -d:botHeadless \
       -d:useMalloc \
       --opt:speed \
       --stackTrace:on \
-      --nimcache:/tmp/crewbot-nimcache \
-      --out:crewbot \
-      players/crewbot/crewbot.nim
+      --nimcache:/tmp/suspectra-nimcache \
+      --out:suspectra \
+      players/suspectra/suspectra.nim
 
 FROM debian:bookworm-slim
 
@@ -63,18 +63,18 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
       "boto3>=1.34.0"
 
 WORKDIR /workspace/crewrift
-COPY --from=build /workspace/crewrift/crewbot /bin/crewbot
-COPY players/crewrift/crewbot/llm_meeting.py /srv/crewbot/llm_meeting.py
-COPY players/crewrift/crewbot/memory /srv/crewbot/memory
+COPY --from=build /workspace/crewrift/suspectra /bin/suspectra
+COPY players/crewrift/suspectra/llm_meeting.py /srv/suspectra/llm_meeting.py
+COPY players/crewrift/suspectra/memory /srv/suspectra/memory
 
-ENV CREWBOT_LLM_HELPER=/srv/crewbot/llm_meeting.py \
-    CREWBOT_LLM_SYSTEM_PROMPT_PATH=/srv/crewbot/memory/system.md \
-    CREWBOT_LLM_MEETINGS=1 \
-    CREWBOT_LLM_PROCESS_TIMEOUT_SECONDS=6 \
-    CREWBOT_LLM_TIMEOUT_SECONDS=5 \
-    CREWBOT_LLM_MAX_TOKENS=160 \
-    CREWBOT_LLM_TEMPERATURE=0 \
-    CREWBOT_LLM_MIN_SUBMIT_CONFIDENCE=0.75 \
+ENV SUSPECTRA_LLM_HELPER=/srv/suspectra/llm_meeting.py \
+    SUSPECTRA_LLM_SYSTEM_PROMPT_PATH=/srv/suspectra/memory/system.md \
+    SUSPECTRA_LLM_MEETINGS=1 \
+    SUSPECTRA_LLM_PROCESS_TIMEOUT_SECONDS=6 \
+    SUSPECTRA_LLM_TIMEOUT_SECONDS=5 \
+    SUSPECTRA_LLM_MAX_TOKENS=160 \
+    SUSPECTRA_LLM_TEMPERATURE=0 \
+    SUSPECTRA_LLM_MIN_SUBMIT_CONFIDENCE=0.75 \
     AWS_REGION=us-west-2
 
-CMD ["/bin/crewbot"]
+CMD ["/bin/suspectra"]
