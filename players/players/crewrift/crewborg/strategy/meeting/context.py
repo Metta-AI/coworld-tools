@@ -67,21 +67,41 @@ def serialize_meeting_context(
 
 
 def valid_vote_targets(belief: Belief) -> set[str]:
-    """Return live player colors the LLM may target, excluding self."""
+    """Return live player colors we are allowed to vote for, excluding self.
 
-    self_color = belief.voting.self_marker_color
+    When we are the imposter, teammates are also excluded: this is the single
+    chokepoint that feeds the LLM's legal-target menu, the decision validator,
+    and the submit-time legality re-check, so excluding teammates here hard-stops
+    crewborg from ever voting one out — the prompt instructs the model not to, and
+    this enforces it regardless of what the model returns. (This deliberately
+    forecloses "bussing" a teammate for cover; an accidental teammate vote is the
+    far likelier and costlier failure for a fast meeting model.) ``skip`` is
+    always legal and is handled separately, so an imposter left with only teammates
+    alive still safely skips rather than deadlocking.
+    """
+
+    excluded = _excluded_vote_colors(belief)
     candidates = {
         candidate.color
         for candidate in belief.voting.candidates
-        if candidate.alive and candidate.color != self_color
+        if candidate.alive and candidate.color not in excluded
     }
     if candidates:
         return candidates
     return {
         color
         for color, record in belief.roster.items()
-        if record.life_status == "alive" and color != self_color
+        if record.life_status == "alive" and color not in excluded
     }
+
+
+def _excluded_vote_colors(belief: Belief) -> set[str]:
+    excluded: set[str] = set()
+    if belief.voting.self_marker_color is not None:
+        excluded.add(belief.voting.self_marker_color)
+    if belief.self_role == "imposter":
+        excluded |= belief.teammate_colors
+    return excluded
 
 
 def _fallback_vote_target(belief: Belief) -> str:

@@ -505,8 +505,13 @@ The durable architecture and the full set of design decisions live in
 layout (`__init__.py`/`types.py`/`action.py`/`nav.py`/`modes/`/`strategy/`/
 `perception/`/`map/`/`coworld/`/`tests/`), the type contracts, and the
 mode/intent/strategy design. The meeting LLM implementation lives under
-`strategy/meeting/` and is enabled only by `CREWBORG_LLM_MEETINGS=1` plus
-`ANTHROPIC_API_KEY`.
+`strategy/meeting/` and supports two backends: the direct Anthropic API
+(`CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`) and AWS Bedrock (any of
+`USE_BEDROCK=1` / `CREWBORG_USE_BEDROCK=1` / `CLAUDE_CODE_USE_BEDROCK=1`, with AWS
+credentials from the environment). A Bedrock flag implies the meetings flag. On
+the hosted runner, Bedrock is enabled at upload time with
+`coworld upload-policy ... --use-bedrock`. See [`README.md`](./README.md)
+§"LLM meetings" for the full env-var and upload-time reference.
 
 Perception is **structured-scene maintenance**, not computer vision: there is no
 framebuffer parser, no pixel atlas, and no CV parity oracle. The only image steps

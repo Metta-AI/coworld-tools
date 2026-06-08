@@ -14,13 +14,17 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CREWBORG_POLICY_VARIANT=dumb \
     BE_DUMB=1 \
-    CREWBORG_LLM_MEETINGS=0
+    CREWBORG_DICK_MODE=0 \
+    CREWBORG_LLM_MEETINGS=1
 
 WORKDIR /srv/players
 
 COPY pyproject.toml README.md ./
 COPY players ./players
+# The `bedrock` extra pulls boto3 so the meeting LLM can route through AWS
+# Bedrock when the policy is uploaded with `--use-bedrock` (see README §"LLM
+# meetings"). It is inert unless a Bedrock flag is set at runtime.
 RUN pip install --upgrade pip \
- && pip install -e .
+ && pip install -e ".[bedrock]"
 
 ENTRYPOINT ["/srv/players/players/crewrift/crewborg/coworld/entrypoint.sh"]

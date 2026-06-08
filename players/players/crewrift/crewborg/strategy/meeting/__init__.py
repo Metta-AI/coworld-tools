@@ -12,6 +12,7 @@ from players.crewrift.crewborg.strategy.meeting.llm import (
     build_meeting_client,
     read_meeting_params_from_env,
 )
+from players.crewrift.crewborg.strategy.meeting.prompts import build_system_prompt
 from players.crewrift.crewborg.strategy.meeting.schema import (
     CHAT_MAX_CHARS,
     VOTE_SKIP,
@@ -31,6 +32,7 @@ __all__ = [
     "MeetingLLMResult",
     "MeetingParams",
     "build_meeting_client",
+    "build_system_prompt",
     "read_meeting_params_from_env",
     "sanitize_chat",
     "serialize_meeting_context",

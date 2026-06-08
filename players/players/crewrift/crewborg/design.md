@@ -836,10 +836,21 @@ impact.
 
 Attend Meeting remains a mode, not a strategy runner: meetings intentionally slow
 the game loop into a social phase, so the LLM call can run on the mode fast path
-without starving movement or combat decisions. The path is opt-in via
-`CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`; without both, the mode preserves
-the deterministic fallback (`"no read, skipping"` once, then the Bayesian
-`top_suspect` vote or skip).
+without starving movement or combat decisions. The path is opt-in and supports
+two backends:
+
+- **Direct Anthropic API** — `CREWBORG_LLM_MEETINGS=1` plus `ANTHROPIC_API_KEY`.
+- **AWS Bedrock** — any of `USE_BEDROCK=1`, `CREWBORG_USE_BEDROCK=1`, or
+  `CLAUDE_CODE_USE_BEDROCK=1`. A Bedrock flag implies `CREWBORG_LLM_MEETINGS`, so
+  it alone enables the feature; credentials come from the standard AWS
+  environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
+  `AWS_SESSION_TOKEN` / `AWS_REGION`) rather than `ANTHROPIC_API_KEY`. On the
+  hosted runner this is enabled at upload time with
+  `coworld upload-policy ... --use-bedrock`.
+
+Without a viable backend (a flag plus the matching credentials), the mode
+preserves the deterministic fallback (`"no read, skipping"` once, then the
+Bayesian `top_suspect` vote or skip).
 
 Configuration is resolved at the strategy boundary, never inside the mode.
 `RuleBasedStrategy` reads these environment variables once at construction (via
@@ -849,19 +860,43 @@ directive as `MeetingParams`; the mode builds its client from those params
 env-free — the strategy owns all behavior configuration, the same way it gates the
 aggressive imposter selector (§10).
 
-The implementation is split into three portable pieces under `strategy/meeting/`:
+The implementation is split into four portable pieces under `strategy/meeting/`:
 
 - `context.py` serializes `Belief` into explicit meeting state: timer estimate,
   self/team, legal vote targets, candidate grid, vote tally, chat transcript,
-  roster, event summaries, and suspicion ranking/fallback vote.
+  roster, event summaries, and suspicion ranking/fallback vote. `valid_vote_targets`
+  is the single chokepoint for vote legality — it excludes self, and, when we are
+  the imposter, our teammates. Because the LLM menu, the decision validator, and
+  the submit-time re-check all read it, this **enforces** the imposter prompt's
+  "never vote a teammate" rule regardless of what the model returns (and safely
+  yields `skip` when only teammates remain alive). This deliberately forecloses
+  bussing a teammate for cover.
 - `schema.py` owns the `MeetingDecision` contract and sanitizes/validates chat and
   vote targets against the current legal state.
+- `prompts.py` owns the **role-specialized system prompt**, assembled from three
+  independently tunable tiers: `SHARED_BOILERPLATE` (role-independent output
+  contract and mechanics), `ROLE_GOALS` (per-role objective), and `ROLE_STRATEGY`
+  (per-role tactics — the knob to tune). `build_system_prompt(role)` templates
+  them; the crewmate and imposter strategies are edited independently and never
+  touch each other or the shared contract. Imposter tactics include never voting
+  or accusing a teammate and deflecting toward a plausible crewmate; the crewmate
+  prompt leans on `state.fallback_vote` and the suspicion ranking. Unknown /
+  not-yet-revealed (`None`) / ghost (`dead`) roles resolve to the crewmate prompt
+  so imposter tactics are never disclosed to a non-imposter. The client picks the
+  prompt from `context.self.role` at call time, so no role plumbing is needed
+  beyond the already-serialized context.
 - `llm.py` owns provider-specific infra and the config seam:
   `read_meeting_params_from_env` (environment → `MeetingParams`, called by the
   strategy) and `build_meeting_client` (`MeetingParams` → client, called by the
-  mode). The default client uses Anthropic's Messages API with
-  `claude-haiku-4-5-20251001`, configurable through `CREWBORG_LLM_MODEL`; its
-  underlying Anthropic SDK client is constructed lazily on the first call.
+  mode). `read_meeting_params_from_env` resolves the backend choice
+  (`use_bedrock`) and model: the direct path defaults to
+  `claude-haiku-4-5-20251001` while Bedrock defaults to the inference-profile ID
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`; either is overridable via
+  `CREWBORG_LLM_MODEL`. The client builder selects `Anthropic` or
+  `AnthropicBedrock` from `MeetingParams.use_bedrock`; the underlying SDK client
+  is constructed lazily on the first call. Bedrock needs the optional `boto3`
+  dependency (the `players` distribution's `bedrock` extra, installed in the
+  crewborg image).
 
 `MeetingDecision.action` is one of `send_chat`, `set_tentative_vote`,
 `submit_vote`, or `wait`. A tentative vote is stored in mode-local state and is
@@ -973,7 +1008,7 @@ structural, and each still awaits tuning against a live server.
 | Path clearance | `CLEARANCE_RADIUS = 2` px config-space margin (routes keep off walls) |
 | Re-plan cadence | `REPLAN_INTERVAL = 8` ticks (re-root the route at the live position; A* ≈ 0.2 ms) |
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
-| LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY`; default model `claude-haiku-4-5-20251001`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
+| LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY` (direct), or a Bedrock flag (`USE_BEDROCK=1` / `CREWBORG_USE_BEDROCK=1` / `CLAUDE_CODE_USE_BEDROCK=1`) + AWS env credentials; default model `claude-haiku-4-5-20251001` (direct) or `us.anthropic.claude-haiku-4-5-20251001-v1:0` (Bedrock), overridable via `CREWBORG_LLM_MODEL`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
 | Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
 | Dick Mode selector | opt-in with `CREWBORG_DICK_MODE=1` or `DICK_MODE=1`; live crewmates make one emergency-button call when `ticks_until_kill_ready <= DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS`; `DICK_MAX_BUTTON_TRAVEL_TICKS = 600`, `DICK_KILL_COOLDOWN_BUFFER_TICKS = 10`; chat `haha, fuck you imposters` only when our recorded button press opened the meeting, skip-vote, then resume; refused calls time out after `DICK_CALL_NO_MEETING_GRACE_TICKS = 48` and do not re-arm |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
