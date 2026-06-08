@@ -10,6 +10,11 @@ from players.crewrift.crewborg.strategy.meeting import (
     MeetingParams,
     read_meeting_params_from_env,
 )
+from players.crewrift.crewborg.strategy.meeting.llm import (
+    DEFAULT_BEDROCK_MODEL,
+    DEFAULT_MEETING_MODEL,
+    build_meeting_client,
+)
 from players.crewrift.crewborg.types import ActionState, Belief, BodyEntry, ChatEvent, PlayerRecord
 
 
@@ -163,6 +168,41 @@ def test_attend_meeting_builds_client_from_params() -> None:
     enabled = AttendMeetingMode(MeetingParams(use_llm=True, model="claude-test"))
     assert enabled._llm_client.enabled is True
     assert enabled._llm_client.config.model == "claude-test"
+
+
+def test_bedrock_flag_enables_llm_without_anthropic_key() -> None:
+    # Bedrock authenticates through AWS, so no ANTHROPIC_API_KEY is required, and
+    # the flag implies meetings are on without a separate CREWBORG_LLM_MEETINGS.
+    params = read_meeting_params_from_env({"USE_BEDROCK": "1"})
+    assert params.use_llm is True
+    assert params.use_bedrock is True
+    assert params.model == DEFAULT_BEDROCK_MODEL
+
+
+def test_bedrock_flag_aliases_are_accepted() -> None:
+    for flag in ("USE_BEDROCK", "CREWBORG_USE_BEDROCK", "CLAUDE_CODE_USE_BEDROCK"):
+        params = read_meeting_params_from_env({flag: "true"})
+        assert params.use_bedrock is True, flag
+
+
+def test_explicit_model_overrides_bedrock_default() -> None:
+    params = read_meeting_params_from_env({"USE_BEDROCK": "1", "CREWBORG_LLM_MODEL": "custom-profile"})
+    assert params.model == "custom-profile"
+
+
+def test_direct_path_keeps_anthropic_key_requirement() -> None:
+    # Without Bedrock, the direct Anthropic backend still needs a key, and the
+    # direct model default is used.
+    params = read_meeting_params_from_env({"CREWBORG_LLM_MEETINGS": "1", "ANTHROPIC_API_KEY": "secret"})
+    assert params.use_bedrock is False
+    assert params.model == DEFAULT_MEETING_MODEL
+
+
+def test_build_meeting_client_propagates_bedrock_flag() -> None:
+    client = build_meeting_client(MeetingParams(use_llm=True, use_bedrock=True, model="profile"))
+    assert client.enabled is True
+    assert client.config.use_bedrock is True
+    assert client.config.model == "profile"
 
 
 def test_report_body_targets_nearest_visible_body() -> None:

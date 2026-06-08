@@ -12,29 +12,16 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict
 
 from players.player_sdk import ModeParams
+from players.crewrift.crewborg.strategy.meeting.prompts import build_system_prompt
 from players.crewrift.crewborg.strategy.meeting.schema import (
-    CHAT_MAX_CHARS,
     VOTE_SKIP,
     MeetingDecision,
 )
 
 DEFAULT_MEETING_MODEL = "claude-haiku-4-5-20251001"
-
-SYSTEM_PROMPT = f"""You are controlling one Crewrift player during an active meeting.
-Choose exactly one JSON object matching the schema. Do not include markdown.
-
-Actions:
-- send_chat: send one concise printable-ASCII chat message now.
-- set_tentative_vote: update the vote target but do not submit yet.
-- submit_vote: submit the vote immediately.
-- wait: do nothing this tick.
-
-Rules:
-- Use only vote_target values from constraints.valid_vote_targets or "{VOTE_SKIP}".
-- Keep chat_text printable ASCII and at most {CHAT_MAX_CHARS} characters.
-- A submitted vote is final; tentative votes are auto-submitted near the deadline.
-- Prefer useful, game-grounded meeting speech over filler.
-"""
+# Bedrock addresses models by inference-profile ID rather than the bare model
+# name used by the direct Anthropic API.
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
 @dataclass(frozen=True)
@@ -44,12 +31,14 @@ class MeetingLLMConfig:
     temperature: float = 0.2
     timeout_seconds: float = 3.0
     trace_raw: bool = False
+    use_bedrock: bool = False
 
 
 class MeetingParams(ModeParams):
     """Strategy-supplied Attend Meeting parameters."""
 
     use_llm: bool = False
+    use_bedrock: bool = False
     model: str = DEFAULT_MEETING_MODEL
     max_tokens: int = 512
     temperature: float = 0.2
@@ -100,9 +89,18 @@ class AnthropicMeetingClient:
     def _anthropic_client(self) -> Any:
         if self._client is not None:
             return self._client
-        from anthropic import Anthropic
+        if self.config.use_bedrock:
+            # AnthropicBedrock authenticates through the standard AWS environment
+            # (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN and
+            # AWS_REGION), the same way the direct client reads ANTHROPIC_API_KEY.
+            # It needs the optional boto3 dependency (the `bedrock` extra).
+            from anthropic import AnthropicBedrock
 
-        self._client = Anthropic(timeout=self.config.timeout_seconds)
+            self._client = AnthropicBedrock(timeout=self.config.timeout_seconds)
+        else:
+            from anthropic import Anthropic
+
+            self._client = Anthropic(timeout=self.config.timeout_seconds)
         return self._client
 
     def decide(self, context: dict[str, Any], *, trigger: str) -> MeetingLLMResult:
@@ -119,12 +117,13 @@ class AnthropicMeetingClient:
             },
         }
         user_content = json.dumps(request, sort_keys=True, separators=(",", ":"))
+        system_prompt = build_system_prompt(_context_role(context))
         start = time.perf_counter()
         response = self._anthropic_client().messages.create(
             model=self.config.model,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
         latency_ms = (time.perf_counter() - start) * 1000.0
@@ -144,12 +143,20 @@ def read_meeting_params_from_env(env: Mapping[str, str] | None = None) -> Meetin
     """Read meeting LLM behavior flags once for the strategy layer."""
 
     env = os.environ if env is None else env
-    use_llm = _truthy_value(env.get("CREWBORG_LLM_MEETINGS", "")) and bool(env.get("ANTHROPIC_API_KEY"))
+    use_bedrock = _bedrock_enabled(env)
+    # The LLM needs a viable backend: Bedrock authenticates through the AWS
+    # environment, while the direct Anthropic path needs ANTHROPIC_API_KEY.
+    # Setting a Bedrock flag also implies meetings are on, so an upload that only
+    # passes --use-bedrock still turns the feature on without a second flag.
+    meetings_on = _truthy_value(env.get("CREWBORG_LLM_MEETINGS", "")) or use_bedrock
+    has_backend = use_bedrock or bool(env.get("ANTHROPIC_API_KEY"))
+    use_llm = meetings_on and has_backend
     trace_raw = _truthy_value(env.get("CREWBORG_LLM_TRACE_RAW", ""))
     trace_raw = trace_raw or env.get("CREWBORG_TRACE", "").strip().lower() == "debug"
     return MeetingParams(
         use_llm=use_llm,
-        model=env.get("CREWBORG_LLM_MODEL", DEFAULT_MEETING_MODEL),
+        use_bedrock=use_bedrock,
+        model=_resolve_model(env, use_bedrock),
         max_tokens=_env_int(env, "CREWBORG_LLM_MAX_TOKENS", 512),
         temperature=_env_float(env, "CREWBORG_LLM_TEMPERATURE", 0.2),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
@@ -166,8 +173,33 @@ def build_meeting_client(params: MeetingParams) -> MeetingLLMClient:
         temperature=params.temperature,
         timeout_seconds=params.timeout_seconds,
         trace_raw=params.trace_raw,
+        use_bedrock=params.use_bedrock,
     )
     return AnthropicMeetingClient(config)
+
+
+def _bedrock_enabled(env: Mapping[str, str]) -> bool:
+    return (
+        _truthy_value(env.get("CREWBORG_USE_BEDROCK", ""))
+        or _truthy_value(env.get("USE_BEDROCK", ""))
+        or _truthy_value(env.get("CLAUDE_CODE_USE_BEDROCK", ""))
+    )
+
+
+def _resolve_model(env: Mapping[str, str], use_bedrock: bool) -> str:
+    explicit = env.get("CREWBORG_LLM_MODEL")
+    if explicit:
+        return explicit
+    return DEFAULT_BEDROCK_MODEL if use_bedrock else DEFAULT_MEETING_MODEL
+
+
+def _context_role(context: dict[str, Any]) -> str | None:
+    self_block = context.get("self")
+    if isinstance(self_block, dict):
+        role = self_block.get("role")
+        if isinstance(role, str):
+            return role
+    return None
 
 
 def _response_text(response: Any) -> str:

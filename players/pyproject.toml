@@ -16,6 +16,10 @@ dependencies = [
 
 [project.optional-dependencies]
 cogames = ["cogames", "mettagrid"]
+# Required only when a player routes Anthropic calls through AWS Bedrock
+# (e.g. crewborg's meeting LLM with USE_BEDROCK=1). boto3 backs the Anthropic
+# SDK's AnthropicBedrock client and the AWS credential chain.
+bedrock = ["boto3>=1.34.0"]
 test = [
     "pytest",
     "pytest-asyncio>=1.3.0",

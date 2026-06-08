@@ -35,10 +35,11 @@ strike when in range and unwitnessed),
 victim is visible, then follow that target), and **Pretend** (the default — pick a
 real task station in the highest-scoring occupancy room, penalizing rooms another
 imposter is likely occupying, then fake the task for one task duration). Meetings
-reuse **Attend Meeting**. With `CREWBORG_LLM_MEETINGS=1` and `ANTHROPIC_API_KEY`,
-Attend Meeting uses a fast Haiku-class LLM call on the meeting fast path to chat,
-respond to other players, keep a tentative vote, and submit early when requested;
-otherwise it preserves the deterministic canned-chat + suspicion-vote fallback.
+reuse **Attend Meeting**. When the meeting LLM is enabled (see
+[LLM meetings](#llm-meetings)), Attend Meeting uses a fast Haiku-class LLM call on
+the meeting fast path to chat, respond to other players, keep a tentative vote, and
+submit early when requested; otherwise it preserves the deterministic
+canned-chat + suspicion-vote fallback.
 Hunt is gated on a visible kill opportunity whose isolation bar relaxes with
 urgency, not merely on the cooldown ending. The action layer covers `kill` (edge-A
 in KillRange), `vent` (level-B in VentRange), and emergency-button calls. With
@@ -155,6 +156,91 @@ against the live server**: the server renamed its episode-request API
 calls the current routes directly (and reads raw JSON), so it keeps working
 across that kind of client/server drift — prefer it. (If you need the official
 CLI, check `<api>/observatory/openapi.json` for the live route names first.)
+
+## LLM meetings
+
+During meetings, **Attend Meeting** can call a fast Haiku-class LLM to chat,
+react to other players, hold a tentative vote, and submit early. The feature is
+off by default; when it is disabled — or the call times out, returns late, or
+returns no legal vote target — the mode falls back to the deterministic
+canned-chat (`"no read, skipping"`) plus the Bayesian suspicion vote.
+
+Configuration is owned by the strategy, never the mode:
+`read_meeting_params_from_env` resolves the environment once at construction and
+stamps a `MeetingParams` onto the Attend Meeting directive, and the mode builds
+its client from those params (`build_meeting_client`) without reading the
+environment itself. The implementation lives in
+[`strategy/meeting/llm.py`](./strategy/meeting/llm.py).
+
+The system prompt is **role-specialized** and lives in
+[`strategy/meeting/prompts.py`](./strategy/meeting/prompts.py), assembled from
+three independently tunable tiers: `SHARED_BOILERPLATE` (the role-independent
+output contract — edit rarely), `ROLE_GOALS` (per-role objective), and
+`ROLE_STRATEGY` (per-role tactics — **the knob to tune**). Crewmate and imposter
+tactics are edited separately; the imposter prompt is told never to vote or
+accuse a teammate and to deflect toward a plausible crewmate. The client selects
+the prompt from the player's role at call time, and unknown / not-yet-revealed /
+ghost roles fall back to the crewmate prompt (never disclosing imposter tactics).
+
+The teammate rule is also **enforced**, not just prompted: `valid_vote_targets`
+(the single source of legal vote targets, feeding the LLM menu, the validator,
+and the submit-time re-check) drops teammate colors when we are the imposter, so
+crewborg cannot vote out a teammate regardless of what the model returns. If only
+teammates remain alive it safely skips.
+
+Two backends are supported. Pick one by setting the env vars below — in code
+(local runs, your own Dockerfile `ENV`) or at upload time (next subsection).
+
+**Direct Anthropic API.** Set `CREWBORG_LLM_MEETINGS=1` and provide
+`ANTHROPIC_API_KEY`. Calls go straight to the Anthropic Messages API. Default
+model `claude-haiku-4-5-20251001`.
+
+**AWS Bedrock.** Set any one of `USE_BEDROCK=1`, `CREWBORG_USE_BEDROCK=1`, or
+`CLAUDE_CODE_USE_BEDROCK=1`. A Bedrock flag also implies `CREWBORG_LLM_MEETINGS`,
+so it alone turns the feature on — no second flag and no `ANTHROPIC_API_KEY`
+required. Calls route through the Anthropic SDK's `AnthropicBedrock` client,
+which authenticates via the standard AWS environment (`AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_REGION` /
+`AWS_DEFAULT_REGION`) — the same way the direct client reads
+`ANTHROPIC_API_KEY`. The default model is the Bedrock inference-profile ID
+`us.anthropic.claude-haiku-4-5-20251001-v1:0`. The image installs the `bedrock`
+extra (`boto3`) so this path needs no extra setup; the dependency is inert
+unless a Bedrock flag is set.
+
+Shared tuning knobs (both backends):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `CREWBORG_LLM_MODEL` | backend default | Override the model name (direct) or inference-profile ID (Bedrock). |
+| `CREWBORG_LLM_MAX_TOKENS` | `512` | Response token cap. |
+| `CREWBORG_LLM_TEMPERATURE` | `0.2` | Sampling temperature. |
+| `CREWBORG_LLM_TIMEOUT_SECONDS` | `3.0` | Per-call client timeout. |
+| `CREWBORG_LLM_TRACE_RAW` | off | Include raw request/response text in the trace (also on with `CREWBORG_TRACE=debug`). |
+
+### Enabling Bedrock at upload time
+
+The deployed image bakes in `CREWBORG_LLM_MEETINGS=1` but ships **no
+credentials** — secrets never live in the image. Bedrock is turned on when the
+policy version is uploaded:
+
+```sh
+coworld upload-policy <image> --name crewborg --use-bedrock
+```
+
+`--use-bedrock` is shorthand for `--secret-env USE_BEDROCK=true`. It both sets
+the flag the code reads and routes this policy version's pods to a
+Bedrock-enabled service account that supplies the AWS credentials on the hosted
+runner, so no AWS keys need to be passed explicitly. See the workspace
+[Coworld Integration Guide](../../../docs/coworld-integration-guide.md) and
+[Packaging Contract](../../../docs/coworld-player-packaging.md) for the
+`--secret-env` / `--use-bedrock` mechanics.
+
+To use the direct Anthropic API on the hosted runner instead, attach the key as
+a secret rather than passing `--use-bedrock`:
+
+```sh
+coworld upload-policy <image> --name crewborg --secret-env ANTHROPIC_API_KEY=sk-ant-...
+```
 
 ## Build the image
 
