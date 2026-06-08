@@ -44,6 +44,35 @@ def test_validate_accepts_legal_vote_target():
     }
 
 
+def test_validate_demotes_low_confidence_submit_vote():
+    decision = llm_meeting._validate_decision(
+        {
+            "action": "submit_vote",
+            "vote_target": "red",
+            "reason": "weak evidence",
+            "confidence": 0.4,
+        },
+        _context(),
+    )
+
+    assert decision["action"] == "set_tentative_vote"
+    assert decision["vote_target"] == "red"
+
+
+def test_validate_demotes_submit_vote_without_confidence():
+    decision = llm_meeting._validate_decision(
+        {
+            "action": "submit_vote",
+            "vote_target": "red",
+            "reason": "missing confidence",
+        },
+        _context(),
+    )
+
+    assert decision["action"] == "set_tentative_vote"
+    assert decision["vote_target"] == "red"
+
+
 def test_validate_rejects_illegal_vote_target():
     decision = llm_meeting._validate_decision(
         {
