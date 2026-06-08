@@ -129,6 +129,7 @@ class TransitionTarget(_ConfigModel):
 
 class Transition(_ConfigModel):
     id: str | None = None
+    name: str | None = None
     criteria: TransitionCriteria
     to: TransitionTarget
 
@@ -220,6 +221,7 @@ class UpdateMembershipAction(_ConfigModel):
 
 class EpisodeCompleteTransition(_ConfigModel):
     id: str | None = None
+    name: str | None = None
     criteria: Literal["otherwise"] | TransitionCriteriaConfig
     actions: list[UpdateMembershipAction] = Field(min_length=1, max_length=1)
 
@@ -389,6 +391,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         action = transition.actions[0]
         return Transition(
             id=transition.id,
+            name=transition.name,
             criteria=self._criteria(transition.criteria),
             to=TransitionTarget(
                 to_division_match=self._move_to_match(action.division),

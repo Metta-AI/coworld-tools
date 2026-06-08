@@ -20,6 +20,7 @@ from commissioners.common.models import (
     V2RoundConfig,
 )
 from commissioners.common.protocol import (
+    EpisodeRequest as CommissionerProtocolEpisodeRequest,
     EpisodeResult as CommissionerProtocolEpisodeResult,
     RoundComplete as CommissionerRoundComplete,
     RoundStart as CommissionerRoundStart,
@@ -162,18 +163,26 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         self,
         round_start: CommissionerRoundStart,
         episode_results: list[CommissionerProtocolEpisodeResult],
+        scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
     ) -> CommissionerRoundComplete:
         config = self._config()
         view = RoundStartView(round_start, config)
         rule = select_rule(config, view.current_division, view.memberships)
         entries = view.entries(rule)
+        local_episode_results = view.episode_results(episode_results)
         complete = self.complete_round(
             round_row=view.round_row(),
             pool=view.pool(rule),
             entries=entries,
-            episode_results=view.episode_results(episode_results),
+            episode_results=local_episode_results,
         )
-        hook = self.on_round_completed(view.on_round_completed_context(complete))
+        hook = self.on_round_completed(
+            view.on_round_completed_context(
+                complete,
+                episode_results=local_episode_results,
+                scheduled_episodes=scheduled_episodes,
+            )
+        )
         complete.policy_membership_events = [
             protocol_policy_membership_event(change) for change in hook.policy_membership_events
         ]

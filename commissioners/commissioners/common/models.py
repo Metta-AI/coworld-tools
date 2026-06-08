@@ -372,6 +372,11 @@ class RoundResultSnapshot(BaseModel):
         )
 
 
+class PolicyTransitionObservation(BaseModel):
+    completed_episodes: int = 0
+    score: float = 0.0
+
+
 class DivisionLeaderboardSnapshot(BaseModel):
     player_id: PlayerId
     player_name: str | None = None
@@ -441,6 +446,7 @@ class OnRoundCompletedContext(BaseModel):
     all_divisions: list[DivisionSnapshot]
     round_config: V2RoundConfig
     round_results: list[RoundResultSnapshot]
+    transition_observations: dict[UUID, PolicyTransitionObservation] | None = None
     division_memberships: list[MembershipSnapshot]
     recent_results: list[RoundResultSnapshot]
     commissioner_config: dict[str, Any] | None

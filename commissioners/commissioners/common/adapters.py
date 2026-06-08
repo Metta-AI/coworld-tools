@@ -62,6 +62,7 @@ from commissioners.common.protocol import (
     ScheduleEpisodes as CommissionerScheduleEpisodes,
 )
 from commissioners.common.protocol import (
+    EpisodeRequest as CommissionerProtocolEpisodeRequest,
     EpisodeResult as CommissionerProtocolEpisodeResult,
 )
 from commissioners.common.protocol import (
@@ -324,10 +325,11 @@ def complete_round_for_round_start(
     commissioner: Commissioner,
     round_start: CommissionerRoundStart,
     episode_results: list[CommissionerProtocolEpisodeResult],
+    scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
 ) -> CommissionerRoundComplete:
     custom_completer = getattr(commissioner, "complete_round_for_round_start", None)
     if callable(custom_completer):
-        return custom_completer(round_start, episode_results)
+        return custom_completer(round_start, episode_results, scheduled_episodes)
     local_episode_results = [
         EpisodeResult(
             episode_request_id=UUID(int=index + 1),
