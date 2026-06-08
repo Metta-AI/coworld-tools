@@ -174,6 +174,15 @@ def test_navigate_holds_still_when_nav_route_unreachable() -> None:
     assert command.held_mask == 0
 
 
+def test_navigate_noclip_steers_directly_even_when_nav_route_unreachable() -> None:
+    mask = np.ones((24, 48), dtype=bool)
+    mask[:, 24:32] = False
+    belief = Belief(self_world_x=8, self_world_y=12)
+    belief.nav = build_nav_graph(mask, cell_size=8)
+    command = resolve_action(Intent(kind="navigate_to_noclip", point=(40, 12)), belief, ActionState())
+    assert command.held_mask == BTN_RIGHT
+
+
 def test_intent_change_resets_the_route() -> None:
     belief = Belief(self_world_x=0, self_world_y=0)
     action_state = ActionState()

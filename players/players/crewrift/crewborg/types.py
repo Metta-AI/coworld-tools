@@ -41,6 +41,7 @@ IntentKind = Literal[
     "idle",
     "loiter",
     "navigate_to",
+    "navigate_to_noclip",
     "flee_from",
     "complete_task",
     "report",

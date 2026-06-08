@@ -13,7 +13,8 @@ Crewmate priority order (design §10):
 3. a body in view → Report Body (a meeting protects us; outranks fleeing)
 4. a believed imposter approaching → Flee, with hysteresis so we do not bounce
    back to tasks while skirting the trigger radius
-5. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
+5. ``phase == Playing`` → Normal; crewmate ghosts use Crewmate Ghost to finish
+   tasks with noclip navigation
 6. otherwise → idle
 
 ``believed_imposters`` (which gates Flee) is filled by the suspicion model
@@ -132,11 +133,11 @@ class RuleBasedStrategy:
             if self._dick_state == "meeting":
                 self._finish_dick_attempt()
             # A crewmate ghost can't report or be threatened; it only finishes its
-            # own tasks (design §7.3), so it goes straight to Normal.
+            # own tasks (design §7.3), so it uses wall-ignoring task navigation.
             if belief.self_role == "dead":
                 self._clear_flee()
                 self._reset_dick_mode()
-                return ModeDirective(mode="normal", source="strategy", reason="ghost: finish own tasks")
+                return ModeDirective(mode="crewmate_ghost", source="strategy", reason="ghost: finish own tasks")
             if belief.self_role == "imposter":
                 self._clear_flee()
                 self._reset_dick_mode()

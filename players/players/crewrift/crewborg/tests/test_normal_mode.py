@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
-from players.crewrift.crewborg.modes import NormalMode
+from players.crewrift.crewborg.modes import CrewmateGhostMode, NormalMode
 from players.crewrift.crewborg.nav import build_nav_graph
 from players.crewrift.crewborg.types import ActionState, Belief
 
@@ -162,3 +162,44 @@ def test_picks_reachable_task_over_nearer_unreachable_one() -> None:
     belief.nav = build_nav_graph(mask, map_data=belief.map, cell_size=8)
     intent = NormalMode().decide(belief, ActionState())
     assert intent.kind == "complete_task" and intent.task_index == 0  # task 1 is unreachable
+
+
+def test_ghost_picks_nearer_task_through_walls() -> None:
+    mask = np.ones((24, 48), dtype=bool)
+    mask[:, 24:28] = False
+    belief = Belief(
+        map=MapData(
+            width=48,
+            height=24,
+            tasks=(
+                TaskStation(name="L", x=6, y=10, w=4, h=4),  # center (8, 12), reachable
+                TaskStation(name="R", x=30, y=10, w=4, h=4),  # center (32, 12), across wall but nearer
+            ),
+            vents=(),
+            rooms=(),
+            button=MapRect(x=0, y=0, w=4, h=4),
+            home=MapPoint(x=0, y=0),
+        ),
+        assigned_task_indices={0, 1},
+        visible_task_indices={0, 1},
+        self_world_x=22,
+        self_world_y=12,
+    )
+    belief.nav = build_nav_graph(mask, map_data=belief.map, cell_size=8)
+    intent = CrewmateGhostMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to_noclip"
+    assert intent.task_index == 1
+    assert intent.point == (32, 12)
+
+
+def test_ghost_completes_task_once_inside_station() -> None:
+    belief = Belief(
+        map=_map_with_tasks(),
+        assigned_task_indices={0},
+        visible_task_indices={0},
+        self_world_x=105,
+        self_world_y=105,
+    )
+    intent = CrewmateGhostMode().decide(belief, ActionState())
+    assert intent.kind == "complete_task"
+    assert intent.task_index == 0
