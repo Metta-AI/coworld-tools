@@ -373,6 +373,7 @@ class RoundResultSnapshot(BaseModel):
 
 
 class PolicyTransitionObservation(BaseModel):
+    scheduled_episodes: int = 0
     completed_episodes: int = 0
     score: float = 0.0
 

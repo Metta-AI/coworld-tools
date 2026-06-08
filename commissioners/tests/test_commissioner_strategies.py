@@ -725,6 +725,147 @@ def test_ruleset_strategy_among_them_scoring_config_does_not_add_version_metadat
     assert "version" not in metadata
 
 
+def test_ruleset_strategy_disqualifies_negative_average_score_in_competition_round() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=8,
+        commissioner_config={},
+        division_name="Wood",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("among_them"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=-2.0),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=1.0),
+                ],
+            ),
+            ProtocolEpisodeResult(
+                request_id="1",
+                scores=[
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=1.0),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=3.0),
+                ],
+            ),
+        ],
+    )
+
+    events = {event.league_policy_membership_id: event for event in complete.policy_membership_events}
+    negative_membership = round_start.memberships[0]
+    positive_membership = round_start.memberships[1]
+    assert set(events) == {negative_membership.id}
+    assert events[negative_membership.id].status == "disqualified"
+    assert events[negative_membership.id].substatus == "inactive"
+    assert events[negative_membership.id].to_division_id is None
+    assert events[negative_membership.id].evidence[0].metadata["transition_id"] == "negative_average_score"
+    assert events[negative_membership.id].evidence[0].metadata["observed"]["score"] == pytest.approx(-0.5)
+    assert positive_membership.id not in events
+
+
+def test_ruleset_strategy_keeps_positive_average_despite_negative_episode_score() -> None:
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[policy_version_id],
+        num_agents=8,
+        commissioner_config={},
+        division_name="Wood",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("among_them"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=-1.0)],
+            ),
+            ProtocolEpisodeResult(
+                request_id="1",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=2.0)],
+            ),
+        ],
+    )
+
+    assert complete.policy_membership_events == []
+
+
+def test_ruleset_strategy_disqualifies_zero_average_score_in_competition_round() -> None:
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[policy_version_id],
+        num_agents=8,
+        commissioner_config={},
+        division_name="Wood",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("among_them"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=-1.0)],
+            ),
+            ProtocolEpisodeResult(
+                request_id="1",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=1.0)],
+            ),
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == round_start.memberships[0].id
+    assert event.status == "disqualified"
+    assert event.evidence[0].metadata["criteria"] == {"score_lte": 0.0}
+    assert event.evidence[0].metadata["observed"]["score"] == 0.0
+
+
+def test_ruleset_strategy_disqualifies_competition_member_after_multiple_crashed_episodes() -> None:
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[policy_version_id],
+        num_agents=8,
+        commissioner_config={},
+        division_name="Wood",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("among_them"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id=str(index),
+                variant_id="default",
+                policy_version_ids=[policy_version_id] * 8,
+            )
+            for index in range(3)
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == round_start.memberships[0].id
+    assert event.status == "disqualified"
+    assert event.reason == "more than one episode crashed"
+    assert event.evidence[0].metadata["transition_id"] == "excessive_crashed_episodes"
+    assert event.evidence[0].metadata["criteria"] == {"crashed_episodes_gt": 1}
+    assert event.evidence[0].metadata["observed"]["scheduled_episodes"] == 3
+    assert event.evidence[0].metadata["observed"]["completed_episodes"] == 1
+    assert event.evidence[0].metadata["observed"]["crashed_episodes"] == 2
+
+
 def test_ruleset_strategy_scoring_configures_leaderboard_ewma_halflife() -> None:
     division_id = uuid4()
     latest_round_id = uuid4()
@@ -1572,7 +1713,9 @@ def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None
     )
     assert completed_response.to_json()["type"] == "round_completed_response"
     assert completed_response.follow_up_rounds[0].division_id == division_id
-    assert completed_response.policy_membership_events == []
+    assert len(completed_response.policy_membership_events) == 1
+    assert completed_response.policy_membership_events[0].league_policy_membership_id == membership_id
+    assert completed_response.policy_membership_events[0].status == "competing"
     assert completed_response.membership_changes == [
         ProtocolMembershipChange(
             membership_id=membership_id,
