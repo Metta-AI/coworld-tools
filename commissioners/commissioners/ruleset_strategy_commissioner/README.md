@@ -3,7 +3,7 @@
 Configurable Coworld commissioner whose behavior is packaged in the container image.
 
 The runnable does not read `league.commissioner_config` for behavior. That field is a platform wire artifact and may
-contain legacy data while Coworlds roll over to container commissioners. Ruleset configs are authored in the readable
+contain legacy data while Coworlds roll over to container commissioners. Configs are authored in the readable
 shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
 `RULESET_STRATEGY_CONFIG_PATH` environment variables.
 

@@ -16,19 +16,23 @@ from commissioners.common.protocol import DivisionInfo, LeagueInfo, MembershipIn
 IMAGES = [
     (
         "commissioners-smoke-default",
-        "auto",
+        "config_driven",
+        "default",
     ),
     (
         "commissioners-smoke-among-them",
+        "config_driven",
         "among_them",
     ),
     (
         "commissioners-smoke-cogs-vs-clips",
+        "config_driven",
         "cogs_vs_clips",
     ),
     (
         "commissioners-smoke-ruleset-strategy",
-        "ruleset_strategy",
+        "config_driven",
+        "default",
     ),
 ]
 
@@ -66,8 +70,10 @@ def _round_start_json() -> str:
     )
 
 
-@pytest.mark.parametrize(("image_name", "commissioner_key"), IMAGES)
-def test_commissioner_container_healthz_and_round_websocket(image_name: str, commissioner_key: str) -> None:
+@pytest.mark.parametrize(("image_name", "commissioner_key", "config_name"), IMAGES)
+def test_commissioner_container_healthz_and_round_websocket(
+    image_name: str, commissioner_key: str, config_name: str
+) -> None:
     if not _docker_available():
         pytest.skip("Docker daemon is not available")
     websockets_sync = pytest.importorskip("websockets.sync.client")
@@ -82,6 +88,8 @@ def test_commissioner_container_healthz_and_round_websocket(image_name: str, com
             "commissioners/Dockerfile",
             "--build-arg",
             f"COMMISSIONER_KEY={commissioner_key}",
+            "--build-arg",
+            f"RULESET_STRATEGY_CONFIG_NAME={config_name}",
             "-t",
             tag,
             ".",

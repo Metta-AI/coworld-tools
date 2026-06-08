@@ -454,15 +454,9 @@ def get_commissioner(key: str) -> Commissioner:
     return cls()
 
 
-# Import game-specific commissioners for registration
-from commissioners.among_them.commissioner import AmongThemCommissioner
 from commissioners.common.ruleset_strategy.commissioner import RulesetStrategyCommissioner
-from commissioners.cogs_vs_clips.commissioner import CogsVsClipsCommissioner
 from commissioners.default.manual_commissioner import ManualCommissioner
 
-register_commissioner("auto", BaselineCommissioner)
 register_commissioner("config_driven", RulesetStrategyCommissioner)
 register_commissioner("ruleset_strategy", RulesetStrategyCommissioner)
 register_commissioner("manual", ManualCommissioner)
-register_commissioner("cogs_vs_clips", CogsVsClipsCommissioner)
-register_commissioner("among_them", AmongThemCommissioner)

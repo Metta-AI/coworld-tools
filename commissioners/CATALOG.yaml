@@ -1,28 +1,28 @@
 entries:
   - name: default-commissioner
-    source: commissioners/default/default_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/default/default_commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-default:latest
     target: "*"
     status: active
     owner: Metta-AI
-    description: Game-agnostic round-robin commissioner with mean-score rankings.
+    description: Config-driven commissioner using the default round-robin config.
   - name: among-them-commissioner
-    source: commissioners/among_them/among_them_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/among_them/among_them_commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-among-them-commissioner:latest
     target: among_them
     status: active
     owner: Metta-AI
-    description: Among Them seat-rotation commissioner with Dirt/Wood graduation semantics.
+    description: Config-driven commissioner using the Among Them ruleset config.
   - name: cogs-vs-clips-commissioner
-    source: commissioners/cogs_vs_clips/cogs_vs_clips_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/cogs_vs_clips/cogs_vs_clips_commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest
     target: cogs_vs_clips
     status: active
     owner: Metta-AI
-    description: Cogs vs Clips commissioner with slot-balanced competition rounds and isolated qualifier rounds.
+    description: Config-driven commissioner using the Cogs vs Clips ruleset config.
   - name: ruleset-strategy-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner

@@ -9,7 +9,7 @@ from commissioners.common.server import create_app
 
 
 def commissioner_app(key: str | None = None) -> FastAPI:
-    return create_app(get_commissioner(key or getenv("COMMISSIONER_KEY", "auto")))
+    return create_app(get_commissioner(key or getenv("COMMISSIONER_KEY", "config_driven")))
 
 
 def run(app: FastAPI) -> None:
