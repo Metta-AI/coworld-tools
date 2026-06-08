@@ -28,14 +28,17 @@ jobs:
       matrix:
         include:
           - name: default
-            dockerfile: commissioners/default/default_commissioner/Dockerfile
+            commissioner_key: auto
             image: ghcr.io/metta-ai/commissioners-default
           - name: among-them-commissioner
-            dockerfile: commissioners/among_them/among_them_commissioner/Dockerfile
+            commissioner_key: among_them
             image: ghcr.io/metta-ai/commissioners-among-them-commissioner
           - name: cogs-vs-clips-commissioner
-            dockerfile: commissioners/cogs_vs_clips/cogs_vs_clips_commissioner/Dockerfile
+            commissioner_key: cogs_vs_clips
             image: ghcr.io/metta-ai/commissioners-cogs-vs-clips
+          - name: ruleset-strategy-commissioner
+            commissioner_key: ruleset_strategy
+            image: ghcr.io/metta-ai/commissioners-ruleset-strategy
 
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +70,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: commissioners/Dockerfile
+          build-args: |
+            COMMISSIONER_KEY=${{ matrix.commissioner_key }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
 

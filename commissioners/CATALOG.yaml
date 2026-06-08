@@ -23,3 +23,11 @@ entries:
     status: active
     owner: Metta-AI
     description: Cogs vs Clips commissioner with slot-balanced competition rounds and isolated qualifier rounds.
+  - name: ruleset-strategy-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-ruleset-strategy:latest
+    target: "*"
+    status: active
+    owner: Metta-AI
+    description: Ruleset strategy commissioner configured by league JSON for seating, staged qualifiers, filler entries, and membership changes.

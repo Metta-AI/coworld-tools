@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from commissioners.common.commissioners import CogsVsClipsCommissioner
-from commissioners.common.server import create_app
+from commissioners.common.app import commissioner_app, run
 
-app = create_app(CogsVsClipsCommissioner())
+app = commissioner_app("cogs_vs_clips")
 
 
 def main() -> None:
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    run(app)
 
 
 if __name__ == "__main__":

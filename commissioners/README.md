@@ -22,22 +22,26 @@ commissioners/
 |   |-- COWORLD_REFERENCE.md
 |   `-- COMMISSIONER_DESIGN.md
 `-- commissioners/
+    |-- common/
+    |   `-- ruleset_strategy/
     |-- templates/
     |   `-- commissioner_template/
+    |-- ruleset_strategy_commissioner/
     |-- among_them/
     |   `-- among_them_commissioner/
     |-- paint_arena/
     |   `-- paint_arena_commissioner/
-    `-- cogs_v_clips/
-        `-- cogs_v_clips_commissioner/
+    `-- cogs_vs_clips/
+        `-- cogs_vs_clips_commissioner/
 ```
 
-Each leaf commissioner directory follows the same placeholder shape:
+Runnable commissioners share `commissioners/Dockerfile` and select behavior with the `COMMISSIONER_KEY` build arg.
+Leaf runnable directories keep thin compatibility entrypoints and build scripts:
 
 | File | Purpose |
 | --- | --- |
-| `<commissioner_name>.py` | Commissioner entrypoint placeholder. Implement against the metta commissioner protocol. |
-| `build.sh` | Builds the commissioner's Docker image. Each commissioner can be its own image unless a shared image pattern emerges. |
+| `<commissioner_name>.py` | Compatibility entrypoint that serves a registered commissioner key. |
+| `build.sh` | Builds the commissioner's Docker image through the shared Dockerfile. |
 | `README.md` | Commissioner-specific docs: scheduling policy, state shape, local test command, and dependencies. |
 
 ## Status of each commissioner
@@ -46,9 +50,10 @@ Each leaf commissioner directory follows the same placeholder shape:
 | --- | --- | --- |
 | `templates/commissioner_template` | (template) | Scaffold only - no implementation |
 | `default/default_commissioner` | Any | Active runnable commissioner |
+| `ruleset_strategy_commissioner` | Any | Active runnable commissioner |
 | `among_them/among_them_commissioner` | Among Them | Active runnable commissioner |
 | `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
-| `cogs_v_clips/cogs_v_clips_commissioner` | Cogs vs Clips | Scaffold only - no implementation |
+| `cogs_vs_clips/cogs_vs_clips_commissioner` | Cogs vs Clips | Active runnable commissioner |
 
 ## Related metta repo locations
 
@@ -60,7 +65,7 @@ Each leaf commissioner directory follows the same placeholder shape:
 
 ## Conventions for new commissioners
 
-- Keep concrete commissioner implementations under the top-level `commissioners/` tree.
+- Keep reusable commissioner implementations under `commissioners/common/`.
 - Keep one leaf directory per runnable image or entrypoint.
 - Keep game-specific code under that game's directory.
 - Treat `packages/coworld/src/coworld/commissioner/protocol.py` as canonical. If the protocol needs to change, change it in metta first.

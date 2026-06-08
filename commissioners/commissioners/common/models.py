@@ -161,6 +161,26 @@ class MembershipChange(BaseModel):
     reason: str
 
 
+class PolicyMembershipEventEvidence(BaseModel):
+    type: str
+    public_id: str | None = None
+    title: str
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyMembershipEventChange(BaseModel):
+    league_policy_membership_id: UUID
+    from_division_id: UUID | None = None
+    to_division_id: UUID | None = None
+    status: str
+    substatus: str | None = None
+    reason: str
+    end_time: datetime | None = None
+    notes: str | None = None
+    evidence: list[PolicyMembershipEventEvidence] = Field(default_factory=list)
+
+
 class V2StageConfig(BaseModel):
     label: str = "Round"
     num_episodes: int = Field(default=1, gt=0)
@@ -425,6 +445,7 @@ class OnRoundCompletedContext(BaseModel):
 
 
 class OnRoundCompletedResult(BaseModel):
+    policy_membership_events: list[PolicyMembershipEventChange] = Field(default_factory=list)
     membership_changes: list[MembershipChange] = Field(default_factory=list)
     follow_up_rounds: list[RoundSpec] = Field(default_factory=list)
 

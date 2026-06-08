@@ -24,13 +24,15 @@ from commissioners.common.models import (
 
 DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
 AMONG_THEM_RESULT_METADATA_VERSION = 2
-AMONG_THEM_SCORE_KIND = "mean_round_score"
+MEAN_ROUND_SCORE_KIND = "mean_round_score"
 COMPLETED_EPISODE_COUNT_METADATA_KEY = "completed_episode_count"
-AMONG_THEM_SCORING_MECHANICS = (
-    "Among Them rounds rank policies by the average score reported by the game across each policy's episode slots. "
+MEAN_SCORE_EWMA_SCORING_MECHANICS = (
+    "Rounds rank policies by the average score reported by the game across each policy's episode slots. "
     "The division leaderboard only uses current average-score round results and combines completed rounds with a "
     "2-hour half-life EWMA, so newer rounds count more than older rounds."
 )
+AMONG_THEM_SCORE_KIND = MEAN_ROUND_SCORE_KIND
+AMONG_THEM_SCORING_MECHANICS = MEAN_SCORE_EWMA_SCORING_MECHANICS
 
 
 def select_division(
@@ -185,7 +187,7 @@ def _entry_index_offset(*, job_index: int, num_entries: int, num_agents: int) ->
     return job_index * num_agents
 
 
-def _build_slot_balanced_entry_indices(*, job_index: int, num_entries: int, num_agents: int) -> list[int]:
+def _build_rolling_window_entry_indices(*, job_index: int, num_entries: int, num_agents: int) -> list[int]:
     if num_entries <= 0:
         raise ValueError("pool must have at least one entry")
     return [(job_index + seat) % num_entries for seat in range(num_agents)]

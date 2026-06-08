@@ -16,15 +16,19 @@ from commissioners.common.protocol import DivisionInfo, LeagueInfo, MembershipIn
 IMAGES = [
     (
         "commissioners-smoke-default",
-        "commissioners/default/default_commissioner/Dockerfile",
+        "auto",
     ),
     (
         "commissioners-smoke-among-them",
-        "commissioners/among_them/among_them_commissioner/Dockerfile",
+        "among_them",
     ),
     (
         "commissioners-smoke-cogs-vs-clips",
-        "commissioners/cogs_vs_clips/cogs_vs_clips_commissioner/Dockerfile",
+        "cogs_vs_clips",
+    ),
+    (
+        "commissioners-smoke-ruleset-strategy",
+        "ruleset_strategy",
     ),
 ]
 
@@ -62,15 +66,29 @@ def _round_start_json() -> str:
     )
 
 
-@pytest.mark.parametrize(("image_name", "dockerfile"), IMAGES)
-def test_commissioner_container_healthz_and_round_websocket(image_name: str, dockerfile: str) -> None:
+@pytest.mark.parametrize(("image_name", "commissioner_key"), IMAGES)
+def test_commissioner_container_healthz_and_round_websocket(image_name: str, commissioner_key: str) -> None:
     if not _docker_available():
         pytest.skip("Docker daemon is not available")
     websockets_sync = pytest.importorskip("websockets.sync.client")
 
     repo_root = Path(__file__).resolve().parents[1]
     tag = f"{image_name}:test"
-    subprocess.run(["docker", "build", "-f", dockerfile, "-t", tag, "."], cwd=repo_root, check=True)
+    subprocess.run(
+        [
+            "docker",
+            "build",
+            "-f",
+            "commissioners/Dockerfile",
+            "--build-arg",
+            f"COMMISSIONER_KEY={commissioner_key}",
+            "-t",
+            tag,
+            ".",
+        ],
+        cwd=repo_root,
+        check=True,
+    )
     container_id = subprocess.check_output(
         ["docker", "run", "-d", "-p", "127.0.0.1::8080", tag],
         cwd=repo_root,

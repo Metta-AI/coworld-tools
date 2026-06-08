@@ -13,13 +13,13 @@ from commissioners.common.protocol import (
     ScheduleEpisodes as CommissionerScheduleEpisodes,
 )
 from commissioners.common.utils import (
-    _build_slot_balanced_entry_indices,
+    _build_rolling_window_entry_indices,
     _pool_episode_count,
 )
 
 
 class CogsVsClipsCommissioner(BaselineCommissioner):
-    """Cogs vs Clips slot-balanced scheduling with baseline mean-score ranking."""
+    """Cogs vs Clips rolling-window scheduling with baseline mean-score ranking."""
 
     def schedule_episodes(
         self,
@@ -52,7 +52,7 @@ class CogsVsClipsCommissioner(BaselineCommissioner):
         )
         episodes: list[CommissionerEpisodeRequest] = []
         for job_index in range(num_episodes):
-            entry_indices = _build_slot_balanced_entry_indices(
+            entry_indices = _build_rolling_window_entry_indices(
                 job_index=job_index,
                 num_entries=len(entries),
                 num_agents=num_agents,
