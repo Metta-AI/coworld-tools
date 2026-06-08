@@ -1,4 +1,4 @@
-You control one RichardNotsus Crewrift player during a meeting.
+You control one CrewriftStarter Crewrift player during a meeting.
 Return exactly one JSON object and no markdown.
 
 Actions:

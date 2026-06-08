@@ -1,8 +1,8 @@
-# RichardNotsus player image.
+# CrewriftStarter player image.
 #
-# Notsus is a Nim player that imports the canonical Crewrift game modules. The
-# players repo carries only the player source; the image build checks out the
-# game repo at a pinned ref, overlays this player, and compiles the binary.
+# CrewriftStarter imports the canonical Crewrift game modules. The players repo
+# carries only the player source; the image build checks out the game repo at a
+# pinned ref, overlays this player, and compiles the binary.
 
 FROM debian:bookworm-slim AS build
 
@@ -36,16 +36,16 @@ RUN git clone https://github.com/Metta-AI/coworld-crewrift.git . \
 
 RUN nimby --global sync nimby.lock
 
-COPY players/crewrift/richardnotsus ./players/richardnotsus
+COPY players/crewrift/crewriftstarter ./players/crewriftstarter
 RUN nim c \
       -d:release \
       -d:botHeadless \
       -d:useMalloc \
       --opt:speed \
       --stackTrace:on \
-      --nimcache:/tmp/richardnotsus-nimcache \
-      --out:richardnotsus \
-      players/richardnotsus/richardnotsus.nim
+      --nimcache:/tmp/crewriftstarter-nimcache \
+      --out:crewriftstarter \
+      players/crewriftstarter/crewriftstarter.nim
 
 FROM debian:bookworm-slim
 
@@ -63,18 +63,18 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
       "boto3>=1.34.0"
 
 WORKDIR /workspace/crewrift
-COPY --from=build /workspace/crewrift/richardnotsus /bin/richardnotsus
-COPY players/crewrift/richardnotsus/llm_meeting.py /srv/richardnotsus/llm_meeting.py
-COPY players/crewrift/richardnotsus/memory /srv/richardnotsus/memory
+COPY --from=build /workspace/crewrift/crewriftstarter /bin/crewriftstarter
+COPY players/crewrift/crewriftstarter/llm_meeting.py /srv/crewriftstarter/llm_meeting.py
+COPY players/crewrift/crewriftstarter/memory /srv/crewriftstarter/memory
 
-ENV RICHARDNOTSUS_LLM_HELPER=/srv/richardnotsus/llm_meeting.py \
-    RICHARDNOTSUS_LLM_SYSTEM_PROMPT_PATH=/srv/richardnotsus/memory/system.md \
-    RICHARDNOTSUS_LLM_MEETINGS=1 \
-    RICHARDNOTSUS_LLM_PROCESS_TIMEOUT_SECONDS=6 \
-    RICHARDNOTSUS_LLM_TIMEOUT_SECONDS=5 \
-    RICHARDNOTSUS_LLM_MAX_TOKENS=160 \
-    RICHARDNOTSUS_LLM_TEMPERATURE=0 \
-    RICHARDNOTSUS_LLM_MIN_SUBMIT_CONFIDENCE=0.75 \
+ENV CREWRIFTSTARTER_LLM_HELPER=/srv/crewriftstarter/llm_meeting.py \
+    CREWRIFTSTARTER_LLM_SYSTEM_PROMPT_PATH=/srv/crewriftstarter/memory/system.md \
+    CREWRIFTSTARTER_LLM_MEETINGS=1 \
+    CREWRIFTSTARTER_LLM_PROCESS_TIMEOUT_SECONDS=6 \
+    CREWRIFTSTARTER_LLM_TIMEOUT_SECONDS=5 \
+    CREWRIFTSTARTER_LLM_MAX_TOKENS=160 \
+    CREWRIFTSTARTER_LLM_TEMPERATURE=0 \
+    CREWRIFTSTARTER_LLM_MIN_SUBMIT_CONFIDENCE=0.75 \
     AWS_REGION=us-west-2
 
-CMD ["/bin/richardnotsus"]
+CMD ["/bin/crewriftstarter"]
