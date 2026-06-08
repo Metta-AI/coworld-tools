@@ -21,6 +21,7 @@ from commissioners.common.protocol import (
     RoundCompletedRequest,
     RoundStart,
     ScheduleRoundsRequest,
+    ScheduleEpisodes,
 )
 
 
@@ -35,6 +36,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
     async def round_socket(websocket: WebSocket) -> None:
         await websocket.accept()
         round_start: RoundStart | None = None
+        schedule: ScheduleEpisodes | None = None
         expected_request_ids: set[str] = set()
         results_by_request_id: dict[str, EpisodeResult] = {}
         failed_by_request_id: dict[str, EpisodeFailed] = {}
@@ -52,7 +54,14 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     expected_request_ids = {episode.request_id for episode in schedule.episodes}
                     await websocket.send_json(schedule.to_json())
                     if not expected_request_ids:
-                        await websocket.send_json(complete_round_for_round_start(commissioner, round_start, []).to_json())
+                        await websocket.send_json(
+                            complete_round_for_round_start(
+                                commissioner,
+                                round_start,
+                                [],
+                                schedule.episodes,
+                            ).to_json()
+                        )
                     continue
 
                 if msg_type == "schedule_rounds_request":
@@ -125,7 +134,12 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                         )
                     ]
                     await websocket.send_json(
-                        complete_round_for_round_start(commissioner, round_start, ordered_results).to_json()
+                        complete_round_for_round_start(
+                            commissioner,
+                            round_start,
+                            ordered_results,
+                            schedule.episodes if schedule is not None else None,
+                        ).to_json()
                     )
         except WebSocketDisconnect:
             return

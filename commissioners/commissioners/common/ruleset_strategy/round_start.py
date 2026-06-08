@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from functools import cached_property
 from typing import Any
 from uuid import UUID
@@ -12,11 +13,13 @@ from commissioners.common.models import (
     OnRoundCompletedContext,
     PolicyPool,
     PolicyPoolEntry,
+    PolicyTransitionObservation,
     Round,
     RoundPolicyScore,
     RoundResultSnapshot,
     V2RoundConfig,
 )
+from commissioners.common.protocol import EpisodeRequest as CommissionerProtocolEpisodeRequest
 from commissioners.common.protocol import EpisodeResult as CommissionerProtocolEpisodeResult
 from commissioners.common.protocol import RoundComplete as CommissionerRoundComplete
 from commissioners.common.protocol import RoundStart as CommissionerRoundStart
@@ -162,7 +165,51 @@ class RoundStartView:
             for index, result in enumerate(episode_results)
         ]
 
-    def on_round_completed_context(self, complete: CommissionerRoundComplete) -> OnRoundCompletedContext:
+    def transition_observations(
+        self,
+        episode_results: list[EpisodeResult],
+        scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None,
+    ) -> dict[UUID, PolicyTransitionObservation]:
+        if scheduled_episodes is None:
+            scheduled_policy_ids = {
+                score.policy_version_id for result in episode_results for score in result.scores
+            }
+        else:
+            scheduled_policy_ids = {
+                policy_version_id
+                for episode in scheduled_episodes
+                for policy_version_id in set(episode.policy_version_ids)
+            }
+
+        score_lists: dict[UUID, list[float]] = defaultdict(list)
+        completed_episode_counts: dict[UUID, int] = defaultdict(int)
+        for result in episode_results:
+            episode_policy_ids: set[UUID] = set()
+            for score in result.scores:
+                score_lists[score.policy_version_id].append(score.score)
+                episode_policy_ids.add(score.policy_version_id)
+            for policy_version_id in episode_policy_ids:
+                completed_episode_counts[policy_version_id] += 1
+
+        return {
+            policy_version_id: PolicyTransitionObservation(
+                completed_episodes=completed_episode_counts[policy_version_id],
+                score=(
+                    sum(score_lists[policy_version_id]) / len(score_lists[policy_version_id])
+                    if score_lists[policy_version_id]
+                    else 0.0
+                ),
+            )
+            for policy_version_id in scheduled_policy_ids
+        }
+
+    def on_round_completed_context(
+        self,
+        complete: CommissionerRoundComplete,
+        *,
+        episode_results: list[EpisodeResult],
+        scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
+    ) -> OnRoundCompletedContext:
         return OnRoundCompletedContext(
             league=LeagueSnapshot(
                 id=self.round_start.league.id,
@@ -183,6 +230,7 @@ class RoundStartView:
                 for division_ranking in complete.results
                 for ranking in division_ranking.rankings
             ],
+            transition_observations=self.transition_observations(episode_results, scheduled_episodes),
             division_memberships=[
                 membership for membership in self.memberships if membership.division_id == self.current_division.id
             ],

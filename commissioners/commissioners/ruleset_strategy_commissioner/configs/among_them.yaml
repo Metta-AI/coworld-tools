@@ -29,6 +29,7 @@ divisions:
           min_episodes_per_entrant: 2
         on_episode_complete:
           - id: failed_crash_check
+            name: Failed crash test
             criteria:
               completed_episodes_lte: 0
             actions:
@@ -36,6 +37,7 @@ divisions:
                 status: disqualified
                 substatus: inactive
           - id: passed_crash_check
+            name: Passed crash test
             criteria: otherwise
             actions:
               - type: update_membership
@@ -48,6 +50,7 @@ divisions:
           episodes: 2
         on_episode_complete:
           - id: passed_score_gate
+            name: Passed score gate
             criteria:
               score_gt: 0
             actions:
@@ -56,6 +59,7 @@ divisions:
                 status: competing
                 substatus: champion
           - id: failed_score_gate
+            name: Score <= 0
             criteria: otherwise
             actions:
               - type: update_membership

@@ -4,6 +4,7 @@ from commissioners.common.models import (
     DivisionSnapshot,
     MembershipSnapshot,
     OnRoundCompletedContext,
+    PolicyTransitionObservation,
     PolicyMembershipEventChange,
     PolicyMembershipEventEvidence,
 )
@@ -23,22 +24,30 @@ def build_membership_events(
     ctx: OnRoundCompletedContext,
     config: RulesetStrategyCommissionerConfig,
 ) -> list[PolicyMembershipEventChange]:
-    score_by_policy = {result.policy_version_id: result.score for result in ctx.round_results}
-    completed_by_policy = {
-        result.policy_version_id: int(result.result_metadata.get(COMPLETED_EPISODE_COUNT_METADATA_KEY, 0))
-        for result in ctx.round_results
-    }
+    if ctx.transition_observations is None:
+        observations = {
+            result.policy_version_id: PolicyTransitionObservation(
+                completed_episodes=int(result.result_metadata.get(COMPLETED_EPISODE_COUNT_METADATA_KEY, 0)),
+                score=result.score,
+            )
+            for result in ctx.round_results
+        }
+    else:
+        observations = ctx.transition_observations
     events: list[PolicyMembershipEventChange] = []
     for rule in config.membership_changes:
         for membership in ctx.division_memberships:
             if not rule.match.matches(ctx.division, membership):
                 continue
+            observation = observations.get(membership.policy_version_id)
+            if observation is None:
+                continue
             event = transition_change(
                 rule,
                 membership,
                 ctx.all_divisions,
-                completed_episodes=completed_by_policy.get(membership.policy_version_id, 0),
-                score=score_by_policy.get(membership.policy_version_id, 0.0),
+                completed_episodes=observation.completed_episodes,
+                score=observation.score,
             )
             if event is not None:
                 events.append(event)
@@ -114,7 +123,11 @@ def target_for_transition(
 
 
 def transition_reason(transition: Transition) -> str:
-    return f"matched transition {transition.id}" if transition.id is not None else "matched ruleset transition"
+    if transition.name is not None:
+        return transition.name
+    if transition.id is not None:
+        return transition.id.replace("_", " ").capitalize()
+    return "Ruleset transition"
 
 
 def membership_status(membership: MembershipSnapshot) -> str:
