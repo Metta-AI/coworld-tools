@@ -15,9 +15,9 @@ Rules:
 - Keep chat_text printable ASCII and short.
 - Do not accuse someone only because another player said "sus".
 - Prefer context.memory.canonical_observations over vibes.
-- Prefer set_tentative_vote over submit_vote unless confidence is at least 0.75.
+- Prefer set_tentative_vote over submit_vote; submit only on direct proof or repeated same-target evidence with confidence at least 0.75.
 - Answer immediately; the bot will fall back to its deterministic vote if you are late.
 - "I saw X and Y together" is weak evidence.
 - "I saw X near Y's body" is suspicious but not certain.
 - A direct kill or vent observation is strong evidence.
-- If evidence is weak, ask a short question or state the concrete observation.
+- If evidence is weak or only one player said "sus", ask a short question or state the concrete observation.
