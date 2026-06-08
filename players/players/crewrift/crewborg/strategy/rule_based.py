@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import os
 
+from players.crewrift.crewborg.strategy.meeting import MeetingParams, read_meeting_params_from_env
 from players.crewrift.crewborg.strategy.opportunity import (
     SEARCH_LEAD_TICKS,
     has_visible_victim,
@@ -87,7 +88,16 @@ DICK_CALL_NO_MEETING_GRACE_TICKS = 48
 
 
 class RuleBasedStrategy:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        be_dumb: bool | None = None,
+        meeting_params: MeetingParams | None = None,
+        dick_enabled: bool | None = None,
+    ) -> None:
+        self._be_dumb = be_dumb if be_dumb is not None else _be_dumb_enabled()
+        self._meeting_params = meeting_params if meeting_params is not None else read_meeting_params_from_env()
+        self._dick_enabled = dick_enabled if dick_enabled is not None else _dick_mode_enabled()
         self._flee_target: str | None = None
         self._dick_state: str = "idle"
         self._dick_call_started_tick: int | None = None
@@ -111,7 +121,12 @@ class RuleBasedStrategy:
                     self._finish_dick_attempt()
             if self._dick_state == "meeting":
                 return ModeDirective(mode="dick_mode", source="strategy", reason="dick mode: emergency meeting")
-            return ModeDirective(mode="attend_meeting", source="strategy", reason="meeting open")
+            return ModeDirective(
+                mode="attend_meeting",
+                params=self._meeting_params,
+                source="strategy",
+                reason="meeting open",
+            )
 
         if phase == "Playing":
             if self._dick_state == "meeting":
@@ -160,7 +175,7 @@ class RuleBasedStrategy:
         # Imposter priority (design §10): just killed -> Evade; non-fresh visible
         # body -> Report; kill ready and a victim visible -> Hunt; kill ready or
         # about to be -> Search; else Pretend.
-        if _be_dumb_enabled():
+        if self._be_dumb:
             if belief.self_kill_ready and has_visible_victim(belief):
                 return ModeDirective(mode="hunt", source="strategy", reason="be dumb: kill ready with visible victim")
             return ModeDirective(mode="search", source="strategy", reason="be dumb: always seek kill setup")
@@ -192,7 +207,7 @@ class RuleBasedStrategy:
         self._flee_target = None
 
     def _should_start_dick_mode(self, belief: Belief) -> bool:
-        if not _dick_mode_enabled():
+        if not self._dick_enabled:
             self._reset_dick_mode()
             return False
         if self._dick_button_spent:

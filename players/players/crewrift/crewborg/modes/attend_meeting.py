@@ -10,7 +10,8 @@ from players.crewrift.crewborg.strategy.meeting import (
     MeetingDecision,
     MeetingDecisionValidationError,
     MeetingLLMClient,
-    build_meeting_llm_client_from_env,
+    MeetingParams,
+    build_meeting_client,
     serialize_meeting_context,
     valid_vote_targets,
     validate_meeting_decision,
@@ -21,7 +22,7 @@ from players.crewrift.crewborg.strategy.meeting.context import (
 )
 from players.crewrift.crewborg.strategy.suspicion import top_suspect
 from players.crewrift.crewborg.types import ActionState, Belief, ChatEvent, Intent
-from players.player_sdk import EmptyModeParams, Mode
+from players.player_sdk import Mode
 
 # Deterministic fallback: preserve the pre-LLM behavior unless explicitly enabled.
 MEETING_CHAT = "no read, skipping"
@@ -33,11 +34,11 @@ AUTO_SUBMIT_REMAINING_TICKS = 48
 
 class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     name = "attend_meeting"
-    params_type = EmptyModeParams
+    params_type = MeetingParams
 
-    def __init__(self, params=None, *, llm_client: MeetingLLMClient | None = None) -> None:
-        super().__init__(params)
-        self._llm_client = llm_client if llm_client is not None else build_meeting_llm_client_from_env()
+    def __init__(self, params: MeetingParams | None = None, *, llm_client: MeetingLLMClient | None = None) -> None:
+        super().__init__(params or MeetingParams())
+        self._llm_client = llm_client if llm_client is not None else build_meeting_client(self.params)
         self._meeting_id: int | None = None
         self._deterministic_chatted = False
         self._disabled_traced = False

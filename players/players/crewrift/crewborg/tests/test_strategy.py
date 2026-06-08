@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from players.crewrift.crewborg.modes import AttendMeetingMode
 from players.crewrift.crewborg.strategy import RuleBasedStrategy
+from players.crewrift.crewborg.strategy.meeting import MeetingParams
 from players.crewrift.crewborg.strategy.rule_based import (
     DICK_CALL_NO_MEETING_GRACE_TICKS,
     DICK_KILL_COOLDOWN_BUFFER_TICKS,
@@ -10,6 +12,7 @@ from players.crewrift.crewborg.strategy.rule_based import (
     FLEE_STALE_TICKS,
 )
 from players.crewrift.crewborg.types import ActionState, Belief, PlayerRecord
+from players.player_sdk import ModeRegistry
 from players.player_sdk.types import BeliefSnapshot, ModeDirective, SharedMemory
 
 
@@ -29,8 +32,7 @@ def _directive_with(
     memory = SharedMemory(
         belief=belief, action_state=action_state or ActionState(), active_directive=ModeDirective(mode="idle")
     )
-    directive = strategy.decide(BeliefSnapshot(tick=tick, memory=memory))
-    return directive
+    return strategy.decide(BeliefSnapshot(tick=tick, memory=memory))
 
 
 def _crewmate_with_threat(*, tick: int, threat_x: int, threat_y: int = 100, last_seen_tick: int | None = None) -> Belief:
@@ -64,6 +66,18 @@ def test_playing_crewmate_selects_normal() -> None:
 
 def test_voting_selects_attend_meeting() -> None:
     assert _select(Belief(phase="Voting")) == "attend_meeting"
+
+
+def test_voting_attend_meeting_directive_carries_strategy_params() -> None:
+    meeting_params = MeetingParams(use_llm=True, model="claude-test")
+    directive = _directive_with(RuleBasedStrategy(meeting_params=meeting_params), Belief(phase="Voting"))
+
+    assert directive.mode == "attend_meeting"
+    assert directive.params == meeting_params
+
+    registry: ModeRegistry[Belief, ActionState, object] = ModeRegistry()
+    registry.register(AttendMeetingMode)
+    assert registry.validation_error(directive) is None
 
 
 def test_body_in_view_selects_report_body() -> None:

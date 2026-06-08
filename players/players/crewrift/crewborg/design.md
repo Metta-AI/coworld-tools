@@ -841,6 +841,14 @@ without starving movement or combat decisions. The path is opt-in via
 the deterministic fallback (`"no read, skipping"` once, then the Bayesian
 `top_suspect` vote or skip).
 
+Configuration is resolved at the strategy boundary, never inside the mode.
+`RuleBasedStrategy` reads these environment variables once at construction (via
+`read_meeting_params_from_env`) and stamps the result onto the Attend Meeting
+directive as `MeetingParams`; the mode builds its client from those params
+(`build_meeting_client`) and reads no environment itself. This keeps modes
+env-free — the strategy owns all behavior configuration, the same way it gates the
+aggressive imposter selector (§10).
+
 The implementation is split into three portable pieces under `strategy/meeting/`:
 
 - `context.py` serializes `Belief` into explicit meeting state: timer estimate,
@@ -848,9 +856,12 @@ The implementation is split into three portable pieces under `strategy/meeting/`
   roster, event summaries, and suspicion ranking/fallback vote.
 - `schema.py` owns the `MeetingDecision` contract and sanitizes/validates chat and
   vote targets against the current legal state.
-- `llm.py` owns provider-specific infra. The default client uses Anthropic's
-  Messages API with `claude-haiku-4-5-20251001`, configurable through
-  `CREWBORG_LLM_MODEL`.
+- `llm.py` owns provider-specific infra and the config seam:
+  `read_meeting_params_from_env` (environment → `MeetingParams`, called by the
+  strategy) and `build_meeting_client` (`MeetingParams` → client, called by the
+  mode). The default client uses Anthropic's Messages API with
+  `claude-haiku-4-5-20251001`, configurable through `CREWBORG_LLM_MODEL`; its
+  underlying Anthropic SDK client is constructed lazily on the first call.
 
 `MeetingDecision.action` is one of `send_chat`, `set_tentative_vote`,
 `submit_vote`, or `wait`. A tentative vote is stored in mode-local state and is
