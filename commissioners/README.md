@@ -26,7 +26,7 @@ commissioners/
     |   `-- ruleset_strategy/
     |-- templates/
     |   `-- commissioner_template/
-    |-- config_driven_commissioner/
+    |-- ruleset_strategy_commissioner/
     |-- paint_arena/
     |   `-- paint_arena_commissioner/
     `-- default/
@@ -34,7 +34,7 @@ commissioners/
 ```
 
 Runnable commissioners share `commissioners/Dockerfile` and select behavior with the `COMMISSIONER_KEY` build arg.
-The active config-driven runnable selects one of its bundled YAML configs with `CONFIG_DRIVEN_CONFIG_NAME`.
+The active config-driven runnable selects one of its bundled YAML configs with `RULESET_STRATEGY_CONFIG_NAME`.
 Leaf runnable directories keep thin entrypoints and build scripts:
 
 | File | Purpose |
@@ -48,7 +48,7 @@ Leaf runnable directories keep thin entrypoints and build scripts:
 | Commissioner | Coworld | Status |
 | --- | --- | --- |
 | `templates/commissioner_template` | (template) | Scaffold only - no implementation |
-| `config_driven_commissioner` | Any | Active runnable commissioner |
+| `ruleset_strategy_commissioner` | Any | Active runnable commissioner |
 | `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
 
 ## Related metta repo locations

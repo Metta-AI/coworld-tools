@@ -49,7 +49,7 @@ from commissioners.common.commissioners import (
     schedule_rounds_for_request,
 )
 
-RULESET_CONFIG_DIR = Path(__file__).parents[1] / "commissioners" / "config_driven_commissioner" / "configs"
+RULESET_CONFIG_DIR = Path(__file__).parents[1] / "commissioners" / "ruleset_strategy_commissioner" / "configs"
 
 
 def _ruleset_config(name: str) -> dict:
@@ -688,7 +688,7 @@ def test_cogs_vs_clips_config_qualifier_round_start_restores_private_self_play()
     ]
 
 
-def test_config_driven_commissioner_fills_short_round_from_configured_division() -> None:
+def test_ruleset_strategy_commissioner_fills_short_round_from_configured_division() -> None:
     primary_policy_id = uuid4()
     filler_policy_ids = [uuid4(), uuid4()]
     daily_id = uuid4()
@@ -742,7 +742,7 @@ def test_config_driven_commissioner_fills_short_round_from_configured_division()
     assert schedule.episodes[0].policy_version_ids == [primary_policy_id, *filler_policy_ids]
 
 
-def test_config_driven_commissioner_advances_qualifier_substatus_after_completed_stage() -> None:
+def test_ruleset_strategy_commissioner_advances_qualifier_substatus_after_completed_stage() -> None:
     qualifier_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]
     membership_ids = [uuid4(), uuid4()]
@@ -834,7 +834,7 @@ def test_config_driven_commissioner_advances_qualifier_substatus_after_completed
     assert events[membership_ids[1]].to_division_id is None
 
 
-def test_config_driven_commissioner_stage_two_score_gate_enters_competition() -> None:
+def test_ruleset_strategy_commissioner_stage_two_score_gate_enters_competition() -> None:
     qualifier_id = uuid4()
     competition_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]

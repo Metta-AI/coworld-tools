@@ -137,7 +137,7 @@ class RoundStartView:
             public_id=str(self.round_start.round_id),
             division_id=self.current_division.id,
             round_number=self.round_start.round_number,
-            commissioner_key=self.round_start.league.commissioner_key or "config_driven",
+            commissioner_key=self.round_start.league.commissioner_key or "ruleset_strategy",
             round_config=self.round_config,
         )
 
@@ -165,7 +165,7 @@ class RoundStartView:
         return OnRoundCompletedContext(
             league=LeagueSnapshot(
                 id=self.round_start.league.id,
-                commissioner_key=self.round_start.league.commissioner_key or "config_driven",
+                commissioner_key=self.round_start.league.commissioner_key or "ruleset_strategy",
                 commissioner_config={CONFIG_KEY: self.config.model_dump(mode="json")},
             ),
             division=self.current_division,

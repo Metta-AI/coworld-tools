@@ -30,7 +30,7 @@ IMAGES = [
         "cogs_vs_clips",
     ),
     (
-        "commissioners-smoke-config-driven",
+        "commissioners-smoke-ruleset-strategy",
         "config_driven",
         "default",
     ),
@@ -89,7 +89,7 @@ def test_commissioner_container_healthz_and_round_websocket(
             "--build-arg",
             f"COMMISSIONER_KEY={commissioner_key}",
             "--build-arg",
-            f"CONFIG_DRIVEN_CONFIG_NAME={config_name}",
+            f"RULESET_STRATEGY_CONFIG_NAME={config_name}",
             "-t",
             tag,
             ".",

@@ -29,20 +29,20 @@ jobs:
         include:
           - name: default
             commissioner_key: config_driven
-            config_name: default
+            ruleset_strategy_config_name: default
             image: ghcr.io/metta-ai/commissioners-default
           - name: among-them-commissioner
             commissioner_key: config_driven
-            config_name: among_them
+            ruleset_strategy_config_name: among_them
             image: ghcr.io/metta-ai/commissioners-among-them-commissioner
           - name: cogs-vs-clips-commissioner
             commissioner_key: config_driven
-            config_name: cogs_vs_clips
+            ruleset_strategy_config_name: cogs_vs_clips
             image: ghcr.io/metta-ai/commissioners-cogs-vs-clips
-          - name: config-driven-commissioner
+          - name: ruleset-strategy-commissioner
             commissioner_key: config_driven
-            config_name: default
-            image: ghcr.io/metta-ai/commissioners-config-driven
+            ruleset_strategy_config_name: default
+            image: ghcr.io/metta-ai/commissioners-ruleset-strategy
 
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
           file: commissioners/Dockerfile
           build-args: |
             COMMISSIONER_KEY=${{ matrix.commissioner_key }}
-            CONFIG_DRIVEN_CONFIG_NAME=${{ matrix.config_name }}
+            RULESET_STRATEGY_CONFIG_NAME=${{ matrix.ruleset_strategy_config_name }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
 

@@ -458,4 +458,5 @@ from commissioners.common.ruleset_strategy.commissioner import RulesetStrategyCo
 from commissioners.default.manual_commissioner import ManualCommissioner
 
 register_commissioner("config_driven", RulesetStrategyCommissioner)
+register_commissioner("ruleset_strategy", RulesetStrategyCommissioner)
 register_commissioner("manual", ManualCommissioner)
