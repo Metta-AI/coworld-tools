@@ -60,8 +60,8 @@ def test_playing_crewmate_selects_normal() -> None:
     assert _select(Belief(phase="Playing", self_role="crewmate")) == "normal"
     # Role not yet known during early Playing still does tasks.
     assert _select(Belief(phase="Playing", self_role=None)) == "normal"
-    # A crewmate ghost keeps doing its own tasks (design §7.3).
-    assert _select(Belief(phase="Playing", self_role="dead")) == "normal"
+    # A crewmate ghost keeps doing its own tasks, but with noclip navigation.
+    assert _select(Belief(phase="Playing", self_role="dead")) == "crewmate_ghost"
 
 
 def test_voting_selects_attend_meeting() -> None:
@@ -91,11 +91,11 @@ def test_body_in_view_selects_report_body() -> None:
 def test_ghost_does_tasks_not_report() -> None:
     from players.crewrift.crewborg.types import BodyEntry
 
-    # A dead crewmate (ghost) can't report; it goes straight to Normal even with a
-    # body in view, so it keeps finishing its own tasks (design §7.3).
+    # A dead crewmate (ghost) can't report; it goes straight to ghost tasking even
+    # with a body in view, so it keeps finishing its own tasks (design §7.3).
     belief = Belief(phase="Playing", self_role="dead", visible_body_ids={2003})
     belief.bodies[2003] = BodyEntry(object_id=2003, color="green", world_x=10, world_y=10, first_seen_tick=1)
-    assert _select(belief) == "normal"
+    assert _select(belief) == "crewmate_ghost"
 
 
 def _crewmate_near_kill_cooldown_ready() -> Belief:
@@ -161,7 +161,7 @@ def test_dick_mode_does_not_override_dead_or_imposter_roles(monkeypatch) -> None
     monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
     crewmate = _crewmate_near_kill_cooldown_ready()
 
-    assert _select(crewmate.model_copy(update={"self_role": "dead"})) == "normal"
+    assert _select(crewmate.model_copy(update={"self_role": "dead"})) == "crewmate_ghost"
     assert _select(crewmate.model_copy(update={"self_role": "imposter"})) == "pretend"
 
 

@@ -6,13 +6,14 @@ from players.crewrift.crewborg.modes.evade import EvadeMode
 from players.crewrift.crewborg.modes.flee import FleeMode
 from players.crewrift.crewborg.modes.hunt import HuntMode
 from players.crewrift.crewborg.modes.idle import IdleMode
-from players.crewrift.crewborg.modes.normal import NormalMode
+from players.crewrift.crewborg.modes.normal import CrewmateGhostMode, NormalMode
 from players.crewrift.crewborg.modes.pretend import PretendMode
 from players.crewrift.crewborg.modes.report_body import ReportBodyMode
 from players.crewrift.crewborg.modes.search import SearchMode
 
 __all__ = [
     "AttendMeetingMode",
+    "CrewmateGhostMode",
     "DickMode",
     "EvadeMode",
     "FleeMode",

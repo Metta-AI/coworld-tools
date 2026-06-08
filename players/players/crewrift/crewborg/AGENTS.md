@@ -10,7 +10,8 @@ active development; **verify any specific symbol, path, or constant against the
 cited file before relying on it.**
 
 > **Status:** Implemented end-to-end — the agent plays both roles (crewmate
-> tasks / meetings / voting / report / flee, plus imposter Evade / Pretend / Search / Hunt and the
+> tasks / meetings / voting / report / flee, crewmate ghost noclip tasking,
+> plus imposter Evade / Pretend / Search / Hunt and the
 > `kill`/`vent` intents; the imposter **evades after fresh kills** and may report
 > non-fresh visible bodies;
 > imposter Pretend fakes real task stations in likely occupied rooms, Search owns

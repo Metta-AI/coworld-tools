@@ -488,6 +488,7 @@ re-decides.
 | Mode | Active when | Intents emitted |
 |---|---|---|
 | **Normal** | default while `Playing` | target the nearest reachable **signalled** task (live arrows+bubbles = the remaining tasks) and `complete_task(T)`; conclude `T` done when its **bubble disappears**, gated on having seen ≥ `COMPLETION_PROGRESS_PCT` (≈90%) progress (so an occlusion/edge flicker doesn't false-complete); when **no task signal remains**, `navigate_to` the spawn / **start room** rather than standing still |
+| **Crewmate Ghost** | `self_role == "dead"` while `Playing` | reuse Normal's task bookkeeping, but travel to task centers with `navigate_to_noclip` so walls do not constrain pathing; once inside the task rect, `complete_task(T)` holds A exactly like Normal |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` the top suspect (`P(imp) ≥ VOTE_PROBABILITY`, §10.1) else skip, before the timer |
 | **Dick Mode** | opt-in with `CREWBORG_DICK_MODE=1`; live crewmate, one-shot, and first kill cooldown is within the worst-case button walk plus buffer | while `Playing`, `call_meeting`; during the triggered meeting only if our button press opened it, `chat("haha, fuck you imposters")`, then skip-vote until the meeting closes |
 | **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
@@ -566,8 +567,9 @@ who happen to be near a target.
 
 The **action layer executes**; it does not decide when work is done. The **mode**
 watches belief — task icon gone, `active_task_progress_pct` at 100%, meeting
-opened, target dead — and changes the intent. A ghost crewmate keeps Normal mode +
-`complete_task` (it can still finish its own tasks).
+opened, target dead — and changes the intent. A ghost crewmate uses
+Crewmate Ghost mode: the mode still chooses task/world targets, but wall-ignoring
+movement remains an action-layer concern via `navigate_to_noclip`.
 
 ### 7.4 Possible refinements
 
@@ -591,6 +593,7 @@ An intent is "what to do now" — above a button press, below a behavior. One
 |---|---|---|
 | `idle` / `loiter` | (optional anchor) | stand still / wander to blend in |
 | `navigate_to` | world point | go to a point |
+| `navigate_to_noclip` | world point | go directly to a point, ignoring wall-aware nav (crewmate ghosts) |
 | `flee_from` | player id | maximize distance from a player |
 | `complete_task` | task index | go to the task rect and complete it |
 | `report` | body id | go to a body and report |
@@ -628,6 +631,9 @@ transport mechanics live, and it is **stateful across ticks** (state in
 
 - `complete_task` → navigate to the station's **baked anchor**, then **hold A while
   standing still** (movement suppressed — d-pad resets the 72-tick progress).
+- `navigate_to_noclip` → steer directly to the requested world point with the same
+  movement controller, but without a nav route; used by Crewmate Ghost while
+  traveling to task centers before it switches to `complete_task` inside the rect.
 - `report` / `kill` → navigate to the body/target (a dynamic point, no anchor),
   then edge-press A.
 - `call_meeting` → navigate to the emergency button's baked anchor, then
@@ -693,7 +699,9 @@ default directive is `idle` mode (the stall/TTL fallback, rarely reached).
    hysteresis: enter when a recently seen believed imposter is close, then stay in
    Flee until that same threat is clearly farther away or its last-known position
    is stale. This prevents task/flee oscillation at the trigger radius.
-5. otherwise → **Normal** (ghosts stay in Normal to finish own tasks)
+5. `self_role == "dead"` → **Crewmate Ghost** (finish tasks with noclip navigation;
+   no body reporting or Flee)
+6. otherwise → **Normal**
 
 **Imposter selection** (priority order):
 
@@ -926,7 +934,7 @@ crewborg/
   nav.py             # baked-map nav graph + route planning (used by the action layer)
   trace.py           # stderr JSON trace + metrics sinks
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
-  modes/             # idle, normal, dick_mode, attend_meeting, report_body, flee, evade, pretend, search, hunt
+  modes/             # idle, normal, crewmate_ghost, dick_mode, attend_meeting, report_body, flee, evade, pretend, search, hunt
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
   map/               # vendored croatoan.resources + ported parser (§6)

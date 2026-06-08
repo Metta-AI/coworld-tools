@@ -667,7 +667,7 @@ def _decision_player_threat_payload(
 def _decision_task_payload(context: StepContext[Belief, ActionState, Intent, Command]) -> dict[str, Any] | None:
     intent = context.intent
     belief = context.belief
-    if intent.kind != "complete_task" or intent.task_index is None:
+    if intent.kind not in {"complete_task", "navigate_to_noclip"} or intent.task_index is None:
         return None
     if belief.map is None or not (0 <= intent.task_index < len(belief.map.tasks)):
         return {"task_index": intent.task_index, "valid": False}
@@ -680,7 +680,10 @@ def _decision_task_payload(context: StepContext[Belief, ActionState, Intent, Com
         and task.y <= self_xy[1] < task.y + task.h
     )
     anchor = belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
-    goal = anchor if anchor is not None else (task.center.x, task.center.y)
+    if intent.kind == "navigate_to_noclip" and intent.point is not None:
+        goal = intent.point
+    else:
+        goal = anchor if anchor is not None else (task.center.x, task.center.y)
     return {
         "task_index": intent.task_index,
         "valid": True,

@@ -14,6 +14,7 @@ Composite intents sequence navigate-then-interact over one "move toward a world
 point" routine that follows the baked nav route (design §9):
 
 - ``navigate_to`` → follow the route to the point.
+- ``navigate_to_noclip`` → steer directly to the point, ignoring wall-aware nav.
 - ``complete_task`` → navigate to the task rect, then hold A with no d-pad
   (movement suppressed — any d-pad input resets the 72-tick task progress).
 - ``call_meeting`` → navigate to the emergency-button rect, then edge-press A.
@@ -255,6 +256,11 @@ def _resolve(
         if intent.point is None:
             return Command(held_mask=0)
         return Command(held_mask=_navigate_mask(belief, action_state, self_xy, intent.point))
+
+    if intent.kind == "navigate_to_noclip":
+        if intent.point is None:
+            return Command(held_mask=0)
+        return Command(held_mask=_movement_mask(self_xy, intent.point, _velocity(action_state, self_xy)))
 
     if intent.kind == "escape":
         if intent.point is None:

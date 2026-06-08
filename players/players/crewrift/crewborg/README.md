@@ -18,9 +18,11 @@ as a Docker image the Coworld runner launches.
 
 ## What it does
 
-Crewborg plays **both roles** end-to-end. As a crewmate it does tasks, attends
-meetings, reports bodies, flees believed imposters, and **votes out the most-likely
-imposter** — a **Bayesian suspicion model** (`strategy/suspicion.py`) maintains a
+Crewborg plays **both roles** end-to-end. As a live crewmate it does tasks,
+attends meetings, reports bodies, flees believed imposters, and **votes out the
+most-likely imposter**; as a crewmate ghost it keeps finishing tasks with
+wall-ignoring navigation and skips body reports / imposter avoidance. A
+**Bayesian suspicion model** (`strategy/suspicion.py`) maintains a
 posterior `P(imposter)` per player (a combinatorial prior updated by likelihood
 ratios for witnessed kills/vents and graded event-log cues); it flees anyone over a
 probability threshold and at meetings votes the highest-`P` player above the vote
@@ -59,7 +61,7 @@ crewborg/
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           stderr-JSON trace & metrics sinks
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
-  modes/             idle/normal/dick_mode/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
+  modes/             idle/normal/crewmate_ghost/dick_mode/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
   map/               vendored croatoan.resources + ported parser/bake (§6)
