@@ -29,7 +29,7 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
     from anthropic import Anthropic, AnthropicBedrock
 
-    timeout = float(os.environ.get("CREWRIFTSTARTER_LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
+    timeout = float(os.environ.get("CREWBOT_LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
     if use_bedrock:
         client = AnthropicBedrock(
             aws_access_key=os.environ.get("AWS_ACCESS_KEY_ID"),
@@ -39,7 +39,7 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
             aws_profile=os.environ.get("AWS_PROFILE"),
             timeout=timeout,
         )
-        model = os.environ.get("CREWRIFTSTARTER_LLM_MODEL") or os.environ.get(
+        model = os.environ.get("CREWBOT_LLM_MODEL") or os.environ.get(
             "BEDROCK_MODEL", DEFAULT_BEDROCK_MODEL
         )
     else:
@@ -47,12 +47,12 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
             api_key=os.environ["ANTHROPIC_API_KEY"],
             timeout=timeout,
         )
-        model = os.environ.get("CREWRIFTSTARTER_LLM_MODEL", DEFAULT_DIRECT_MODEL)
+        model = os.environ.get("CREWBOT_LLM_MODEL", DEFAULT_DIRECT_MODEL)
 
     response = client.messages.create(
         model=model,
-        max_tokens=int(os.environ.get("CREWRIFTSTARTER_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-        temperature=float(os.environ.get("CREWRIFTSTARTER_LLM_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
+        max_tokens=int(os.environ.get("CREWBOT_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
+        temperature=float(os.environ.get("CREWBOT_LLM_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
         system=_system_prompt(),
         messages=[
             {
@@ -80,7 +80,7 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
 def _enabled() -> bool:
     return (
-        _flag("CREWRIFTSTARTER_LLM_MEETINGS")
+        _flag("CREWBOT_LLM_MEETINGS")
         or _flag("USE_BEDROCK")
         or _flag("CLAUDE_CODE_USE_BEDROCK")
     )
@@ -91,11 +91,11 @@ def _flag(name: str) -> bool:
 
 
 def _system_prompt() -> str:
-    path = os.environ.get("CREWRIFTSTARTER_LLM_SYSTEM_PROMPT_PATH")
+    path = os.environ.get("CREWBOT_LLM_SYSTEM_PROMPT_PATH")
     if path:
         return Path(path).read_text(encoding="utf-8")
     return (
-        "You control one CrewriftStarter Crewrift player during a meeting. "
+        "You control one Crewbot Crewrift player during a meeting. "
         "Return exactly one JSON object. Use only legal vote targets. "
         "Prefer concrete observations over generic suspicion."
     )
@@ -180,7 +180,7 @@ def _confidence(value: Any) -> float | None:
 def _min_submit_confidence() -> float:
     return float(
         os.environ.get(
-            "CREWRIFTSTARTER_LLM_MIN_SUBMIT_CONFIDENCE",
+            "CREWBOT_LLM_MIN_SUBMIT_CONFIDENCE",
             str(DEFAULT_MIN_SUBMIT_CONFIDENCE),
         )
     )
