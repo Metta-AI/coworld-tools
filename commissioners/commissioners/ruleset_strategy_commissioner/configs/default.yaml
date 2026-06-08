@@ -5,6 +5,7 @@ defaults:
   stage:
     label: Round
     episodes: 1
+    min_episodes_per_entrant: 1
 
 divisions:
   qualifiers:

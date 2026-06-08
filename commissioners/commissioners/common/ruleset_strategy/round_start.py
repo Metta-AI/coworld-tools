@@ -18,6 +18,7 @@ from commissioners.common.models import (
     RoundPolicyScore,
     RoundResultSnapshot,
     V2RoundConfig,
+    V2StageConfig,
 )
 from commissioners.common.protocol import EpisodeRequest as CommissionerProtocolEpisodeRequest
 from commissioners.common.protocol import EpisodeResult as CommissionerProtocolEpisodeResult
@@ -130,7 +131,12 @@ class RoundStartView:
         return entries
 
     def pool(self, rule: DivisionRule | None) -> PolicyPool:
-        stage = (rule.stages if rule and rule.stages is not None else self.config.stages)[0]
+        base_stage = (rule.stages if rule and rule.stages is not None else self.config.stages)[0]
+        round_config = V2RoundConfig.model_validate(self.round_config)
+        stage = base_stage
+        if round_config.stages is not None:
+            override_stage = round_config.stages[0].model_dump(mode="json", exclude_none=True, exclude_unset=True)
+            stage = V2StageConfig.model_validate({**base_stage.model_dump(mode="json"), **override_stage})
         pool_config = stage.model_dump(mode="json")
         pool_config[CONFIG_KEY] = self.config.model_dump(mode="json")
         return PolicyPool(id=self.round_start.round_id, label=stage.label, pool_type="round", config=pool_config)
