@@ -61,6 +61,7 @@ def _round_start_json() -> str:
                     policy_version_id=policy_version_id,
                     status="competing",
                     substatus="champion",
+                    is_champion=True,
                 )
                 for policy_version_id in policy_version_ids
             ],

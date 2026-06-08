@@ -115,3 +115,7 @@ divisions:
       type: competition
     entrants: champions
 ```
+
+The `champions` entrant shortcut selects memberships where `is_champion` is
+true. Non-champion `substatus` values are still available for staged qualifier
+flows, but champion scheduling does not rely on `substatus: champion`.

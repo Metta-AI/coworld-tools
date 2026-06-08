@@ -19,7 +19,7 @@ from commissioners.common.models import (
     PoolConfig,
     RoundSchedulingConfig,
     V2StageConfig,
-    policy_membership_has_champion_substatus,
+    policy_membership_is_champion,
 )
 
 DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
@@ -99,7 +99,7 @@ def division_entrants(
         membership
         for membership in memberships
         if membership.division_id == division.id
-        and policy_membership_has_champion_substatus(membership.status, membership.substatus)
+        and policy_membership_is_champion(membership.status, membership.is_champion)
     ]
 
 

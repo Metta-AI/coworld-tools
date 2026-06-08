@@ -43,11 +43,14 @@ class EntrantSelector(_ConfigModel):
     status: str | None = None
     substatus: str | None = None
     match_substatus: bool = False
+    is_champion: bool | None = None
 
     def matches(self, membership: MembershipSnapshot) -> bool:
         if self.status is not None and membership.status != self.status:
             return False
         if self.match_substatus and membership.substatus != self.substatus:
+            return False
+        if self.is_champion is not None and membership.is_champion != self.is_champion:
             return False
         return True
 
@@ -66,8 +69,7 @@ class FillerSource(_ConfigModel):
     entrants: EntrantSelector = Field(
         default_factory=lambda: EntrantSelector(
             status="competing",
-            substatus="champion",
-            match_substatus=True,
+            is_champion=True,
         )
     )
 
@@ -429,7 +431,12 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         selector = self._entrant_selector(stage.entrants or division.entrants, division.match)
         if stage.entrants is not None or stage_count == 1:
             return selector
-        return EntrantSelector(status=selector.status, substatus=None if index == 0 else stage.id, match_substatus=True)
+        return EntrantSelector(
+            status=selector.status,
+            substatus=None if index == 0 else stage.id,
+            match_substatus=True,
+            is_champion=selector.is_champion,
+        )
 
     def _entrant_selector(
         self,
@@ -441,11 +448,11 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         if entrants == "qualifying":
             return EntrantSelector(status="qualifying")
         if entrants == "champions":
-            return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+            return EntrantSelector(status="competing", is_champion=True)
         if division_match.type == DIVISION_TYPE_STAGING:
             return EntrantSelector(status="qualifying")
         if division_match.type == DIVISION_TYPE_COMPETITION:
-            return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+            return EntrantSelector(status="competing", is_champion=True)
         return EntrantSelector()
 
     def _move_to_match(self, division_key: str | None) -> DivisionMatch | None:
@@ -458,7 +465,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
 def default_entrant_selector(division: DivisionSnapshot) -> EntrantSelector:
     if division.type == DIVISION_TYPE_STAGING:
         return EntrantSelector(status="qualifying")
-    return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+    return EntrantSelector(status="competing", is_champion=True)
 
 
 def load_ruleset_strategy_config_file(path: Path) -> RulesetStrategyCommissionerConfig:
