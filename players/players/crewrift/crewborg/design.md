@@ -906,6 +906,13 @@ pressure, with a small tick interval to avoid repeated calls from one visual
 state. Distinct chat messages can be sent across the same meeting; duplicate model
 text is suppressed.
 
+A meeting client that reports `enabled` but whose calls keep failing (an ungated
+404 model, a bad key, a network outage) must not bypass the deterministic
+chat→vote path and cost us our vote. On a permanent error (HTTP 401/403/404) or
+after two failures in an episode, the mode latches `_llm_disabled_for_episode`
+and routes every subsequent meeting tick — in this and later meetings of the same
+episode — through the deterministic fallback, tracing `meeting_llm_disabled`.
+
 ---
 
 ## 11. Package layout and tracing
@@ -977,8 +984,9 @@ Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
 seen as the kill-ready→cooldown edge). Incoming meeting chat is decoded into
 `belief.chat_log` (§4.3) and emitted once per meeting line as `chat_received`.
 When the meeting LLM is enabled, `meeting_context_serialized`,
-`meeting_llm_decision`, fallback reasons, selected chat/vote, and a latency
-histogram are always-on. Raw LLM request/response tracing is opt-in via
+`meeting_llm_decision`, fallback reasons, `meeting_llm_disabled` (when repeated
+or permanent call failures latch the episode onto the deterministic fallback),
+selected chat/vote, and a latency histogram are always-on. Raw LLM request/response tracing is opt-in via
 `CREWBORG_LLM_TRACE_RAW=1` or `CREWBORG_TRACE=debug`.
 
 **Viewer/debug verbosity.** `CREWBORG_TRACE=viewer` is opt-in and heavy: it emits

@@ -35,6 +35,25 @@ class _FakeMeetingClient:
         )
 
 
+class _FailingMeetingClient:
+    """An ``enabled`` client whose every call raises, like an ungated/404 model."""
+
+    enabled = True
+    disabled_reason = None
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+        self.calls = 0
+
+    def decide(self, context: dict, *, trigger: str) -> MeetingLLMResult:
+        self.calls += 1
+        raise self.exc
+
+
+class _NotFoundError(Exception):
+    status_code = 404
+
+
 def _meeting_belief(*, tick: int = 0, start_tick: int = 0) -> Belief:
     belief = Belief(phase="Voting", phase_start_tick=start_tick, last_tick=tick, total_player_count=2)
     belief.voting = VotingState(
@@ -128,6 +147,58 @@ def test_attend_meeting_invalid_llm_decision_falls_back_to_canned_chat() -> None
     intent = mode.decide(_meeting_belief(tick=0), ActionState())
     assert intent.kind == "chat"
     assert intent.text == "no read, skipping"
+
+
+def test_attend_meeting_votes_when_enabled_llm_permanently_fails() -> None:
+    # A 404/ungated model that reports enabled must not cost us our vote: the
+    # mode latches onto the deterministic chat->vote fallback after the first
+    # permanent error rather than idling out the meeting without voting.
+    client = _FailingMeetingClient(_NotFoundError("model use case not submitted"))
+    mode = AttendMeetingMode(llm_client=client)
+
+    first = mode.decide(_meeting_belief(tick=0), ActionState())
+    assert first.kind == "chat"  # meeting_start failed -> deterministic opener
+    assert mode._llm_disabled_for_episode is True
+
+    second = mode.decide(_meeting_belief(tick=1), ActionState())
+    assert second.kind == "vote"
+    assert second.target_color == "red"  # the top suspect
+
+
+def test_attend_meeting_keeps_voting_in_later_meetings_after_llm_failure() -> None:
+    client = _FailingMeetingClient(_NotFoundError("ungated"))
+    mode = AttendMeetingMode(llm_client=client)
+
+    mode.decide(_meeting_belief(tick=0), ActionState())  # meeting 1 opener (+ latch)
+    mode.decide(_meeting_belief(tick=1), ActionState())  # meeting 1 vote
+
+    # A new meeting (new phase_start_tick) stays on the deterministic fallback
+    # without ever calling the broken client again.
+    calls_after_meeting_one = client.calls
+    opener = mode.decide(_meeting_belief(tick=300, start_tick=300), ActionState())
+    assert opener.kind == "chat"
+    vote = mode.decide(_meeting_belief(tick=301, start_tick=300), ActionState())
+    assert vote.kind == "vote" and vote.target_color == "red"
+    assert client.calls == calls_after_meeting_one  # no further LLM calls
+
+
+def test_attend_meeting_votes_after_repeated_transient_llm_failures() -> None:
+    # A transient error (no status_code) latches only after the failure
+    # threshold, but still ends in a vote rather than an unvoted meeting.
+    client = _FailingMeetingClient(RuntimeError("timeout"))
+    mode = AttendMeetingMode(llm_client=client)
+
+    first = mode.decide(_meeting_belief(tick=0), ActionState())  # failure #1 -> chat
+    assert first.kind == "chat"
+    assert mode._llm_disabled_for_episode is False
+
+    belief = _meeting_belief(tick=13)
+    belief.chat_log = [ChatEvent(tick=5, speaker_color="red", text="i was nav")]
+    mode.decide(belief, ActionState())  # new_chat trigger -> failure #2 -> latched
+    assert mode._llm_disabled_for_episode is True
+
+    vote = mode.decide(_meeting_belief(tick=14), ActionState())
+    assert vote.kind == "vote" and vote.target_color == "red"
 
 
 def test_read_meeting_params_from_env_enables_llm_only_with_key() -> None:
