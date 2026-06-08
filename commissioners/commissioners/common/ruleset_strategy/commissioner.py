@@ -34,7 +34,7 @@ from commissioners.common.utils import (
     _round_structure_description,
     _schedule_slot_description,
 )
-from commissioners.common.ruleset_strategy.config import CONFIG_KEY, RulesetStrategyCommissionerConfig
+from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig, load_image_ruleset_strategy_config
 from commissioners.common.ruleset_strategy.entrants import division_entries, select_rule
 from commissioners.common.ruleset_strategy.membership_events import build_membership_events, protocol_policy_membership_event
 from commissioners.common.ruleset_strategy.round_start import RoundStartView
@@ -44,11 +44,19 @@ from commissioners.common.ruleset_strategy.scheduling import schedule_entries
 class RulesetStrategyCommissioner(BaselineCommissioner):
     """Commissioner whose scheduling, seating, ranking metadata, and membership changes come from config."""
 
-    def _config(self, commissioner_config: dict[str, Any] | None) -> RulesetStrategyCommissionerConfig:
-        return RulesetStrategyCommissionerConfig.from_commissioner_config(commissioner_config)
+    def __init__(self, config: RulesetStrategyCommissionerConfig | dict[str, Any] | None = None) -> None:
+        if config is None:
+            self._ruleset_config = load_image_ruleset_strategy_config()
+        elif isinstance(config, RulesetStrategyCommissionerConfig):
+            self._ruleset_config = config
+        else:
+            self._ruleset_config = RulesetStrategyCommissionerConfig.from_mapping(config)
+
+    def _config(self) -> RulesetStrategyCommissionerConfig:
+        return self._ruleset_config
 
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]:
-        config = self._config(ctx.league.commissioner_config)
+        config = self._config()
         if config.ranking.filter_metadata:
             filtered = [
                 result
@@ -59,11 +67,11 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         return super().rank_division(ctx)
 
     def _leaderboard_ewma_halflife(self, ctx: DivisionLeaderboardContext) -> timedelta:
-        config = self._config(ctx.league.commissioner_config)
+        config = self._config()
         return timedelta(hours=config.ranking.ewma_halflife_hours)
 
     def describe_division(self, ctx: DivisionDescriptionContext) -> DivisionCommissionerDescriptionPublic:
-        config = self._config(ctx.league.commissioner_config)
+        config = self._config()
         memberships = list(ctx.active_memberships)
         rule = select_rule(config, ctx.division, memberships)
         stages = rule.stages if rule and rule.stages is not None else config.stages
@@ -89,7 +97,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         )
 
     def schedule_rounds(self, ctx: ScheduleContext) -> list[RoundSpec]:
-        config = self._config(ctx.league.commissioner_config)
+        config = self._config()
         current_slot = _current_schedule_slot(datetime.now(UTC), config)
         specs: list[RoundSpec] = []
         for division in ctx.divisions:
@@ -118,7 +126,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         return specs
 
     def schedule_episodes_for_round_start(self, round_start: CommissionerRoundStart) -> CommissionerScheduleEpisodes:
-        config = self._config(round_start.league.commissioner_config)
+        config = self._config()
         view = RoundStartView(round_start, config)
         rule = select_rule(config, view.current_division, view.memberships)
         variant_id, num_agents = view.variant()
@@ -140,7 +148,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         num_agents: int,
         variant_id: str,
     ) -> CommissionerScheduleEpisodes:
-        config = self._config(self._pool_commissioner_config(pool))
+        config = self._config()
         return schedule_entries(
             pool=pool,
             primary_entries=entries,
@@ -155,7 +163,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         round_start: CommissionerRoundStart,
         episode_results: list[CommissionerProtocolEpisodeResult],
     ) -> CommissionerRoundComplete:
-        config = self._config(round_start.league.commissioner_config)
+        config = self._config()
         view = RoundStartView(round_start, config)
         rule = select_rule(config, view.current_division, view.memberships)
         entries = view.entries(rule)
@@ -186,7 +194,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             entries=entries,
             episode_results=episode_results,
         )
-        config = self._config(self._pool_commissioner_config(pool))
+        config = self._config()
         if config.ranking.result_metadata:
             for division_ranking in complete.results:
                 for ranking in division_ranking.rankings:
@@ -194,11 +202,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         return complete
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
-        config = self._config(ctx.commissioner_config)
+        config = self._config()
         if not config.membership_changes:
             return super().on_round_completed(ctx)
         return OnRoundCompletedResult(policy_membership_events=build_membership_events(ctx, config))
-
-    def _pool_commissioner_config(self, pool: PolicyPool) -> dict[str, Any]:
-        nested = pool.config.get(CONFIG_KEY)
-        return nested if isinstance(nested, dict) else pool.config

@@ -30,4 +30,4 @@ entries:
     target: "*"
     status: active
     owner: Metta-AI
-    description: Ruleset strategy commissioner configured by league JSON for seating, staged qualifiers, filler entries, and membership changes.
+    description: Ruleset strategy commissioner configured by image-bundled YAML for seating, staged qualifiers, filler entries, and membership changes.

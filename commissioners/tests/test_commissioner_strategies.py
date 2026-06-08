@@ -58,7 +58,11 @@ RULESET_CONFIG_DIR = Path(__file__).parents[1] / "commissioners" / "ruleset_stra
 
 
 def _ruleset_config(name: str) -> dict:
-    return {"ruleset_strategy": yaml.safe_load((RULESET_CONFIG_DIR / f"{name}.yaml").read_text())}
+    return yaml.safe_load((RULESET_CONFIG_DIR / f"{name}.yaml").read_text())
+
+
+def _ruleset_commissioner(name: str) -> RulesetStrategyCommissioner:
+    return RulesetStrategyCommissioner(_ruleset_config(name))
 
 
 def _round_start(
@@ -308,10 +312,10 @@ def test_ruleset_strategy_default_config_matches_default_schedule() -> None:
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
         num_agents=4,
-        commissioner_config=_ruleset_config("default"),
+        commissioner_config={},
     )
 
-    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(), round_start)
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
 
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         [policy_version_ids[0], policy_version_ids[1], policy_version_ids[2], policy_version_ids[0]]
@@ -323,12 +327,39 @@ def test_ruleset_strategy_default_config_qualifier_self_play_does_not_crash() ->
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
         num_agents=4,
-        commissioner_config=_ruleset_config("default"),
+        commissioner_config={},
         division_name="Qualifiers",
         division_type="staging",
     )
 
-    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(), round_start)
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0]] * 4,
+        [policy_version_ids[0]] * 4,
+        [policy_version_ids[1]] * 4,
+        [policy_version_ids[1]] * 4,
+    ]
+
+
+def test_ruleset_strategy_ignores_legacy_wire_commissioner_config() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=4,
+        commissioner_config={
+            "stages": [{"label": "Legacy", "num_episodes": 999, "min_episodes_per_entrant": 999}],
+            "minimum_champions": 2,
+            "commissioner_runnable_id": "default-commissioner",
+            "qualifiers_division_name": "Qualifiers",
+            "default_execution_backend": "dispatch",
+            "schedule_interval_minutes": 30,
+        },
+        division_name="Qualifiers",
+        division_type="staging",
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
 
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         [policy_version_ids[0]] * 4,
@@ -347,7 +378,7 @@ def test_ruleset_strategy_transition_configs_advance_completed_qualifiers(config
     round_start = _round_start(
         policy_version_ids=[],
         num_agents=4,
-        commissioner_config=_ruleset_config(config_name),
+        commissioner_config={},
         division_name="Qualifiers",
         division_id=qualifier_id,
         division_type="staging",
@@ -368,7 +399,7 @@ def test_ruleset_strategy_transition_configs_advance_completed_qualifiers(config
     ]
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner(config_name),
         round_start,
         [
             ProtocolEpisodeResult(
@@ -392,7 +423,7 @@ def test_ruleset_strategy_cogs_vs_clips_config_matches_rolling_window_schedule()
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
         num_agents=8,
-        commissioner_config=_ruleset_config("cogs_vs_clips"),
+        commissioner_config={},
     )
     entries = [
         PolicyPoolEntry(pool_id=round_start.round_id, policy_version_id=policy_version_id, seed_order=index)
@@ -410,7 +441,7 @@ def test_ruleset_strategy_cogs_vs_clips_config_matches_rolling_window_schedule()
         variant_id="default",
     )
 
-    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(), round_start)
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("cogs_vs_clips"), round_start)
 
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         episode.policy_version_ids for episode in expected.episodes
@@ -422,7 +453,7 @@ def test_ruleset_strategy_among_them_config_matches_rolling_window_schedule() ->
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
         num_agents=8,
-        commissioner_config=_ruleset_config("among_them"),
+        commissioner_config={},
         division_name="Daily",
     )
     entries = [
@@ -441,7 +472,7 @@ def test_ruleset_strategy_among_them_config_matches_rolling_window_schedule() ->
         variant_id="default",
     )
 
-    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(), round_start)
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("among_them"), round_start)
 
     assert len(schedule.episodes) == len(expected.episodes)
     assert [episode.policy_version_ids for episode in schedule.episodes[:3]] == [
@@ -458,7 +489,7 @@ def test_ruleset_strategy_among_them_config_targets_first_competition_division_w
     round_start = _round_start(
         policy_version_ids=[],
         num_agents=8,
-        commissioner_config=_ruleset_config("among_them"),
+        commissioner_config={},
         division_name="Qualifiers",
         division_id=qualifier_id,
         division_type="staging",
@@ -477,7 +508,7 @@ def test_ruleset_strategy_among_them_config_targets_first_competition_division_w
     ]
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         round_start,
         [
             ProtocolEpisodeResult(
@@ -510,7 +541,7 @@ def test_ruleset_strategy_among_them_config_first_qualifier_stage_advances_to_sc
     round_start = _round_start(
         policy_version_ids=[],
         num_agents=8,
-        commissioner_config=_ruleset_config("among_them"),
+        commissioner_config={},
         division_name="Qualifiers",
         division_id=qualifier_id,
         division_type="staging",
@@ -530,7 +561,7 @@ def test_ruleset_strategy_among_them_config_first_qualifier_stage_advances_to_sc
     ]
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         round_start,
         [
             ProtocolEpisodeResult(
@@ -562,9 +593,9 @@ def test_ruleset_strategy_among_them_config_prioritizes_later_qualifier_stage_wh
     score_gate_policy_id = uuid4()
 
     response = schedule_rounds_for_request(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         ScheduleRoundsRequest(
-            league=LeagueInfo(id=league_id, commissioner_config=_ruleset_config("among_them")),
+            league=LeagueInfo(id=league_id, commissioner_config={}),
             divisions=[DivisionInfo(id=qualifier_id, name="Qualifiers", level=-1, type="staging")],
             active_memberships=[
                 MembershipInfo(
@@ -601,9 +632,9 @@ def test_ruleset_strategy_among_them_config_preserves_scoring_mechanics_descript
     policy_version_ids = [uuid4() for _ in range(8)]
 
     response = describe_division_for_request(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         DescribeDivisionRequest(
-            league=LeagueInfo(id=league_id, commissioner_config=_ruleset_config("among_them")),
+            league=LeagueInfo(id=league_id, commissioner_config={}),
             division=DivisionInfo(id=division_id, name="Wood", level=0, type="competition"),
             active_memberships=[
                 MembershipInfo(
@@ -628,9 +659,9 @@ def test_ruleset_strategy_describe_empty_configured_division_uses_configured_min
     league_id = uuid4()
 
     response = describe_division_for_request(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         DescribeDivisionRequest(
-            league=LeagueInfo(id=league_id, commissioner_config=_ruleset_config("among_them")),
+            league=LeagueInfo(id=league_id, commissioner_config={}),
             division=DivisionInfo(id=division_id, name="Wood", level=0, type="competition"),
             active_memberships=[],
             recent_rounds=[],
@@ -645,12 +676,12 @@ def test_ruleset_strategy_among_them_scoring_config_does_not_add_version_metadat
     round_start = _round_start(
         policy_version_ids=[policy_version_id],
         num_agents=8,
-        commissioner_config=_ruleset_config("among_them"),
+        commissioner_config={},
         division_name="Wood",
     )
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        _ruleset_commissioner("among_them"),
         round_start,
         [
             ProtocolEpisodeResult(
@@ -673,21 +704,17 @@ def test_ruleset_strategy_scoring_configures_leaderboard_ewma_halflife() -> None
     older_policy_id = uuid4()
     score_metadata = {"score_kind": MEAN_ROUND_SCORE_KIND}
 
+    config = {
+        "scoring": {
+            "round_score": "mean",
+            "leaderboard": {"type": "ewma", "half_life_hours": 1},
+        },
+        "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
+    }
     response = rank_division_for_request(
-        RulesetStrategyCommissioner(),
+        RulesetStrategyCommissioner(config),
         RankDivisionRequest(
-            league=LeagueInfo(
-                id=uuid4(),
-                commissioner_config={
-                    "ruleset_strategy": {
-                        "scoring": {
-                            "round_score": "mean",
-                            "leaderboard": {"type": "ewma", "half_life_hours": 1},
-                        },
-                        "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
-                    }
-                },
-            ),
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
             division=DivisionInfo(id=division_id, name="Wood", level=0, type="competition"),
             completed_rounds=[
                 RoundInfo(
@@ -772,30 +799,29 @@ def test_ruleset_strategy_commissioner_fills_short_round_from_configured_divisio
     filler_policy_ids = [uuid4(), uuid4()]
     daily_id = uuid4()
     filler_id = uuid4()
+    config = {
+        "defaults": {
+            "seating": "rolling_window",
+            "fill_seats": "fill_from_divisions",
+            "fill_from": [
+                {
+                    "match": {"name": "Fillers"},
+                    "entrants": {"status": "competing", "substatus": "champion", "match_substatus": True},
+                }
+            ],
+        },
+        "divisions": {
+            "daily": {
+                "match": {"name": "Daily"},
+                "min_entries_to_start": 1,
+                "stage": {"label": "Daily", "episodes": 1},
+            },
+        },
+    }
     round_start = _round_start(
         policy_version_ids=[primary_policy_id],
         num_agents=3,
-        commissioner_config={
-            "ruleset_strategy": {
-                "defaults": {
-                    "seating": "rolling_window",
-                    "fill_seats": "fill_from_divisions",
-                    "fill_from": [
-                        {
-                            "match": {"name": "Fillers"},
-                            "entrants": {"status": "competing", "substatus": "champion", "match_substatus": True},
-                        }
-                    ],
-                },
-                "divisions": {
-                    "daily": {
-                        "match": {"name": "Daily"},
-                        "min_entries_to_start": 1,
-                        "stage": {"label": "Daily", "episodes": 1},
-                    },
-                },
-            }
-        },
+        commissioner_config={},
         division_name="Daily",
         division_id=daily_id,
         extra_divisions=[DivisionInfo(id=filler_id, name="Fillers", level=1, type="competition")],
@@ -816,7 +842,7 @@ def test_ruleset_strategy_commissioner_fills_short_round_from_configured_divisio
         ]
     )
 
-    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(), round_start)
+    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(config), round_start)
 
     assert len(schedule.episodes) == 1
     assert schedule.episodes[0].policy_version_ids == [primary_policy_id, *filler_policy_ids]
@@ -826,55 +852,54 @@ def test_ruleset_strategy_commissioner_advances_qualifier_substatus_after_comple
     qualifier_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]
     membership_ids = [uuid4(), uuid4()]
+    config = {
+        "divisions": {
+            "qualifiers": {
+                "match": {"name": "Qualifiers", "type": "staging"},
+                "entrants": {"status": "qualifying", "substatus": None, "match_substatus": True},
+                "min_entries_to_start": 1,
+                "stages": [
+                    {
+                        "id": "qualifier_stage_1",
+                        "schedule": {
+                            "label": "Qualifier stage 1",
+                            "attempts": 1,
+                            "min_episodes_per_entrant": 1,
+                            "self_play": True,
+                        },
+                        "on_episode_complete": [
+                            {
+                                "id": "completed",
+                                "criteria": {"completed_episodes_gt": 0},
+                                "actions": [
+                                    {
+                                        "type": "update_membership",
+                                        "status": "qualifying",
+                                        "substatus": "qualifier_stage_2",
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "failed",
+                                "criteria": "otherwise",
+                                "actions": [
+                                    {
+                                        "type": "update_membership",
+                                        "status": "disqualified",
+                                        "substatus": "inactive",
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        },
+    }
     round_start = _round_start(
         policy_version_ids=[],
         num_agents=2,
-        commissioner_config={
-            "ruleset_strategy": {
-                "divisions": {
-                    "qualifiers": {
-                        "match": {"name": "Qualifiers", "type": "staging"},
-                        "entrants": {"status": "qualifying", "substatus": None, "match_substatus": True},
-                        "min_entries_to_start": 1,
-                        "stages": [
-                            {
-                                "id": "qualifier_stage_1",
-                                "schedule": {
-                                    "label": "Qualifier stage 1",
-                                    "attempts": 1,
-                                    "min_episodes_per_entrant": 1,
-                                    "self_play": True,
-                                },
-                                "on_episode_complete": [
-                                    {
-                                        "id": "completed",
-                                        "criteria": {"completed_episodes_gt": 0},
-                                        "actions": [
-                                            {
-                                                "type": "update_membership",
-                                                "status": "qualifying",
-                                                "substatus": "qualifier_stage_2",
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "id": "failed",
-                                        "criteria": "otherwise",
-                                        "actions": [
-                                            {
-                                                "type": "update_membership",
-                                                "status": "disqualified",
-                                                "substatus": "inactive",
-                                            }
-                                        ],
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                },
-            }
-        },
+        commissioner_config={},
         division_name="Qualifiers",
         division_id=qualifier_id,
         division_type="staging",
@@ -896,7 +921,7 @@ def test_ruleset_strategy_commissioner_advances_qualifier_substatus_after_comple
     ]
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        RulesetStrategyCommissioner(config),
         round_start,
         [
             ProtocolEpisodeResult(
@@ -920,59 +945,58 @@ def test_ruleset_strategy_commissioner_stage_two_score_gate_enters_competition()
     competition_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]
     membership_ids = [uuid4(), uuid4()]
+    config = {
+        "divisions": {
+            "qualifiers": {
+                "match": {"name": "Qualifiers", "type": "staging"},
+                "entrants": {
+                    "status": "qualifying",
+                    "substatus": "qualifier_stage_2",
+                    "match_substatus": True,
+                },
+                "min_entries_to_start": 1,
+                "stages": [
+                    {
+                        "id": "qualifier_stage_2",
+                        "schedule": {"label": "Qualifier stage 2", "episodes": 1},
+                        "on_episode_complete": [
+                            {
+                                "id": "passed_score_gate",
+                                "criteria": {"score_gt": 0},
+                                "actions": [
+                                    {
+                                        "type": "update_membership",
+                                        "division": "competition",
+                                        "status": "competing",
+                                        "substatus": "champion",
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "failed_score_gate",
+                                "criteria": "otherwise",
+                                "actions": [
+                                    {
+                                        "type": "update_membership",
+                                        "status": "disqualified",
+                                        "substatus": "inactive",
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+            "competition": {
+                "match": {"name": "Daily", "type": "competition"},
+                "entrants": "champions",
+            },
+        },
+    }
     round_start = _round_start(
         policy_version_ids=[],
         num_agents=2,
-        commissioner_config={
-            "ruleset_strategy": {
-                "divisions": {
-                    "qualifiers": {
-                        "match": {"name": "Qualifiers", "type": "staging"},
-                        "entrants": {
-                            "status": "qualifying",
-                            "substatus": "qualifier_stage_2",
-                            "match_substatus": True,
-                        },
-                        "min_entries_to_start": 1,
-                        "stages": [
-                            {
-                                "id": "qualifier_stage_2",
-                                "schedule": {"label": "Qualifier stage 2", "episodes": 1},
-                                "on_episode_complete": [
-                                    {
-                                        "id": "passed_score_gate",
-                                        "criteria": {"score_gt": 0},
-                                        "actions": [
-                                            {
-                                                "type": "update_membership",
-                                                "division": "competition",
-                                                "status": "competing",
-                                                "substatus": "champion",
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "id": "failed_score_gate",
-                                        "criteria": "otherwise",
-                                        "actions": [
-                                            {
-                                                "type": "update_membership",
-                                                "status": "disqualified",
-                                                "substatus": "inactive",
-                                            }
-                                        ],
-                                    },
-                                ],
-                            }
-                        ],
-                    },
-                    "competition": {
-                        "match": {"name": "Daily", "type": "competition"},
-                        "entrants": "champions",
-                    }
-                },
-            }
-        },
+        commissioner_config={},
         division_name="Qualifiers",
         division_id=qualifier_id,
         division_type="staging",
@@ -995,7 +1019,7 @@ def test_ruleset_strategy_commissioner_stage_two_score_gate_enters_competition()
     ]
 
     complete = complete_round_for_round_start(
-        RulesetStrategyCommissioner(),
+        RulesetStrategyCommissioner(config),
         round_start,
         [
             ProtocolEpisodeResult(

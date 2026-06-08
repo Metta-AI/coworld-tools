@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from commissioners.common.models import DIVISION_TYPE_COMPETITION, DIVISION_TYPE_STAGING, DivisionSnapshot, MembershipSnapshot
@@ -9,6 +13,10 @@ from commissioners.common.models import V2StageConfig
 from commissioners.common.utils import MEAN_ROUND_SCORE_KIND, MEAN_SCORE_EWMA_SCORING_MECHANICS
 
 CONFIG_KEY = "ruleset_strategy"
+IMAGE_CONFIG_NAME_ENV = "RULESET_STRATEGY_CONFIG_NAME"
+IMAGE_CONFIG_PATH_ENV = "RULESET_STRATEGY_CONFIG_PATH"
+DEFAULT_IMAGE_CONFIG_NAME = "default"
+BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "ruleset_strategy_commissioner" / "configs"
 
 SeatingStrategy = Literal["baseline_window", "rolling_window"]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
@@ -259,8 +267,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         return self
 
     @classmethod
-    def from_commissioner_config(cls, commissioner_config: dict[str, Any] | None) -> RulesetStrategyCommissionerConfig:
-        config = commissioner_config or {}
+    def from_mapping(cls, config: dict[str, Any]) -> RulesetStrategyCommissionerConfig:
         nested = config.get(CONFIG_KEY)
         if isinstance(nested, dict):
             return cls.model_validate(nested)
@@ -452,3 +459,22 @@ def default_entrant_selector(division: DivisionSnapshot) -> EntrantSelector:
     if division.type == DIVISION_TYPE_STAGING:
         return EntrantSelector(status="qualifying")
     return EntrantSelector(status="competing", substatus="champion", match_substatus=True)
+
+
+def load_ruleset_strategy_config_file(path: Path) -> RulesetStrategyCommissionerConfig:
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"ruleset strategy config file must contain a mapping: {path}")
+    return RulesetStrategyCommissionerConfig.from_mapping(data)
+
+
+@lru_cache(maxsize=1)
+def load_image_ruleset_strategy_config() -> RulesetStrategyCommissionerConfig:
+    path_env = os.getenv(IMAGE_CONFIG_PATH_ENV)
+    if path_env:
+        return load_ruleset_strategy_config_file(Path(path_env))
+
+    config_name = os.getenv(IMAGE_CONFIG_NAME_ENV, DEFAULT_IMAGE_CONFIG_NAME).strip() or DEFAULT_IMAGE_CONFIG_NAME
+    if "/" in config_name or "\\" in config_name or config_name in {".", ".."}:
+        raise ValueError(f"{IMAGE_CONFIG_NAME_ENV} must be a bundled config name, got {config_name!r}")
+    return load_ruleset_strategy_config_file(BUNDLED_CONFIG_DIR / f"{config_name}.yaml")

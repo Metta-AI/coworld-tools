@@ -128,11 +128,7 @@ class RoundStartView:
     def pool(self, rule: DivisionRule | None) -> PolicyPool:
         stage = (rule.stages if rule and rule.stages is not None else self.config.stages)[0]
         pool_config = stage.model_dump(mode="json")
-        league_config = self.round_start.league.commissioner_config or {}
-        public_ruleset_config = league_config.get(CONFIG_KEY)
-        pool_config[CONFIG_KEY] = (
-            public_ruleset_config if isinstance(public_ruleset_config, dict) else self.config.model_dump(mode="json")
-        )
+        pool_config[CONFIG_KEY] = self.config.model_dump(mode="json")
         return PolicyPool(id=self.round_start.round_id, label=stage.label, pool_type="round", config=pool_config)
 
     def round_row(self) -> Round:
@@ -170,7 +166,7 @@ class RoundStartView:
             league=LeagueSnapshot(
                 id=self.round_start.league.id,
                 commissioner_key=self.round_start.league.commissioner_key or "ruleset_strategy",
-                commissioner_config=self.round_start.league.commissioner_config,
+                commissioner_config={CONFIG_KEY: self.config.model_dump(mode="json")},
             ),
             division=self.current_division,
             all_divisions=self.divisions,
@@ -190,7 +186,7 @@ class RoundStartView:
                 membership for membership in self.memberships if membership.division_id == self.current_division.id
             ],
             recent_results=[],
-            commissioner_config=self.round_start.league.commissioner_config,
+            commissioner_config={CONFIG_KEY: self.config.model_dump(mode="json")},
         )
 
     def _division_snapshot(self, division: Any) -> DivisionSnapshot:

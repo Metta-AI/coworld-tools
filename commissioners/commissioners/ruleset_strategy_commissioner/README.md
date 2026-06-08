@@ -1,10 +1,21 @@
 # Ruleset Strategy Commissioner
 
-Configurable Coworld commissioner configured by `league.commissioner_config`.
+Configurable Coworld commissioner whose behavior is packaged in the container image.
 
-The runnable reads either the top-level commissioner config or a nested `ruleset_strategy` object. Configs can be
-authored in the readable ruleset shape below; the runtime model validates that public shape directly and derives lower
-level scheduling and membership rules from it.
+The runnable does not read `league.commissioner_config` for behavior. That field is a platform wire artifact and may
+contain legacy data while Coworlds roll over to container commissioners. Ruleset configs are authored in the readable
+shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
+`RULESET_STRATEGY_CONFIG_PATH` environment variables.
+
+The shared Dockerfile bundles configs from `configs/` and defaults to `configs/default.yaml`. Build a different bundled
+config image with:
+
+```bash
+commissioners/ruleset_strategy_commissioner/build.sh among_them
+```
+
+For a downstream Coworld-specific image, derive from the ruleset strategy image, copy a config file into the image, and
+set `RULESET_STRATEGY_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
 
 Key config areas:
 
