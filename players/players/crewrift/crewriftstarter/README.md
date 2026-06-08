@@ -1,18 +1,18 @@
-# RichardNotsus
+# CrewriftStarter
 
-RichardNotsus is the notsus Crewrift baseline with one bounded LLM hook during
-meetings. The Nim player keeps notsus movement, tasking, body reporting, imposter
-behavior, vote cursor navigation, and deterministic fallback voting. The LLM can
-only add meeting chat or choose a legal vote target from the current voting
-screen.
+CrewriftStarter is the recommended starter policy for Crewrift. It keeps the
+compact Nim movement, tasking, body reporting, imposter behavior, vote cursor
+navigation, and deterministic fallback voting from notsus, then adds a bounded
+LLM hook during meetings. The LLM can only add meeting chat or choose a legal
+vote target from the current voting screen.
 
 The Docker build checks out the canonical `coworld-crewrift` repo at the pinned
-ref in `Dockerfile`, overlays this player under `players/richardnotsus`, compiles
+ref in `Dockerfile`, overlays this player under `players/crewriftstarter`, compiles
 the Nim binary, and copies a small Python helper into the runtime image.
 
 ## LLM meetings
 
-`RICHARDNOTSUS_LLM_MEETINGS=1` enables the helper. `USE_BEDROCK=1` uses
+`CREWRIFTSTARTER_LLM_MEETINGS=1` enables the helper. `USE_BEDROCK=1` uses
 Anthropic Bedrock via the tournament-provided AWS environment; pass the upload or
 runner option that injects Bedrock credentials when submitting this image. Without
 Bedrock, set `ANTHROPIC_API_KEY` for direct Anthropic. If the helper is disabled,
@@ -22,7 +22,7 @@ confidence `submit_vote` responses are treated as tentative votes, and crewmates
 cast non-skip votes only on repeated same-target sus/body evidence or revenge votes.
 
 When Coworld provides a `slot=` in `COWORLD_PLAYER_WS_URL` or via `--slot`,
-RichardNotsus pins its self color from that slot. That keeps meeting context and
+CrewriftStarter pins its self color from that slot. That keeps meeting context and
 self-vote filtering stable when vote-screen marker reads are noisy.
 
 The helper receives a compact JSON meeting frame with visible players, parsed
@@ -43,17 +43,17 @@ as "I saw red near the reported body." It returns one JSON object:
 Build locally:
 
 ```sh
-players/crewrift/richardnotsus/build.sh --tag richardnotsus:test
+players/crewrift/crewriftstarter/build.sh --tag crewriftstarter:test
 ```
 
 Run a local Crewrift slot gate with zero vote timeouts allowed:
 
 ```sh
 uv run --project ~/Code/co-gas python -m co_gas.gates.crewrift_slot_matrix_runner \
-  --candidate-image richardnotsus:test \
+  --candidate-image crewriftstarter:test \
   --manifest ~/Code/co-gas/cogas-agents/coworlds/crewrift/vendor/coworld-crewrift/coworld_manifest.json \
   --seed 679961 \
-  --run /bin/richardnotsus \
+  --run /bin/crewriftstarter \
   --use-bedrock \
   --aws-region "${AWS_REGION:-us-west-2}" \
   --slots 4,7 \
