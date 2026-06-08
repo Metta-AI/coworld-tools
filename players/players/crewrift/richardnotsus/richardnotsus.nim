@@ -4167,14 +4167,7 @@ proc hasAnyParsedVote(bot: Bot): bool =
       return true
 
 proc bodySusVotingTarget(bot: Bot): int =
-  ## Returns the body-near-player voting target for crewmates.
-  if bot.role == RoleImposter:
-    return VoteUnknown
-  if bot.bodySusColor == VoteUnknown:
-    return VoteUnknown
-  let slot = bot.voteSlotForColor(bot.bodySusColor)
-  if bot.voteTargetSafeForRole(slot):
-    return slot
+  ## Body-near sightings are useful chat context but too noisy for auto-votes.
   VoteUnknown
 
 proc susSpeakerTargetingSelf(bot: Bot): int =
@@ -4231,7 +4224,8 @@ proc clearInvalidBodySusChat(bot: var Bot) =
   ## Drops body sus chat when the suspect is not a living voting target.
   if bot.bodySusColor == VoteUnknown:
     return
-  if bot.bodySusVotingTarget() != VoteUnknown:
+  let slot = bot.voteSlotForColor(bot.bodySusColor)
+  if bot.voteTargetCanBeSus(slot):
     return
   if (" " & bot.pendingChat.normalizeChatText() & " ").contains(" sus "):
     bot.pendingChat = ""
