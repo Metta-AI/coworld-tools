@@ -33,8 +33,8 @@ POLICY_MEMBERSHIP_SUBSTATUS_CRASH = "crash"
 POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE = "inactive"
 
 
-def policy_membership_has_champion_substatus(status: PolicyMembershipStatus | str, substatus: str | None) -> bool:
-    return status == PolicyMembershipStatus.competing and substatus == POLICY_MEMBERSHIP_SUBSTATUS_CHAMPION
+def policy_membership_is_champion(status: PolicyMembershipStatus | str, is_champion: bool) -> bool:
+    return status == PolicyMembershipStatus.competing and is_champion
 
 
 class RoundExecutionBackend(StrEnum):
@@ -82,6 +82,7 @@ class LeaguePolicyMembership(BaseModel):
     player_id: PlayerId | None = None
     status: PolicyMembershipStatus = PolicyMembershipStatus.competing
     substatus: str | None = None
+    is_champion: bool = False
 
 
 class PolicyPool(BaseModel):
@@ -320,10 +321,11 @@ class MembershipSnapshot(BaseModel):
     player_id: PlayerId | None
     status: PolicyMembershipStatus = PolicyMembershipStatus.competing
     substatus: str | None = None
+    is_champion: bool = False
 
     @property
-    def has_champion_substatus(self) -> bool:
-        return policy_membership_has_champion_substatus(self.status, self.substatus)
+    def is_active_champion(self) -> bool:
+        return policy_membership_is_champion(self.status, self.is_champion)
 
 
 class RoundSnapshot(BaseModel):

@@ -68,6 +68,7 @@ class RoundStartView:
                 player_id=membership.player_id,
                 status=membership.status,
                 substatus=membership.substatus,
+                is_champion=membership.is_champion,
             )
             for membership in self.round_start.memberships
         ]
