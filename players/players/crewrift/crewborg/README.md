@@ -165,6 +165,12 @@ off by default; when it is disabled — or the call times out, returns late, or
 returns no legal vote target — the mode falls back to the deterministic
 canned-chat (`"no read, skipping"`) plus the Bayesian suspicion vote.
 
+If the LLM is enabled but its calls keep failing — a permanent error
+(HTTP 401/403/404, e.g. an ungated model or a bad key) on the first call, or two
+failures otherwise — the mode latches onto that deterministic fallback for the
+rest of the episode (tracing `meeting_llm_disabled`) so a broken backend can
+never cost crewborg its vote.
+
 Configuration is owned by the strategy, never the mode:
 `read_meeting_params_from_env` resolves the environment once at construction and
 stamps a `MeetingParams` onto the Attend Meeting directive, and the mode builds

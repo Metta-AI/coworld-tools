@@ -31,6 +31,15 @@ LLM_MIN_CALL_INTERVAL_TICKS = 12
 DEADLINE_LLM_REMAINING_TICKS = 96
 AUTO_SUBMIT_REMAINING_TICKS = 48
 
+# When the meeting client reports ``enabled`` but its calls keep failing (an
+# ungated/404 model, a bad API key, a network outage), we must not let that cost
+# us our vote: the LLM path otherwise bypasses the deterministic chat->vote
+# fallback entirely. After a permanent error (auth/forbidden/not-found) or this
+# many failures in an episode, we latch onto the deterministic fallback for the
+# rest of the episode so voting stays reliable. See ``_note_llm_failure``.
+LLM_FAILURE_DISABLE_THRESHOLD = 2
+PERMANENT_LLM_STATUS_CODES = frozenset({401, 403, 404})
+
 
 class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     name = "attend_meeting"
@@ -51,6 +60,12 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._deadline_prompted = False
         self._tentative_vote: str | None = None
         self._vote_submitted = False
+        # Episode-level LLM health. A failing-but-"enabled" client must not
+        # silently cost us our vote, so these latch the mode onto the
+        # deterministic fallback and intentionally persist across meetings —
+        # they are NOT cleared in ``_reset_for_meeting_if_needed``.
+        self._llm_failure_count = 0
+        self._llm_disabled_for_episode = False
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -63,6 +78,11 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
 
         if not self._llm_client.enabled:
             return self._decide_deterministic(belief, trace_disabled=True)
+
+        if self._llm_disabled_for_episode:
+            # The client claims to be enabled but its calls are failing; fall
+            # back to the deterministic chat->vote path so we still vote.
+            return self._decide_deterministic(belief, trace_disabled=False)
 
         if self._should_auto_submit(belief):
             return self._submit_vote_intent(belief, reason="meeting deadline: auto-submit tentative vote")
@@ -143,6 +163,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         try:
             result = self._llm_client.decide(context, trigger=trigger)
         except Exception as exc:
+            self._note_llm_failure(exc, trigger=trigger)
             self.emit.event(
                 "meeting_llm_fallback",
                 {"reason": "llm_call_failed", "trigger": trigger, "error": repr(exc)},
@@ -150,6 +171,33 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             return None
         self.emit.histogram("meeting_llm.latency_ms", result.latency_ms, tags={"model": result.model, "trigger": trigger})
         return result
+
+    def _note_llm_failure(self, exc: Exception, *, trigger: str) -> None:
+        """Latch onto the deterministic fallback when the meeting LLM keeps failing.
+
+        A client that is ``enabled`` but whose calls fail (an ungated model
+        returning 404, a bad key, a network outage) would otherwise bypass the
+        deterministic chat->vote path and cost us our vote every meeting. A
+        permanent error (auth/forbidden/not-found) disables the client for the
+        rest of the episode immediately; transient errors do so after
+        ``LLM_FAILURE_DISABLE_THRESHOLD`` failures.
+        """
+        if self._llm_disabled_for_episode:
+            return
+        self._llm_failure_count += 1
+        status = getattr(exc, "status_code", None)
+        permanent = status in PERMANENT_LLM_STATUS_CODES
+        if permanent or self._llm_failure_count >= LLM_FAILURE_DISABLE_THRESHOLD:
+            self._llm_disabled_for_episode = True
+            self.emit.event(
+                "meeting_llm_disabled",
+                {
+                    "reason": "permanent_error" if permanent else "repeated_failures",
+                    "status_code": status,
+                    "failures": self._llm_failure_count,
+                    "trigger": trigger,
+                },
+            )
 
     def _validate_decision(self, belief: Belief, decision: MeetingDecision) -> MeetingDecision | None:
         try:
