@@ -162,7 +162,7 @@ const
   VoteChatChars = VoteChatCharsPerLine
   VoteChatSpeakerSearch = 24
   LlmHelperDefault = "/srv/richardnotsus/llm_meeting.py"
-  LlmProcessTimeoutDefault = "1"
+  LlmProcessTimeoutDefault = "6"
   LlmMinListenTicks = 8
   LlmMinRemainingTicks = TargetFps * 3
   LlmRetrySuppressTicks = VoteDeadlineTicks
@@ -4419,6 +4419,10 @@ proc maybeApplyMeetingLlm(
     return
   if bot.voteStartTick < 0 or bot.votePlayerCount <= 0:
     return
+  if bot.voteSelfSlot < 0 or
+      bot.voteSelfSlot >= bot.votePlayerCount or
+      not bot.voteSlots[bot.voteSelfSlot].alive:
+    return
   if listenedTicks < LlmMinListenTicks:
     return
   if VoteDeadlineTicks - listenedTicks < LlmMinRemainingTicks:
@@ -4468,15 +4472,18 @@ proc maybeApplyMeetingLlm(
     bot.llmChatText = chatText
     bot.pendingChat = chatText
     echo "meeting llm chat: ", chatText
-  if target != VoteUnknown:
+  if target != VoteUnknown and action == "submit_vote":
     bot.llmVoteTarget = target
     bot.llmReason =
       if reason.len > 0:
         "meeting llm: " & reason
       else:
         "meeting llm selected " & bot.voteTargetName(target)
-    bot.llmInstantVote = action == "submit_vote"
+    bot.llmInstantVote = true
     echo "meeting llm vote: ", bot.voteTargetName(target), " action=", action
+  elif target != VoteUnknown:
+    echo "meeting llm tentative vote: ",
+      bot.voteTargetName(target), " action=", action
 
 proc logVoteDecision(bot: var Bot, target: int, reason: string) =
   ## Logs a voting choice once per visible decision.

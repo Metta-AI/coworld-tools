@@ -53,6 +53,9 @@ uv run --project ~/Code/co-gas python -m co_gas.gates.crewrift_slot_matrix_runne
   --candidate-image richardnotsus:test \
   --manifest ~/Code/co-gas/cogas-agents/coworlds/crewrift/vendor/coworld-crewrift/coworld_manifest.json \
   --seed 679961 \
+  --run /bin/richardnotsus \
+  --use-bedrock \
+  --aws-region "${AWS_REGION:-us-west-2}" \
   --slots 4,7 \
   --pair 4,7 \
   --max-candidate-vote-timeouts 0 \
