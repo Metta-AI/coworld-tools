@@ -250,6 +250,36 @@ def test_ruleset_strategy_default_config_matches_default_schedule() -> None:
     ]
 
 
+def test_ruleset_strategy_default_config_schedules_one_appearance_per_competitor() -> None:
+    daily_id = uuid4()
+    policy_version_ids = [uuid4(), uuid4(), uuid4(), uuid4()]
+
+    response = schedule_rounds_for_request(
+        _ruleset_commissioner("default"),
+        ScheduleRoundsRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            divisions=[DivisionInfo(id=daily_id, name="Daily", level=1, type="competition")],
+            active_memberships=[
+                MembershipInfo(
+                    id=uuid4(),
+                    league_id=uuid4(),
+                    division_id=daily_id,
+                    policy_version_id=policy_version_id,
+                    status="competing",
+                    substatus="champion",
+                    is_champion=True,
+                )
+                for policy_version_id in policy_version_ids
+            ],
+            recent_rounds=[],
+        ),
+    )
+
+    assert len(response.rounds) == 1
+    stage = response.rounds[0].round_config.stages[0]
+    assert stage.min_episodes_per_entrant == 1
+
+
 def test_ruleset_strategy_default_config_qualifier_self_play_does_not_crash() -> None:
     policy_version_ids = [uuid4(), uuid4()]
     round_start = _round_start(
@@ -1004,6 +1034,52 @@ def test_ruleset_champions_selector_uses_is_champion() -> None:
 
     scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
     assert scheduled_policy_ids == {boolean_champion_id}
+
+
+def test_ruleset_round_start_uses_persisted_stage_config() -> None:
+    division_id = uuid4()
+    champion_ids = [uuid4(), uuid4(), uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=champion_ids,
+        num_agents=2,
+        division_id=division_id,
+        state={
+            "round_config": {
+                "current_division_id": str(division_id),
+                "stages": [{"label": "Round", "num_episodes": 1, "min_episodes_per_entrant": 1}],
+            }
+        },
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        champion_ids[:2],
+        champion_ids[2:],
+    ]
+
+
+def test_ruleset_round_start_ignores_null_persisted_stage_fields() -> None:
+    division_id = uuid4()
+    champion_ids = [uuid4(), uuid4(), uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=champion_ids,
+        num_agents=2,
+        division_id=division_id,
+        state={
+            "round_config": {
+                "current_division_id": str(division_id),
+                "stages": [{"label": "Round", "num_episodes": 1, "min_episodes_per_entrant": None}],
+            }
+        },
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        champion_ids[:2],
+        champion_ids[2:],
+    ]
 
 
 def test_cogs_vs_clips_config_qualifier_round_start_restores_private_self_play() -> None:
