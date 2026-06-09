@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID
-
 from commissioners.common.models import (
-    DIVISION_TYPE_COMPETITION,
     DivisionSnapshot,
     MembershipSnapshot,
     OnRoundCompletedContext,
@@ -22,15 +19,6 @@ from commissioners.common.ruleset_strategy.config import (
     TransitionTarget,
 )
 
-NEGATIVE_AVERAGE_SCORE_TRANSITION_ID = "negative_average_score"
-EXCESSIVE_CRASHED_EPISODES_TRANSITION_ID = "excessive_crashed_episodes"
-MIN_CRASHED_EPISODES_PER_ROUND = 1
-MAX_CRASHED_EPISODE_FRACTION_PER_ROUND = 0.5
-
-
-def max_crashed_episodes(scheduled_episodes: int) -> float:
-    return max(MIN_CRASHED_EPISODES_PER_ROUND, scheduled_episodes * MAX_CRASHED_EPISODE_FRACTION_PER_ROUND)
-
 
 def build_membership_events(
     ctx: OnRoundCompletedContext,
@@ -47,12 +35,9 @@ def build_membership_events(
         }
     else:
         observations = ctx.transition_observations
-    events = build_competition_disqualification_events(ctx, observations)
-    disqualified_membership_ids = {event.league_policy_membership_id for event in events}
+    events: list[PolicyMembershipEventChange] = []
     for rule in config.membership_changes:
         for membership in ctx.division_memberships:
-            if membership.id in disqualified_membership_ids:
-                continue
             if not rule.match.matches(ctx.division, membership):
                 continue
             observation = observations.get(membership.policy_version_id)
@@ -68,70 +53,6 @@ def build_membership_events(
             if event is not None:
                 events.append(event)
     return events
-
-
-def build_competition_disqualification_events(
-    ctx: OnRoundCompletedContext,
-    observations: dict[UUID, PolicyTransitionObservation] | None = None,
-) -> list[PolicyMembershipEventChange]:
-    if ctx.division.type != DIVISION_TYPE_COMPETITION:
-        return []
-    if observations is None:
-        observations = {
-            result.policy_version_id: PolicyTransitionObservation(
-                scheduled_episodes=int(result.result_metadata.get(COMPLETED_EPISODE_COUNT_METADATA_KEY, 1)),
-                completed_episodes=int(result.result_metadata.get(COMPLETED_EPISODE_COUNT_METADATA_KEY, 1)),
-                score=result.score,
-            )
-            for result in ctx.round_results
-        }
-    events: list[PolicyMembershipEventChange] = []
-    for membership in ctx.division_memberships:
-        observation = observations.get(membership.policy_version_id)
-        if observation is None:
-            continue
-        event: PolicyMembershipEventChange | None = None
-        crashed_episodes = max(observation.scheduled_episodes - observation.completed_episodes, 0)
-        if observation.completed_episodes > 0 and observation.score <= 0:
-            event = disqualification_event(
-                membership,
-                reason="average round score <= 0",
-                evidence=negative_average_score_evidence(observation),
-            )
-        elif crashed_episodes > max_crashed_episodes(observation.scheduled_episodes):
-            event = disqualification_event(
-                membership,
-                reason="more than half of scheduled episodes crashed",
-                evidence=excessive_crashed_episodes_evidence(observation),
-            )
-        if event is not None:
-            events.append(event)
-    return events
-
-
-def build_negative_average_score_events(ctx: OnRoundCompletedContext) -> list[PolicyMembershipEventChange]:
-    return [
-        event
-        for event in build_competition_disqualification_events(ctx)
-        if event.evidence and event.evidence[0].metadata.get("transition_id") == NEGATIVE_AVERAGE_SCORE_TRANSITION_ID
-    ]
-
-
-def disqualification_event(
-    membership: MembershipSnapshot,
-    *,
-    reason: str,
-    evidence: PolicyMembershipEventEvidence,
-) -> PolicyMembershipEventChange:
-    return PolicyMembershipEventChange(
-        league_policy_membership_id=membership.id,
-        from_division_id=membership.division_id,
-        to_division_id=None,
-        status="disqualified",
-        substatus="inactive",
-        reason=reason,
-        evidence=[evidence],
-    )
 
 
 def protocol_policy_membership_event(change: PolicyMembershipEventChange) -> ProtocolPolicyMembershipEventChange:
@@ -243,45 +164,6 @@ def transition_evidence(
             "observed": observed,
             "actions": action_evidence(transition.to),
             "target_division_id": str(target_division_id) if target_division_id is not None else None,
-        },
-    )
-
-
-def observation_evidence(observation: PolicyTransitionObservation) -> dict[str, int | float]:
-    return {
-        "scheduled_episodes": observation.scheduled_episodes,
-        "completed_episodes": observation.completed_episodes,
-        "crashed_episodes": max(observation.scheduled_episodes - observation.completed_episodes, 0),
-        "score": observation.score,
-    }
-
-
-def negative_average_score_evidence(observation: PolicyTransitionObservation) -> PolicyMembershipEventEvidence:
-    return PolicyMembershipEventEvidence(
-        type="ruleset_transition",
-        title="Ruleset transition",
-        summary="average round score <= 0",
-        metadata={
-            "transition_id": NEGATIVE_AVERAGE_SCORE_TRANSITION_ID,
-            "criteria": {"score_lte": 0.0},
-            "observed": observation_evidence(observation),
-            "actions": [{"type": "update_membership", "status": "disqualified", "substatus": "inactive"}],
-            "target_division_id": None,
-        },
-    )
-
-
-def excessive_crashed_episodes_evidence(observation: PolicyTransitionObservation) -> PolicyMembershipEventEvidence:
-    return PolicyMembershipEventEvidence(
-        type="ruleset_transition",
-        title="Ruleset transition",
-        summary="more than half of scheduled episodes crashed",
-        metadata={
-            "transition_id": EXCESSIVE_CRASHED_EPISODES_TRANSITION_ID,
-            "criteria": {"crashed_episodes_gt": max_crashed_episodes(observation.scheduled_episodes)},
-            "observed": observation_evidence(observation),
-            "actions": [{"type": "update_membership", "status": "disqualified", "substatus": "inactive"}],
-            "target_division_id": None,
         },
     )
 
