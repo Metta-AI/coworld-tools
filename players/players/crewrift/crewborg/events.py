@@ -21,8 +21,8 @@ all coexist. That matters because:
   :mod:`...modes.normal`), so it is only visible after the mode has run.
 
 The tracer keeps the previous tick's salient state and emits a trace event (and,
-for countable outcomes, a metrics counter) on each transition. It only observes —
-it never mutates belief.
+when a metrics sink is wired, a counter for countable outcomes) on each
+transition. It only observes — it never mutates belief.
 
 **Knowledge-layer tracing** (the per-player event log + Bayesian suspicion, the
 reasoning *behind* the actions): this is the single most useful thing to see when
@@ -30,7 +30,7 @@ a live game goes weird ("why did it vote X / never flee the obvious imposter").
 The tracer reads it off the finalized belief — keeping ``strategy/`` itself pure —
 in two tiers:
 
-- **Always on (deltas + meeting snapshots), lean enough for the tournament:**
+- **Always on (deltas + meeting snapshots), lean enough for hosted log caps:**
   ``player_event`` when a new observation interval opens on someone's log,
   ``player_died`` on an alive→dead transition, ``imposter_confirmed`` /
   ``believed_changed`` when the suspicion sets move, and a full ``suspicion_snapshot``
@@ -39,24 +39,27 @@ in two tiers:
   every kill cooldown→ready / ready→cooldown edge (with ``ready_since_tick``,
   ``urgency_ticks``, and whether a victim is trackable) — so kill-window utilization
   (how promptly the strike follows the cooldown clearing, and whether the gap is
-  cooldown vs. no-victim) is readable without the debug stream. Also always on:
-  ``decision_snapshot``, a compact per-tick audit tying visible players/bodies,
-  believed threats, last-seen ages, flee gates, task/flee geometry, mode, intent,
-  and command together for log-only triage.
-- **Debug only (``CREWBORG_TRACE=debug``):** the entire live ``P(imposter)`` vector
-  every tick (``suspicion_tick``) plus ``suspicion.top_p`` / ``believed_count``
-  gauges, and (imposter) a per-tick ``kill_state`` snapshot + ``kill.ready`` /
-  ``kill.urgency_ticks`` gauges — heavy (~one line per tick), for deep forensics.
+  cooldown vs. no-victim) is readable without the debug stream.
+- **Debug only (``CREWBORG_TRACE=debug``):** ``decision_snapshot`` (a compact
+  per-tick audit tying visible players/bodies, believed threats, last-seen ages,
+  flee gates, task/flee geometry, mode, intent, and command together), the entire
+  live ``P(imposter)`` vector every tick (``suspicion_tick``) plus
+  ``suspicion.top_p`` / ``believed_count`` gauges, and (imposter) a per-tick
+  ``kill_state`` snapshot + ``kill.ready`` / ``kill.urgency_ticks`` gauges —
+  heavy, for deep single-game forensics.
 - **Trace replay viewer (``CREWBORG_TRACE=viewer`` or ``debug``):** browser-ready
   map/grid bootstraps plus one ``viewer_frame`` per tick with mode params, intent,
   nav target/route, and live belief overlays. Heavy, opt-in, and intended for
   single-game inspection in ``viewer/index.html``.
+
+The same heavy families can also be enabled narrowly via ``CREWBORG_TRACE_GROUPS``
+or ``CREWBORG_TRACE_INCLUDE``; the stderr sink applies the matching output filter.
 """
 
 from __future__ import annotations
 
-import os
 import math
+import os
 from typing import Any
 
 from players.crewrift.crewborg.action import BTN_A, BTN_B
@@ -68,6 +71,7 @@ from players.crewrift.crewborg.strategy.suspicion import (
     _prior_imposter_p,
     top_suspect,
 )
+from players.crewrift.crewborg.trace import TraceConfig
 from players.crewrift.crewborg.types import ActionState, Belief, Command, Intent, PlayerRecord
 from players.player_sdk import EventEmitter, StepContext
 
@@ -78,7 +82,13 @@ class CrewborgEventTracer:
     Usable directly as an ``on_step_complete`` hook: ``on_step_complete=tracer``.
     """
 
-    def __init__(self, *, debug: bool | None = None, viewer: bool | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        debug: bool | None = None,
+        viewer: bool | None = None,
+        trace_config: TraceConfig | None = None,
+    ) -> None:
         # Previous-tick state for edge/delta detection. ``phase`` starts at the
         # Belief default so the first real transition (unknown → …) is reported.
         self._phase: str = "unknown"
@@ -103,11 +113,18 @@ class CrewborgEventTracer:
         self._occupancy_seek_cell: int | None = None
         self._viewer_map_seen: bool = False
         self._viewer_grid_seen: bool = False
+        self._trace_config = trace_config if trace_config is not None else TraceConfig.from_env()
         # Full per-tick suspicion dump is opt-in: heavy, for single-game forensics.
         trace_level = os.environ.get("CREWBORG_TRACE", "").strip().lower()
         self._debug: bool = trace_level == "debug" if debug is None else debug
         # Viewer frames are also heavy, but are the clean input for the trace replay UI.
         self._viewer: bool = trace_level in {"viewer", "debug"} if viewer is None else viewer
+        self._decision_fields = self._trace_config.decision_fields
+        self._emit_decision_snapshot = self._optional_event_enabled("domain.decision_snapshot", self._debug)
+        self._emit_viewer = self._optional_event_enabled("domain.viewer_frame", self._viewer)
+        self._emit_suspicion_debug = self._optional_event_enabled("domain.suspicion_tick", self._debug)
+        self._emit_kill_debug = self._optional_event_enabled("domain.kill_state", self._debug)
+        self._emit_occupancy_debug = self._optional_event_enabled("domain.occupancy_snapshot", self._debug)
 
     def __call__(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
         belief = context.belief
@@ -120,7 +137,8 @@ class CrewborgEventTracer:
         self._observe_vote(context.action_state, emit)
         self._observe_action(context.intent, context.command, emit)
         self._observe_chat_received(belief, emit)
-        self._observe_decision_snapshot(context)
+        if self._emit_decision_snapshot:
+            self._observe_decision_snapshot(context)
         # Knowledge layer: the event log + suspicion reasoning behind the actions.
         self._observe_player_events(belief, emit)
         self._observe_deaths(belief, emit)
@@ -128,12 +146,18 @@ class CrewborgEventTracer:
         self._observe_meeting_suspicion(belief, emit)
         self._observe_kill_readiness(belief, emit, context.active_mode_name)
         self._observe_occupancy(belief, emit)
-        if self._viewer:
+        if self._emit_viewer:
             self._observe_viewer(context)
-        if self._debug:
+        if self._emit_suspicion_debug:
             self._observe_debug_tick(belief, emit)
+        if self._emit_kill_debug:
             self._observe_kill_debug(belief, emit, context.active_mode_name)
+        if self._emit_occupancy_debug:
             self._observe_occupancy_debug(belief, emit)
+
+    def _optional_event_enabled(self, event_name: str, mode_enabled: bool) -> bool:
+        enabled_by_mode = mode_enabled and not self._trace_config.excludes_event(event_name)
+        return enabled_by_mode or self._trace_config.targets_event(event_name)
 
     # --- state-transition / outcome events (belief & action-state deltas) ---
 
@@ -247,7 +271,8 @@ class CrewborgEventTracer:
         explain why a tick held a movement mask without replay decoding.
         """
 
-        context.emit.event("decision_snapshot", _decision_snapshot_payload(context))
+        payload = _filter_decision_payload(_decision_snapshot_payload(context), self._decision_fields)
+        context.emit.event("decision_snapshot", payload)
 
     # --- knowledge layer: per-player event log + suspicion reasoning --------
 
@@ -577,6 +602,16 @@ def _decision_snapshot_payload(context: StepContext[Belief, ActionState, Intent,
             "next_waypoint": _next_waypoint(action_state),
         },
     }
+
+
+def _filter_decision_payload(payload: dict[str, Any], fields: tuple[str, ...] | None) -> dict[str, Any]:
+    if fields is None:
+        return payload
+    selected: dict[str, Any] = {"schema_version": payload["schema_version"]}
+    for field in fields:
+        if field in payload:
+            selected[field] = payload[field]
+    return selected
 
 
 def _decision_intent_payload(intent: Intent) -> dict[str, Any]:

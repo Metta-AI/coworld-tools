@@ -33,6 +33,8 @@ from players.crewrift.crewborg.map import walkability_matches
 from players.crewrift.crewborg.trace import StderrJsonMetricsSink, StderrJsonTraceSink
 from players.crewrift.crewborg.types import Observation
 
+METRICS_ENV = "CREWBORG_METRICS"
+
 
 async def run_bridge(
     engine_ws_url: str,
@@ -44,8 +46,8 @@ async def run_bridge(
 
     scene = SceneState()
     runtime = build(
-        trace_sink=StderrJsonTraceSink(),
-        metrics_sink=StderrJsonMetricsSink(),
+        trace_sink=StderrJsonTraceSink.from_env(),
+        metrics_sink=StderrJsonMetricsSink() if _metrics_enabled() else None,
     )
     last_sent_mask: int | None = None
     walkability_checked = False
@@ -109,6 +111,12 @@ async def run_bridge(
 def main() -> None:
     engine_ws_url = os.environ["COGAMES_ENGINE_WS_URL"]
     asyncio.run(run_bridge(engine_ws_url))
+
+
+def _metrics_enabled() -> bool:
+    trace_level = os.environ.get("CREWBORG_TRACE", "").strip().lower()
+    metrics_flag = os.environ.get(METRICS_ENV, "").strip().lower()
+    return trace_level == "debug" or metrics_flag in {"1", "true", "yes", "on"}
 
 
 if __name__ == "__main__":
