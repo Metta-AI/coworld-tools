@@ -946,11 +946,19 @@ crewborg/
   AGENTS.md  design.md  README.md
 ```
 
-**Tracing.** Stdout = protocol channel, stderr = logs/traces. The SDK runtime
-emits the canonical *framework* events automatically (`perception`,
-`belief_updated`, `mode_entered/exited/completed/stalled`, `action_intent`,
-`act_command`, `snapshot_submitted`, `strategy_evaluated`, `directive_*`,
-`fallback_activated`).
+**Tracing.** Stdout = protocol channel, stderr = logs/traces. Hosted Coworld logs
+are capped, so the policy bridge (`coworld/policy_player.py`) uses a lean stderr
+trace by default. It keeps durable domain events and low-volume mode boundary
+events, but filters per-tick SDK framework noise such as `perception`,
+`belief_updated`, `action_intent`, `act_command`, `snapshot_submitted`,
+`strategy_evaluated`, and repeated directive traces. The full framework stream is
+still available with `CREWBORG_TRACE=debug` or `CREWBORG_TRACE=viewer`.
+The bridge also supports targeted log streams without full debug volume:
+`CREWBORG_TRACE_GROUPS` names event families, `CREWBORG_TRACE_INCLUDE` /
+`CREWBORG_TRACE_EXCLUDE` accept comma-separated glob patterns, and
+`CREWBORG_TRACE_DECISION_FIELDS` trims `decision_snapshot` to selected top-level
+fields. Event shorthands without `domain.` expand to both the literal name and
+the `domain.` event name, so `meeting_*` and `vote_cast` are valid filters.
 
 Crewborg's own game-level events are emitted through the SDK's **domain-event
 seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTracer`
@@ -962,12 +970,6 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   `role_resolved`, `body_sighted`, `task_completed`, `kill_landed`, `vote_cast`.
 - *attempt* (keyed on the wire command's button edge): `task_started`,
   `kill_attempted`, `report_attempted`, `vent_attempted`, `chat_sent`.
-- *decision audit* (one compact record per tick): `decision_snapshot` links the
-  active mode/directive, symbolic intent, held mask, self position, currently
-  visible players/bodies, believed/confirmed threats with last-seen age and flee
-  gate distances, and task/flee/nav geometry. This is the default log-only
-  forensic stream: small enough for tournament runs, but explicit enough to answer
-  "was the threat visible or just retained in belief?" without replay decoding.
 - *knowledge layer* (the per-player event log §5.2 + the suspicion reasoning
   §10.1 *behind* the actions — read off the finalized belief so `strategy/` stays
   pure). Always on, lean enough for the tournament: `player_event` when a new
@@ -980,6 +982,11 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   are built, `occupancy_reacquired` when a lost player re-enters view
   (predicted-vs-actual cell and distance error), and `occupancy_seek_target` when
   the imposter's hottest search cell changes.
+- *decision audit* (debug only): `decision_snapshot` links the active
+  mode/directive, symbolic intent, held mask, self position, currently visible
+  players/bodies, believed/confirmed threats with last-seen age and flee gate
+  distances, and task/flee/nav geometry. It is one record per tick, so it is
+  useful for single-game forensics but too noisy for capped hosted logs.
 - *trace replay viewer* (opt-in via `CREWBORG_TRACE=viewer` or `debug`):
   `viewer_map` emits static map geometry, `viewer_occupancy_grid` emits the
   reachable coarse grid once available, and `viewer_frame` emits one browser-ready
@@ -987,24 +994,43 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   camera/self, nav route/target, roster/body/task beliefs, and the live occupancy
   grid.
 
-Countable outcomes/attempts also emit a matching `domain.*` metrics counter.
+Countable outcomes/attempts also emit a matching `domain.*` metrics counter when
+a metrics sink is enabled. Hosted Coworld runs leave metrics off by default; set
+`CREWBORG_METRICS=1` to include counters/gauges without enabling full debug, or
+`CREWBORG_TRACE=debug` to enable both metrics and the full debug trace.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
 seen as the kill-ready→cooldown edge). Incoming meeting chat is decoded into
 `belief.chat_log` (§4.3) and emitted once per meeting line as `chat_received`.
 When the meeting LLM is enabled, `meeting_context_serialized`,
 `meeting_llm_decision`, fallback reasons, `meeting_llm_disabled` (when repeated
 or permanent call failures latch the episode onto the deterministic fallback),
-selected chat/vote, and a latency histogram are always-on. Raw LLM request/response tracing is opt-in via
+and selected chat/vote are in the default trace; the LLM latency histogram is
+emitted when metrics are enabled. Raw LLM request/response tracing is opt-in via
 `CREWBORG_LLM_TRACE_RAW=1` or `CREWBORG_TRACE=debug`.
 
 **Viewer/debug verbosity.** `CREWBORG_TRACE=viewer` is opt-in and heavy: it emits
 the `viewer_*` records used by [`viewer/index.html`](./viewer/index.html) to draw
-agent-perspective replays over the map. `CREWBORG_TRACE=debug` includes those
-viewer records plus the deeper per-tick debugging stream: the entire live
+agent-perspective replays over the map, and the bridge stops filtering SDK
+framework traces. `CREWBORG_TRACE=debug` includes those viewer records plus the
+deeper per-tick debugging stream: `decision_snapshot`, the entire live
 `P(imposter)` vector each tick (`suspicion_tick`), `suspicion.top_p` /
 `suspicion.believed_count` gauges, `kill_state`, and `occupancy_snapshot` with
-the top grid cells plus per-agent support sizes. Off by default; the lean deltas
-and meeting snapshots above are what ships in the tournament image.
+the top grid cells plus per-agent support sizes. Off by default; the lean deltas,
+meeting actions, chat/vote decisions, and meeting suspicion snapshots above are
+what ships in the tournament image.
+
+**Targeting examples.** `CREWBORG_TRACE_GROUPS=voting` keeps meeting/vote/chat
+events and meeting suspicion snapshots. `CREWBORG_TRACE_GROUPS=action` keeps
+domain action attempts plus SDK `action_intent` / `act_command` boundaries.
+`CREWBORG_TRACE_GROUPS=decision` with
+`CREWBORG_TRACE_DECISION_FIELDS=mode,intent,command` emits one compact per-tick
+decision record. `CREWBORG_TRACE_INCLUDE=meeting_*,vote_cast` keeps only matching
+events. `CREWBORG_TRACE=debug` with
+`CREWBORG_TRACE_EXCLUDE=domain.viewer_*,domain.decision_snapshot` keeps full debug
+except the specified noisy families. Supported groups are `lean`, `state`,
+`action`, `voting` / `meeting`, `chat`, `llm`, `knowledge`, `suspicion`, `kill`,
+`occupancy`, `decision`, `viewer`, `framework`, `mode`, `task`, `belief`, `debug`,
+and `all`.
 
 Putting emission in `on_step_complete` (not a mode) is deliberate: the attempt
 events key on the produced `command`, which modes never see, and `task_completed`

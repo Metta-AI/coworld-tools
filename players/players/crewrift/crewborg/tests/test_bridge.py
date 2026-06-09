@@ -9,6 +9,9 @@ closes the socket.
 from __future__ import annotations
 
 import asyncio
+import io
+import json
+import sys
 
 import pytest
 from websockets.asyncio.server import serve
@@ -18,8 +21,59 @@ from players.crewrift.crewborg.action import INPUT_HEADER, encode_chat
 from players.crewrift.crewborg.coworld.policy_player import run_bridge
 from players.crewrift.crewborg.tests import sprite_wire as w
 from players.crewrift.crewborg.types import Command
+from players.player_sdk import TraceEvent
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_bridge_defaults_to_lean_trace_and_no_metrics(monkeypatch) -> None:
+    class FakeRuntime:
+        def close(self) -> None:
+            pass
+
+    captured: dict[str, object] = {}
+    stderr = io.StringIO()
+    monkeypatch.delenv("CREWBORG_TRACE", raising=False)
+    monkeypatch.delenv("CREWBORG_METRICS", raising=False)
+    monkeypatch.setattr(sys, "stderr", stderr)
+
+    def build(**kwargs):
+        captured.update(kwargs)
+        return FakeRuntime()
+
+    def failing_connect(*_args, **_kwargs):
+        raise RuntimeError("connect failed")
+
+    with pytest.raises(RuntimeError, match="connect failed"):
+        await run_bridge("ws://unused", connect=failing_connect, build=build)
+
+    assert captured["metrics_sink"] is None
+    trace_sink = captured["trace_sink"]
+    trace_sink.record(TraceEvent(tick=1, name="perception", data={}))
+    trace_sink.record(TraceEvent(tick=2, name="domain.meeting_vote_selected", data={}))
+    records = [json.loads(line) for line in stderr.getvalue().splitlines()]
+    assert [record["event"] for record in records] == ["domain.meeting_vote_selected"]
+
+
+async def test_bridge_enables_metrics_when_requested(monkeypatch) -> None:
+    class FakeRuntime:
+        def close(self) -> None:
+            pass
+
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("CREWBORG_METRICS", "1")
+
+    def build(**kwargs):
+        captured.update(kwargs)
+        return FakeRuntime()
+
+    def failing_connect(*_args, **_kwargs):
+        raise RuntimeError("connect failed")
+
+    with pytest.raises(RuntimeError, match="connect failed"):
+        await run_bridge("ws://unused", connect=failing_connect, build=build)
+
+    assert captured["metrics_sink"] is not None
 
 
 async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:

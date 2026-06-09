@@ -106,13 +106,28 @@ button-walk budget plus a 10-tick buffer, the bot calls a meeting, sends
 resumes tasking. Crewrift's default config allows one emergency button call per
 player, so the strategy intentionally treats this as a one-shot interruption.
 
-Crewborg traces its reasoning to stderr as JSON lines (per-player event log,
-suspicion posteriors, occupancy seek targets, a ranked `suspicion_snapshot` at
-every meeting, meeting LLM context/decisions when enabled, …; see `design.md`
-§11). Set `CREWBORG_TRACE=viewer` for the per-tick replay view model consumed by
-the browser UI, or `CREWBORG_TRACE=debug` for the viewer frames plus the heavier
-suspicion / kill / occupancy debug dump. Set `CREWBORG_LLM_TRACE_RAW=1` (or
+Crewborg traces its reasoning to stderr as JSON lines. The hosted default is
+lean enough for capped Coworld logs: durable domain events, action attempts,
+meeting chat/vote decisions, per-player event deltas, occupancy seek changes,
+and a ranked `suspicion_snapshot` at every meeting (see `design.md` §11).
+Per-tick SDK traces, metrics, `decision_snapshot`, viewer frames, suspicion
+ticks, kill-state dumps, and occupancy snapshots are off by default. Set
+`CREWBORG_METRICS=1` to include metrics, `CREWBORG_TRACE=viewer` for the
+per-tick replay view model consumed by the browser UI, or `CREWBORG_TRACE=debug`
+for the full framework trace plus viewer frames and heavier suspicion / kill /
+occupancy debug dump. Set `CREWBORG_LLM_TRACE_RAW=1` (or
 `CREWBORG_TRACE=debug`) to include raw LLM request/response text.
+
+For targeted traces without full debug volume, set `CREWBORG_TRACE_GROUPS` to a
+comma-separated list. Useful groups include `voting`/`meeting`, `action`,
+`decision`, `suspicion`, `kill`, `occupancy`, `knowledge`, `chat`, `llm`,
+`viewer`, `framework`, `mode`, `task`, `state`, `belief`, `lean`, and `all`.
+`CREWBORG_TRACE_INCLUDE` and `CREWBORG_TRACE_EXCLUDE` accept comma-separated glob
+patterns; unqualified domain names like `meeting_*` or `vote_cast` also match
+`domain.meeting_*` / `domain.vote_cast`. For compact per-tick decision traces,
+combine `CREWBORG_TRACE_GROUPS=decision` with
+`CREWBORG_TRACE_DECISION_FIELDS=mode,intent,command,threats` (or any top-level
+`decision_snapshot` fields).
 
 ## View trace replays
 

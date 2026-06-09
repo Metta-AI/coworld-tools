@@ -70,8 +70,9 @@ def build_runtime(
     ``domain.*`` trace events through the configured sinks (design §11): the
     phase / sighting / objective / kill / vote outcomes *and* the knowledge layer
     behind them (per-player event log + suspicion posteriors, with a
-    ``suspicion_snapshot`` each meeting; ``CREWBORG_TRACE=debug`` adds a per-tick
-    dump).
+    ``suspicion_snapshot`` each meeting). ``CREWBORG_TRACE=debug`` adds the full
+    per-tick dump; ``CREWBORG_TRACE_GROUPS`` / ``CREWBORG_TRACE_INCLUDE`` can
+    target narrower event families without full debug volume.
     """
 
     registry: ModeRegistry[Belief, ActionState, Intent] = ModeRegistry()

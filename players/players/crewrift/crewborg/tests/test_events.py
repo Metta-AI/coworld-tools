@@ -197,7 +197,33 @@ def test_chat_received_emits_each_meeting_line_once_and_resets_per_meeting() -> 
     assert len(h.counters("domain.chat_received")) == 2
 
 
-def test_decision_snapshot_includes_visibility_threat_task_and_command_geometry() -> None:
+def test_decision_snapshot_is_debug_only() -> None:
+    h = _Harness()
+    h.step(belief=Belief(phase="Playing"), intent=Intent(kind="idle"), command=Command())
+
+    assert not h.events("domain.decision_snapshot")
+
+
+def test_decision_trace_group_enables_compact_decision_snapshot(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_TRACE_GROUPS", "decision")
+    monkeypatch.setenv("CREWBORG_TRACE_DECISION_FIELDS", "mode,intent,command")
+    h = _Harness()
+
+    h.step(
+        belief=Belief(phase="Voting"),
+        intent=Intent(kind="chat", text="no read, skipping"),
+        command=Command(chat="no read, skipping"),
+        active_directive=ModeDirective(mode="attend_meeting", source="strategy", reason="unit"),
+    )
+
+    [event] = h.events("domain.decision_snapshot")
+    assert list(event.data.keys()) == ["schema_version", "mode", "intent", "command"]
+    assert event.data["mode"] == "attend_meeting"
+    assert event.data["intent"]["kind"] == "chat"
+    assert event.data["command"] == {"held_mask": 0, "buttons": [], "chat": True}
+
+
+def test_debug_decision_snapshot_includes_visibility_threat_task_and_command_geometry() -> None:
     from players.crewrift.crewborg.map.types import MapData, MapPoint, MapRect, TaskStation
 
     map_data = MapData(
@@ -230,7 +256,7 @@ def test_decision_snapshot_includes_visibility_threat_task_and_command_geometry(
     belief.confirmed_imposters = {"red"}
     belief.suspicion = {"red": 0.99991}
 
-    h = _Harness()
+    h = _Harness(debug=True)
     h.step(
         belief=belief,
         action_state=ActionState(route=[(100, 100), (110, 100)], route_cursor=1, route_goal=(102, 100)),
@@ -259,7 +285,7 @@ def test_decision_snapshot_includes_visibility_threat_task_and_command_geometry(
     assert data["nav"]["next_waypoint"] == [110, 100]
 
 
-def test_decision_snapshot_marks_offscreen_last_known_flee_target() -> None:
+def test_debug_decision_snapshot_marks_offscreen_last_known_flee_target() -> None:
     belief = Belief(
         phase="Playing",
         self_role="crewmate",
@@ -277,7 +303,7 @@ def test_decision_snapshot_marks_offscreen_last_known_flee_target() -> None:
     belief.believed_imposters = {"red"}
     belief.suspicion = {"red": 0.99}
 
-    h = _Harness()
+    h = _Harness(debug=True)
     h.step(
         belief=belief,
         intent=Intent(kind="flee_from", target_color="red", reason="fleeing believed imposter"),
@@ -426,6 +452,19 @@ def test_debug_tick_dump_is_gated() -> None:
     assert tick.data["p"] == {"red": 0.4, "blue": 0.2}
     assert on.gauges("domain.suspicion.top_p")[0].value == 0.4
     assert on.gauges("domain.suspicion.believed_count")[0].value == 0.0
+
+
+def test_suspicion_trace_group_enables_per_tick_suspicion_dump(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_TRACE_GROUPS", "suspicion")
+    belief = _crewmate_belief(phase="Playing")
+    belief.suspicion = {"red": 0.4, "blue": 0.2}
+
+    h = _Harness()
+    h.step(belief=belief)
+
+    [tick] = h.events("domain.suspicion_tick")
+    assert tick.data["p"] == {"red": 0.4, "blue": 0.2}
+    assert h.gauges("domain.suspicion.top_p")[0].value == 0.4
 
 
 def test_kill_ready_changed_on_cooldown_edges_imposter_only() -> None:
