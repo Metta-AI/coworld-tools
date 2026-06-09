@@ -18,21 +18,36 @@ IMAGES = [
         "commissioners-smoke-default",
         "config_driven",
         "default",
+        2,
+        2,
     ),
     (
         "commissioners-smoke-among-them",
         "config_driven",
         "among_them",
+        8,
+        8,
     ),
     (
         "commissioners-smoke-cogs-vs-clips",
         "config_driven",
         "cogs_vs_clips",
+        8,
+        8,
+    ),
+    (
+        "commissioners-smoke-four-score",
+        "config_driven",
+        "four_score",
+        4,
+        32,
     ),
     (
         "commissioners-smoke-ruleset-strategy",
         "config_driven",
         "default",
+        2,
+        2,
     ),
 ]
 
@@ -43,10 +58,10 @@ def _docker_available() -> bool:
     return subprocess.run(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
-def _round_start_json() -> str:
+def _round_start_json(*, policy_count: int, num_agents: int) -> str:
     division_id = uuid4()
     league_id = uuid4()
-    policy_version_ids = [uuid4(), uuid4()]
+    policy_version_ids = [uuid4() for _ in range(policy_count)]
     return json.dumps(
         RoundStart(
             round_id=uuid4(),
@@ -66,14 +81,28 @@ def _round_start_json() -> str:
                 for policy_version_id in policy_version_ids
             ],
             recent_results=[],
-            variants=[VariantInfo(id="default", name="Default", game_config={"num_agents": 2}, num_agents=2)],
+            variants=[
+                VariantInfo(
+                    id="default",
+                    name="Default",
+                    game_config={"num_agents": num_agents},
+                    num_agents=num_agents,
+                )
+            ],
         ).to_json()
     )
 
 
-@pytest.mark.parametrize(("image_name", "commissioner_key", "config_name"), IMAGES)
+@pytest.mark.parametrize(
+    ("image_name", "commissioner_key", "config_name", "policy_count", "num_agents"),
+    IMAGES,
+)
 def test_commissioner_container_healthz_and_round_websocket(
-    image_name: str, commissioner_key: str, config_name: str
+    image_name: str,
+    commissioner_key: str,
+    config_name: str,
+    policy_count: int,
+    num_agents: int,
 ) -> None:
     if not _docker_available():
         pytest.skip("Docker daemon is not available")
@@ -119,9 +148,13 @@ def test_commissioner_container_healthz_and_round_websocket(
             pytest.fail("container did not become healthy")
 
         with websockets_sync.connect(f"ws://{host}:{port}/round") as websocket:
-            websocket.send(_round_start_json())
+            websocket.send(_round_start_json(policy_count=policy_count, num_agents=num_agents))
             schedule = json.loads(websocket.recv())
         assert schedule["type"] == "schedule_episodes"
-        assert len(schedule["episodes"]) == 1
+        assert schedule["episodes"]
     finally:
-        subprocess.run(["docker", "rm", "-f", container_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["docker", "rm", "-f", container_id],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )

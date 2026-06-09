@@ -23,6 +23,14 @@ entries:
     status: active
     owner: Metta-AI
     description: Config-driven commissioner using the Cogs vs Clips ruleset config.
+  - name: four-score-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-four-score:latest
+    target: four_score
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the Four Score team-block ruleset config.
   - name: ruleset-strategy-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
