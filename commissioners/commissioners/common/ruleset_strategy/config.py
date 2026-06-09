@@ -18,7 +18,7 @@ IMAGE_CONFIG_PATH_ENV = "RULESET_STRATEGY_CONFIG_PATH"
 DEFAULT_IMAGE_CONFIG_NAME = "default"
 BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "ruleset_strategy_commissioner" / "configs"
 
-SeatingStrategy = Literal["baseline_window", "rolling_window"]
+SeatingStrategy = Literal["baseline_window", "rolling_window", "team_blocks"]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
 EntrantShortcut = Literal["qualifying", "champions"]
 
@@ -178,6 +178,7 @@ class StageScheduleConfig(_ConfigModel):
 
 class RulesetDefaults(_ConfigModel):
     seating: SeatingStrategy = "baseline_window"
+    team_count: int = Field(default=4, gt=0)
     fill_seats: FillSeatsStrategy = "duplicate"
     fill_from: list[FillerSource] = Field(default_factory=list)
     duplicate_after_fill: bool = True

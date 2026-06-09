@@ -39,6 +39,10 @@ jobs:
             commissioner_key: config_driven
             ruleset_strategy_config_name: cogs_vs_clips
             image: ghcr.io/metta-ai/commissioners-cogs-vs-clips
+          - name: four-score-commissioner
+            commissioner_key: config_driven
+            ruleset_strategy_config_name: four_score
+            image: ghcr.io/metta-ai/commissioners-four-score
           - name: ruleset-strategy-commissioner
             commissioner_key: config_driven
             ruleset_strategy_config_name: default

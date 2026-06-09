@@ -37,6 +37,7 @@ Example ruleset configs live in `configs/`:
 
 - `default.yaml`: parity config for the default round-robin commissioner.
 - `cogs_vs_clips.yaml`: parity config for Cogs vs Clips rolling-window scheduling.
+- `four_score.yaml`: Four Score config with crash-check qualifiers and four repeated 8-agent teams per episode.
 - `among_them.yaml`: replacement-style Among Them config with staged qualifiers and no Dirt league.
 
 ## Among Them Style Staged Qualifier

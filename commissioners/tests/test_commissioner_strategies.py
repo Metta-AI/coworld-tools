@@ -29,7 +29,6 @@ from commissioners.common.protocol import (
 from commissioners.common.commissioners import (
     MEAN_ROUND_SCORE_KIND,
     MEAN_SCORE_EWMA_SCORING_MECHANICS,
-    COMPLETED_EPISODE_COUNT_METADATA_KEY,
     BaselineCommissioner,
     RulesetStrategyCommissioner,
     EpisodeResult,
@@ -419,6 +418,59 @@ def test_ruleset_strategy_among_them_config_matches_rolling_window_schedule() ->
     assert schedule.episodes[0].policy_version_ids == [policy_version_ids[i] for i in (0, 1, 2, 3, 4, 5, 6, 7)]
     assert schedule.episodes[1].policy_version_ids == [policy_version_ids[i] for i in (1, 2, 3, 4, 5, 6, 7, 8)]
     assert schedule.episodes[-1].policy_version_ids == [policy_version_ids[i] for i in (7, 8, 9, 10, 11, 12, 13, 14)]
+
+
+def test_ruleset_strategy_four_score_config_schedules_four_repeated_teams() -> None:
+    policy_version_ids = [uuid4() for _ in range(5)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=32,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("four_score"), round_start)
+
+    assert len(schedule.episodes) == 25
+    assert schedule.episodes[0].policy_version_ids == [
+        *([policy_version_ids[0]] * 8),
+        *([policy_version_ids[1]] * 8),
+        *([policy_version_ids[2]] * 8),
+        *([policy_version_ids[3]] * 8),
+    ]
+    assert all(len(episode.policy_version_ids) == 32 for episode in schedule.episodes)
+    for episode in schedule.episodes:
+        teams = [episode.policy_version_ids[start : start + 8] for start in range(0, 32, 8)]
+        assert all(len(set(team)) == 1 for team in teams)
+        assert len({team[0] for team in teams}) == 4
+    appearances = {
+        policy_version_id: sum(
+            episode.policy_version_ids.count(policy_version_id) // 8 for episode in schedule.episodes
+        )
+        for policy_version_id in policy_version_ids
+    }
+    assert appearances == {policy_version_id: 20 for policy_version_id in policy_version_ids}
+
+
+def test_ruleset_strategy_four_score_config_qualifier_self_play_fills_every_slot() -> None:
+    policy_version_ids = [uuid4() for _ in range(3)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=32,
+        commissioner_config={},
+        division_name="Qualifiers",
+        division_type="staging",
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("four_score"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0]] * 32,
+        [policy_version_ids[0]] * 32,
+        [policy_version_ids[1]] * 32,
+        [policy_version_ids[1]] * 32,
+        [policy_version_ids[2]] * 32,
+        [policy_version_ids[2]] * 32,
+    ]
 
 
 def test_ruleset_strategy_among_them_config_targets_first_competition_division_without_daily_name() -> None:

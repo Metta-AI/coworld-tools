@@ -39,6 +39,40 @@ def schedule_entries(
             ]
         )
 
+    if config.seating == "team_blocks":
+        team_count = config.defaults.team_count
+        if len(primary_entries) < team_count:
+            raise ValueError(f"team_blocks seating requires at least {team_count} primary entries")
+        if num_agents % team_count != 0:
+            raise ValueError(f"team_blocks seating requires num_agents divisible by {team_count}")
+
+        team_size = num_agents // team_count
+        num_episodes = _pool_episode_count(
+            config=pool_config,
+            num_entries=len(primary_entries),
+            num_agents=team_count,
+        )
+        episodes: list[CommissionerEpisodeRequest] = []
+        for job_index in range(num_episodes):
+            entry_indices = [
+                (job_index * team_count + team_index) % len(primary_entries) for team_index in range(team_count)
+            ]
+            rotation = job_index % team_count
+            entry_indices = entry_indices[rotation:] + entry_indices[:rotation]
+            episodes.append(
+                CommissionerEpisodeRequest(
+                    request_id=str(job_index),
+                    variant_id=variant_id,
+                    policy_version_ids=[
+                        primary_entries[entry_index].policy_version_id
+                        for entry_index in entry_indices
+                        for _slot in range(team_size)
+                    ],
+                    tags={"pool_id": str(pool.id)},
+                )
+            )
+        return CommissionerScheduleEpisodes(episodes=episodes)
+
     num_episodes = _pool_episode_count(
         config=pool_config,
         num_entries=len(primary_entries),
