@@ -888,12 +888,44 @@ def test_ruleset_strategy_disqualifies_competition_member_after_multiple_crashed
     event = complete.policy_membership_events[0]
     assert event.league_policy_membership_id == round_start.memberships[0].id
     assert event.status == "disqualified"
-    assert event.reason == "more than one episode crashed"
+    assert event.reason == "more than half of scheduled episodes crashed"
     assert event.evidence[0].metadata["transition_id"] == "excessive_crashed_episodes"
-    assert event.evidence[0].metadata["criteria"] == {"crashed_episodes_gt": 1}
+    assert event.evidence[0].metadata["criteria"] == {"crashed_episodes_gt": 1.5}
     assert event.evidence[0].metadata["observed"]["scheduled_episodes"] == 3
     assert event.evidence[0].metadata["observed"]["completed_episodes"] == 1
     assert event.evidence[0].metadata["observed"]["crashed_episodes"] == 2
+
+
+def test_ruleset_strategy_tolerates_minority_crashed_episodes_in_competition() -> None:
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[policy_version_id],
+        num_agents=8,
+        commissioner_config={},
+        division_name="Wood",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("among_them"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id=str(index),
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=1.0)],
+            )
+            for index in range(6)
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id=str(index),
+                variant_id="default",
+                policy_version_ids=[policy_version_id] * 8,
+            )
+            for index in range(10)
+        ],
+    )
+
+    assert complete.policy_membership_events == []
 
 
 def test_ruleset_strategy_scoring_configures_leaderboard_ewma_halflife() -> None:

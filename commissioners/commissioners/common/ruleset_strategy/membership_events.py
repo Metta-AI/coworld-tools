@@ -24,7 +24,12 @@ from commissioners.common.ruleset_strategy.config import (
 
 NEGATIVE_AVERAGE_SCORE_TRANSITION_ID = "negative_average_score"
 EXCESSIVE_CRASHED_EPISODES_TRANSITION_ID = "excessive_crashed_episodes"
-MAX_CRASHED_EPISODES_PER_ROUND = 1
+MIN_CRASHED_EPISODES_PER_ROUND = 1
+MAX_CRASHED_EPISODE_FRACTION_PER_ROUND = 0.5
+
+
+def max_crashed_episodes(scheduled_episodes: int) -> float:
+    return max(MIN_CRASHED_EPISODES_PER_ROUND, scheduled_episodes * MAX_CRASHED_EPISODE_FRACTION_PER_ROUND)
 
 
 def build_membership_events(
@@ -93,10 +98,10 @@ def build_competition_disqualification_events(
                 reason="average round score <= 0",
                 evidence=negative_average_score_evidence(observation),
             )
-        elif crashed_episodes > MAX_CRASHED_EPISODES_PER_ROUND:
+        elif crashed_episodes > max_crashed_episodes(observation.scheduled_episodes):
             event = disqualification_event(
                 membership,
-                reason="more than one episode crashed",
+                reason="more than half of scheduled episodes crashed",
                 evidence=excessive_crashed_episodes_evidence(observation),
             )
         if event is not None:
@@ -270,10 +275,10 @@ def excessive_crashed_episodes_evidence(observation: PolicyTransitionObservation
     return PolicyMembershipEventEvidence(
         type="ruleset_transition",
         title="Ruleset transition",
-        summary="more than one episode crashed",
+        summary="more than half of scheduled episodes crashed",
         metadata={
             "transition_id": EXCESSIVE_CRASHED_EPISODES_TRANSITION_ID,
-            "criteria": {"crashed_episodes_gt": MAX_CRASHED_EPISODES_PER_ROUND},
+            "criteria": {"crashed_episodes_gt": max_crashed_episodes(observation.scheduled_episodes)},
             "observed": observation_evidence(observation),
             "actions": [{"type": "update_membership", "status": "disqualified", "substatus": "inactive"}],
             "target_division_id": None,
