@@ -47,8 +47,7 @@ def build_membership_events(
                 rule,
                 membership,
                 ctx.all_divisions,
-                completed_episodes=observation.completed_episodes,
-                score=observation.score,
+                observation=observation,
             )
             if event is not None:
                 events.append(event)
@@ -64,15 +63,24 @@ def transition_change(
     membership: MembershipSnapshot,
     divisions: list[DivisionSnapshot],
     *,
-    completed_episodes: int,
-    score: float,
+    observation: PolicyTransitionObservation,
 ) -> PolicyMembershipEventChange | None:
-    observed = {"completed_episodes": completed_episodes, "score": score}
+    observed: dict[str, int | float] = {
+        "completed_episodes": observation.completed_episodes,
+        "scheduled_episodes": observation.scheduled_episodes,
+        "score": observation.score,
+    }
+    if observation.failed_episodes:
+        observed["failed_episodes"] = observation.failed_episodes
     transition = next(
         (
             candidate
             for candidate in rule.transitions
-            if criteria_matches(candidate.criteria, completed_episodes=completed_episodes, score=score)
+            if criteria_matches(
+                candidate.criteria,
+                completed_episodes=observation.completed_episodes,
+                score=observation.score,
+            )
         ),
         None,
     )
@@ -88,7 +96,14 @@ def transition_change(
         status=transition.to.status or membership_status(membership),
         substatus=transition.to.substatus,
         reason=transition.to.reason or transition_reason(transition),
-        evidence=[transition_evidence(transition, observed, target_division_id=target_division_id)],
+        evidence=[
+            transition_evidence(
+                transition,
+                observed,
+                target_division_id=target_division_id,
+                observation=observation,
+            )
+        ],
     )
 
 
@@ -153,18 +168,24 @@ def transition_evidence(
     observed: dict[str, int | float],
     *,
     target_division_id: object,
+    observation: PolicyTransitionObservation,
 ) -> PolicyMembershipEventEvidence:
+    metadata: dict[str, object] = {
+        "transition_id": transition.id,
+        "criteria": criteria_evidence(transition.criteria),
+        "observed": observed,
+        "actions": action_evidence(transition.to),
+        "target_division_id": str(target_division_id) if target_division_id is not None else None,
+    }
+    if observation.failed_request_ids:
+        metadata["failed_request_ids"] = observation.failed_request_ids
+    if observation.failure_error_samples:
+        metadata["failure_error_samples"] = observation.failure_error_samples
     return PolicyMembershipEventEvidence(
         type="ruleset_transition",
         title="Ruleset transition",
         summary=transition_reason(transition),
-        metadata={
-            "transition_id": transition.id,
-            "criteria": criteria_evidence(transition.criteria),
-            "observed": observed,
-            "actions": action_evidence(transition.to),
-            "target_division_id": str(target_division_id) if target_division_id is not None else None,
-        },
+        metadata=metadata,
     )
 
 

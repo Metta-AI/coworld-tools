@@ -162,6 +162,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                         round_start,
                         ordered_results,
                         schedule.episodes,
+                        list(failed_by_request_id.values()),
                     ).to_json()
                 )
 
@@ -244,6 +245,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                                     round_start,
                                     [],
                                     schedule.episodes,
+                                    [],
                                 ).to_json()
                             )
                     continue

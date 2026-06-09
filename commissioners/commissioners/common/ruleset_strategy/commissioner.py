@@ -20,6 +20,7 @@ from commissioners.common.models import (
     V2RoundConfig,
 )
 from commissioners.common.protocol import (
+    EpisodeFailed as CommissionerProtocolEpisodeFailed,
     EpisodeRequest as CommissionerProtocolEpisodeRequest,
     EpisodeResult as CommissionerProtocolEpisodeResult,
     RoundComplete as CommissionerRoundComplete,
@@ -171,6 +172,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         round_start: CommissionerRoundStart,
         episode_results: list[CommissionerProtocolEpisodeResult],
         scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
+        failed_episodes: list[CommissionerProtocolEpisodeFailed] | None = None,
     ) -> CommissionerRoundComplete:
         config = self._config()
         view = RoundStartView(round_start, config)
@@ -188,6 +190,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
                 complete,
                 episode_results=local_episode_results,
                 scheduled_episodes=scheduled_episodes,
+                failed_episodes=failed_episodes,
             )
         )
         complete.policy_membership_events = [
