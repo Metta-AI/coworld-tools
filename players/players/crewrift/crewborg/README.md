@@ -59,7 +59,7 @@ crewborg/
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
   nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
-  trace.py           stderr-JSON trace & metrics sinks
+  trace.py           trace event selection/filtering; SDK writes configured outputs
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/crewmate_ghost/dick_mode/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
@@ -106,17 +106,40 @@ button-walk budget plus a 10-tick buffer, the bot calls a meeting, sends
 resumes tasking. Crewrift's default config allows one emergency button call per
 player, so the strategy intentionally treats this as a one-shot interruption.
 
-Crewborg traces its reasoning to stderr as JSON lines. The hosted default is
-lean enough for capped Coworld logs: durable domain events, action attempts,
-meeting chat/vote decisions, per-player event deltas, occupancy seek changes,
-and a ranked `suspicion_snapshot` at every meeting (see `design.md` §11).
-Per-tick SDK traces, metrics, `decision_snapshot`, viewer frames, suspicion
-ticks, kill-state dumps, and occupancy snapshots are off by default. Set
-`CREWBORG_METRICS=1` to include metrics, `CREWBORG_TRACE=viewer` for the
-per-tick replay view model consumed by the browser UI, or `CREWBORG_TRACE=debug`
-for the full framework trace plus viewer frames and heavier suspicion / kill /
-occupancy debug dump. Set `CREWBORG_LLM_TRACE_RAW=1` (or
-`CREWBORG_TRACE=debug`) to include raw LLM request/response text.
+Crewborg emits trace and metric records through the Player SDK trace-output
+manager. The default is `CREWBORG_TRACE_OUTPUTS=jsonl@stderr`, with a hosted
+event filter lean enough for capped Coworld logs: durable domain events, action
+attempts, meeting chat/vote decisions, per-player event deltas, occupancy seek
+changes, and a ranked `suspicion_snapshot` at every meeting (see `design.md`
+§11). Per-tick SDK traces, metrics, `decision_snapshot`, viewer frames,
+suspicion ticks, kill-state dumps, and occupancy snapshots are off by default.
+Set `CREWBORG_METRICS=1` to include metrics in the configured outputs,
+`CREWBORG_TRACE=viewer` for the per-tick replay view model consumed by the
+browser UI, or `CREWBORG_TRACE=debug` for the full framework trace plus viewer
+frames and heavier suspicion / kill / occupancy debug dump. Set
+`CREWBORG_LLM_TRACE_RAW=1` (or `CREWBORG_TRACE=debug`) to include raw LLM
+request/response text.
+
+`CREWBORG_TRACE_OUTPUTS` is a comma-separated list of `format@destination`
+specs. Built-in formats are `jsonl`, `json`, `csv`, and `parquet`; `parquet`
+requires the `players[trace-parquet]` extra and is included in the crewborg
+image. Destinations are `stderr`, `stdout`, `file:<path>`, and
+`artifact[:path/in/zip]`. Artifact outputs are bundled into the zip the Coworld
+runner exposes through `COWORLD_PLAYER_ARTIFACT_UPLOAD_URL`; local runs receive
+a `file://` URL and hosted runs receive a presigned `PUT` URL.
+
+Examples:
+
+```sh
+# Current default: lean JSONL policy log.
+CREWBORG_TRACE_OUTPUTS=jsonl@stderr
+
+# Keep stderr logs and also upload richer artifact files.
+CREWBORG_TRACE_OUTPUTS=jsonl@stderr,json@artifact,csv@artifact,parquet@artifact
+
+# Local file output for one debugging run.
+CREWBORG_TRACE_OUTPUTS=jsonl@file:/tmp/crewborg-trace.jsonl
+```
 
 For targeted traces without full debug volume, set `CREWBORG_TRACE_GROUPS` to a
 comma-separated list. Useful groups include `voting`/`meeting`, `action`,
@@ -238,6 +261,7 @@ Shared tuning knobs (both backends):
 | `CREWBORG_LLM_MAX_TOKENS` | `512` | Response token cap. |
 | `CREWBORG_LLM_TEMPERATURE` | `0.2` | Sampling temperature. |
 | `CREWBORG_LLM_TIMEOUT_SECONDS` | `3.0` | Per-call client timeout. |
+| `CREWBORG_TRACE_OUTPUTS` | `jsonl@stderr` | Comma-separated `format@destination` trace outputs; formats: `jsonl`, `json`, `csv`, `parquet`; destinations: `stderr`, `stdout`, `file:<path>`, `artifact[:path/in/zip]`. |
 | `CREWBORG_LLM_TRACE_RAW` | off | Include raw request/response text in the trace (also on with `CREWBORG_TRACE=debug`). |
 
 ### Enabling Bedrock at upload time

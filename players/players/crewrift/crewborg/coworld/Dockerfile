@@ -23,8 +23,9 @@ COPY pyproject.toml README.md ./
 COPY players ./players
 # The `bedrock` extra pulls boto3 so the meeting LLM can route through AWS
 # Bedrock when the policy is uploaded with `--use-bedrock` (see README §"LLM
-# meetings"). It is inert unless a Bedrock flag is set at runtime.
+# meetings"). `trace-parquet` makes every built-in trace output format available
+# inside the shipped player image.
 RUN pip install --upgrade pip \
- && pip install -e ".[bedrock]"
+ && pip install -e ".[bedrock,trace-parquet]"
 
 ENTRYPOINT ["/srv/players/players/crewrift/crewborg/coworld/entrypoint.sh"]
