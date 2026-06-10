@@ -147,8 +147,8 @@ It provides:
 - Synchronous, threaded, async, and manual strategy runners.
 - Latest-value buffers for async strategy communication.
 - Priority-ordered reflex hooks for urgent local overrides.
-- Trace events, metrics sinks, domain-event emitters, logging adapters, and W&B
-  metric adapter hooks.
+- Trace events, metrics sinks, domain-event emitters, built-in trace output
+  formats/destinations, logging adapters, and W&B metric adapter hooks.
 - Generic intent/command models for examples and simple agents.
 
 ### Core Runtime
@@ -305,6 +305,28 @@ defines:
 - `WandbMetricsSink`: W&B run adapter without adding a package dependency.
 - `EventEmitter`: domain-event handle that writes to the runtime's configured
   trace and metrics sinks.
+
+[`trace_outputs.py`](../../trace_outputs.py)
+defines the built-in output manager for runnable agents:
+
+- `TraceOutputSpec`: parser for one `format@destination` output spec.
+- `TraceOutputs`: context manager exposing `trace_sink` and `metrics_sink` for
+  `AgentRuntime`.
+- `parse_trace_output_specs`: parser for comma- or semicolon-separated output
+  lists.
+
+Supported formats are `jsonl`, `json`, `csv`, and `parquet`. `parquet` requires
+the `players[trace-parquet]` extra. Supported destinations are `stderr`,
+`stdout`, `file:<path>`, and `artifact[:path/in/zip]`. Artifact destinations are
+written into the Coworld player artifact zip uploaded via
+`COWORLD_PLAYER_ARTIFACT_UPLOAD_URL`.
+
+```python
+from players.player_sdk import TraceOutputs
+
+with TraceOutputs.from_env(prefix="MY_AGENT") as outputs:
+    runtime = AgentRuntime(..., trace_sink=outputs.trace_sink, metrics_sink=outputs.metrics_sink)
+```
 
 The runtime emits events for mode entry and exit, perception, belief update,
 snapshot submission, directive rejection, directive reaffirmation, strategy
@@ -632,6 +654,7 @@ agent/
     provider.py
     validator.py
   trace.py
+  trace_outputs.py
   tests/
 ```
 
