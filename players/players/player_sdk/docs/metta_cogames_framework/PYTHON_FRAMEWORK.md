@@ -34,6 +34,7 @@ perceive -> update belief -> mode decide -> action resolve
 - `ManualStrategyRunner`: test harness runner where callers publish directives.
 - `ListTraceSink`: in-memory trace sink for tests and examples.
 - `ListMetricsSink`: in-memory counter/histogram/gauge sink for tests.
+- `TraceOutputs`: built-in trace/metric output manager for runnable agents.
 
 ## Minimal Agent Shape
 
@@ -102,6 +103,27 @@ keep only the tags the caller supplies:
 self.emit.event("phase_changed", {"phase": belief.phase})
 self.emit.counter("attack_attempts", tags={"phase": belief.phase})
 ```
+
+For a runnable player, use `TraceOutputs` to expose standard output formats and
+destinations from environment configuration:
+
+```python
+from players.player_sdk import TraceOutputs
+
+with TraceOutputs.from_env(prefix="MY_AGENT", metrics_enabled=True) as outputs:
+    runtime = AgentRuntime(
+        ...,
+        trace_sink=outputs.trace_sink,
+        metrics_sink=outputs.metrics_sink,
+    )
+```
+
+`MY_AGENT_TRACE_OUTPUTS` is a comma-separated list of `format@destination`
+entries. Built-in formats are `jsonl`, `json`, `csv`, and `parquet`; `parquet`
+requires the `players[trace-parquet]` extra. Built-in destinations are `stderr`,
+`stdout`, `file:<path>`, and `artifact[:path/in/zip]`. Artifact destinations use
+`COWORLD_PLAYER_ARTIFACT_UPLOAD_URL` and are uploaded as the Coworld player
+artifact zip on close.
 
 The strategy supplies directives:
 

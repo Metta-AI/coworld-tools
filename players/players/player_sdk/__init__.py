@@ -39,6 +39,7 @@ from players.player_sdk.trace import (
     TraceSink,
     WandbMetricsSink,
 )
+from players.player_sdk.trace_outputs import TraceOutputSpec, TraceOutputs, parse_trace_output_specs
 from players.player_sdk.types import (
     ActionCommand,
     ActionIntent,
@@ -89,7 +90,10 @@ __all__ = [
     "StrategyRunner",
     "SynchronousStrategyRunner",
     "ThreadedStrategyRunner",
+    "TraceOutputSpec",
+    "TraceOutputs",
     "TraceEvent",
     "TraceSink",
     "WandbMetricsSink",
+    "parse_trace_output_specs",
 ]
