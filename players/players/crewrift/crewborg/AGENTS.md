@@ -106,8 +106,8 @@ from players.player_sdk import (
     Reflex, ReflexRule, RuntimeContext,                         # reflexes (runtime.py)
     DirectiveValidationError,                                   # (modes.py)
     OverwriteBuffer,                                            # latest-wins buffer (buffers.py)
-    # tracing/metrics (trace.py):
-    TraceSink, MetricsSink, TraceEvent, MetricSample,
+    # tracing/metrics (trace.py + trace_outputs.py):
+    TraceSink, MetricsSink, TraceEvent, MetricSample, TraceOutputs, TraceOutputSpec,
     ListTraceSink, ListMetricsSink, LoggingTraceSink, LoggingMetricsSink,
     NullTraceSink, NullMetricsSink, WandbMetricsSink,
 )
@@ -184,7 +184,8 @@ Then each tick: `command = runtime.step(observation)`; send `command`'s packets.
 | `player_sdk/modes.py` | `Mode`, `ModeRegistry`, directive validation |
 | `player_sdk/types.py` | directives, intents, commands, `SharedMemory`/`BeliefSnapshot` |
 | `player_sdk/strategy.py` | `Strategy`/`AsyncStrategy` protocols + 4 runners |
-| `player_sdk/trace.py` | trace & metrics sinks |
+| `player_sdk/trace.py` | trace & metrics protocols and simple sinks |
+| `player_sdk/trace_outputs.py` | built-in trace output formats/destinations (`jsonl`, `json`, `csv`, `parquet`; stderr/stdout/file/artifact) |
 | `player_sdk/buffers.py` | `OverwriteBuffer` (latest-wins, thread-safe) |
 | `player_sdk/coworld_json_bridge.py` | JSON-protocol bridge — **NOT for Crewrift** (see below) |
 | `player_sdk/docs/metta_cogames_framework/README.md` | full framework reference + invariants/anti-patterns |
@@ -541,7 +542,7 @@ uv run pytest players/crewrift/crewborg/tests      # crewborg tests
 uv run ruff check players/crewrift/crewborg
 ```
 Tests use `pytest-asyncio` (strict mode) and a `docker` marker for image-driven
-tests (root `pyproject.toml`). Cover: action resolver, modes, trace sinks,
+tests (root `pyproject.toml`). Cover: action resolver, modes, trace filters and outputs,
 assembled runtime, and an in-process bridge smoke. For perception,
 test the **scene decoder** against recorded Sprite-v1 message sequences (decode a
 captured stream → assert the resolved objects/labels/coordinates), rather than

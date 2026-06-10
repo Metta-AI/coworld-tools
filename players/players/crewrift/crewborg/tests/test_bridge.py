@@ -21,7 +21,7 @@ from players.crewrift.crewborg.action import INPUT_HEADER, encode_chat
 from players.crewrift.crewborg.coworld.policy_player import run_bridge
 from players.crewrift.crewborg.tests import sprite_wire as w
 from players.crewrift.crewborg.types import Command
-from players.player_sdk import TraceEvent
+from players.player_sdk import NullMetricsSink, TraceEvent
 
 pytestmark = pytest.mark.asyncio
 
@@ -47,7 +47,7 @@ async def test_bridge_defaults_to_lean_trace_and_no_metrics(monkeypatch) -> None
     with pytest.raises(RuntimeError, match="connect failed"):
         await run_bridge("ws://unused", connect=failing_connect, build=build)
 
-    assert captured["metrics_sink"] is None
+    assert isinstance(captured["metrics_sink"], NullMetricsSink)
     trace_sink = captured["trace_sink"]
     trace_sink.record(TraceEvent(tick=1, name="perception", data={}))
     trace_sink.record(TraceEvent(tick=2, name="domain.meeting_vote_selected", data={}))
@@ -73,7 +73,7 @@ async def test_bridge_enables_metrics_when_requested(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="connect failed"):
         await run_bridge("ws://unused", connect=failing_connect, build=build)
 
-    assert captured["metrics_sink"] is not None
+    assert not isinstance(captured["metrics_sink"], NullMetricsSink)
 
 
 async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:

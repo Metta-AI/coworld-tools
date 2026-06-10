@@ -932,7 +932,7 @@ crewborg/
   types.py           # the six types + perceive/update_belief
   action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
   nav.py             # baked-map nav graph + route planning (used by the action layer)
-  trace.py           # stderr JSON trace + metrics sinks
+  trace.py           # trace event selection/filtering; SDK owns output formats/destinations
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
   modes/             # idle, normal, crewmate_ghost, dick_mode, attend_meeting, report_body, flee, evade, pretend, search, hunt
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
@@ -946,19 +946,32 @@ crewborg/
   AGENTS.md  design.md  README.md
 ```
 
-**Tracing.** Stdout = protocol channel, stderr = logs/traces. Hosted Coworld logs
-are capped, so the policy bridge (`coworld/policy_player.py`) uses a lean stderr
-trace by default. It keeps durable domain events and low-volume mode boundary
-events, but filters per-tick SDK framework noise such as `perception`,
+**Tracing.** Stdout remains available for transport protocols that need it, so
+hosted Crewborg defaults to `CREWBORG_TRACE_OUTPUTS=jsonl@stderr`. Hosted Coworld
+logs are capped, so the policy bridge (`coworld/policy_player.py`) installs a
+lean event filter by default. It keeps durable domain events and low-volume mode
+boundary events, but filters per-tick SDK framework noise such as `perception`,
 `belief_updated`, `action_intent`, `act_command`, `snapshot_submitted`,
 `strategy_evaluated`, and repeated directive traces. The full framework stream is
 still available with `CREWBORG_TRACE=debug` or `CREWBORG_TRACE=viewer`.
-The bridge also supports targeted log streams without full debug volume:
+The bridge also supports targeted streams without full debug volume:
 `CREWBORG_TRACE_GROUPS` names event families, `CREWBORG_TRACE_INCLUDE` /
 `CREWBORG_TRACE_EXCLUDE` accept comma-separated glob patterns, and
 `CREWBORG_TRACE_DECISION_FIELDS` trims `decision_snapshot` to selected top-level
 fields. Event shorthands without `domain.` expand to both the literal name and
 the `domain.` event name, so `meeting_*` and `vote_cast` are valid filters.
+
+Trace and metric records are written by the SDK's `TraceOutputs` manager. The
+`CREWBORG_TRACE_OUTPUTS` value is a comma-separated list of
+`format@destination` specs. Built-in formats are `jsonl`, `json`, `csv`, and
+`parquet`; destinations are `stderr`, `stdout`, `file:<path>`, and
+`artifact[:path/in/zip]`. Artifact outputs are bundled into the zip uploaded via
+`COWORLD_PLAYER_ARTIFACT_UPLOAD_URL`, so hosted runs can preserve richer traces
+without depending on capped stderr logs:
+
+```sh
+CREWBORG_TRACE_OUTPUTS=jsonl@stderr,json@artifact,csv@artifact,parquet@artifact
+```
 
 Crewborg's own game-level events are emitted through the SDK's **domain-event
 seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTracer`
@@ -995,9 +1008,10 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   grid.
 
 Countable outcomes/attempts also emit a matching `domain.*` metrics counter when
-a metrics sink is enabled. Hosted Coworld runs leave metrics off by default; set
-`CREWBORG_METRICS=1` to include counters/gauges without enabling full debug, or
-`CREWBORG_TRACE=debug` to enable both metrics and the full debug trace.
+metrics output is enabled. Hosted Coworld runs leave metrics off by default; set
+`CREWBORG_METRICS=1` to include counters/gauges in the configured outputs
+without enabling full debug, or `CREWBORG_TRACE=debug` to enable both metrics and
+the full debug trace.
 `kill_attempted` (we pressed) is distinct from `kill_landed` (the kill registered,
 seen as the kill-ready→cooldown edge). Incoming meeting chat is decoded into
 `belief.chat_log` (§4.3) and emitted once per meeting line as `chat_received`.
