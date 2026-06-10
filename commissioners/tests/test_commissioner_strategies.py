@@ -114,6 +114,34 @@ def _round_start(
     )
 
 
+def _assert_episode_seeds(episodes: list[ProtocolEpisodeRequest]) -> None:
+    for episode in episodes:
+        _assert_valid_episode_seed(episode.seed)
+
+
+def _assert_valid_episode_seed(seed: int) -> None:
+    assert 0 <= seed <= 2**31 - 1
+
+
+def test_episode_request_defaults_random_seed() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+
+    defaulted = ProtocolEpisodeRequest(
+        request_id="defaulted",
+        variant_id="default",
+        policy_version_ids=policy_version_ids,
+    )
+    explicit_none = ProtocolEpisodeRequest(
+        request_id="explicit-none",
+        variant_id="default",
+        policy_version_ids=policy_version_ids,
+        seed=None,
+    )
+
+    _assert_valid_episode_seed(defaulted.seed)
+    _assert_valid_episode_seed(explicit_none.seed)
+
+
 def test_default_commissioner_round_robin_generation_and_ranking() -> None:
     policy_version_ids = [uuid4() for _ in range(3)]
     pool = PolicyPool(
@@ -130,6 +158,7 @@ def test_default_commissioner_round_robin_generation_and_ranking() -> None:
     commissioner = BaselineCommissioner()
     schedule = commissioner.schedule_episodes(pool=pool, entries=entries, num_agents=4, variant_id="default")
 
+    _assert_episode_seeds(schedule.episodes)
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         [policy_version_ids[0], policy_version_ids[1], policy_version_ids[2], policy_version_ids[0]],
         [policy_version_ids[1], policy_version_ids[2], policy_version_ids[0], policy_version_ids[1]],
@@ -291,6 +320,7 @@ def test_ruleset_strategy_default_config_qualifier_self_play_does_not_crash() ->
 
     schedule = schedule_episodes_for_round_start(_ruleset_commissioner("default"), round_start)
 
+    _assert_episode_seeds(schedule.episodes)
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         [policy_version_ids[0]] * 4,
         [policy_version_ids[0]] * 4,
@@ -397,6 +427,7 @@ def test_ruleset_strategy_cogs_vs_clips_config_matches_rolling_window_schedule()
 
     schedule = schedule_episodes_for_round_start(_ruleset_commissioner("cogs_vs_clips"), round_start)
 
+    _assert_episode_seeds(schedule.episodes)
     assert len(schedule.episodes) == 16
     assert schedule.episodes[0].policy_version_ids == [policy_version_ids[i] for i in (0, 1, 2, 3, 4, 5, 6, 7)]
     assert schedule.episodes[1].policy_version_ids == [policy_version_ids[i] for i in (1, 2, 3, 4, 5, 6, 7, 8)]
@@ -430,6 +461,7 @@ def test_ruleset_strategy_four_score_config_schedules_four_repeated_teams() -> N
 
     schedule = schedule_episodes_for_round_start(_ruleset_commissioner("four_score"), round_start)
 
+    _assert_episode_seeds(schedule.episodes)
     assert len(schedule.episodes) == 25
     assert schedule.episodes[0].policy_version_ids == [
         *([policy_version_ids[0]] * 8),

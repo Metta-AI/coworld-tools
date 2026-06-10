@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+from secrets import randbelow
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 _STATE_MAX_BYTES = 10 * 1024 * 1024
+EPISODE_SEED_MAX = 2**31 - 1
+
+
+def random_episode_seed() -> int:
+    return randbelow(EPISODE_SEED_MAX + 1)
 
 
 class LeagueInfo(BaseModel):
@@ -53,8 +59,15 @@ class EpisodeRequest(BaseModel):
     request_id: str
     variant_id: str
     policy_version_ids: list[UUID]
-    seed: int | None = None
+    seed: int = Field(default_factory=random_episode_seed)
     tags: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def default_seed(cls, value: Any) -> Any:
+        if value is None:
+            return random_episode_seed()
+        return value
 
 
 class EpisodeScore(BaseModel):
