@@ -6,10 +6,12 @@ from players.crewrift.crewborg.map import (
     DEFAULT_MAP_HEIGHT,
     DEFAULT_MAP_WIDTH,
     bake_map,
+    load_croatoan_prebaked,
     load_croatoan_map,
     walkability_matches,
 )
 from players.crewrift.crewborg.map.parser import load_resource_rects
+from players.crewrift.crewborg.nav import DEFAULT_CELL_SIZE
 
 CROATOAN = """
 /* vents */
@@ -96,3 +98,23 @@ def test_walkability_matches_checks_map_dimensions() -> None:
     data = load_croatoan_map()
     assert walkability_matches(data, DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT)
     assert not walkability_matches(data, DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT + 1)
+
+
+def test_croatoan_prebaked_artifact_loads_map_nav_and_tracking() -> None:
+    prebaked = load_croatoan_prebaked()
+
+    assert prebaked.map_data == load_croatoan_map()
+    assert (prebaked.nav.map_width, prebaked.nav.map_height) == (
+        DEFAULT_MAP_WIDTH,
+        DEFAULT_MAP_HEIGHT,
+    )
+    assert prebaked.nav.cell_size == DEFAULT_CELL_SIZE
+    assert len(prebaked.nav.task_anchors) == len(prebaked.map_data.tasks)
+    assert len(prebaked.nav.vent_anchors) == len(prebaked.map_data.vents)
+    assert prebaked.nav.button_anchor is not None
+    assert prebaked.tracking_substrate is not None
+    assert len(prebaked.tracking_substrate.anchors) > 0
+    assert len(prebaked.tracking_substrate.polylines) > 0
+    assert len(prebaked.tracking_substrate.cells) > 0
+    assert prebaked.metadata["source"] == "coworld-crewrift"
+    assert prebaked.metadata["coworld_commit"]

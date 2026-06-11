@@ -14,7 +14,7 @@ For codebase orientation, game constants, and source pointers, see
 Conventions: paths like `sim:2464` cite the Crewrift Nim source (`sim` =
 `src/crewrift/sim.nim`, `global` = `src/crewrift/global.nim`, `protocols.nim` =
 `players/notsus/notsus/protocols.nim`), all under
-`~/coding/games/coworld-crewrift/`.
+`~/coding/coworlds/coworld-crewrift/`.
 
 ---
 
@@ -109,17 +109,20 @@ Crewborg writes its own websocket bridge (`coworld/policy_player.py`):
    retained tables plus the decoded camera, walkability mask, and `shadow`
    line-of-sight mask.
 3. Per tick: block for one binary message — each message is a complete frame (the
-   decoder applies all of its concatenated sub-packets) — apply it to
-   `SceneState`, then run `runtime.step(observation)` and send the result.
+   decoder applies all of its concatenated sub-packets), including the invisible
+   `tick N` marker — apply it to `SceneState`, then run `runtime.step(observation)`
+   with that server tick and send the result.
 4. Close the socket ⇒ game over; exit cleanly.
 
 The server sends exactly one message per tick per socket, paced to 24 Hz, so the
-bridge processes one message per `step`. It has no rate limiter of its own and a
-step is sub-millisecond, so if frames ever transiently queue (a scheduler or
-GC hiccup), it burns through the backlog faster than 24 Hz and self-corrects
-rather than lagging. Coalescing multiple queued frames into one `step` (acting
-only on the freshest, as `notsus`' `receiveLatestFrameInto` does) is a latency
-optimization, not a correctness requirement, and is not currently implemented.
+bridge processes one message per `step`. Crewborg does not synthesize local frame
+counts: every frame must carry the `tick N` marker and that value becomes
+`Observation.tick`. It has no rate limiter of its own and a step is sub-millisecond,
+so if frames ever transiently queue (a scheduler or GC hiccup), it burns through the
+backlog faster than 24 Hz and self-corrects rather than lagging. Coalescing multiple
+queued frames into one `step` (acting only on the freshest, as `notsus`'
+`receiveLatestFrameInto` does) is a latency optimization, not a correctness
+requirement, and is not currently implemented.
 
 `Observation` is a thin pydantic wrapper holding a reference to the live
 `SceneState` + the tick. Byte-level decoding happens in the bridge; `perceive`
@@ -149,7 +152,7 @@ update mutates the tables, which are then read as the current scene.
 
 The first message is an init burst (clear, define-layer 0, set-viewport 128×128,
 define all static sprites including `walkability map`); thereafter one message per
-24 Hz tick carries only changed objects.
+24 Hz tick carries changed objects plus an invisible `tick N` sprite/object marker.
 
 ### 3.2 Camera & self position
 
@@ -200,7 +203,7 @@ present*.
 
 | Field | Source (label / id range) | Notes |
 |---|---|---|
-| `tick`, `camera_ready`, `camera_x/y` | map object id 1 / sprite 1 | gates world coords |
+| `tick`, `camera_ready`, `camera_x/y` | `tick N` marker, map object id 1 / sprite 1 | tick is server-authoritative; camera gates world coords |
 | `self_role` | `imposter icon`/`imposter icon cooldown` ⇒ imposter; `ghost icon` ⇒ dead; neither ⇒ crewmate | HUD (`global:2484-2506`) |
 | `self_kill_ready` | `imposter icon` (ready) vs `imposter icon cooldown` | imposter only |
 | `self_world_xy` | camera + fixed center offset | approximate |
@@ -266,8 +269,9 @@ ghosts and during meetings (no camera).
 
 - **self** — role, alive/dead, world xy, kill-ready + cooldown estimate, active
   task + progress, vote cast this meeting, emergency-button-used flag.
-- **map / nav** — the static map (§6): task rects (by index), vent rects + groups,
-  rooms, emergency-button location, walkability grid, and a nav graph built over it.
+- **map / nav** — the offline-baked static map (§6): task rects (by index), vent
+  rects + groups, rooms, emergency-button location, walkability grid, the nav graph
+  built over it, and the tracking substrate derived from that graph.
 - **roster** — keyed by player **color** (the one identity stable and unique
   across every Crewrift namespace — in-world sprites, bodies, chat icons, vote
   markers). Per `PlayerRecord`: color, the live-world `object_id`
@@ -406,7 +410,7 @@ body location.
 
 ---
 
-## 6. Static map (resource-file bake)
+## 6. Static map and nav (offline bake)
 
 Vent, emergency-button, and task locations are **not in the stream** (the `map`
 object is a flat prerendered picture, `global:701-707`; only object positions and
@@ -428,15 +432,25 @@ is kept only if it has all of those. Classification (`sim:744-775`):
   center (`sim:789`).
 
 **Mechanism.** Vendor the raw `croatoan.resources` into the `map/` package and port
-the ~40-line parser to Python. Parse it **at container startup** into belief's map
-section (never per-tick — the map is static for an episode).
+the ~40-line parser to Python. Before building the player image, regenerate the
+checked-in `map/croatoan_prebaked.npz` with
+`uv run python -m players.crewrift.crewborg.scripts.export_prebaked_map`. The script
+loads the static resource bake, asks the current Coworld simulation for the
+authoritative walkability mask (or accepts `--walkability-npz`), builds the
+`NavGraph`, precomputes the agent-tracking substrate (anchors, pairwise route
+polylines, and the coarse occupancy grid), and writes those plus Coworld commit
+metadata into the artifact. `build_runtime()` loads that artifact at startup, so
+episode tick 1 never parses the map, builds the nav graph, or runs pairwise A*
+for tracking.
 
-**Walkability & validation.** The walkability grid comes from the stream's
-`walkability map` alpha (decoded once); the nav graph is built over it (`nav.py`,
-once per episode). Because Crewrift collides the player as a **1×1 point**
-(`sim.nim` `CollisionW=CollisionH=1`), every walkable pixel is a legal position, so
-the graph is coarsened (8px cells) only for A* speed while **correctness is
-enforced at pixel resolution**:
+**Walkability & validation.** The bridge still decodes the stream's `walkability
+map` alpha once. In the default runtime, `update_belief` compares that mask against
+the prebuilt graph's mask exactly once and raises if the shipped artifact no longer
+matches the server map. Only tests/custom maps that omit `nav` build from the
+streamed mask as a fallback. Because Crewrift collides the player as a **1×1
+point** (`sim.nim` `CollisionW=CollisionH=1`), every walkable pixel is a legal
+position, so the graph is coarsened (8px cells) only for A* speed while
+**correctness is enforced at pixel resolution**:
 
 - A cell is a routable **node** iff it contains a *reachable* walkable pixel; the
   node's point is the reachable pixel nearest the cell center (so a cell that only
@@ -458,18 +472,20 @@ enforced at pixel resolution**:
   pixel satisfying its interaction condition (inside the task/button rect; within
   VentRange of a vent) is precomputed, so navigation targets a known-good point
   instead of a rect center that may sit in a wall. A destination with no reachable
-  anchor is logged at build — surfaced on frame 1, not as a silent mid-game stall.
+  anchor is logged during the offline bake, not as a silent mid-game stall.
 - **Vent teleport edges:** same-group vents teleport together, so the graph also
   holds a directed edge between every pair of reachable same-group vent anchors.
   These are **imposter-only**: only `plan_route_via_vents` (the `escape` intent)
   traverses them, so crewmate routes are unaffected by their presence.
 
-The decoded walkability also validates the bake: if it doesn't match `croatoan`,
-the server is running a different map — fail loud / fall back. (`mapPath` is
-config-overridable, `sim:1320-1321`; today only `croatoan` exists.)
+The streamed walkability validates the artifact: if it doesn't match the
+prebaked graph, the server is running a different map than the player shipped
+with, so fail loud. (`mapPath` is config-overridable, `sim:1320-1321`; today only
+`croatoan` exists.)
 
-> Building crewborg requires the game repo (or the vendored `croatoan.resources`)
-> present.
+> Regenerating the artifact requires the game repo (or an exported walkability
+> `.npz`) plus the vendored `croatoan.resources`. Normal player-image builds just
+> include the checked-in `croatoan_prebaked.npz`.
 
 ---
 
@@ -490,7 +506,7 @@ re-decides.
 | **Normal** | default while `Playing` | target the nearest reachable **signalled** task (live arrows+bubbles = the remaining tasks) and `complete_task(T)`; conclude `T` done when its **bubble disappears**, gated on having seen ≥ `COMPLETION_PROGRESS_PCT` (≈90%) progress (so an occlusion/edge flicker doesn't false-complete); when **no task signal remains**, `navigate_to` the spawn / **start room** rather than standing still |
 | **Crewmate Ghost** | `self_role == "dead"` while `Playing` | reuse Normal's task bookkeeping, but travel to task centers with `navigate_to_noclip` so walls do not constrain pathing; once inside the task rect, `complete_task(T)` holds A exactly like Normal |
 | **Attend Meeting** | phase = `Voting` | `chat(text)`, then `vote` the top suspect (`P(imp) ≥ VOTE_PROBABILITY`, §10.1) else skip, before the timer |
-| **Dick Mode** | opt-in with `CREWBORG_DICK_MODE=1`; live crewmate, one-shot, and first kill cooldown is within the worst-case button walk plus buffer | while `Playing`, `call_meeting`; during the triggered meeting only if our button press opened it, `chat("haha, fuck you imposters")`, then skip-vote until the meeting closes |
+| **Dick Mode** | opt-in with `CREWBORG_DICK_MODE=1`; live crewmate, one-shot, and the observed kill cooldown is longer than the worst-case button walk plus buffer | while `Playing`, `call_meeting`; during the triggered meeting only if our button press opened it, `chat("haha, fuck you imposters")`, then skip-vote until the meeting closes |
 | **Report Body** | a body is in view | `report(body_id)`; yields when a meeting opens |
 | **Flee** | a believed-imposter is approaching | `flee_from(player)`, or a strategic `navigate_to(point)` |
 
@@ -733,8 +749,11 @@ to kill improves imposter outcomes versus the default blend-in policy.
 crewmate-only, one-shot interruption timed against the first imposter kill
 cooldown. The strategy reconstructs `ticks_until_kill_ready` from the globally
 visible Playing transition after role reveal / meetings, using the default
-`DEFAULT_KILL_COOLDOWN_TICKS = 900` until an imposter HUD can teach a better
-duration. When the remaining cooldown is no more than
+`DEFAULT_KILL_COOLDOWN_TICKS = 500` until an imposter HUD can teach a better
+duration. Because the default cooldown is now shorter than the conservative
+button-route budget, Dick Mode does not start unless an observed/configured
+cooldown is longer than `DICK_MAX_BUTTON_TRAVEL_TICKS +
+DICK_KILL_COOLDOWN_BUFFER_TICKS`. When the remaining cooldown is no more than
 `DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS`, the selector
 switches to **Dick Mode**, which rushes to the emergency button and presses A.
 `DICK_MAX_BUTTON_TRAVEL_TICKS = 600` is a conservative hardcoded Croatoan bound:
@@ -823,9 +842,11 @@ as serialized context, but it does not write back durable suspicion facts.
 > **Full reference:** [`docs/designs/agent-tracking.md`](docs/designs/agent-tracking.md).
 
 `update_agent_tracking(belief)` runs every tick in the fast loop after
-`update_belief`. It builds a deterministic static substrate once the nav graph
-exists: task/home/button anchors, pairwise A* route polylines, and a coarse
-reachable occupancy grid (32px cells). For each live non-teammate, it maintains a
+`update_belief`. The default runtime starts with the deterministic static
+substrate from the offline artifact: task/home/button anchors, pairwise A* route
+polylines, and a coarse reachable occupancy grid (32px cells). Custom maps/tests
+that omit it still build the substrate lazily once the nav graph exists. For each
+live non-teammate, it maintains a
 position distribution bounded by the speed-limited reachability disc from the
 last sighting. A fresh sighting collapses that player to the observed cell; when
 the player is absent, line-of-sight-visible cells are removed from their mass.
@@ -931,14 +952,15 @@ crewborg/
   agent_tracking.py  # reachability-disc location beliefs + coarse occupancy search
   types.py           # the six types + perceive/update_belief
   action.py          # action layer: stateful resolve_action, composite execution, momentum + button FSM
-  nav.py             # baked-map nav graph + route planning (used by the action layer)
+  nav.py             # prebuilt-map nav graph + route planning (used by the action layer)
   trace.py           # trace event selection/filtering; SDK owns output formats/destinations
   events.py          # CrewborgEventTracer: on_step_complete hook emitting domain.* events
   modes/             # idle, normal, crewmate_ghost, dick_mode, attend_meeting, report_body, flee, evade, pretend, search, hunt
   strategy/          # rule_based.py: mode selector; suspicion.py: near-certain detection; event_log.py: per-player observation log; occupancy.py: tape predicates; opportunity/trajectory
   perception/        # Sprite-v1 scene decoder: maintain tables, resolve objects → (label, world xy)
-  map/               # vendored croatoan.resources + ported parser (§6)
+  map/               # croatoan.resources + checked-in croatoan_prebaked.npz (§6)
   coworld/           # policy_player.py (bridge), Dockerfile, entrypoint.sh
+  scripts/export_prebaked_map.py  # regenerate map/croatoan_prebaked.npz
   viewer/            # browser UI for inspecting trace-driven agent-perspective replays
   scripts/play_local.sh
   build.sh
@@ -992,7 +1014,7 @@ seam** (`EventEmitter` + `AgentRuntime(on_step_complete=…)`): `CrewborgEventTr
   log + the would-be vote and the bar) at the start of every meeting — the single
   record that explains a vote after the fact.
 - *location tracking* (§10.2): `occupancy_substrate` once the static grid/polylines
-  are built, `occupancy_reacquired` when a lost player re-enters view
+  are available from the artifact, `occupancy_reacquired` when a lost player re-enters view
   (predicted-vs-actual cell and distance error), and `occupancy_seek_target` when
   the imposter's hottest search cell changes.
 - *decision audit* (debug only): `decision_snapshot` links the active
@@ -1066,12 +1088,12 @@ structural, and each still awaits tuning against a live server.
 | Voting policy | vote the highest-posterior live suspect when `P(imp) ≥ VOTE_PROBABILITY` (§10.1), else **skip** — but always cast *something* before the timer (not voting costs −10) |
 | LLM meetings | opt-in with `CREWBORG_LLM_MEETINGS=1` + `ANTHROPIC_API_KEY` (direct), or a Bedrock flag (`USE_BEDROCK=1` / `CREWBORG_USE_BEDROCK=1` / `CLAUDE_CODE_USE_BEDROCK=1`) + AWS env credentials; default model `claude-haiku-4-5-20251001` (direct) or `us.anthropic.claude-haiku-4-5-20251001-v1:0` (Bedrock), overridable via `CREWBORG_LLM_MODEL`; deadline LLM prompt at ≤96 ticks remaining and auto-submit at ≤48 ticks remaining; chat cooldown is 100 ticks |
 | Aggressive imposter selector | opt-in with `CREWBORG_BE_DUMB=1` or `BE_DUMB=1`; during `Playing`, imposters skip Pretend/Evade/ReportBody and always select Search unless kill-ready with a visible victim, then Hunt |
-| Dick Mode selector | opt-in with `CREWBORG_DICK_MODE=1` or `DICK_MODE=1`; live crewmates make one emergency-button call when `ticks_until_kill_ready <= DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS`; `DICK_MAX_BUTTON_TRAVEL_TICKS = 600`, `DICK_KILL_COOLDOWN_BUFFER_TICKS = 10`; chat `haha, fuck you imposters` only when our recorded button press opened the meeting, skip-vote, then resume; refused calls time out after `DICK_CALL_NO_MEETING_GRACE_TICKS = 48` and do not re-arm |
+| Dick Mode selector | opt-in with `CREWBORG_DICK_MODE=1` or `DICK_MODE=1`; live crewmates make one emergency-button call only when the estimated cooldown is longer than `DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS` and `ticks_until_kill_ready` is inside that window; `DICK_MAX_BUTTON_TRAVEL_TICKS = 600`, `DICK_KILL_COOLDOWN_BUFFER_TICKS = 10`; chat `haha, fuck you imposters` only when our recorded button press opened the meeting, skip-vote, then resume; refused calls time out after `DICK_CALL_NO_MEETING_GRACE_TICKS = 48` and do not re-arm |
 | Report policy | crewmates always report visible bodies; imposters evade for `EVADE_TICKS = 72` after their own kill, then may report a non-fresh visible body (§7.2). Suspicion-aware reporting is a possible refinement |
 | Pretend fake-task hold | one task-time (`TASK_TICKS = 72`) held at the station, then re-dispatch |
 | Pretend room targeting | room score = expected crew density minus teammate-imposter pressure (`TEAMMATE_ROOM_PENALTY = 3.0`); choose a real task station in the selected room; keep a chosen room for `ROOM_TARGET_MIN_TICKS = 10000` unless arriving or being preempted |
 | Kill isolation bar | clearance `BASE_ISOLATION_RADIUS = 48` px and witness window `WITNESS_WINDOW_TICKS = 72`, both relaxed to zero by urgency `URGENCY_FULL_TICKS = 240` |
-| Search lead | enter Search `SEARCH_LEAD_TICKS = 100` before the kill is ready. Time-to-ready is reconstructed from the binary HUD: a learned `kill_cooldown_estimate` (or `DEFAULT_KILL_COOLDOWN_TICKS = 900` until measured) from the tracked cooldown start |
+| Search lead | enter Search `SEARCH_LEAD_TICKS = 100` before the kill is ready. Time-to-ready is reconstructed from the binary HUD: a learned `kill_cooldown_estimate` (or `DEFAULT_KILL_COOLDOWN_TICKS = 500` until measured) from the tracked cooldown start |
 | Hunt victim tracking | Hunt requires a visible victim; Search may follow a committed victim seen within `TRACK_WINDOW_TICKS = 120`; trajectory lead is capped at `MAX_LEAD_TICKS = 24` (velocity from sightings ≤ `VELOCITY_MAX_DT = 4` apart, `AGENT_SPEED_PX = 3`) |
 | Hunt teammate claim | prefer an unclaimed victim when a teammate-imposter seen within `TRACK_WINDOW_TICKS` is closer to another victim inside `TEAMMATE_CLAIM_RADIUS = 80` px |
 

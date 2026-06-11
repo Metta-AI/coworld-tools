@@ -81,6 +81,20 @@ def test_shadow_is_overwritten_on_resend() -> None:
     assert scene.visible_mask.all()  # latest resend wins
 
 
+def test_tick_marker_updates_authoritative_scene_tick() -> None:
+    scene = SceneState()
+    assert scene.tick == -1
+    assert scene.last_message_had_tick_marker is False
+
+    scene.apply(w.tick_marker(2000))
+    assert scene.tick == 2000
+    assert scene.last_message_had_tick_marker is True
+
+    scene.apply(w.define_sprite(12001, 1, 1, "tick nope"))
+    assert scene.tick == 2000
+    assert scene.last_message_had_tick_marker is False
+
+
 def test_unknown_message_type_is_malformed() -> None:
     scene = SceneState()
     with pytest.raises(SpriteProtocolError):

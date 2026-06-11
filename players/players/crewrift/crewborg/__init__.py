@@ -7,10 +7,14 @@ parameters, three pure functions, modes, and the rule-based strategy. See
 
 from __future__ import annotations
 
-from players.crewrift.crewborg.agent_tracking import update_agent_tracking
+from players.crewrift.crewborg.agent_tracking import (
+    AgentTrackingState,
+    OccupancySubstrate,
+    update_agent_tracking,
+)
 from players.crewrift.crewborg.action import resolve_action
 from players.crewrift.crewborg.events import CrewborgEventTracer
-from players.crewrift.crewborg.map import MapData, load_croatoan_map
+from players.crewrift.crewborg.map import MapData, load_croatoan_prebaked
 from players.crewrift.crewborg.modes import (
     AttendMeetingMode,
     CrewmateGhostMode,
@@ -24,6 +28,7 @@ from players.crewrift.crewborg.modes import (
     ReportBodyMode,
     SearchMode,
 )
+from players.crewrift.crewborg.nav import NavGraph
 from players.crewrift.crewborg.strategy import RuleBasedStrategy, update_event_log, update_suspicion
 from players.crewrift.crewborg.types import (
     ActionState,
@@ -52,6 +57,8 @@ def build_runtime(
     trace_sink: TraceSink | None = None,
     metrics_sink: MetricsSink | None = None,
     map_data: MapData | None = None,
+    nav: NavGraph | None = None,
+    tracking_substrate: OccupancySubstrate | None = None,
 ) -> AgentRuntime[Observation, Percept, Belief, ActionState, Intent, Command]:
     """Assemble the crewborg ``AgentRuntime``.
 
@@ -60,9 +67,9 @@ def build_runtime(
     strategy publishes mode directives via ``SynchronousStrategyRunner``. The
     per-agent location tracker, per-player event log (design §5.2), and suspicion
     scoring (§10.1) are folded into belief right after perception so the strategy
-    snapshot sees current search and ``believed_imposters`` state. The static map
-    is baked once here (design §6) — ``map_data`` overrides the vendored
-    ``croatoan`` bake (tests).
+    snapshot sees current search and ``believed_imposters`` state. The static map,
+    nav graph, and tracking substrate are loaded from the offline-baked Croatoan
+    artifact (design §6) unless tests pass overrides.
     Registers all modes: idle / normal / crewmate_ghost / attend_meeting /
     dick_mode / report_body / flee (crewmate) and evade / pretend / search / hunt
     (imposter). A ``CrewborgEventTracer`` is wired as the runtime's
@@ -88,8 +95,14 @@ def build_runtime(
     registry.register(PretendMode)
     registry.register(SearchMode)
 
-    if map_data is None:
-        map_data = load_croatoan_map()
+    if map_data is None and nav is None:
+        prebaked = load_croatoan_prebaked()
+        map_data = prebaked.map_data
+        nav = prebaked.nav
+        if tracking_substrate is None:
+            tracking_substrate = prebaked.tracking_substrate
+    elif map_data is None:
+        map_data = load_croatoan_prebaked().map_data
 
     def fold_belief(belief: Belief, percept: Percept) -> None:
         """Fast-loop belief update: perception, tracking, event log, then suspicion."""
@@ -100,7 +113,11 @@ def build_runtime(
         update_suspicion(belief)
 
     return AgentRuntime(
-        belief=Belief(map=map_data),
+        belief=Belief(
+            map=map_data,
+            nav=nav,
+            agent_tracking=AgentTrackingState(substrate=tracking_substrate),
+        ),
         action_state=ActionState(),
         perceive=perceive,
         update_belief=fold_belief,

@@ -14,7 +14,8 @@ strategy.
 ``perceive`` resolves the scene into a structured
 :class:`~.perception.entities.ResolvedScene` (including self world position), and
 ``update_belief`` folds it into belief's self / roster / bodies / tasks / phase /
-voting / evidence sections and builds the nav graph once from the walkability mask
+voting / evidence sections. The default runtime starts with an offline-baked nav
+graph; tests or custom maps may still build one lazily from the walkability mask
 (design §4-§6). The modes + action layer drive both roles: crewmate tasks,
 meetings, voting, reporting, and fleeing, plus imposter hunting, venting, and
 blending in.
@@ -74,7 +75,8 @@ class Percept(BaseModel):
     """Resolved per-tick view of the scene (design §4).
 
     ``walkability`` is the decoded mask held by reference (not copied): it is
-    static for the episode, so ``update_belief`` builds the nav graph from it once.
+    static for the episode, so ``update_belief`` uses it only as a fallback source
+    for custom maps or as a one-time validation of the prebuilt nav graph.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
@@ -274,10 +276,12 @@ class Belief(BaseModel):
     ticks_observed: int = 0
     messages_applied: int = 0
 
-    # Static map, baked once at startup (design §6).
+    # Static map, loaded from the offline bake at startup (design §6).
     map: MapData | None = None
-    # Navigation graph over the streamed walkability mask, built once (design §6).
+    # Navigation graph over the Croatoan walkability mask. The default runtime
+    # starts with the offline-baked graph; tests/custom maps may still build lazily.
     nav: NavGraph | None = None
+    nav_walkability_checked: bool = False
 
     # Self / camera (design §5 self).
     camera_ready: bool = False
@@ -467,6 +471,18 @@ def perceive(observation: Observation, tick: int) -> Percept:
     )
 
 
+def _validate_nav_walkability(nav: NavGraph, walkability: np.ndarray) -> None:
+    """Verify the shipped nav graph was baked from the server's current map mask."""
+
+    if nav.walkability.shape != walkability.shape:
+        raise ValueError(
+            "prebaked nav walkability shape "
+            f"{nav.walkability.shape} does not match streamed map {walkability.shape}"
+        )
+    if not np.array_equal(nav.walkability, walkability):
+        raise ValueError("prebaked nav walkability mask does not match streamed map")
+
+
 def _record_death(
     belief: Belief,
     color: str,
@@ -497,11 +513,15 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     belief.self_world_x = resolved.self_world_x
     belief.self_world_y = resolved.self_world_y
 
-    # Build the navigation graph once from the static walkability mask + baked map
-    # (design §6): nodes/edges validated at pixel resolution, reachable flood from
-    # home, and precomputed reachable anchors for every task / vent / button.
-    if belief.nav is None and percept.walkability is not None:
-        belief.nav = build_nav_graph(percept.walkability, map_data=belief.map)
+    if percept.walkability is not None:
+        # Fallback only: default runtime starts with an offline-baked nav graph.
+        # Tests/custom maps can still build from the streamed walkability mask.
+        if belief.nav is None:
+            belief.nav = build_nav_graph(percept.walkability, map_data=belief.map)
+            belief.nav_walkability_checked = True
+        elif not belief.nav_walkability_checked:
+            _validate_nav_walkability(belief.nav, percept.walkability)
+            belief.nav_walkability_checked = True
 
     # Tasks. The renderer emits a signal per incomplete assigned task. We only
     # accumulate which tasks are assigned and which are visible this tick;

@@ -39,6 +39,18 @@ def define_sprite(sprite_id: int, width: int, height: int, label: str, *, rgba: 
     )
 
 
+def tick_marker(tick: int, *, sprite_id: int = 12000, object_id: int = 12000) -> bytes:
+    """Build the invisible per-frame server tick marker now emitted to players."""
+
+    return define_sprite(
+        sprite_id,
+        1,
+        1,
+        f"tick {tick}",
+        rgba=bytes([0, 0, 0, 0]),
+    ) + define_object(object_id, 0, 0, -32768, 0, sprite_id)
+
+
 def walkability_sprite(sprite_id: int, mask: list[list[bool]]) -> bytes:
     """Build a "walkability map" define-sprite from a 2D walkable bool grid."""
 

@@ -46,7 +46,8 @@ Hunt is gated on a visible kill opportunity whose isolation bar relaxes with
 urgency, not merely on the cooldown ending. The action layer covers `kill` (edge-A
 in KillRange), `vent` (level-B in VentRange), and emergency-button calls. With
 `CREWBORG_DICK_MODE=1` (or `DICK_MODE=1`), live crewmates interrupt normal tasking
-once before the first kill cooldown can clear, rush the emergency button, chat
+only when the observed kill cooldown is longer than the emergency-button route
+budget, rush the emergency button, chat
 `haha, fuck you imposters` only if their own button press opened the meeting,
 skip-vote, and resume normal operation once that meeting closes.
 
@@ -54,19 +55,20 @@ skip-vote, and resume normal operation once that meeting closes.
 
 ```
 crewborg/
-  __init__.py        build_runtime(): assemble the AgentRuntime + bake the map
+  __init__.py        build_runtime(): assemble the AgentRuntime + load prebuilt map/nav/tracking
   agent_tracking.py  reachability-disc location beliefs + coarse occupancy grid search
   types.py           the six SDK types + perceive/update_belief + phase machine
   action.py          action layer: stateful resolve_action + movement/edge FSMs
-  nav.py             baked nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
+  nav.py             prebuilt nav graph: pixel-validated A* + reachability + anchors + vent-teleport routing
   trace.py           trace event selection/filtering; SDK writes configured outputs
   events.py          CrewborgEventTracer: on_step_complete hook → domain.* events
   modes/             idle/normal/crewmate_ghost/dick_mode/attend_meeting/report_body/flee + evade/pretend/search/hunt (+ imposter_common helpers)
   strategy/          rule_based.py: mode selector + suspicion.py: Bayesian P(imposter) → believed_imposters + event_log.py: per-player observation log + occupancy.py: perception-tape predicates + opportunity.py: victim/witness logic + trajectory.py: intercept prediction
   perception/        Sprite-v1 decoder (decoder/tables) + resolution (resolve/entities)
-  map/               vendored croatoan.resources + ported parser/bake (§6)
+  map/               croatoan.resources + prebuilt croatoan_prebaked.npz (§6)
   coworld/           policy_player.py (bridge), scene.py, Dockerfile, entrypoint.sh
   viewer/            browser trace replay UI for agent-perspective forensics
+  scripts/export_prebaked_map.py  regenerate prebuilt map/nav/tracking artifact
   scripts/play_local.sh      run crewborg against a local Crewrift server
   scripts/fetch_episodes.py  download full data for the N most recent hosted episodes
   build.sh
@@ -81,6 +83,14 @@ From the workspace root (`~/coding/players_checkouts/players`):
 uv sync --extra test
 uv run pytest players/crewrift/crewborg/tests
 uv run ruff check players/crewrift/crewborg
+```
+
+Regenerate the checked-in Croatoan map/nav/tracking artifact after CrewRift map
+or walkability changes:
+
+```sh
+uv run python -m players.crewrift.crewborg.scripts.export_prebaked_map \
+  --coworld-root ~/coding/coworlds/coworld-crewrift
 ```
 
 ## Run locally
@@ -100,8 +110,9 @@ during `Playing`, imposters skip Pretend/Evade/body reports and stay in Search
 unless kill-ready with a visible victim, then Hunt.
 
 Set `CREWBORG_DICK_MODE=1` (or `DICK_MODE=1`) for the crewmate emergency-button
-experiment: once the first kill cooldown gets within the hardcoded worst-case
-button-walk budget plus a 10-tick buffer, the bot calls a meeting, sends
+experiment: when the kill cooldown is longer than the hardcoded worst-case
+button-walk budget plus a 10-tick buffer and then gets within that window, the
+bot calls a meeting, sends
 `haha, fuck you imposters` only if that call opened the meeting, skip-votes, then
 resumes tasking. Crewrift's default config allows one emergency button call per
 player, so the strategy intentionally treats this as a one-shot interruption.

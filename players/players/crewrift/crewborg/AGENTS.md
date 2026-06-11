@@ -225,7 +225,7 @@ limiter and self-corrects from any transient backlog.
 
 Crewborg's contract. Two checkouts matter:
 
-- **Game source (Nim):** `~/coding/games/coworld-crewrift` — the authoritative
+- **Game source (Nim):** `~/coding/coworlds/coworld-crewrift` — the authoritative
   rules, protocol docs, reference bots, map assets. Read this for behavior.
 - **Coworld platform docs:** `~/coding/metta/packages/coworld` *(inside the
   metta checkout — **read-only**, never write there)* — the generic Coworld
@@ -242,8 +242,8 @@ Social deduction, 8 players / 2 imposters default, retro pixel art.
 
 ### Loop, mechanics, scoring
 
-> **Citation key** (all paths under `~/coding/games/coworld-crewrift/`, verified
-> 2026-05-28). Game source: `sim` = `src/crewrift/sim.nim`, `global` =
+> **Citation key** (all paths under `~/coding/coworlds/coworld-crewrift/`, verified
+> 2026-06-10). Game source: `sim` = `src/crewrift/sim.nim`, `global` =
 > `src/crewrift/global.nim` (the `/player` renderer), `server` =
 > `src/crewrift/server.nim`, `protocol` = `src/crewrift/common/protocol.nim`.
 > Reference consumer: `notsus` = `players/notsus/notsus.nim`, `np` =
@@ -263,7 +263,7 @@ via `defaultGameConfig` at `sim:1016`):
 | --- | --- | --- | --- | --- | --- | --- |
 | `TargetFps` | 24 | `sim:49` | | task complete | +1 | `sim:95`, awarded `sim:2231` |
 | `KillRange` | 20 px (dist² ≤ 400) | `sim:56` | | kill | +10 | `sim:96`, `sim:2502` |
-| `KillCooldownTicks` | 900 (37.5 s) | `sim:57` | | win (each winner) | +100 | `sim:97` |
+| `KillCooldownTicks` | 500 (20.8 s) | `sim:50` | | win (each winner) | +100 | `sim:97` |
 | `VentRange` | 16 px (dist² ≤ 256) | `sim:61` | | vote timeout (per non-voter) | −10 | `sim:98`, `sim:3082` |
 | `ReportRange` | 20 px | `sim:65` | | stuck (idle crewmate) | −1 | `sim:99` |
 | `TaskCompleteTicks` | 72 (3 s hold-A) | `sim:59` | | map size | 1235×659 | `sim:25-26` |
@@ -312,11 +312,12 @@ one Define-layer (`0x06`) for **layer 0** (map, type `0x00`), one Set-viewport
 (`map`, `walkability map`, the per-color player/ghost/body sprites, task/HUD
 icons) — `global:1720-1855`. After that, **one binary message per game tick**
 carrying only changes: Define-object (`0x02`) for everything currently visible
-(re-sent each tick) and Delete-object (`0x03`) for anything that left (the
-diff-against-last-frame loop, `global:2533`). Init is sent once, gated on
-`nextState.initialized` (`global:2289`). **Everything is on layer 0** for
-`/player` — no separate UI-anchor layers; HUD/voting elements are objects at
-fixed screen coordinates. Treat one received binary message = one atomic frame.
+(re-sent each tick), Delete-object (`0x03`) for anything that left (the
+diff-against-last-frame loop, `global:2533`), and an invisible tick marker sprite
+labeled `tick N`. Init is sent once, gated on `nextState.initialized`
+(`global:2289`). **Everything is on layer 0** for `/player` — no separate
+UI-anchor layers; HUD/voting elements are objects at fixed screen coordinates.
+Treat the `tick N` label as the authoritative game tick for that frame.
 
 **Coordinates are camera-relative, NOT world space.** This is the single most
 important implementation fact and the protocol doc does *not* spell it out for
@@ -350,6 +351,9 @@ sprite; that sprite's **label** tells you what it is. Verified label vocabulary
   (`global:2519`), `shadow` (screen-sized per-player vision overlay, object `13000`
   / sprite `5010`; decoded into a line-of-sight mask — opaque ⇒ occluded,
   transparent ⇒ visible — resent on any camera move, `global:2212`, `sim:2974`).
+- Frame marker: `tick N` is an invisible 1×1 sprite added every player frame and
+  parsed as the authoritative server tick (`global:addSpritePlayerTickMarker`;
+  `np:serverTick`).
 - Voting: `vote cursor` (`global:1521`), `vote skip cursor` (`global:1529`),
   `vote self marker <color>` (`global:1538`), `vote dot <color>` (tally,
   `global:1546`), `vote timer` (`global:1252`).
@@ -374,14 +378,16 @@ sprite; that sprite's **label** tells you what it is. Verified label vocabulary
 
 **Vents, rooms, and the emergency button are NOT objects** — they're baked into
 the `map` sprite's pixels (`buildMapSpritePixels`, `global:701`). crewborg can't
-read their positions from the stream; get them from the static map /
-`walkability map` mask or out-of-band map data.
+read their positions from the stream; get them from the prebuilt static map/nav
+artifact.
 
 **Walkability** = the alpha channel of the one sprite labeled `walkability map`
 (alpha > 0 ⇒ walkable), sized to the full 1235×659 map. Built server-side at
 `buildWalkabilitySpritePixels` `global:709`; decoded by `notsus` at `np:389-406`
-(alpha-only mask). Snappy-decompress it once; `nav.py` builds the pixel-validated
-nav graph over it (§6). The only other sprite whose pixels crewborg decodes is the
+(alpha-only mask). Snappy-decompress it once; the default runtime compares it
+against the offline-baked `croatoan_prebaked.npz` map/nav/tracking artifact (§6).
+`nav.py` builds from it only for tests/custom maps that omit a prebuilt graph. The
+only other sprite whose pixels crewborg decodes is the
 dynamic `shadow` line-of-sight overlay (above); ignore every other sprite's pixels.
 
 **Client → server (input).** Player input is `0x84` + one **byte** bitmask
@@ -517,9 +523,9 @@ the hosted runner, Bedrock is enabled at upload time with
 
 Perception is **structured-scene maintenance**, not computer vision: there is no
 framebuffer parser, no pixel atlas, and no CV parity oracle. The only image steps
-are Snappy-decoding two sprite alpha masks: the `walkability map` (used only to
-*validate* a baked map — vent/button/task locations are not in the stream) and the
-dynamic `shadow` line-of-sight overlay (real per-point visibility); see
+are Snappy-decoding two sprite alpha masks: the `walkability map` (used to validate
+the prebuilt map/nav/tracking artifact — vent/button/task locations are not in the
+stream) and the dynamic `shadow` line-of-sight overlay (real per-point visibility); see
 [§2](#sprite-v1-protocol-structured-scene-not-a-framebuffer) and `design.md` §3.
 
 Behavior & parsing references:
@@ -561,17 +567,17 @@ pixel parity.
 | SDK framework reference (invariants) | `players/player_sdk/docs/metta_cogames_framework/README.md` |
 | SDK minimal example to mirror | `players/player_sdk/docs/metta_cogames_framework/examples/toy_grid_agent.py` |
 | Crewborg design decisions | `players/crewrift/crewborg/design.md` |
-| Crewrift Sprite-v1 parser (perception reference) | `~/coding/games/coworld-crewrift/players/notsus/notsus/protocols.nim` |
-| Crewrift rules / mechanics | `~/coding/games/coworld-crewrift/README.md`, `docs/rules.md`, `src/crewrift/sim.nim` |
-| Crewrift wire protocol | `~/coding/games/coworld-crewrift/docs/sprite_v1.md` |
-| Crewrift reference bots + guides | `~/coding/games/coworld-crewrift/players/` |
+| Crewrift Sprite-v1 parser (perception reference) | `~/coding/coworlds/coworld-crewrift/players/notsus/notsus/protocols.nim` |
+| Crewrift rules / mechanics | `~/coding/coworlds/coworld-crewrift/README.md`, `docs/rules.md`, `src/crewrift/sim.nim` |
+| Crewrift wire protocol | `~/coding/coworlds/coworld-crewrift/docs/sprite_v1.md` |
+| Crewrift reference bots + guides | `~/coding/coworlds/coworld-crewrift/players/` |
 | Coworld platform/runner contract | `~/coding/metta/packages/coworld/src/coworld/docs/README.md` + `runner/runner.py` *(read-only)* |
 | Fetch hosted episodes crewborg played | `players/crewrift/crewborg/scripts/fetch_episodes.py` (the typed `coworld episodes`/`replays`/`episode-logs` are 404-broken since the server's `episode-requests`→`experience-request` rename) |
 | View crewborg trace replays | `players/crewrift/crewborg/viewer/index.html` (load logs captured with `CREWBORG_TRACE=viewer` or `CREWBORG_TRACE=debug`) |
 
 Absolute roots:
 - Player SDK & this workspace: `~/coding/players_checkouts/players` (pkg `players`)
-- Crewrift game source: `~/coding/games/coworld-crewrift`
+- Crewrift game source: `~/coding/coworlds/coworld-crewrift`
 - Coworld platform: `~/coding/metta/packages/coworld` *(read-only — metta checkout)*
 
 ## Source-of-truth & caveats

@@ -98,14 +98,20 @@ def test_ghost_does_tasks_not_report() -> None:
     assert _select(belief) == "crewmate_ghost"
 
 
+def _dick_mode_test_cooldown() -> int:
+    trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+    return trigger_window + 100
+
+
 def _crewmate_near_kill_cooldown_ready() -> Belief:
     trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+    cooldown = _dick_mode_test_cooldown()
     return Belief(
         phase="Playing",
         self_role="crewmate",
-        last_tick=900 - trigger_window,
+        last_tick=cooldown - trigger_window,
         kill_cooldown_start_tick=0,
-        kill_cooldown_estimate=900,
+        kill_cooldown_estimate=cooldown,
     )
 
 
@@ -115,17 +121,30 @@ def test_dick_mode_disabled_by_default_near_kill_cooldown() -> None:
     assert _select(belief) == "normal"
 
 
+def test_dick_mode_does_not_start_when_default_cooldown_is_shorter_than_button_window(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
+    belief = Belief(
+        phase="Playing",
+        self_role="crewmate",
+        last_tick=0,
+        kill_cooldown_start_tick=0,
+    )
+
+    assert _select(belief) == "normal"
+
+
 def test_dick_mode_triggers_once_before_kill_cooldown_ready(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_DICK_MODE", "1")
     strategy = RuleBasedStrategy()
     action_state = ActionState()
     trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+    cooldown = _dick_mode_test_cooldown()
     belief = Belief(
         phase="Playing",
         self_role="crewmate",
-        last_tick=900 - trigger_window - 1,
+        last_tick=cooldown - trigger_window - 1,
         kill_cooldown_start_tick=0,
-        kill_cooldown_estimate=900,
+        kill_cooldown_estimate=cooldown,
     )
 
     assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
@@ -146,7 +165,7 @@ def test_dick_mode_triggers_once_before_kill_cooldown_ready(monkeypatch) -> None
     # A later cooldown window in the same game does not re-arm Dick Mode; Crewrift's
     # default ButtonCalls is one per player.
     belief.kill_cooldown_start_tick = belief.last_tick
-    belief.last_tick = belief.kill_cooldown_start_tick + 900 - trigger_window
+    belief.last_tick = belief.kill_cooldown_start_tick + cooldown - trigger_window
     assert _select_with(strategy, belief, tick=belief.last_tick, action_state=action_state) == "normal"
 
 

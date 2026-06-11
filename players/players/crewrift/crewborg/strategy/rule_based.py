@@ -45,10 +45,10 @@ visible victim, otherwise Search. It deliberately skips Pretend, Evade, and
 Report Body so we can isolate "always prepare to kill" behavior.
 
 Crewmate nuisance experiment: ``CREWBORG_DICK_MODE=1`` (or ``DICK_MODE=1``)
-interrupts normal tasking once per game, far enough before the first kill
-cooldown clears that a worst-case walk to the emergency button should still land
-with a small buffer. The selector switches to ``dick_mode`` until either our
-button press opens the emergency meeting or the attempt times out.
+interrupts normal tasking once per game only when the observed kill cooldown is
+long enough for a worst-case walk to the emergency button. The selector switches
+to ``dick_mode`` until either our button press opens the emergency meeting or
+the attempt times out.
 """
 
 from __future__ import annotations
@@ -58,6 +58,7 @@ import os
 from players.crewrift.crewborg.strategy.meeting import MeetingParams, read_meeting_params_from_env
 from players.crewrift.crewborg.strategy.opportunity import (
     SEARCH_LEAD_TICKS,
+    estimated_kill_cooldown_ticks,
     has_visible_victim,
     ticks_until_kill_ready,
 )
@@ -216,6 +217,8 @@ class RuleBasedStrategy:
         if belief.self_role not in {None, "crewmate"}:
             return False
         trigger_window = DICK_MAX_BUTTON_TRAVEL_TICKS + DICK_KILL_COOLDOWN_BUFFER_TICKS
+        if estimated_kill_cooldown_ticks(belief) <= trigger_window:
+            return False
         return ticks_until_kill_ready(belief) <= trigger_window
 
     def _did_press_emergency_button(self, action_state: ActionState) -> bool:

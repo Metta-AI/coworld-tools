@@ -82,8 +82,8 @@ async def test_bridge_runs_idle_loop_and_exits_cleanly() -> None:
     async def handler(websocket) -> None:
         # Stream three valid scene frames, then drain whatever the bridge replies
         # with and close (returning from the handler closes the connection).
-        for _ in range(3):
-            await websocket.send(w.clear_objects())
+        for tick in range(3):
+            await websocket.send(w.clear_objects() + w.tick_marker(2000 + tick))
         try:
             while True:
                 bridge_packets.append(await asyncio.wait_for(websocket.recv(), timeout=0.25))
@@ -140,7 +140,7 @@ async def test_bridge_treats_unclean_close_as_game_end() -> None:
         async def __anext__(self) -> bytes:
             if not self._frame_sent:
                 self._frame_sent = True
-                return w.clear_objects()
+                return w.clear_objects() + w.tick_marker(2000)
             raise ConnectionClosedError(None, None)
 
         async def send(self, _data: bytes) -> None:
@@ -154,6 +154,91 @@ async def test_bridge_treats_unclean_close_as_game_end() -> None:
         run_bridge("ws://unused", connect=fake_connect, build=lambda **_: fake_runtime),
         timeout=5.0,
     )
+    assert fake_runtime.closed
+
+
+async def test_bridge_uses_server_tick_marker_for_observation() -> None:
+    observed_ticks: list[tuple[int, int]] = []
+
+    class FakeRuntime:
+        def step(self, observation) -> Command:
+            observed_ticks.append((observation.tick, observation.scene.tick))
+            return Command(held_mask=0)
+
+        def close(self) -> None:
+            pass
+
+    class TickConnection:
+        def __init__(self) -> None:
+            self._frames = iter([w.tick_marker(2000), w.tick_marker(2005)])
+
+        async def __aenter__(self) -> TickConnection:
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        def __aiter__(self) -> TickConnection:
+            return self
+
+        async def __anext__(self) -> bytes:
+            try:
+                return next(self._frames)
+            except StopIteration as exc:
+                raise ConnectionClosedError(None, None) from exc
+
+        async def send(self, _data: bytes) -> None:
+            pass
+
+    def fake_connect(*_args: object, **_kwargs: object) -> TickConnection:
+        return TickConnection()
+
+    await asyncio.wait_for(
+        run_bridge("ws://unused", connect=fake_connect, build=lambda **_: FakeRuntime()),
+        timeout=5.0,
+    )
+
+    assert observed_ticks == [(2000, 2000), (2005, 2005)]
+
+
+async def test_bridge_rejects_frames_without_server_tick_marker() -> None:
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.closed = False
+            self.steps = 0
+
+        def step(self, _observation) -> Command:
+            self.steps += 1
+            return Command(held_mask=0)
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_runtime = FakeRuntime()
+
+    class MissingTickConnection:
+        async def __aenter__(self) -> MissingTickConnection:
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        def __aiter__(self) -> MissingTickConnection:
+            return self
+
+        async def __anext__(self) -> bytes:
+            return w.clear_objects()
+
+        async def send(self, _data: bytes) -> None:
+            pass
+
+    def fake_connect(*_args: object, **_kwargs: object) -> MissingTickConnection:
+        return MissingTickConnection()
+
+    with pytest.raises(RuntimeError, match="missing server tick marker"):
+        await run_bridge("ws://unused", connect=fake_connect, build=lambda **_: fake_runtime)
+
+    assert fake_runtime.steps == 0
     assert fake_runtime.closed
 
 
@@ -194,7 +279,7 @@ async def test_bridge_sends_chat_packet() -> None:
             pass
 
     async def handler(websocket) -> None:
-        await websocket.send(w.clear_objects())
+        await websocket.send(w.clear_objects() + w.tick_marker(2000))
         try:
             while True:
                 received.append(await asyncio.wait_for(websocket.recv(), timeout=0.25))

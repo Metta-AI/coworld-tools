@@ -4,8 +4,9 @@ Per design §3 this is the lone non-pydantic SDK-facing type: a plain dataclass
 holding the three retained tables (Layers/Sprites/Objects), the decoded camera,
 the walkability mask, and the ``shadow`` line-of-sight mask, which ``Observation``
 references by pointer. Raw sprite pixels are otherwise discarded — only those two
-alpha masks are retained (the walkability mask for nav, the line-of-sight mask
-flows on into the perception tape).
+alpha masks are retained (the walkability mask validates the prebuilt nav graph
+or supports custom-map fallback, while the line-of-sight mask flows on into the
+perception tape).
 
 Byte-level decoding lives in :mod:`players.crewrift.crewborg.perception.decoder`;
 ``apply`` delegates to it.
@@ -25,9 +26,11 @@ from players.crewrift.crewborg.perception.tables import LayerDef, ObjectState, S
 class SceneState:
     """Mutable scene the bridge maintains as Sprite-v1 messages arrive."""
 
-    # Bridge bookkeeping.
-    tick: int = 0
+    # Bridge bookkeeping. ``tick`` is the latest authoritative server tick from
+    # the invisible per-frame tick marker; bridge-local frame counts are not used.
+    tick: int = -1
     messages_applied: int = 0
+    last_message_had_tick_marker: bool = False
 
     # Retained tables, keyed by their protocol ids.
     sprites: dict[int, SpriteDef] = field(default_factory=dict)
@@ -59,4 +62,5 @@ class SceneState:
         """
 
         self.messages_applied += 1
+        self.last_message_had_tick_marker = False
         apply_message(self, message)

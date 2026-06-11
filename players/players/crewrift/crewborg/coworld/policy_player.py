@@ -66,7 +66,8 @@ async def run_bridge(
                             # The /player stream is binary Sprite-v1; ignore stray text.
                             continue
                         scene.apply(message)
-                        scene.tick += 1
+                        if not scene.last_message_had_tick_marker:
+                            raise RuntimeError("player frame missing server tick marker")
 
                         # Validate the baked map against the streamed walkability mask
                         # once it arrives (design §6); a size mismatch means a different
