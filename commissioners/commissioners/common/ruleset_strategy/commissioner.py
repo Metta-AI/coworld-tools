@@ -189,7 +189,6 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         complete.policy_membership_events = [
             protocol_policy_membership_event(change) for change in hook.policy_membership_events
         ]
-        complete.graduation_changes = []
         return complete
 
     def complete_round(

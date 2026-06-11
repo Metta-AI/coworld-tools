@@ -32,9 +32,6 @@ from commissioners.common.protocol import (
     DivisionRanking as CommissionerDivisionRanking,
 )
 from commissioners.common.protocol import (
-    GraduationChange as CommissionerGraduationChange,
-)
-from commissioners.common.protocol import (
     MembershipChange as CommissionerMembershipChange,
 )
 from commissioners.common.protocol import (
@@ -390,15 +387,6 @@ def complete_round_for_round_start(
     complete.membership_changes = [_protocol_membership_change(change) for change in hook_result.membership_changes]
     complete.policy_membership_events = [
         _protocol_policy_membership_event(change) for change in hook_result.policy_membership_events
-    ]
-    complete.graduation_changes = [
-        CommissionerGraduationChange(
-            membership_id=change.membership_id,
-            to_division_id=change.to_division_id,
-            reason=change.reason,
-        )
-        for change in hook_result.membership_changes
-        if change.to_division_id is not None
     ]
     return complete
 
