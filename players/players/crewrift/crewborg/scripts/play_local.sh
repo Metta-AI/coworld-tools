@@ -4,7 +4,7 @@
 # Start a Crewrift dev server first (see AGENTS.md §"Connecting / running
 # locally"), e.g. the smallest smoke episode:
 #
-#   cd ~/coding/games/coworld-crewrift
+#   cd ~/coding/coworlds/coworld-crewrift
 #   nim r src/crewrift.nim --address:0.0.0.0 --port:2000 \
 #     --config:'{"minPlayers":1,"imposterCount":0,"tasksPerPlayer":1}'
 #

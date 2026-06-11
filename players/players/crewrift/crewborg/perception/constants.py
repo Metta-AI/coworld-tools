@@ -1,8 +1,8 @@
 """Sprite-v1 protocol constants for the Crewrift ``/player`` stream.
 
-All values verified against the game source on 2026-05-29
-(``~/coding/games/coworld-crewrift/src/crewrift/{sim,global}.nim``). These are
-the perception contract — re-check the source if perception misbehaves.
+All values verified against the game source on 2026-06-10
+(``~/coding/coworlds/coworld-crewrift/src/crewrift/{sim,global}.nim``). These
+are the perception contract — re-check the source if perception misbehaves.
 """
 
 from __future__ import annotations
@@ -126,6 +126,7 @@ PREFIX_VOTE_DOT = "vote dot "  # + color
 PREFIX_PLAYER = "player "  # "player <color> left|right"
 PREFIX_GHOST = "ghost "  # "ghost <color> left|right"
 PREFIX_BODY = "body "  # "body <color>"
+PREFIX_SERVER_TICK = "tick "  # "tick 2000"; invisible per-frame authority marker
 
 # Interstitial phase / result text (global.nim interstitialTextItems). Read the
 # game phase from which of these appears.

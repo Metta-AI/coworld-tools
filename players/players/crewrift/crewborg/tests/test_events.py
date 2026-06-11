@@ -688,10 +688,12 @@ def test_domain_event_flows_through_a_real_runtime_step() -> None:
     trace = ListTraceSink()
     runtime = build_runtime(trace_sink=trace)
     scene = SceneState()
-    scene.apply(w.clear_objects())
-    scene.apply(w.define_sprite(50, 1, 1, "STARTING"))  # interstitial text => Lobby
-    scene.apply(w.define_object(9000, 10, 10, 0, 0, 50))
-    scene.tick += 1
+    scene.apply(
+        w.clear_objects()
+        + w.define_sprite(50, 1, 1, "STARTING")  # interstitial text => Lobby
+        + w.define_object(9000, 10, 10, 0, 0, 50)
+        + w.tick_marker(1)
+    )
     runtime.step(Observation(scene=scene, tick=scene.tick))
     runtime.close()
 

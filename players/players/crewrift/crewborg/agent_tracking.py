@@ -3,8 +3,8 @@
 This module implements the first behaviour-changing slice of
 ``docs/designs/agent-tracking.md``:
 
-* a deterministic static substrate: anchors, pairwise route polylines, and a
-  coarse reachable occupancy grid;
+* a deterministic static substrate, prebuilt for the default map: anchors, pairwise
+  route polylines, and a coarse reachable occupancy grid;
 * a per-player reachability-disc position belief with line-of-sight negative
   observations; and
 * a readout helper for "walk toward the hottest likely crew cell".

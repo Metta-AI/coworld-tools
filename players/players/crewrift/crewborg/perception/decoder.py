@@ -29,6 +29,7 @@ from players.crewrift.crewborg.perception.constants import (
     MSG_DEFINE_SPRITE,
     MSG_DELETE_OBJECT,
     MSG_SET_VIEWPORT,
+    PREFIX_SERVER_TICK,
 )
 from players.crewrift.crewborg.perception.tables import LayerDef, ObjectState, SpriteDef
 
@@ -111,9 +112,21 @@ def _apply_define_sprite(scene: SceneState, message: bytes, offset: int) -> int:
     elif label == LABEL_SHADOW:
         compressed = message[compressed_start : compressed_start + compressed_len]
         _decode_shadow(scene, width, height, bytes(compressed))
+    elif (server_tick := _server_tick_from_label(label)) is not None:
+        scene.tick = server_tick
+        scene.last_message_had_tick_marker = True
 
     scene.sprites[sprite_id] = SpriteDef(width=width, height=height, label=label)
     return offset
+
+
+def _server_tick_from_label(label: str) -> int | None:
+    if not label.startswith(PREFIX_SERVER_TICK):
+        return None
+    digits = label[len(PREFIX_SERVER_TICK) :]
+    if not digits or not digits.isdecimal():
+        return None
+    return int(digits)
 
 
 def _decode_walkability(scene: SceneState, width: int, height: int, compressed: bytes) -> None:

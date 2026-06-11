@@ -1,7 +1,8 @@
 """Navigation graph + route planning (design §6, §9).
 
-Built **once per episode** from the decoded pixel walkability mask and the baked
-static map. Crewrift collides the player as a **1×1 point** (``sim.nim``
+The default player ships a prebuilt graph generated offline from the authoritative
+Coworld walkability mask and the baked static map. Crewrift collides the player as
+a **1×1 point** (``sim.nim``
 ``CollisionW=CollisionH=1``), so *every walkable pixel is a legal agent position*.
 The grid is therefore coarsened only to keep A* fast on the full ~1235×659 map;
 correctness is enforced at **pixel resolution**, not at the coarse approximation:
@@ -19,7 +20,7 @@ correctness is enforced at **pixel resolution**, not at the coarse approximation
 - **Destination anchors:** for every baked task / vent / button we precompute the
   reachable pixel that satisfies its interaction condition, so navigation targets a
   known-good point instead of a rect center that may sit in a wall. A destination
-  with no reachable anchor is logged at build — surfaced on frame 1 instead of as a
+  with no reachable anchor is logged during the offline bake instead of as a
   silent mid-game stall.
 
 ``plan_route`` runs A* over the node graph, then string-pulls the result with a

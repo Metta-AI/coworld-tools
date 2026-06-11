@@ -39,16 +39,12 @@ TEAMMATE_CLAIM_RADIUS = 80
 
 # The kill cooldown's full length (ticks), used to estimate time-to-ready before we
 # have measured a real cooldown from the binary HUD (design §7.2). The game default.
-DEFAULT_KILL_COOLDOWN_TICKS = 900
+DEFAULT_KILL_COOLDOWN_TICKS = 500
 
 # Enter Search this many ticks before the kill comes off cooldown. Search finds
 # and follows a victim; Hunt only activates once the kill is ready and a victim is
 # visible.
 SEARCH_LEAD_TICKS = 100
-
-# Backwards-compatible name for docs/tests that still refer to the old Hunt lead
-# term. New code should use SEARCH_LEAD_TICKS.
-HUNT_LEAD_TICKS = SEARCH_LEAD_TICKS
 
 
 def kill_urgency_ticks(belief: Belief) -> int:
@@ -66,16 +62,22 @@ def ticks_until_kill_ready(belief: Belief) -> int:
     countdown from the tracked cooldown start (`kill_cooldown_start_tick`) plus the
     learned duration (`kill_cooldown_estimate`, falling back to the game default
     before anything has been measured). With no cooldown start observed yet it
-        assumes a full cooldown remains, so callers won't enter Search on no
-        information.
+    assumes a full cooldown remains, so callers won't enter Search on no
+    information.
     """
 
     if belief.self_kill_ready:
         return 0
     if belief.kill_cooldown_start_tick is None:
         return DEFAULT_KILL_COOLDOWN_TICKS
-    duration = belief.kill_cooldown_estimate or DEFAULT_KILL_COOLDOWN_TICKS
+    duration = estimated_kill_cooldown_ticks(belief)
     return max(0, belief.kill_cooldown_start_tick + duration - belief.last_tick)
+
+
+def estimated_kill_cooldown_ticks(belief: Belief) -> int:
+    """Best available kill cooldown duration, falling back to the game default."""
+
+    return belief.kill_cooldown_estimate or DEFAULT_KILL_COOLDOWN_TICKS
 
 
 def has_trackable_victim(belief: Belief) -> bool:
