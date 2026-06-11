@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from commissioners.common.app import commissioner_app
-from commissioners.common.server import create_app
+from commissioners.common.server import _configured_episode_timeout_seconds, _episode_duration_limit_seconds, create_app
 from commissioners.common.commissioners import RulesetStrategyCommissioner
 from commissioners.common.protocol import (
     CommissionerMessage,
@@ -217,6 +217,23 @@ def test_round_websocket_completes_when_one_episode_fails() -> None:
     rankings = complete["results"][0]["rankings"]
     assert [ranking["policy_version_id"] for ranking in rankings] == [policy_version_ids[0], policy_version_ids[1]]
     assert [ranking["result_metadata"]["completed_episode_count"] for ranking in rankings] == [1, 1]
+
+
+def test_configured_episode_timeout_prefers_game_duration_from_ticks() -> None:
+    assert _configured_episode_timeout_seconds(
+        {"num_agents": 2, "max_ticks": 100, "tick_rate": 5, "player_connect_timeout_seconds": 180}
+    ) == 20
+
+
+def test_configured_episode_timeout_reads_explicit_nested_duration() -> None:
+    assert _configured_episode_timeout_seconds({"server": {"timeout_seconds": 45}}) == 45
+
+
+def test_episode_duration_limit_doubles_timeout_and_caps_at_five_minutes() -> None:
+    episode = EpisodeRequest(request_id="1", variant_id="default", policy_version_ids=[uuid4(), uuid4()])
+    variants = {"default": VariantInfo(id="default", name="Default", game_config={"timeout_seconds": 240}, num_agents=2)}
+
+    assert _episode_duration_limit_seconds(episode, variants) == 300
 
 
 def test_round_websocket_rejects_unknown_episode_result_request_id() -> None:
