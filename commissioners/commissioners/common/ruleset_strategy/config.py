@@ -263,7 +263,16 @@ class DivisionStageConfig(_ConfigModel):
     id: str
     entrants: EntrantSelector | EntrantShortcut | None = None
     schedule: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
+    on_round_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_single_transition_hook(self) -> DivisionStageConfig:
+        if self.on_round_complete and self.on_episode_complete:
+            raise ValueError(
+                "stage config may use either on_round_complete or legacy on_episode_complete, not both"
+            )
+        return self
 
 
 class RulesetDivisionConfig(_ConfigModel):
@@ -272,15 +281,24 @@ class RulesetDivisionConfig(_ConfigModel):
     min_entries_to_start: int | None = Field(default=None, gt=0)
     stage: StageScheduleConfig | None = None
     stages: list[DivisionStageConfig] = Field(default_factory=list)
+    on_round_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_single_stage_shape(self) -> RulesetDivisionConfig:
         if self.stage is not None and self.stages:
             raise ValueError("division config may use either stage or stages, not both")
-        if self.on_episode_complete and self.stages:
-            raise ValueError("division-level on_episode_complete is only valid with a single stage")
+        if self.on_round_complete and self.on_episode_complete:
+            raise ValueError(
+                "division config may use either on_round_complete or legacy on_episode_complete, not both"
+            )
+        if self.round_complete_transitions and self.stages:
+            raise ValueError("division-level on_round_complete is only valid with a single stage")
         return self
+
+    @property
+    def round_complete_transitions(self) -> list[EpisodeCompleteTransition]:
+        return self.on_round_complete or self.on_episode_complete
 
 
 class RulesetStrategyCommissionerConfig(_ConfigModel):
@@ -395,19 +413,20 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         changes: list[TransitionRule] = []
         stages = self._expanded_stages(division)
         for index, stage in enumerate(stages):
-            if not stage.on_episode_complete:
+            transitions = self._round_complete_transitions(stage)
+            if not transitions:
                 continue
             match = ChangeMatch(
                 division=division.match,
                 membership=self._stage_entrant_selector(division, stage, index, len(stages)),
             )
-            changes.append(self._transition_rule(match, stage.on_episode_complete))
-        if not stages and division.on_episode_complete:
+            changes.append(self._transition_rule(match, transitions))
+        if not stages and division.round_complete_transitions:
             match = ChangeMatch(
                 division=division.match,
                 membership=self._entrant_selector(division.entrants, division.match),
             )
-            changes.append(self._transition_rule(match, division.on_episode_complete))
+            changes.append(self._transition_rule(match, division.round_complete_transitions))
         return changes
 
     def _transition_rule(
@@ -448,15 +467,19 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
     def _expanded_stages(self, division: RulesetDivisionConfig) -> list[DivisionStageConfig]:
         if division.stages:
             return division.stages
-        if division.stage is None and not division.on_episode_complete:
+        if division.stage is None and not division.round_complete_transitions:
             return []
         return [
             DivisionStageConfig(
                 id="round",
                 schedule=division.stage or self.defaults.stage,
+                on_round_complete=division.on_round_complete,
                 on_episode_complete=division.on_episode_complete,
             )
         ]
+
+    def _round_complete_transitions(self, stage: DivisionStageConfig) -> list[EpisodeCompleteTransition]:
+        return stage.on_round_complete or stage.on_episode_complete
 
     def _stage_entrant_selector(
         self,

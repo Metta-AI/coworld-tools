@@ -31,7 +31,7 @@ divisions:
           self_play: true
           attempts: 2
           min_episodes_per_entrant: 2
-        on_episode_complete:
+        on_round_complete:
           - id: failed_crash_check
             name: Failed crash test
             criteria:
@@ -62,7 +62,7 @@ divisions:
     match:
       type: competition
     entrants: champions
-    on_episode_complete:
+    on_round_complete:
       - id: disqualified_non_positive_round_score
         name: Score <= 0
         criteria:

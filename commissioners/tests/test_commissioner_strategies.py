@@ -549,6 +549,15 @@ def test_ruleset_strategy_cue_n_woo_config_repeats_neighbors_to_preserve_minimum
     ]
 
 
+def test_ruleset_strategy_cue_n_woo_config_uses_round_complete_transitions() -> None:
+    config = _ruleset_config("cue_n_woo")
+
+    assert "on_round_complete" in config["divisions"]["competition"]
+    assert "on_episode_complete" not in config["divisions"]["competition"]
+    assert "on_round_complete" in config["divisions"]["qualifiers"]["stages"][0]
+    assert "on_episode_complete" not in config["divisions"]["qualifiers"]["stages"][0]
+
+
 @pytest.mark.parametrize("scores", [[0.0, 0.0], [-1.0, 0.5]])
 def test_ruleset_strategy_cue_n_woo_competition_non_positive_average_disqualifies(
     scores: list[float],
@@ -813,6 +822,26 @@ def test_ruleset_strategy_cue_n_woo_uncompleted_crash_check_disqualifies() -> No
     assert event.status == "disqualified"
     assert event.substatus == "inactive"
     assert event.evidence[0].metadata["transition_id"] == "failed_crash_check"
+
+
+def test_ruleset_strategy_rejects_mixed_round_and_legacy_episode_complete_hooks() -> None:
+    transition = {
+        "criteria": {"score_lte": 0},
+        "actions": [{"type": "update_membership", "status": "disqualified"}],
+    }
+
+    with pytest.raises(ValueError, match="on_round_complete"):
+        RulesetStrategyCommissioner(
+            {
+                "divisions": {
+                    "competition": {
+                        "match": {"type": "competition"},
+                        "on_round_complete": [transition],
+                        "on_episode_complete": [transition],
+                    }
+                }
+            }
+        )
 
 
 def test_ruleset_strategy_four_score_config_qualifier_self_play_fills_every_slot() -> None:
