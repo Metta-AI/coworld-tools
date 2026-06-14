@@ -219,10 +219,87 @@ def test_round_websocket_completes_when_one_episode_fails() -> None:
     assert [ranking["result_metadata"]["completed_episode_count"] for ranking in rankings] == [1, 1]
 
 
+def test_round_websocket_throttles_schedule_episodes_when_configured() -> None:
+    client = TestClient(
+        create_app(
+            RulesetStrategyCommissioner(
+                {
+                    "dispatch_throttle": {
+                        "enabled": True,
+                        "min_in_flight": 1,
+                        "max_in_flight": 1,
+                        "stagger_seconds": 0,
+                    },
+                    "defaults": {
+                        "min_entries_to_start": 2,
+                        "stage": {"label": "Round", "episodes": 3},
+                    },
+                    "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
+                }
+            )
+        )
+    )
+    round_start, policy_version_ids = _round_start_json()
+
+    with client.websocket_connect("/round") as websocket:
+        websocket.send_json(round_start)
+        first_schedule = websocket.receive_json()
+        assert first_schedule["type"] == "schedule_episodes"
+        assert len(first_schedule["episodes"]) == 1
+
+        websocket.send_json(
+            {
+                "type": "episode_result",
+                "request_id": first_schedule["episodes"][0]["request_id"],
+                "scores": [
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=1.0).model_dump(mode="json"),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=2.0).model_dump(mode="json"),
+                ],
+            }
+        )
+        second_schedule = websocket.receive_json()
+        assert second_schedule["type"] == "schedule_episodes"
+        assert len(second_schedule["episodes"]) == 1
+        assert second_schedule["episodes"][0]["request_id"] != first_schedule["episodes"][0]["request_id"]
+
+        websocket.send_json(
+            {
+                "type": "episode_result",
+                "request_id": second_schedule["episodes"][0]["request_id"],
+                "scores": [
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=3.0).model_dump(mode="json"),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=1.0).model_dump(mode="json"),
+                ],
+            }
+        )
+        third_schedule = websocket.receive_json()
+        assert third_schedule["type"] == "schedule_episodes"
+        assert len(third_schedule["episodes"]) == 1
+
+        websocket.send_json(
+            {
+                "type": "episode_result",
+                "request_id": third_schedule["episodes"][0]["request_id"],
+                "scores": [
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=2.0).model_dump(mode="json"),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=1.0).model_dump(mode="json"),
+                ],
+            }
+        )
+        complete = websocket.receive_json()
+
+    assert complete["type"] == "round_complete"
+    assert len(complete["results"][0]["rankings"]) == 2
+
+
 def test_configured_episode_timeout_prefers_game_duration_from_ticks() -> None:
     assert _configured_episode_timeout_seconds(
         {"num_agents": 2, "max_ticks": 100, "tick_rate": 5, "player_connect_timeout_seconds": 180}
     ) == 20
+
+
+def test_configured_episode_timeout_reads_round_timeout_seconds() -> None:
+    assert _configured_episode_timeout_seconds({"round_timeout_seconds": 240}) == 240
 
 
 def test_configured_episode_timeout_reads_explicit_nested_duration() -> None:
@@ -231,7 +308,14 @@ def test_configured_episode_timeout_reads_explicit_nested_duration() -> None:
 
 def test_episode_duration_limit_doubles_timeout_and_caps_at_five_minutes() -> None:
     episode = EpisodeRequest(request_id="1", variant_id="default", policy_version_ids=[uuid4(), uuid4()])
-    variants = {"default": VariantInfo(id="default", name="Default", game_config={"timeout_seconds": 240}, num_agents=2)}
+    variants = {
+        "default": VariantInfo(
+            id="default",
+            name="Default",
+            game_config={"timeout_seconds": 240},
+            num_agents=2,
+        )
+    }
 
     assert _episode_duration_limit_seconds(episode, variants) == 300
 

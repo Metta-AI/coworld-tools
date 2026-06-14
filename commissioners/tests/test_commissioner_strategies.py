@@ -18,6 +18,7 @@ from commissioners.common.protocol import (
     MembershipChange as ProtocolMembershipChange,
     MembershipInfo,
     RankDivisionRequest,
+    RecentResult,
     RoundCompletedRequest,
     RoundConfig,
     RoundInfo,
@@ -481,6 +482,71 @@ def test_ruleset_strategy_four_score_config_schedules_four_repeated_teams() -> N
         for policy_version_id in policy_version_ids
     }
     assert appearances == {policy_version_id: 20 for policy_version_id in policy_version_ids}
+
+
+def test_ruleset_strategy_cue_n_woo_config_matches_leaderboard_neighbor_schedule() -> None:
+    policy_version_ids = [uuid4() for _ in range(6)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+        commissioner_config={},
+    )
+    round_start.recent_results = [
+        RecentResult(
+            round_id=uuid4(),
+            division_id=round_start.divisions[0].id,
+            round_number=1,
+            policy_version_id=policy_version_id,
+            rank=index + 1,
+            score=float(6 - index),
+        )
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("cue_n_woo"), round_start)
+
+    _assert_episode_seeds(schedule.episodes)
+    assert len(schedule.episodes) == 24
+    assert [episode.policy_version_ids for episode in schedule.episodes[:4]] == [
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[2]],
+        [policy_version_ids[0], policy_version_ids[3]],
+        [policy_version_ids[0], policy_version_ids[4]],
+    ]
+    assert [episode.policy_version_ids for episode in schedule.episodes[8:12]] == [
+        [policy_version_ids[2], policy_version_ids[3]],
+        [policy_version_ids[2], policy_version_ids[4]],
+        [policy_version_ids[2], policy_version_ids[1]],
+        [policy_version_ids[2], policy_version_ids[0]],
+    ]
+    assert [episode.policy_version_ids for episode in schedule.episodes[-4:]] == [
+        [policy_version_ids[5], policy_version_ids[4]],
+        [policy_version_ids[5], policy_version_ids[3]],
+        [policy_version_ids[5], policy_version_ids[2]],
+        [policy_version_ids[5], policy_version_ids[1]],
+    ]
+
+
+def test_ruleset_strategy_cue_n_woo_config_repeats_neighbors_to_preserve_minimum() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("cue_n_woo"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[1], policy_version_ids[0]],
+        [policy_version_ids[1], policy_version_ids[0]],
+        [policy_version_ids[1], policy_version_ids[0]],
+        [policy_version_ids[1], policy_version_ids[0]],
+    ]
 
 
 def test_ruleset_strategy_four_score_config_qualifier_self_play_fills_every_slot() -> None:

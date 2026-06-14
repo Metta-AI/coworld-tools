@@ -43,6 +43,13 @@ IMAGES = [
         32,
     ),
     (
+        "commissioners-smoke-cue-n-woo",
+        "config_driven",
+        "cue_n_woo",
+        4,
+        2,
+    ),
+    (
         "commissioners-smoke-ruleset-strategy",
         "config_driven",
         "default",

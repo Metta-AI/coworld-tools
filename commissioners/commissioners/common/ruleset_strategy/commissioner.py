@@ -59,6 +59,9 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
     def _config(self) -> RulesetStrategyCommissionerConfig:
         return self._ruleset_config
 
+    def dispatch_throttle_config(self) -> Any:
+        return self._config().dispatch_throttle
+
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]:
         config = self._config()
         if config.ranking.filter_metadata:
@@ -142,6 +145,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             num_agents=num_agents,
             variant_id=variant_id,
             config=config,
+            recent_results=round_start.recent_results,
         )
 
     def schedule_episodes(

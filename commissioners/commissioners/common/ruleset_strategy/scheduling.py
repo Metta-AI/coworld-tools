@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from commissioners.common.models import PolicyPool, PolicyPoolEntry, PoolConfig
 from commissioners.common.protocol import EpisodeRequest as CommissionerEpisodeRequest
 from commissioners.common.protocol import ScheduleEpisodes as CommissionerScheduleEpisodes
@@ -20,6 +22,7 @@ def schedule_entries(
     num_agents: int,
     variant_id: str,
     config: RulesetStrategyCommissionerConfig,
+    recent_results: list[Any] | None = None,
 ) -> CommissionerScheduleEpisodes:
     if not primary_entries:
         raise ValueError("pool must have at least one primary entry")
@@ -72,6 +75,17 @@ def schedule_entries(
                 )
             )
         return CommissionerScheduleEpisodes(episodes=episodes)
+
+    if config.seating == "leaderboard_neighbors":
+        return _schedule_leaderboard_neighbors(
+            pool=pool,
+            pool_config=pool_config,
+            primary_entries=primary_entries,
+            filler_entries=filler_entries,
+            num_agents=num_agents,
+            variant_id=variant_id,
+            recent_results=recent_results or [],
+        )
 
     num_episodes = _pool_episode_count(
         config=pool_config,
@@ -143,3 +157,141 @@ def cycled(entries: list[PolicyPoolEntry], count: int, *, offset: int = 0) -> li
     if count <= 0 or not entries:
         return []
     return [entries[(offset + index) % len(entries)] for index in range(count)]
+
+
+def _schedule_leaderboard_neighbors(
+    *,
+    pool: PolicyPool,
+    pool_config: PoolConfig,
+    primary_entries: list[PolicyPoolEntry],
+    filler_entries: list[PolicyPoolEntry],
+    num_agents: int,
+    variant_id: str,
+    recent_results: list[Any],
+) -> CommissionerScheduleEpisodes:
+    if num_agents != 2:
+        raise ValueError("leaderboard_neighbors seating requires a two-player variant")
+
+    episodes_per_entrant = pool_config.min_episodes_per_entrant or pool_config.num_episodes
+    ordered_primary_entries = _leaderboard_ordered_entries(primary_entries, recent_results)
+    opponent_entries = _dedupe_entries([*ordered_primary_entries, *filler_entries])
+    if len(opponent_entries) < 2:
+        return CommissionerScheduleEpisodes(episodes=[])
+
+    episodes: list[CommissionerEpisodeRequest] = []
+    for anchor_index, anchor in enumerate(ordered_primary_entries):
+        ordered_opponents = [entry for entry in opponent_entries if entry.policy_version_id != anchor.policy_version_id]
+        if not ordered_opponents:
+            continue
+        if opponent_entries == ordered_primary_entries:
+            neighbors = _leaderboard_neighbors(
+                ordered_primary_entries,
+                anchor_index,
+                episodes_per_entrant,
+            )
+        else:
+            neighbors = _repeat_to_count(ordered_opponents, episodes_per_entrant)
+        for opponent in neighbors:
+            episodes.append(
+                CommissionerEpisodeRequest(
+                    request_id=str(len(episodes)),
+                    variant_id=variant_id,
+                    policy_version_ids=[anchor.policy_version_id, opponent.policy_version_id],
+                    tags={"pool_id": str(pool.id)},
+                )
+            )
+    return CommissionerScheduleEpisodes(episodes=episodes)
+
+
+def _leaderboard_ordered_entries(
+    entries: list[PolicyPoolEntry],
+    recent_results: list[Any],
+) -> list[PolicyPoolEntry]:
+    entries = _dedupe_entries(entries)
+    entry_index = {entry.policy_version_id: index for index, entry in enumerate(entries)}
+    scores: dict[Any, list[float]] = {entry.policy_version_id: [] for entry in entries}
+    ranks: dict[Any, list[float]] = {entry.policy_version_id: [] for entry in entries}
+
+    for result in recent_results:
+        policy_version_id = getattr(result, "policy_version_id", None)
+        if policy_version_id not in entry_index:
+            continue
+        scores[policy_version_id].append(float(getattr(result, "score")))
+        ranks[policy_version_id].append(float(getattr(result, "rank")))
+
+    def sort_key(entry: PolicyPoolEntry) -> tuple[int, float, float, int]:
+        policy_scores = scores[entry.policy_version_id]
+        if not policy_scores:
+            return (1, 0.0, float("inf"), entry_index[entry.policy_version_id])
+        mean_score = sum(policy_scores) / len(policy_scores)
+        mean_rank = sum(ranks[entry.policy_version_id]) / max(1, len(ranks[entry.policy_version_id]))
+        return (0, -mean_score, mean_rank, entry_index[entry.policy_version_id])
+
+    return sorted(entries, key=sort_key)
+
+
+def _leaderboard_neighbors(
+    ordered_entries: list[PolicyPoolEntry],
+    anchor_index: int,
+    count: int,
+) -> list[PolicyPoolEntry]:
+    max_unique = len(ordered_entries) - 1
+    if count <= 0 or max_unique <= 0:
+        return []
+
+    below_target = (count + 1) // 2
+    above_target = count // 2
+    selected: list[PolicyPoolEntry] = []
+    selected.extend(_below(ordered_entries, anchor_index, start=1, count=below_target))
+    selected.extend(_above(ordered_entries, anchor_index, start=1, count=above_target))
+
+    if len(selected) < min(count, max_unique):
+        selected.extend(_below(ordered_entries, anchor_index, start=below_target + 1, count=count))
+    if len(selected) < min(count, max_unique):
+        selected.extend(_above(ordered_entries, anchor_index, start=above_target + 1, count=count))
+
+    return _repeat_to_count(_dedupe_entries(selected), count)
+
+
+def _below(
+    ordered_entries: list[PolicyPoolEntry],
+    anchor_index: int,
+    *,
+    start: int,
+    count: int,
+) -> list[PolicyPoolEntry]:
+    if count <= 0:
+        return []
+    first = anchor_index + start
+    return ordered_entries[first : first + count]
+
+
+def _above(
+    ordered_entries: list[PolicyPoolEntry],
+    anchor_index: int,
+    *,
+    start: int,
+    count: int,
+) -> list[PolicyPoolEntry]:
+    if count <= 0:
+        return []
+    first = anchor_index - start
+    last = max(-1, first - count)
+    return [ordered_entries[index] for index in range(first, last, -1) if index >= 0]
+
+
+def _repeat_to_count(entries: list[PolicyPoolEntry], count: int) -> list[PolicyPoolEntry]:
+    if count <= 0 or not entries:
+        return []
+    return [entries[index % len(entries)] for index in range(count)]
+
+
+def _dedupe_entries(entries: list[PolicyPoolEntry]) -> list[PolicyPoolEntry]:
+    seen: set[Any] = set()
+    deduped: list[PolicyPoolEntry] = []
+    for entry in entries:
+        if entry.policy_version_id in seen:
+            continue
+        seen.add(entry.policy_version_id)
+        deduped.append(entry)
+    return deduped

@@ -1,0 +1,24 @@
+schedule_interval_minutes: 30
+
+dispatch_throttle:
+  enabled: true
+  min_in_flight: 1
+  max_in_flight: 64
+  startup_buffer_seconds: 60
+  target_load: 0.80
+  worker_seconds_per_episode: 25
+
+defaults:
+  seating: leaderboard_neighbors
+  fill_seats: strict
+  min_entries_to_start: 2
+  stage:
+    label: Leaderboard-neighbor round
+    episodes: 1
+    min_episodes_per_entrant: 4
+
+divisions:
+  competition:
+    match:
+      type: competition
+    entrants: champions
