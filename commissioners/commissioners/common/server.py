@@ -30,7 +30,7 @@ from commissioners.common.protocol import (
     ScheduleEpisodes,
 )
 
-_MAX_EPISODE_DURATION_SECONDS = 5 * 60
+_MIN_EPISODE_DURATION_SECONDS = 5 * 60
 _EXPLICIT_DURATION_KEYS = (
     "round_timeout_seconds",
     "server_duration_timeout_seconds",
@@ -81,7 +81,7 @@ def _episode_duration_limit_seconds(episode: EpisodeRequest, variants: dict[str,
     timeout = _configured_episode_timeout_seconds(variant.game_config)
     if timeout is None:
         return None
-    return min(_MAX_EPISODE_DURATION_SECONDS, 2 * timeout)
+    return max(_MIN_EPISODE_DURATION_SECONDS, 2 * timeout)
 
 
 def _episode_game_timeout_seconds(episode: EpisodeRequest, variants: dict[str, Any]) -> float | None:
