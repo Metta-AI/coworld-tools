@@ -32,6 +32,7 @@ from commissioners.common.protocol import (
 
 _MAX_EPISODE_DURATION_SECONDS = 5 * 60
 _EXPLICIT_DURATION_KEYS = (
+    "round_timeout_seconds",
     "server_duration_timeout_seconds",
     "server_duration_seconds",
     "episode_timeout_seconds",
@@ -83,6 +84,11 @@ def _episode_duration_limit_seconds(episode: EpisodeRequest, variants: dict[str,
     return min(_MAX_EPISODE_DURATION_SECONDS, 2 * timeout)
 
 
+def _episode_game_timeout_seconds(episode: EpisodeRequest, variants: dict[str, Any]) -> float | None:
+    variant = variants[episode.variant_id]
+    return _configured_episode_timeout_seconds(variant.game_config)
+
+
 def _duration_text(seconds: float) -> str:
     if seconds.is_integer():
         return f"{int(seconds)} seconds"
@@ -102,11 +108,32 @@ def create_app(commissioner: Commissioner) -> FastAPI:
         round_start: RoundStart | None = None
         schedule: ScheduleEpisodes | None = None
         expected_request_ids: set[str] = set()
+        queued_episodes: list[EpisodeRequest] = []
+        in_flight_request_ids: set[str] = set()
         results_by_request_id: dict[str, EpisodeResult] = {}
         failed_by_request_id: dict[str, EpisodeFailed] = {}
         cancel_tasks: dict[str, asyncio.Task[None]] = {}
+        send_tasks: set[asyncio.Task[None]] = set()
+        variants_by_id: dict[str, Any] = {}
         send_lock = asyncio.Lock()
         round_complete_sent = False
+        throttle_config_fn = getattr(commissioner, "dispatch_throttle_config", None)
+        throttle_config = throttle_config_fn() if callable(throttle_config_fn) else None
+
+        def throttle_enabled() -> bool:
+            return bool(getattr(throttle_config, "enabled", False))
+
+        def max_in_flight(episode: EpisodeRequest) -> int:
+            max_concurrent = getattr(throttle_config, "max_concurrent_episodes", None)
+            if not callable(max_concurrent):
+                return len(expected_request_ids) or 1
+            return max_concurrent(_episode_game_timeout_seconds(episode, variants_by_id))
+
+        def stagger_seconds(episode: EpisodeRequest) -> float:
+            stagger = getattr(throttle_config, "episode_stagger_seconds", None)
+            if not callable(stagger):
+                return 0.0
+            return stagger(_episode_game_timeout_seconds(episode, variants_by_id))
 
         async def complete_round_if_settled() -> None:
             nonlocal round_complete_sent
@@ -138,14 +165,54 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     ).to_json()
                 )
 
+        async def send_episode_after_delay(episode: EpisodeRequest, delay_seconds: float) -> None:
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
+            async with send_lock:
+                await websocket.send_json(ScheduleEpisodes(episodes=[episode]).to_json())
+
+        def schedule_episode_timeout(episode: EpisodeRequest) -> None:
+            timeout_seconds = _episode_duration_limit_seconds(episode, variants_by_id)
+            if timeout_seconds is not None:
+                cancel_tasks[episode.request_id] = asyncio.create_task(
+                    cancel_episode_after_timeout(episode.request_id, timeout_seconds)
+                )
+
+        async def fill_throttled_episode_window(*, initial: bool = False) -> None:
+            if not queued_episodes:
+                return
+            to_send: list[EpisodeRequest] = []
+            while queued_episodes:
+                next_episode = queued_episodes[0]
+                if len(in_flight_request_ids) >= max_in_flight(next_episode):
+                    break
+                episode = queued_episodes.pop(0)
+                in_flight_request_ids.add(episode.request_id)
+                schedule_episode_timeout(episode)
+                to_send.append(episode)
+            if not to_send:
+                return
+            interval = stagger_seconds(to_send[0])
+            for offset, episode in enumerate(to_send):
+                delay = 0.0 if initial and offset == 0 else interval * offset
+                if delay <= 0:
+                    await send_episode_after_delay(episode, delay)
+                else:
+                    task = asyncio.create_task(send_episode_after_delay(episode, delay))
+                    send_tasks.add(task)
+                    task.add_done_callback(send_tasks.discard)
+
         async def cancel_episode_after_timeout(request_id: str, timeout_seconds: float) -> None:
             await asyncio.sleep(timeout_seconds)
             if request_id in results_by_request_id or request_id in failed_by_request_id:
                 return
             reason = f"Episode job duration exceeded {_duration_text(timeout_seconds)}"
             failed_by_request_id[request_id] = EpisodeFailed(request_id=request_id, error=reason)
+            in_flight_request_ids.discard(request_id)
             async with send_lock:
                 await websocket.send_json(EpisodeCancel(request_id=request_id, reason=reason).to_json())
+            if throttle_enabled():
+                await fill_throttled_episode_window()
             await complete_round_if_settled()
 
         try:
@@ -160,14 +227,14 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     schedule = schedule_episodes_for_round_start(commissioner, round_start)
                     expected_request_ids = {episode.request_id for episode in schedule.episodes}
                     variants_by_id = {variant.id: variant for variant in round_start.variants}
-                    async with send_lock:
-                        await websocket.send_json(schedule.to_json())
-                    for episode in schedule.episodes:
-                        timeout_seconds = _episode_duration_limit_seconds(episode, variants_by_id)
-                        if timeout_seconds is not None:
-                            cancel_tasks[episode.request_id] = asyncio.create_task(
-                                cancel_episode_after_timeout(episode.request_id, timeout_seconds)
-                            )
+                    if throttle_enabled():
+                        queued_episodes = list(schedule.episodes)
+                        await fill_throttled_episode_window(initial=True)
+                    else:
+                        async with send_lock:
+                            await websocket.send_json(schedule.to_json())
+                        for episode in schedule.episodes:
+                            schedule_episode_timeout(episode)
                     if not expected_request_ids:
                         round_complete_sent = True
                         async with send_lock:
@@ -222,6 +289,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     task = cancel_tasks.pop(result.request_id, None)
                     if task is not None:
                         task.cancel()
+                    in_flight_request_ids.discard(result.request_id)
                     results_by_request_id[result.request_id] = result
                 elif msg_type == "episode_failed":
                     failed = EpisodeFailed.model_validate({key: value for key, value in data.items() if key != "type"})
@@ -236,6 +304,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     task = cancel_tasks.pop(failed.request_id, None)
                     if task is not None:
                         task.cancel()
+                    in_flight_request_ids.discard(failed.request_id)
                     failed_by_request_id[failed.request_id] = failed
                 elif msg_type == "episodes_accepted":
                     continue
@@ -250,6 +319,8 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     await websocket.close(code=1008, reason=f"unknown message type: {msg_type!r}")
                     return
 
+                if throttle_enabled():
+                    await fill_throttled_episode_window()
                 await complete_round_if_settled()
         except WebSocketDisconnect:
             return
@@ -257,6 +328,8 @@ def create_app(commissioner: Commissioner) -> FastAPI:
             await websocket.close(code=1008, reason=str(exc)[:120])
         finally:
             for task in cancel_tasks.values():
+                task.cancel()
+            for task in send_tasks:
                 task.cancel()
 
     return app

@@ -24,6 +24,8 @@ Key config areas:
 - `stages`: named substeps inside a division, commonly used for multi-stage qualifiers.
 - `on_episode_complete`: ordered criteria-based transitions produced when episode results are complete.
 - `scoring`: optional round-score and leaderboard aggregation settings.
+- `dispatch_throttle`: optional WebSocket episode release throttling for games that should not receive the full round
+  schedule at once.
 
 The current Coworld commissioner protocol only sends memberships from the active league. `fill_seats: fill_from_divisions`
 can fill from other divisions in the same league when matching memberships are included in `round_start`. Filling from
@@ -39,6 +41,7 @@ Example ruleset configs live in `configs/`:
 - `cogs_vs_clips.yaml`: parity config for Cogs vs Clips rolling-window scheduling.
 - `four_score.yaml`: Four Score config with crash-check qualifiers and four repeated 8-agent teams per episode.
 - `among_them.yaml`: replacement-style Among Them config with staged qualifiers and no Dirt league.
+- `cue_n_woo.yaml`: Cue n Woo config with leaderboard-neighbor scheduling and throttled episode dispatch.
 
 ## Among Them Style Staged Qualifier
 

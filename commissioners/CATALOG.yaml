@@ -31,6 +31,14 @@ entries:
     status: active
     owner: Metta-AI
     description: Config-driven commissioner using the Four Score team-block ruleset config.
+  - name: cue-n-woo-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-cue-n-woo:latest
+    target: cue_n_woo
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using Cue n Woo leaderboard-neighbor scheduling with throttled episode dispatch.
   - name: ruleset-strategy-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner

@@ -43,6 +43,10 @@ jobs:
             commissioner_key: config_driven
             ruleset_strategy_config_name: four_score
             image: ghcr.io/metta-ai/commissioners-four-score
+          - name: cue-n-woo-commissioner
+            commissioner_key: config_driven
+            ruleset_strategy_config_name: cue_n_woo
+            image: ghcr.io/metta-ai/commissioners-cue-n-woo
           - name: ruleset-strategy-commissioner
             commissioner_key: config_driven
             ruleset_strategy_config_name: default

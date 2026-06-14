@@ -18,7 +18,7 @@ IMAGE_CONFIG_PATH_ENV = "RULESET_STRATEGY_CONFIG_PATH"
 DEFAULT_IMAGE_CONFIG_NAME = "default"
 BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "ruleset_strategy_commissioner" / "configs"
 
-SeatingStrategy = Literal["baseline_window", "rolling_window", "team_blocks"]
+SeatingStrategy = Literal["baseline_window", "rolling_window", "team_blocks", "leaderboard_neighbors"]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
 EntrantShortcut = Literal["qualifying", "champions"]
 
@@ -154,6 +154,38 @@ class ScoringConfig(_ConfigModel):
     mechanics: str | None = None
 
 
+class DispatchThrottleConfig(_ConfigModel):
+    enabled: bool = False
+    min_in_flight: int = Field(default=1, gt=0)
+    max_in_flight: int = Field(default=64, gt=0)
+    startup_buffer_seconds: float = Field(default=60.0, ge=0)
+    target_load: float = Field(default=0.80, gt=0)
+    worker_seconds_per_episode: float = Field(default=25.0, gt=0)
+    stagger_seconds: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_ordered_in_flight_bounds(self) -> DispatchThrottleConfig:
+        if self.max_in_flight < self.min_in_flight:
+            raise ValueError("dispatch throttle max_in_flight must be >= min_in_flight")
+        return self
+
+    def max_concurrent_episodes(self, game_timeout_seconds: float | None) -> int:
+        if game_timeout_seconds is None:
+            return self.min_in_flight
+        usable_window_seconds = max(1.0, game_timeout_seconds - self.startup_buffer_seconds)
+        duty_cycle = self.worker_seconds_per_episode / usable_window_seconds
+        allowed = self.max_in_flight if duty_cycle <= 0 else int(self.target_load / duty_cycle)
+        return max(self.min_in_flight, min(self.max_in_flight, allowed))
+
+    def episode_stagger_seconds(self, game_timeout_seconds: float | None) -> float:
+        if self.stagger_seconds is not None:
+            return self.stagger_seconds
+        if game_timeout_seconds is None:
+            return 0.0
+        usable_window_seconds = max(1.0, game_timeout_seconds - self.startup_buffer_seconds)
+        return usable_window_seconds / self.max_concurrent_episodes(game_timeout_seconds)
+
+
 class StageScheduleConfig(_ConfigModel):
     label: str = "Round"
     episodes: int | None = Field(default=None, gt=0)
@@ -262,6 +294,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
     schedule_interval_minutes: int = Field(default=10, gt=0)
     backend: str = "dispatch"
     scoring: ScoringConfig | None = None
+    dispatch_throttle: DispatchThrottleConfig = Field(default_factory=DispatchThrottleConfig)
     defaults: RulesetDefaults = Field(default_factory=RulesetDefaults)
     divisions: dict[str, RulesetDivisionConfig]
 
