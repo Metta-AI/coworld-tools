@@ -18,6 +18,46 @@ defaults:
     min_episodes_per_entrant: 4
 
 divisions:
+  qualifiers:
+    match:
+      name: Qualifiers
+      type: staging
+    entrants: qualifying
+    min_entries_to_start: 1
+    stages:
+      - id: crash_check
+        schedule:
+          label: Crash check
+          self_play: true
+          attempts: 2
+          min_episodes_per_entrant: 2
+        on_episode_complete:
+          - id: failed_crash_check
+            name: Failed crash test
+            criteria:
+              completed_episodes_lte: 0
+            actions:
+              - type: update_membership
+                status: disqualified
+                substatus: inactive
+          - id: passed_crash_check
+            name: Passed crash test
+            criteria:
+              score_gt: 0
+            actions:
+              - type: update_membership
+                division: competition
+                status: competing
+                substatus: champion
+          - id: failed_score_check
+            name: Score <= 0
+            criteria:
+              score_lte: 0
+            actions:
+              - type: update_membership
+                status: disqualified
+                substatus: inactive
+
   competition:
     match:
       type: competition

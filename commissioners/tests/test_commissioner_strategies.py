@@ -549,6 +549,176 @@ def test_ruleset_strategy_cue_n_woo_config_repeats_neighbors_to_preserve_minimum
     ]
 
 
+def test_ruleset_strategy_cue_n_woo_config_schedules_crash_check_qualifiers() -> None:
+    policy_version_ids = [uuid4() for _ in range(3)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+        commissioner_config={},
+        division_name="Qualifiers",
+        division_type="staging",
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("cue_n_woo"), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0]] * 2,
+        [policy_version_ids[0]] * 2,
+        [policy_version_ids[1]] * 2,
+        [policy_version_ids[1]] * 2,
+        [policy_version_ids[2]] * 2,
+        [policy_version_ids[2]] * 2,
+    ]
+
+
+def test_ruleset_strategy_cue_n_woo_positive_crash_check_promotes_to_competition() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    membership_id = uuid4()
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Competition", level=0, type="competition")],
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=membership_id,
+            league_id=round_start.league.id,
+            division_id=qualifier_id,
+            policy_version_id=policy_version_id,
+            player_id="qualifier",
+            status="qualifying",
+        )
+    ]
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("cue_n_woo"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[policy_version_id] * 2,
+            )
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == membership_id
+    assert event.to_division_id == competition_id
+    assert event.status == "competing"
+    assert event.substatus == "champion"
+    assert event.evidence[0].metadata["transition_id"] == "passed_crash_check"
+
+
+@pytest.mark.parametrize("score", [0.0, -1.0])
+def test_ruleset_strategy_cue_n_woo_non_positive_crash_check_disqualifies(score: float) -> None:
+    qualifier_id = uuid4()
+    membership_id = uuid4()
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=membership_id,
+            league_id=round_start.league.id,
+            division_id=qualifier_id,
+            policy_version_id=policy_version_id,
+            player_id="qualifier",
+            status="qualifying",
+        )
+    ]
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("cue_n_woo"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_version_id, score=score)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[policy_version_id] * 2,
+            )
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == membership_id
+    assert event.to_division_id is None
+    assert event.status == "disqualified"
+    assert event.substatus == "inactive"
+    assert event.evidence[0].metadata["transition_id"] == "failed_score_check"
+
+
+def test_ruleset_strategy_cue_n_woo_uncompleted_crash_check_disqualifies() -> None:
+    qualifier_id = uuid4()
+    membership_id = uuid4()
+    policy_version_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={},
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=membership_id,
+            league_id=round_start.league.id,
+            division_id=qualifier_id,
+            policy_version_id=policy_version_id,
+            player_id="qualifier",
+            status="qualifying",
+        )
+    ]
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("cue_n_woo"),
+        round_start,
+        [],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[policy_version_id] * 2,
+            )
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == membership_id
+    assert event.to_division_id is None
+    assert event.status == "disqualified"
+    assert event.substatus == "inactive"
+    assert event.evidence[0].metadata["transition_id"] == "failed_crash_check"
+
+
 def test_ruleset_strategy_four_score_config_qualifier_self_play_fills_every_slot() -> None:
     policy_version_ids = [uuid4() for _ in range(3)]
     round_start = _round_start(
