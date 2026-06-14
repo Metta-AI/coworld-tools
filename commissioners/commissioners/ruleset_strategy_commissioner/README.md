@@ -22,7 +22,7 @@ Key config areas:
 - `defaults`: scheduling, seating, minimum entrants, and underfilled-seat behavior shared by divisions.
 - `divisions`: logical tournament divisions, each with a real Coworld division match and entrant selector.
 - `stages`: named substeps inside a division, commonly used for multi-stage qualifiers.
-- `on_episode_complete`: ordered criteria-based transitions produced when episode results are complete.
+- `on_round_complete`: ordered criteria-based transitions produced when round results are complete.
 - `scoring`: optional round-score and leaderboard aggregation settings.
 - `dispatch_throttle`: optional WebSocket episode release throttling for games that should not receive the full round
   schedule at once.
@@ -31,9 +31,9 @@ The current Coworld commissioner protocol only sends memberships from the active
 can fill from other divisions in the same league when matching memberships are included in `round_start`. Filling from
 another league or tournament requires the platform to include those memberships in `round_start`.
 
-`on_episode_complete` entries are evaluated in order. The first matching transition is applied, and the emitted
-`policy_membership_event` includes evidence with the selected transition id, declared criteria, observed values, and
-target metadata.
+`on_round_complete` entries are evaluated in order after a round completes. The first matching transition is applied,
+and the emitted `policy_membership_event` includes evidence with the selected transition id, declared criteria, observed
+values, and target metadata. `on_episode_complete` is still accepted as a legacy alias for existing configs.
 
 Example ruleset configs live in `configs/`:
 
@@ -79,7 +79,7 @@ divisions:
           self_play: true
           attempts: 2
           min_episodes_per_entrant: 2
-        on_episode_complete:
+        on_round_complete:
           - id: failed_crash_check
             criteria:
               completed_episodes_lte: 0
@@ -98,7 +98,7 @@ divisions:
         schedule:
           label: Score gate
           episodes: 2
-        on_episode_complete:
+        on_round_complete:
           - id: passed_score_gate
             criteria:
               score_gt: 0
