@@ -62,3 +62,12 @@ divisions:
     match:
       type: competition
     entrants: champions
+    on_episode_complete:
+      - id: disqualified_non_positive_round_score
+        name: Score <= 0
+        criteria:
+          score_lte: 0
+        actions:
+          - type: update_membership
+            status: disqualified
+            substatus: inactive

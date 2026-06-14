@@ -549,6 +549,102 @@ def test_ruleset_strategy_cue_n_woo_config_repeats_neighbors_to_preserve_minimum
     ]
 
 
+@pytest.mark.parametrize("scores", [[0.0, 0.0], [-1.0, 0.5]])
+def test_ruleset_strategy_cue_n_woo_competition_non_positive_average_disqualifies(
+    scores: list[float],
+) -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    membership_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        commissioner_config={},
+        division_name="Competition",
+        division_type="competition",
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=membership_id,
+            league_id=round_start.league.id,
+            division_id=round_start.divisions[0].id,
+            policy_version_id=policy_version_id,
+            player_id=f"player-{index}",
+            status="competing",
+            substatus="champion",
+            is_champion=True,
+        )
+        for index, (membership_id, policy_version_id) in enumerate(
+            zip(membership_ids, policy_version_ids, strict=True)
+        )
+    ]
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("cue_n_woo"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id=str(index),
+                scores=[
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=score),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=2.0),
+                ],
+            )
+            for index, score in enumerate(scores)
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id=str(index),
+                variant_id="default",
+                policy_version_ids=policy_version_ids,
+            )
+            for index in range(len(scores))
+        ],
+    )
+
+    assert len(complete.policy_membership_events) == 1
+    event = complete.policy_membership_events[0]
+    assert event.league_policy_membership_id == membership_ids[0]
+    assert event.to_division_id is None
+    assert event.status == "disqualified"
+    assert event.substatus == "inactive"
+    assert event.evidence[0].metadata["transition_id"] == "disqualified_non_positive_round_score"
+    assert event.evidence[0].metadata["observed"]["score"] <= 0
+
+
+def test_ruleset_strategy_cue_n_woo_competition_positive_average_stays_competing() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+        commissioner_config={},
+        division_name="Competition",
+        division_type="competition",
+    )
+
+    complete = complete_round_for_round_start(
+        _ruleset_commissioner("cue_n_woo"),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[
+                    EpisodeScore(policy_version_id=policy_version_ids[0], score=1.0),
+                    EpisodeScore(policy_version_id=policy_version_ids[1], score=2.0),
+                ],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=policy_version_ids,
+            )
+        ],
+    )
+
+    assert complete.policy_membership_events == []
+
+
 def test_ruleset_strategy_cue_n_woo_config_schedules_crash_check_qualifiers() -> None:
     policy_version_ids = [uuid4() for _ in range(3)]
     round_start = _round_start(
