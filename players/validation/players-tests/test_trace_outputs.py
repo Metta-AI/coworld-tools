@@ -7,7 +7,8 @@ import zipfile
 
 import pytest
 
-from players.player_sdk import TraceEvent, TraceOutputs, parse_trace_output_specs
+from players.player_sdk import EventEmitter, ListTraceSink, TraceEvent, TraceOutputs, parse_trace_output_specs
+from players.player_sdk.trace_outputs import _trace_record
 
 
 def test_parse_trace_output_specs_supports_formats_and_destinations() -> None:
@@ -18,6 +19,16 @@ def test_parse_trace_output_specs_supports_formats_and_destinations() -> None:
         ("json", "artifact", "events.json"),
         ("csv", "file", "/tmp/events.csv"),
     ]
+
+
+def test_trace_record_omits_step_when_tick_only() -> None:
+    assert _trace_record(TraceEvent(tick=2, name="domain.phase_change", data={"to": "Playing"})) == {
+        "kind": "trace",
+        "tick": 2,
+        "event": "domain.phase_change",
+        "name": "domain.phase_change",
+        "data": {"to": "Playing"},
+    }
 
 
 def test_trace_outputs_default_jsonl_to_stderr_filters_events() -> None:
@@ -65,6 +76,54 @@ def test_trace_outputs_write_json_and_csv_files(tmp_path) -> None:
     assert rows[1]["kind"] == "metric"
     assert rows[1]["metric_kind"] == "counter"
     assert json.loads(rows[1]["tags_json"]) == {"target": "red"}
+
+
+def test_trace_outputs_write_step_to_jsonl_and_csv_files(tmp_path) -> None:
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    csv_path = tmp_path / "telemetry.csv"
+    specs = parse_trace_output_specs(f"jsonl@file:{jsonl_path},csv@file:{csv_path}")
+
+    with TraceOutputs.from_specs(specs) as outputs:
+        outputs.trace_sink.record(TraceEvent(tick=0, step="propose", name="domain.turn_phase", data={"actor": "red"}))
+
+    jsonl_records = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines()]
+    assert jsonl_records == [
+        {
+            "kind": "trace",
+            "tick": 0,
+            "step": "propose",
+            "event": "domain.turn_phase",
+            "name": "domain.turn_phase",
+            "data": {"actor": "red"},
+        }
+    ]
+
+    with csv_path.open(encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames == ["kind", "tick", "step", "name", "metric_kind", "value", "data_json", "tags_json"]
+        rows = list(reader)
+    assert rows[0]["tick"] == "0"
+    assert rows[0]["step"] == "propose"
+    assert rows[0]["name"] == "domain.turn_phase"
+    assert json.loads(rows[0]["data_json"]) == {"actor": "red"}
+
+
+def test_event_emitter_records_optional_step_labels() -> None:
+    no_step_sink = ListTraceSink()
+    EventEmitter(no_step_sink, tick=7).event("meeting_opened")
+
+    assert no_step_sink.events[0].name == "domain.meeting_opened"
+    assert no_step_sink.events[0].step is None
+
+    step_sink = ListTraceSink()
+    emitter = EventEmitter(step_sink, tick=8, step="propose")
+    emitter.event("turn_phase")
+    emitter.event("turn_phase", step="resolve")
+
+    assert [(event.name, event.tick, event.step) for event in step_sink.events] == [
+        ("domain.turn_phase", 8, "propose"),
+        ("domain.turn_phase", 8, "resolve"),
+    ]
 
 
 def test_trace_outputs_bundle_artifact_zip_to_file_url(tmp_path) -> None:
