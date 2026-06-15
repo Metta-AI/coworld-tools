@@ -42,6 +42,7 @@ Example ruleset configs live in `configs/`:
 - `four_score.yaml`: Four Score config with crash-check qualifiers and four repeated 8-agent teams per episode.
 - `among_them.yaml`: replacement-style Among Them config with staged qualifiers and no Dirt league.
 - `cue_n_woo.yaml`: Cue n Woo config with leaderboard-neighbor scheduling and throttled episode dispatch.
+- `proxywar.yaml`: ProxyWar config with rolling-window 2-player/4-player scheduling, duplicate filling for short pools, crash-check qualifiers, and throttled episode dispatch.
 
 ## Among Them Style Staged Qualifier
 

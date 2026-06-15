@@ -357,7 +357,7 @@ def test_ruleset_strategy_ignores_legacy_wire_commissioner_config() -> None:
     ]
 
 
-@pytest.mark.parametrize("config_name", ["default", "cogs_vs_clips"])
+@pytest.mark.parametrize("config_name", ["default", "cogs_vs_clips", "proxywar"])
 def test_ruleset_strategy_transition_configs_advance_completed_qualifiers(config_name: str) -> None:
     qualifier_id = uuid4()
     competition_id = uuid4()
@@ -433,6 +433,67 @@ def test_ruleset_strategy_cogs_vs_clips_config_matches_rolling_window_schedule()
     assert schedule.episodes[0].policy_version_ids == [policy_version_ids[i] for i in (0, 1, 2, 3, 4, 5, 6, 7)]
     assert schedule.episodes[1].policy_version_ids == [policy_version_ids[i] for i in (1, 2, 3, 4, 5, 6, 7, 8)]
     assert schedule.episodes[-1].policy_version_ids == [policy_version_ids[i] for i in (15, 0, 1, 2, 3, 4, 5, 6)]
+
+
+def test_ruleset_strategy_proxywar_config_matches_two_player_rolling_window_schedule() -> None:
+    policy_version_ids = [uuid4() for _ in range(5)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("proxywar"), round_start)
+
+    _assert_episode_seeds(schedule.episodes)
+    assert len(schedule.episodes) == 20
+    assert [episode.policy_version_ids for episode in schedule.episodes[:5]] == [
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[1], policy_version_ids[2]],
+        [policy_version_ids[2], policy_version_ids[3]],
+        [policy_version_ids[3], policy_version_ids[4]],
+        [policy_version_ids[4], policy_version_ids[0]],
+    ]
+
+
+def test_ruleset_strategy_proxywar_config_matches_four_player_rolling_window_schedule() -> None:
+    policy_version_ids = [uuid4() for _ in range(5)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=4,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("proxywar"), round_start)
+
+    _assert_episode_seeds(schedule.episodes)
+    assert len(schedule.episodes) == 10
+    assert [episode.policy_version_ids for episode in schedule.episodes[:5]] == [
+        [policy_version_ids[0], policy_version_ids[1], policy_version_ids[2], policy_version_ids[3]],
+        [policy_version_ids[1], policy_version_ids[2], policy_version_ids[3], policy_version_ids[4]],
+        [policy_version_ids[2], policy_version_ids[3], policy_version_ids[4], policy_version_ids[0]],
+        [policy_version_ids[3], policy_version_ids[4], policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[4], policy_version_ids[0], policy_version_ids[1], policy_version_ids[2]],
+    ]
+
+
+def test_ruleset_strategy_proxywar_config_duplicates_short_four_player_pool() -> None:
+    policy_version_ids = [uuid4(), uuid4()]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=4,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("proxywar"), round_start)
+
+    assert len(schedule.episodes) == 4
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0], policy_version_ids[1], policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[1], policy_version_ids[1], policy_version_ids[0]],
+        [policy_version_ids[0], policy_version_ids[1], policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[0], policy_version_ids[1], policy_version_ids[1], policy_version_ids[0]],
+    ]
 
 
 def test_ruleset_strategy_among_them_config_matches_rolling_window_schedule() -> None:

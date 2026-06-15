@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/build-commissioner-images.yml"
+      - "CATALOG.yaml"
       - "commissioners/**"
       - "pyproject.toml"
       - "README.md"
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/build-commissioner-images.yml"
+      - "CATALOG.yaml"
       - "commissioners/**"
       - "pyproject.toml"
       - "README.md"
@@ -47,6 +49,10 @@ jobs:
             commissioner_key: config_driven
             ruleset_strategy_config_name: cue_n_woo
             image: ghcr.io/metta-ai/commissioners-cue-n-woo
+          - name: proxywar-commissioner
+            commissioner_key: config_driven
+            ruleset_strategy_config_name: proxywar
+            image: ghcr.io/metta-ai/commissioners-proxywar
           - name: ruleset-strategy-commissioner
             commissioner_key: config_driven
             ruleset_strategy_config_name: default
