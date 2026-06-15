@@ -39,6 +39,14 @@ entries:
     status: active
     owner: Metta-AI
     description: Config-driven commissioner using Cue n Woo leaderboard-neighbor scheduling with throttled episode dispatch.
+  - name: proxywar-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-proxywar:latest
+    target: proxywar
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using ProxyWar rolling-window scheduling for 2-player and 4-player variants with throttled episode dispatch.
   - name: ruleset-strategy-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner

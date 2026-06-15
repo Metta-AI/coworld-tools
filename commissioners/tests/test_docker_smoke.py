@@ -50,6 +50,13 @@ IMAGES = [
         2,
     ),
     (
+        "commissioners-smoke-proxywar",
+        "config_driven",
+        "proxywar",
+        4,
+        4,
+    ),
+    (
         "commissioners-smoke-ruleset-strategy",
         "config_driven",
         "default",
