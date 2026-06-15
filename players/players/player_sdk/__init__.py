@@ -7,6 +7,18 @@ directives.
 """
 
 from players.player_sdk.buffers import OverwriteBuffer
+from players.player_sdk.llm import (
+    DEFAULT_BEDROCK_MODEL,
+    DEFAULT_DIRECT_MODEL,
+    LLMCall,
+    bedrock_enabled,
+    call_json,
+    extract_json_object,
+    resolve_model,
+    response_text,
+    select_client,
+    usage_dict,
+)
 from players.player_sdk.message_bridge import (
     ClosePolicy,
     MessageHandler,
@@ -60,6 +72,8 @@ from players.player_sdk.types import (
 )
 
 __all__ = [
+    "DEFAULT_BEDROCK_MODEL",
+    "DEFAULT_DIRECT_MODEL",
     "ActionCommand",
     "ActionIntent",
     "AgentRuntime",
@@ -70,6 +84,7 @@ __all__ = [
     "DirectiveValidationError",
     "EmptyModeParams",
     "EventEmitter",
+    "LLMCall",
     "ListMetricsSink",
     "ListTraceSink",
     "LoggingMetricsSink",
@@ -103,7 +118,14 @@ __all__ = [
     "TraceOutputs",
     "TraceSink",
     "WandbMetricsSink",
+    "bedrock_enabled",
+    "call_json",
     "exit_zero_on_unclean_close",
+    "extract_json_object",
     "parse_trace_output_specs",
+    "resolve_model",
+    "response_text",
     "run_message_bridge",
+    "select_client",
+    "usage_dict",
 ]
