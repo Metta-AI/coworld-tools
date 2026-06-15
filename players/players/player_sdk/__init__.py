@@ -7,6 +7,12 @@ directives.
 """
 
 from players.player_sdk.buffers import OverwriteBuffer
+from players.player_sdk.message_bridge import (
+    ClosePolicy,
+    MessageHandler,
+    exit_zero_on_unclean_close,
+    run_message_bridge,
+)
 from players.player_sdk.modes import DirectiveValidationError, Mode, ModeRegistry
 from players.player_sdk.runtime import (
     AgentRuntime,
@@ -60,6 +66,7 @@ __all__ = [
     "AsyncStrategy",
     "AsyncStrategyRunner",
     "BeliefSnapshot",
+    "ClosePolicy",
     "DirectiveValidationError",
     "EmptyModeParams",
     "EventEmitter",
@@ -68,6 +75,7 @@ __all__ = [
     "LoggingMetricsSink",
     "LoggingTraceSink",
     "ManualStrategyRunner",
+    "MessageHandler",
     "MetricSample",
     "MetricsSink",
     "Mode",
@@ -90,10 +98,12 @@ __all__ = [
     "StrategyRunner",
     "SynchronousStrategyRunner",
     "ThreadedStrategyRunner",
+    "TraceEvent",
     "TraceOutputSpec",
     "TraceOutputs",
-    "TraceEvent",
     "TraceSink",
     "WandbMetricsSink",
+    "exit_zero_on_unclean_close",
     "parse_trace_output_specs",
+    "run_message_bridge",
 ]
