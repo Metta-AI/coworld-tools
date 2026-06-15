@@ -323,6 +323,20 @@ the `players[trace-parquet]` extra. Supported destinations are `stderr`,
 written into the Coworld player artifact zip uploaded via
 `COWORLD_PLAYER_ARTIFACT_UPLOAD_URL`.
 
+### Telemetry / Grid Boundary
+
+The telemetry modules (`trace.py`, `trace_outputs.py`) and the core
+types/runtime/modes/strategy layer import nothing from `mettagrid`, `cogames`,
+or `torch`. The only `players.player_sdk` module that imports `mettagrid` is
+`coworld_json_bridge.py`, and that bridge is not imported from
+`players.player_sdk.__init__`. Non-grid players can therefore depend on
+`players.player_sdk` or `players.player_sdk.telemetry` for telemetry and
+conventions without installing the `cogames` extra.
+
+This boundary is load-bearing: `validation/players-tests/test_sdk_core_grid_free.py`
+imports the package in a clean subprocess and AST-scans the SDK package so a
+future change cannot accidentally make telemetry depend on grid runtime code.
+
 ```python
 from players.player_sdk import TraceOutputs
 
