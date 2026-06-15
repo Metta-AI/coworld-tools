@@ -7,11 +7,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TraceEvent(BaseModel):
-    """One framework boundary event."""
+    """One framework boundary event.
+
+    ``step`` is an optional opaque turn/phase label for non-tick games.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     tick: int
+    step: str | int | None = None
     name: str
     data: dict[str, Any] = Field(default_factory=dict)
 
@@ -61,15 +65,20 @@ class EventEmitter:
         metrics_sink: MetricsSink | None = None,
         *,
         tick: int = 0,
+        step: str | int | None = None,
     ) -> None:
         self.trace_sink = trace_sink if trace_sink is not None else NullTraceSink()
         self.metrics_sink = metrics_sink if metrics_sink is not None else NullMetricsSink()
         self.tick = tick
+        self.step = step
 
-    def event(self, name: str, data: dict[str, Any] | None = None) -> None:
+    def event(self, name: str, data: dict[str, Any] | None = None, *, step: str | int | None = None) -> None:
         """Emit a domain trace event at the current runtime tick."""
 
-        self.trace_sink.record(TraceEvent(tick=self.tick, name=self._name(name), data=dict(data or {})))
+        effective_step = step if step is not None else self.step
+        self.trace_sink.record(
+            TraceEvent(tick=self.tick, step=effective_step, name=self._name(name), data=dict(data or {}))
+        )
 
     def counter(self, name: str, value: float = 1.0, tags: dict[str, Any] | None = None) -> None:
         """Emit a domain counter sample."""

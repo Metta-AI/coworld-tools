@@ -250,7 +250,7 @@ class _JsonWriter:
 
 
 class _CsvWriter:
-    _FIELDNAMES = ("kind", "tick", "name", "metric_kind", "value", "data_json", "tags_json")
+    _FIELDNAMES = ("kind", "tick", "step", "name", "metric_kind", "value", "data_json", "tags_json")
 
     def __init__(self, stream: TextIO, *, close_stream: bool = True) -> None:
         self._stream = stream
@@ -400,13 +400,20 @@ def _extension_for_format(fmt: str) -> str:
 
 
 def _trace_record(event: TraceEvent) -> dict[str, Any]:
-    return {
+    record = {
         "kind": "trace",
         "tick": event.tick,
-        "event": event.name,
-        "name": event.name,
-        "data": event.data,
     }
+    if event.step is not None:
+        record["step"] = event.step
+    record.update(
+        {
+            "event": event.name,
+            "name": event.name,
+            "data": event.data,
+        }
+    )
+    return record
 
 
 def _metric_record(sample: MetricSample) -> dict[str, Any]:
@@ -423,6 +430,7 @@ def _csv_record(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": record.get("kind", ""),
         "tick": record.get("tick", ""),
+        "step": record.get("step", ""),
         "name": record.get("name") or record.get("event", ""),
         "metric_kind": record.get("metric_kind", ""),
         "value": record.get("value", ""),
