@@ -8,7 +8,9 @@ framework.
 
 The Python implementation lives in
 [`players/player_sdk`](../..).
-For a shorter usage guide, see [`PYTHON_FRAMEWORK.md`](PYTHON_FRAMEWORK.md).
+For a shorter usage guide, see [`PYTHON_FRAMEWORK.md`](PYTHON_FRAMEWORK.md). For
+the full docs index (including SDK design documents), see
+[`../README.md`](../README.md).
 
 ## Executive Summary
 
