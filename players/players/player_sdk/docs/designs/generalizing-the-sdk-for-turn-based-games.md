@@ -1,6 +1,6 @@
 # Generalizing the Player SDK for turn-based / message-driven games
 
-**Status:** Proposal for discussion
+**Status:** P1–P5 implemented (SDK-only, no live-player migration); P6 deferred
 **Date:** 2026-06-15
 **Author:** Claude (with James Boggs)
 **Audience:** Player SDK owners; players-repo contributors
@@ -65,6 +65,31 @@ re-implements just *outside* that boundary (transport, LLM client, trace
 config) into reusable-but-optional helpers, and (c) loosen the one type
 assumption (`tick`) that bakes the gridworld worldview into the otherwise-neutral
 telemetry surface.**
+
+### Implementation status (2026-06-15)
+
+P1–P5 are **implemented, SDK-only** — the helpers were added but the live
+players (crewborg, suspectra) were **not** migrated onto them this pass, by
+decision. Each lands as an additive, backward-compatible change; the full
+`validation/players-tests` suite (290 passed) and both players' own suites
+(crewborg 305, suspectra 5) are green.
+
+| Part | Shipped as | Tests |
+|---|---|---|
+| P1 | `players/player_sdk/telemetry.py` (named namespace) + a boundary section in the framework README + `test_sdk_core_grid_free.py` (subprocess import check + AST scan proving `coworld_json_bridge` is the sole mettagrid importer) | ✓ |
+| P2 | `players/player_sdk/message_bridge.py` — `run_message_bridge`, `MessageHandler`, `ClosePolicy`, `exit_zero_on_unclean_close` (centralizes the "exit 0 on abrupt code-1006 close" rule) | `test_message_bridge.py` |
+| P3 | `players/player_sdk/llm.py` — `select_client`/`resolve_model`/`bedrock_enabled`/`extract_json_object`/`response_text`/`usage_dict`/`call_json`/`LLMCall` (lazy Bedrock import) | `test_llm_helper.py` |
+| P4 | additive `step: str \| int \| None` on `TraceEvent` + `EventEmitter`; `tick` unchanged. JSONL omits `step` when absent (existing records byte-identical); CSV gains one named `step` column | `test_trace_outputs.py` |
+| P5 | `players/player_sdk/trace_config.py` — generic `TraceConfig` (env-driven groups/include/exclude/level, pluggable default filter), no crewborg taxonomy baked in | `test_trace_config.py` |
+
+**Deferred follow-up (the migration pass):** point `coworld_json_bridge` and
+crewborg's Sprite-v1 loop at `run_message_bridge`; adopt `llm.py` in crewborg's
+`strategy/meeting/llm.py` and suspectra's `llm_meeting.py`; have crewborg's
+`trace.py` subclass/consume the SDK `TraceConfig` base (keeping only its
+taxonomy). Each is the second consumer that *proves* the abstraction — and the
+PR that removes the duplication rather than adding a third copy. Note the SDK
+`TraceConfig` deliberately shares crewborg's class name; the migration must
+disambiguate the import.
 
 ---
 
