@@ -53,11 +53,6 @@ jobs:
             commissioner_key: config_driven
             ruleset_strategy_config_name: proxywar
             image: ghcr.io/metta-ai/commissioners-proxywar
-          - name: ruleset-strategy-commissioner
-            commissioner_key: config_driven
-            ruleset_strategy_config_name: default
-            image: ghcr.io/metta-ai/commissioners-ruleset-strategy
-
     steps:
       - uses: actions/checkout@v4
 
