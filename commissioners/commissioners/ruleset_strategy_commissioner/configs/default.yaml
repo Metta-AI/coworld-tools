@@ -4,7 +4,7 @@ defaults:
   min_entries_to_start: 2
   stage:
     label: Round
-    episodes: 10
+    episodes: 1
     min_episodes_per_entrant: 1
 
 divisions:
