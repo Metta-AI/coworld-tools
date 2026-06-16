@@ -16,6 +16,8 @@ from commissioners.common.protocol import (
     EpisodeScore,
     LeaderboardRoundResultInfo,
     LeagueInfo,
+    LeagueMigrationConfigRequest,
+    LeagueMigrationRequest,
     MembershipChange as ProtocolMembershipChange,
     MembershipInfo,
     RankDivisionRequest,
@@ -35,6 +37,8 @@ from commissioners.common.commissioners import (
     BaselineCommissioner,
     RulesetStrategyCommissioner,
     EpisodeResult,
+    LeagueMigrationConfigContext,
+    LeagueSnapshot,
     MembershipChange,
     OnRoundCompletedContext,
     OnRoundCompletedResult,
@@ -46,6 +50,8 @@ from commissioners.common.commissioners import (
     V2RoundConfig,
     complete_round_for_round_start,
     describe_division_for_request,
+    league_migration_config_for_request,
+    migrate_league_for_request,
     rank_division_for_request,
     round_completed_for_request,
     schedule_episodes_for_round_start,
@@ -61,6 +67,132 @@ def _ruleset_config(name: str) -> dict:
 
 def _ruleset_commissioner(name: str) -> RulesetStrategyCommissioner:
     return RulesetStrategyCommissioner(_ruleset_config(name))
+
+
+def test_baseline_commissioner_migration_config_echoes_current_divisions() -> None:
+    league_id = uuid4()
+    division_id = uuid4()
+
+    response = league_migration_config_for_request(
+        BaselineCommissioner(),
+        LeagueMigrationConfigRequest(
+            league=LeagueInfo(id=league_id, commissioner_config={}),
+            divisions=[DivisionInfo(id=division_id, name="Existing", level=3, type="competition")],
+        ),
+    )
+
+    assert response.divisions[0].name == "Existing"
+    assert response.divisions[0].level == 3
+    assert response.divisions[0].type == "competition"
+    assert response.divisions[0].previous_name is None
+
+
+def test_ruleset_strategy_migration_config_declares_divisions_from_commissioner_config() -> None:
+    response = league_migration_config_for_request(
+        _ruleset_commissioner("default"),
+        LeagueMigrationConfigRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            divisions=[],
+        ),
+    )
+
+    assert [(division.name, division.level, division.type) for division in response.divisions] == [
+        ("Qualifiers", -99, "staging"),
+        ("Competition", 1, "competition"),
+    ]
+    assert response.divisions[1].previous_name == "Daily"
+
+
+@pytest.mark.parametrize("config_path", sorted(RULESET_CONFIG_DIR.glob("*.yaml")))
+def test_ruleset_strategy_configs_declare_migration_divisions(config_path: Path) -> None:
+    config = _ruleset_config(config_path.stem)
+    raw_divisions = config["divisions"]
+    assert raw_divisions["qualifiers"]["name"] == "Qualifiers"
+    assert raw_divisions["qualifiers"]["level"] == -99
+    assert raw_divisions["competition"]["name"] == "Competition"
+    assert raw_divisions["competition"]["previous_name"] == "Daily"
+    assert raw_divisions["competition"]["level"] == 1
+
+    divisions = RulesetStrategyCommissioner(config).league_migration_config(
+        LeagueMigrationConfigContext(
+            league=LeagueSnapshot(id=uuid4(), commissioner_key="container", commissioner_config={}),
+            divisions=[],
+        )
+    )
+    assert [(division.name, division.previous_name) for division in divisions] == [
+        ("Qualifiers", None),
+        ("Competition", "Daily"),
+    ]
+
+
+def test_commissioner_migration_hook_defaults_to_no_membership_events() -> None:
+    response = migrate_league_for_request(
+        _ruleset_commissioner("default"),
+        LeagueMigrationRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            divisions=[DivisionInfo(id=uuid4(), name="Competition", level=1, type="competition")],
+            memberships=[],
+        ),
+    )
+
+    assert response.policy_membership_events == []
+
+
+def test_ruleset_strategy_migration_moves_legacy_dirt_and_wood_memberships() -> None:
+    league_id = uuid4()
+    dirt_id = uuid4()
+    wood_id = uuid4()
+    competition_id = uuid4()
+    dirt_membership_id = uuid4()
+    wood_membership_id = uuid4()
+
+    response = migrate_league_for_request(
+        _ruleset_commissioner("default"),
+        LeagueMigrationRequest(
+            league=LeagueInfo(id=league_id, commissioner_config={}),
+            divisions=[
+                DivisionInfo(id=dirt_id, name="Dirt", level=0, type="competition"),
+                DivisionInfo(id=wood_id, name="Wood", level=1, type="competition"),
+                DivisionInfo(id=competition_id, name="Competition", level=1, type="competition"),
+            ],
+            memberships=[
+                MembershipInfo(
+                    id=dirt_membership_id,
+                    league_id=league_id,
+                    division_id=dirt_id,
+                    policy_version_id=uuid4(),
+                    status="competing",
+                ),
+                MembershipInfo(
+                    id=wood_membership_id,
+                    league_id=league_id,
+                    division_id=wood_id,
+                    policy_version_id=uuid4(),
+                    status="competing",
+                    substatus="champion",
+                    is_champion=True,
+                ),
+                MembershipInfo(
+                    id=uuid4(),
+                    league_id=league_id,
+                    division_id=competition_id,
+                    policy_version_id=uuid4(),
+                    status="competing",
+                ),
+            ],
+        ),
+    )
+
+    events = {event.league_policy_membership_id: event for event in response.policy_membership_events}
+    assert set(events) == {dirt_membership_id, wood_membership_id}
+    assert events[dirt_membership_id].from_division_id == dirt_id
+    assert events[dirt_membership_id].to_division_id is None
+    assert events[dirt_membership_id].status == "disqualified"
+    assert events[dirt_membership_id].substatus == "inactive"
+    assert events[wood_membership_id].from_division_id == wood_id
+    assert events[wood_membership_id].to_division_id == competition_id
+    assert events[wood_membership_id].status == "competing"
+    assert events[wood_membership_id].substatus == "champion"
 
 
 def _round_start(

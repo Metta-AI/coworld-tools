@@ -5,13 +5,20 @@ from typing import Any
 
 from commissioners.common.commissioners import BaselineCommissioner
 from commissioners.common.models import (
+    POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE,
     DivisionCommissionerDescriptionPublic,
+    DivisionConfig,
     DivisionDescriptionContext,
     DivisionLeaderboardContext,
     DivisionLeaderboardSnapshot,
     EpisodeResult,
+    LeagueMigrationConfigContext,
+    LeagueMigrationContext,
+    LeagueMigrationResult,
     OnRoundCompletedContext,
     OnRoundCompletedResult,
+    PolicyMembershipEventChange,
+    PolicyMembershipEventEvidence,
     PolicyPool,
     PolicyPoolEntry,
     Round,
@@ -63,6 +70,46 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
 
     def dispatch_throttle_config(self) -> Any:
         return self._config().dispatch_throttle
+
+    def league_migration_config(self, ctx: LeagueMigrationConfigContext) -> list[DivisionConfig]:
+        return self._config().migration_divisions
+
+    def migrate_league(self, ctx: LeagueMigrationContext) -> LeagueMigrationResult:
+        configured_names = {division.name for division in self._config().migration_divisions}
+        competition = next((division for division in ctx.divisions if division.name == "Competition"), None)
+        divisions_by_id = {division.id: division for division in ctx.divisions}
+        events: list[PolicyMembershipEventChange] = []
+
+        for membership in ctx.memberships:
+            division = divisions_by_id.get(membership.division_id)
+            if division is None or division.name in configured_names:
+                continue
+            if division.name == "Dirt" and membership.status != "disqualified":
+                events.append(
+                    PolicyMembershipEventChange(
+                        league_policy_membership_id=membership.id,
+                        from_division_id=membership.division_id,
+                        to_division_id=None,
+                        status="disqualified",
+                        substatus=POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE,
+                        reason="Tournament restructure Dirt->Disqualified",
+                        end_time=datetime.now(UTC),
+                        evidence=[_legacy_division_migration_evidence(division.name, "Disqualified")],
+                    )
+                )
+            elif division.name == "Wood" and competition is not None:
+                events.append(
+                    PolicyMembershipEventChange(
+                        league_policy_membership_id=membership.id,
+                        from_division_id=membership.division_id,
+                        to_division_id=competition.id,
+                        status=_membership_status(membership.status),
+                        substatus=membership.substatus,
+                        reason=f"Tournament restructure Wood->{competition.name}",
+                        evidence=[_legacy_division_migration_evidence(division.name, competition.name)],
+                    )
+                )
+        return LeagueMigrationResult(policy_membership_events=events)
 
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]:
         config = self._config()
@@ -230,3 +277,19 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             exclude_membership_ids={event.league_policy_membership_id for event in events},
         )
         return OnRoundCompletedResult(policy_membership_events=[*events, *default_events])
+
+
+def _membership_status(status: Any) -> str:
+    return status.value if hasattr(status, "value") else str(status)
+
+
+def _legacy_division_migration_evidence(from_division: str, to_division: str) -> PolicyMembershipEventEvidence:
+    return PolicyMembershipEventEvidence(
+        type="tournament_restructure",
+        title="Tournament restructure",
+        summary=f"Tournament restructure {from_division}->{to_division}",
+        metadata={
+            "from_division": from_division,
+            "to_division": to_division,
+        },
+    )

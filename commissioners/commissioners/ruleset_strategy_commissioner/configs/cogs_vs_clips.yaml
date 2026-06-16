@@ -11,6 +11,8 @@ defaults:
 
 divisions:
   qualifiers:
+    name: Qualifiers
+    level: -99
     match:
       name: Qualifiers
       type: staging
@@ -40,6 +42,9 @@ divisions:
                 substatus: inactive
 
   competition:
+    name: Competition
+    previous_name: Daily
+    level: 1
     match:
       type: competition
     entrants: champions

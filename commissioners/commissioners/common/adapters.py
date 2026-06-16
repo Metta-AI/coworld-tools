@@ -10,6 +10,9 @@ from commissioners.common.models import (
     DivisionSnapshot,
     EpisodeResult,
     LeaderboardRoundResultSnapshot,
+    LeagueMigrationConfigContext,
+    LeagueMigrationContext,
+    LeagueMigrationResult,
     LeagueSnapshot,
     MembershipSnapshot,
     OnRoundCompletedContext,
@@ -28,6 +31,7 @@ from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DescribeDivisionResponse,
     DivisionDescription as CommissionerDivisionDescription,
+    DivisionConfig as CommissionerDivisionConfig,
     DivisionLeaderboardEntry as CommissionerDivisionLeaderboardEntry,
 )
 from commissioners.common.protocol import (
@@ -35,6 +39,12 @@ from commissioners.common.protocol import (
 )
 from commissioners.common.protocol import (
     PolicyMembershipEventChange as CommissionerPolicyMembershipEventChange,
+)
+from commissioners.common.protocol import (
+    LeagueMigrationConfigRequest,
+    LeagueMigrationConfigResponse,
+    LeagueMigrationRequest,
+    LeagueMigrationResponse,
 )
 from commissioners.common.protocol import (
     RankDivisionRequest,
@@ -317,6 +327,10 @@ def _protocol_division_description(
     return CommissionerDivisionDescription.model_validate(description.model_dump(mode="json"))
 
 
+def _protocol_division_config(config: Any) -> CommissionerDivisionConfig:
+    return CommissionerDivisionConfig.model_validate(config.model_dump(mode="json"))
+
+
 def _protocol_membership_change(change: Any) -> CommissionerMembershipChange:
     return CommissionerMembershipChange.model_validate(change.model_dump(mode="json"))
 
@@ -430,6 +444,77 @@ def schedule_rounds_for_request(
         )
     )
     return ScheduleRoundsResponse(rounds=[_protocol_round_spec(spec) for spec in specs])
+
+
+def league_migration_config_for_request(
+    commissioner: Commissioner,
+    request: LeagueMigrationConfigRequest,
+) -> LeagueMigrationConfigResponse:
+    configs = commissioner.league_migration_config(
+        LeagueMigrationConfigContext(
+            league=LeagueSnapshot(
+                id=request.league.id,
+                commissioner_key=request.league.commissioner_key or "container",
+                commissioner_config=request.league.commissioner_config,
+            ),
+            divisions=[
+                DivisionSnapshot(
+                    id=division.id,
+                    name=division.name,
+                    level=division.level,
+                    league_id=request.league.id,
+                    type=division.type,
+                )
+                for division in request.divisions
+            ],
+        )
+    )
+    return LeagueMigrationConfigResponse(divisions=[_protocol_division_config(config) for config in configs])
+
+
+def migrate_league_for_request(
+    commissioner: Commissioner,
+    request: LeagueMigrationRequest,
+) -> LeagueMigrationResponse:
+    result = commissioner.migrate_league(
+        LeagueMigrationContext(
+            league=LeagueSnapshot(
+                id=request.league.id,
+                commissioner_key=request.league.commissioner_key or "container",
+                commissioner_config=request.league.commissioner_config,
+            ),
+            divisions=[
+                DivisionSnapshot(
+                    id=division.id,
+                    name=division.name,
+                    level=division.level,
+                    league_id=request.league.id,
+                    type=division.type,
+                )
+                for division in request.divisions
+            ],
+            memberships=[
+                MembershipSnapshot(
+                    id=membership.id,
+                    league_id=request.league.id,
+                    division_id=membership.division_id,
+                    policy_version_id=membership.policy_version_id,
+                    player_id=membership.player_id,
+                    status=membership.status,
+                    substatus=membership.substatus,
+                    is_champion=membership.is_champion,
+                )
+                for membership in request.memberships
+            ],
+        )
+    )
+    if not isinstance(result, LeagueMigrationResult):
+        result = LeagueMigrationResult.model_validate(result)
+    return LeagueMigrationResponse(
+        policy_membership_events=[
+            _protocol_policy_membership_event(change) for change in result.policy_membership_events
+        ]
+    )
 
 
 def rank_division_for_request(

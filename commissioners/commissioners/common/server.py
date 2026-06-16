@@ -11,6 +11,8 @@ from commissioners.common.commissioners import Commissioner
 from commissioners.common.adapters import (
     complete_round_for_round_start,
     describe_division_for_request,
+    league_migration_config_for_request,
+    migrate_league_for_request,
     rank_division_for_request,
     round_completed_for_request,
     schedule_episodes_for_round_start,
@@ -22,6 +24,8 @@ from commissioners.common.protocol import (
     EpisodeFailed,
     EpisodeRequest,
     EpisodeResult,
+    LeagueMigrationConfigRequest,
+    LeagueMigrationRequest,
     RankDivisionRequest,
     RoundAbort,
     RoundCompletedRequest,
@@ -255,6 +259,20 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                         {key: value for key, value in data.items() if key != "type"}
                     )
                     await websocket.send_json(schedule_rounds_for_request(commissioner, request).to_json())
+                    continue
+
+                if msg_type == "league_migration_config_request":
+                    request = LeagueMigrationConfigRequest.model_validate(
+                        {key: value for key, value in data.items() if key != "type"}
+                    )
+                    await websocket.send_json(league_migration_config_for_request(commissioner, request).to_json())
+                    continue
+
+                if msg_type == "league_migration_request":
+                    request = LeagueMigrationRequest.model_validate(
+                        {key: value for key, value in data.items() if key != "type"}
+                    )
+                    await websocket.send_json(migrate_league_for_request(commissioner, request).to_json())
                     continue
 
                 if msg_type == "rank_division_request":

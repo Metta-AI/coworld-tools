@@ -8,7 +8,13 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from commissioners.common.models import DIVISION_TYPE_COMPETITION, DIVISION_TYPE_STAGING, DivisionSnapshot, MembershipSnapshot
+from commissioners.common.models import (
+    DIVISION_TYPE_COMPETITION,
+    DIVISION_TYPE_STAGING,
+    DivisionConfig,
+    DivisionSnapshot,
+    MembershipSnapshot,
+)
 from commissioners.common.models import V2StageConfig
 from commissioners.common.utils import MEAN_ROUND_SCORE_KIND, MEAN_SCORE_EWMA_SCORING_MECHANICS
 
@@ -276,6 +282,10 @@ class DivisionStageConfig(_ConfigModel):
 
 
 class RulesetDivisionConfig(_ConfigModel):
+    name: str | None = None
+    previous_name: str | None = None
+    level: int | None = None
+    description: str | None = None
     match: DivisionMatch = Field(default_factory=DivisionMatch)
     entrants: EntrantSelector | EntrantShortcut | None = None
     min_entries_to_start: int | None = Field(default=None, gt=0)
@@ -370,6 +380,32 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
             "The division leaderboard only uses current average-score round results and combines completed rounds "
             f"with a {half_life_text}-hour half-life EWMA, so newer rounds count more than older rounds."
         )
+
+    @property
+    def migration_divisions(self) -> list[DivisionConfig]:
+        configs: list[DivisionConfig] = []
+        competition_level = 1
+        for key, division in self.divisions.items():
+            division_type = division.match.type or (
+                DIVISION_TYPE_STAGING if key == "qualifiers" else DIVISION_TYPE_COMPETITION
+            )
+            if division.level is not None:
+                level = division.level
+            elif division_type == DIVISION_TYPE_STAGING:
+                level = -99
+            else:
+                level = competition_level
+                competition_level += 1
+            configs.append(
+                DivisionConfig(
+                    name=division.name or division.match.name or key.replace("_", " ").title(),
+                    level=level,
+                    type=division_type,
+                    description=division.description,
+                    previous_name=division.previous_name,
+                )
+            )
+        return configs
 
     @property
     def division_rules(self) -> list[DivisionRule]:
