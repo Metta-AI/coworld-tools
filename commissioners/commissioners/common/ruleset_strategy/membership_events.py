@@ -4,9 +4,12 @@ from commissioners.common.models import (
     DivisionSnapshot,
     MembershipSnapshot,
     OnRoundCompletedContext,
+    POLICY_MEMBERSHIP_SUBSTATUS_ACTIVE,
+    POLICY_MEMBERSHIP_SUBSTATUS_BENCHED,
     PolicyTransitionObservation,
     PolicyMembershipEventChange,
     PolicyMembershipEventEvidence,
+    PolicyMembershipStatus,
 )
 from commissioners.common.protocol import PolicyMembershipEventChange as ProtocolPolicyMembershipEventChange
 from commissioners.common.utils import COMPLETED_EPISODE_COUNT_METADATA_KEY
@@ -18,6 +21,41 @@ from commissioners.common.ruleset_strategy.config import (
     TransitionRule,
     TransitionTarget,
 )
+
+DEFAULT_COMPETING_SUBSTATUS_REASON = "Default commissioner membership status assignment"
+
+
+def build_default_competing_substatus_events(
+    ctx: OnRoundCompletedContext,
+    *,
+    exclude_membership_ids: set[object] | None = None,
+) -> list[PolicyMembershipEventChange]:
+    exclude_membership_ids = exclude_membership_ids or set()
+    events: list[PolicyMembershipEventChange] = []
+    for membership in ctx.division_memberships:
+        if membership.id in exclude_membership_ids or membership_status(membership) != PolicyMembershipStatus.competing.value:
+            continue
+        substatus = (
+            POLICY_MEMBERSHIP_SUBSTATUS_ACTIVE if membership.is_champion else POLICY_MEMBERSHIP_SUBSTATUS_BENCHED
+        )
+        if membership_event_is_noop(
+            membership,
+            target_division_id=membership.division_id,
+            status=PolicyMembershipStatus.competing.value,
+            substatus=substatus,
+        ):
+            continue
+        events.append(
+            PolicyMembershipEventChange(
+                league_policy_membership_id=membership.id,
+                from_division_id=membership.division_id,
+                to_division_id=membership.division_id,
+                status=PolicyMembershipStatus.competing.value,
+                substatus=substatus,
+                reason=DEFAULT_COMPETING_SUBSTATUS_REASON,
+            )
+        )
+    return events
 
 
 def build_membership_events(
@@ -81,12 +119,21 @@ def transition_change(
 
     target_division = target_for_transition(transition.to, membership, divisions)
     target_division_id = target_division.id if target_division is not None else None
+    target_status = transition.to.status or membership_status(membership)
+    target_substatus = transition.to.substatus
+    if membership_event_is_noop(
+        membership,
+        target_division_id=target_division_id,
+        status=target_status,
+        substatus=target_substatus,
+    ):
+        return None
     return PolicyMembershipEventChange(
         league_policy_membership_id=membership.id,
         from_division_id=membership.division_id,
         to_division_id=target_division_id,
-        status=transition.to.status or membership_status(membership),
-        substatus=transition.to.substatus,
+        status=target_status,
+        substatus=target_substatus,
         reason=transition.to.reason or transition_reason(transition),
         evidence=[transition_evidence(transition, observed, target_division_id=target_division_id)],
     )
@@ -133,6 +180,20 @@ def transition_reason(transition: Transition) -> str:
 
 def membership_status(membership: MembershipSnapshot) -> str:
     return membership.status.value if hasattr(membership.status, "value") else str(membership.status)
+
+
+def membership_event_is_noop(
+    membership: MembershipSnapshot,
+    *,
+    target_division_id: object,
+    status: str,
+    substatus: str | None,
+) -> bool:
+    return (
+        membership.division_id == target_division_id
+        and membership_status(membership) == status
+        and membership.substatus == substatus
+    )
 
 
 def criteria_evidence(criteria: TransitionCriteria) -> dict[str, int | float | bool]:

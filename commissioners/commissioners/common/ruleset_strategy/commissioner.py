@@ -38,6 +38,7 @@ from commissioners.common.utils import (
 from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig, load_image_ruleset_strategy_config
 from commissioners.common.ruleset_strategy.entrants import division_entries, select_rule
 from commissioners.common.ruleset_strategy.membership_events import (
+    build_default_competing_substatus_events,
     build_membership_events,
     protocol_policy_membership_event,
 )
@@ -220,4 +221,9 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         config = self._config()
         if not config.membership_changes:
             return super().on_round_completed(ctx)
-        return OnRoundCompletedResult(policy_membership_events=build_membership_events(ctx, config))
+        events = build_membership_events(ctx, config)
+        default_events = build_default_competing_substatus_events(
+            ctx,
+            exclude_membership_ids={event.league_policy_membership_id for event in events},
+        )
+        return OnRoundCompletedResult(policy_membership_events=[*events, *default_events])

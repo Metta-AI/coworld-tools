@@ -111,6 +111,7 @@ from commissioners.common.adapters import (
     describe_division_for_request,
     round_completed_for_request,
 )
+from commissioners.common.ruleset_strategy.membership_events import build_default_competing_substatus_events
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +143,7 @@ class Commissioner(ABC):
     def describe_division(self, ctx: DivisionDescriptionContext) -> DivisionCommissionerDescriptionPublic: ...
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
-        return OnRoundCompletedResult()
+        return OnRoundCompletedResult(policy_membership_events=build_default_competing_substatus_events(ctx))
 
     @abstractmethod
     def schedule_episodes(
@@ -278,6 +279,7 @@ class BaselineCommissioner(Commissioner):
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         return OnRoundCompletedResult(
+            policy_membership_events=build_default_competing_substatus_events(ctx),
             membership_changes=_qualification_round_membership_changes(
                 ctx,
                 qualifier_division=select_qualifier_division(ctx.commissioner_config, ctx.all_divisions),
