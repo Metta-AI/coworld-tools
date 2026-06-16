@@ -7,15 +7,16 @@ contain legacy data while Coworlds roll over to container commissioners. Configs
 shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
 `RULESET_STRATEGY_CONFIG_PATH` environment variables.
 
-The shared Dockerfile bundles configs from `configs/` and defaults to `configs/default.yaml`. Build a different bundled
-config image with:
+The shared Dockerfile bundles configs from `configs/` and defaults to `configs/default.yaml`. Build the default baseline
+image with:
 
 ```bash
-commissioners/ruleset_strategy_commissioner/build.sh among_them
+commissioners/ruleset_strategy_commissioner/build.sh
 ```
 
-For a downstream Coworld-specific image, derive from the ruleset strategy image, copy a config file into the image, and
-set `RULESET_STRATEGY_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
+For a downstream Coworld-specific image, build through `commissioners/build_image.sh` with the target image tag and
+ruleset config name, or derive from the default image, copy a config file into the image, and set
+`RULESET_STRATEGY_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
 
 Key config areas:
 

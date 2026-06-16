@@ -48,7 +48,7 @@ Leaf runnable directories keep thin entrypoints and build scripts:
 | Commissioner | Coworld | Status |
 | --- | --- | --- |
 | `templates/commissioner_template` | (template) | Scaffold only - no implementation |
-| `ruleset_strategy_commissioner` | Any | Active runnable commissioner |
+| `ruleset_strategy_commissioner` with `default.yaml` | Any | Active default runnable commissioner published as `ghcr.io/metta-ai/commissioners-default` |
 | `ruleset_strategy_commissioner` with `proxywar.yaml` | ProxyWar | Active config for 2-player and 4-player rolling-window rounds |
 | `paint_arena/paint_arena_commissioner` | PaintArena | Scaffold only - no implementation |
 
