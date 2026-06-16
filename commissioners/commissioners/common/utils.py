@@ -197,9 +197,8 @@ def _build_rolling_window_entry_indices(*, job_index: int, num_entries: int, num
 
 
 def _pool_episode_count(*, config: PoolConfig, num_entries: int, num_agents: int) -> int:
-    if config.min_episodes_per_entrant is None:
-        return config.num_episodes
-    return max(config.num_episodes, ceil(num_entries * config.min_episodes_per_entrant / num_agents))
+    min_episodes_per_entrant = config.min_episodes_per_entrant or 1
+    return max(config.num_episodes, ceil(num_entries * min_episodes_per_entrant / num_agents))
 
 
 def _score_lists_by_policy(episode_results: list[EpisodeResult]) -> dict[UUID, list[float]]:

@@ -2084,6 +2084,24 @@ def test_round_start_adapter_uses_extracted_commissioner_api() -> None:
     assert schedule.episodes[0].policy_version_ids == policy_version_ids
 
 
+def test_default_round_start_schedules_every_active_membership() -> None:
+    policy_version_ids = [uuid4() for _ in range(5)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=2,
+    )
+
+    schedule = schedule_episodes_for_round_start(BaselineCommissioner(), round_start)
+
+    assert [episode.policy_version_ids for episode in schedule.episodes] == [
+        [policy_version_ids[0], policy_version_ids[1]],
+        [policy_version_ids[2], policy_version_ids[3]],
+        [policy_version_ids[4], policy_version_ids[0]],
+    ]
+    scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
+    assert scheduled_policy_ids == set(policy_version_ids)
+
+
 def test_round_start_adapter_uses_configured_competition_division_entries() -> None:
     qualifier_id = uuid4()
     competition_id = uuid4()
