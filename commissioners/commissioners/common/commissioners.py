@@ -99,6 +99,7 @@ from commissioners.common.utils import (
     _qualification_round_membership_changes,
     MEAN_ROUND_SCORE_KIND,
     MEAN_SCORE_EWMA_SCORING_MECHANICS,
+    RANKED_SCORE_COUNT_METADATA_KEY,
 )
 
 # Re-export adapters for backwards compatibility
@@ -198,6 +199,8 @@ class BaselineCommissioner(Commissioner):
 
         player_rounds: dict[tuple[PlayerId, UUID], LeaderboardRoundResultSnapshot] = {}
         for result in ctx.round_results:
+            if int(result.result_metadata.get(RANKED_SCORE_COUNT_METADATA_KEY, 1)) <= 0:
+                continue
             key = (result.player_id, result.round_id)
             current = player_rounds.get(key)
             if current is None or (result.score, -result.rank) > (current.score, -current.rank):
@@ -421,6 +424,7 @@ class BaselineCommissioner(Commissioner):
                 result_metadata={
                     "seed_order": entry.seed_order,
                     COMPLETED_EPISODE_COUNT_METADATA_KEY: completed_episode_counts[entry.policy_version_id],
+                    RANKED_SCORE_COUNT_METADATA_KEY: len(score_lists.get(entry.policy_version_id, [])),
                 },
             )
             for rank, entry in enumerate(ranked_entries, start=1)
