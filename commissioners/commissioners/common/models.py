@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import Enum, StrEnum
-from math import ceil
 from os import getenv
 from typing import Any
 from uuid import UUID
@@ -376,6 +375,9 @@ class PolicyTransitionObservation(BaseModel):
     scheduled_episodes: int = 0
     completed_episodes: int = 0
     score: float = 0.0
+    failed_episodes: int = 0
+    failed_request_ids: list[str] = Field(default_factory=list)
+    failure_error_samples: list[str] = Field(default_factory=list)
 
 
 class DivisionLeaderboardSnapshot(BaseModel):

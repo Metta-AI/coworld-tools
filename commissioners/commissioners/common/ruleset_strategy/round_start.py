@@ -21,6 +21,7 @@ from commissioners.common.models import (
     V2StageConfig,
 )
 from commissioners.common.protocol import EpisodeRequest as CommissionerProtocolEpisodeRequest
+from commissioners.common.protocol import EpisodeFailed as CommissionerProtocolEpisodeFailed
 from commissioners.common.protocol import EpisodeResult as CommissionerProtocolEpisodeResult
 from commissioners.common.protocol import RoundComplete as CommissionerRoundComplete
 from commissioners.common.protocol import RoundStart as CommissionerRoundStart
@@ -175,16 +176,19 @@ class RoundStartView:
         self,
         episode_results: list[EpisodeResult],
         scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None,
+        failed_episodes: list[CommissionerProtocolEpisodeFailed] | None = None,
     ) -> dict[UUID, PolicyTransitionObservation]:
+        policies_by_request_id: dict[str, set[UUID]] = {}
+        scheduled_episode_counts: dict[UUID, int] = defaultdict(int)
         if scheduled_episodes is None:
-            scheduled_episode_counts: dict[UUID, int] = defaultdict(int)
             for result in episode_results:
                 for policy_version_id in {score.policy_version_id for score in result.scores}:
                     scheduled_episode_counts[policy_version_id] += 1
         else:
-            scheduled_episode_counts = defaultdict(int)
             for episode in scheduled_episodes:
-                for policy_version_id in set(episode.policy_version_ids):
+                episode_policy_ids = set(episode.policy_version_ids)
+                policies_by_request_id[episode.request_id] = episode_policy_ids
+                for policy_version_id in episode_policy_ids:
                     scheduled_episode_counts[policy_version_id] += 1
 
         score_lists: dict[UUID, list[float]] = defaultdict(list)
@@ -197,6 +201,18 @@ class RoundStartView:
             for policy_version_id in episode_policy_ids:
                 completed_episode_counts[policy_version_id] += 1
 
+        failed_episode_counts: dict[UUID, int] = defaultdict(int)
+        failed_request_ids: dict[UUID, list[str]] = defaultdict(list)
+        failure_error_samples: dict[UUID, list[str]] = defaultdict(list)
+        for failed in failed_episodes or []:
+            for policy_version_id in policies_by_request_id.get(failed.request_id, set()):
+                failed_episode_counts[policy_version_id] += 1
+                failed_request_ids[policy_version_id].append(failed.request_id)
+                error_sample = failed.error[:500]
+                if error_sample not in failure_error_samples[policy_version_id]:
+                    if len(failure_error_samples[policy_version_id]) < 3:
+                        failure_error_samples[policy_version_id].append(error_sample)
+
         return {
             policy_version_id: PolicyTransitionObservation(
                 scheduled_episodes=scheduled_episode_counts[policy_version_id],
@@ -206,6 +222,9 @@ class RoundStartView:
                     if score_lists[policy_version_id]
                     else 0.0
                 ),
+                failed_episodes=failed_episode_counts[policy_version_id],
+                failed_request_ids=failed_request_ids[policy_version_id],
+                failure_error_samples=failure_error_samples[policy_version_id],
             )
             for policy_version_id in scheduled_episode_counts
         }
@@ -216,6 +235,7 @@ class RoundStartView:
         *,
         episode_results: list[EpisodeResult],
         scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
+        failed_episodes: list[CommissionerProtocolEpisodeFailed] | None = None,
     ) -> OnRoundCompletedContext:
         return OnRoundCompletedContext(
             league=LeagueSnapshot(
@@ -237,7 +257,11 @@ class RoundStartView:
                 for division_ranking in complete.results
                 for ranking in division_ranking.rankings
             ],
-            transition_observations=self.transition_observations(episode_results, scheduled_episodes),
+            transition_observations=self.transition_observations(
+                episode_results,
+                scheduled_episodes,
+                failed_episodes,
+            ),
             division_memberships=[
                 membership for membership in self.memberships if membership.division_id == self.current_division.id
             ],

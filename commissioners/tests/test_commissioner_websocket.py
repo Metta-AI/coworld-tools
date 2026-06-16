@@ -21,6 +21,7 @@ from commissioners.common.protocol import (
     RoundStart,
     VariantInfo,
 )
+from commissioners.common.ruleset_strategy.config import BUNDLED_CONFIG_DIR, load_ruleset_strategy_config_file
 
 app = commissioner_app("config_driven")
 
@@ -114,7 +115,13 @@ def test_round_websocket_completes_with_zero_counts_when_all_episodes_fail() -> 
 
 
 def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
-    client = TestClient(app)
+    client = TestClient(
+        create_app(
+            RulesetStrategyCommissioner(
+                load_ruleset_strategy_config_file(BUNDLED_CONFIG_DIR / "among_them.yaml")
+            )
+        )
+    )
     qualifier_id = uuid4()
     competition_id = uuid4()
     league_id = uuid4()
@@ -170,6 +177,14 @@ def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
     assert [change["to_division_id"] for change in changes_by_membership_id.values()] == [None, None]
     assert [change["status"] for change in changes_by_membership_id.values()] == ["disqualified", "disqualified"]
     assert [change["substatus"] for change in changes_by_membership_id.values()] == ["inactive", "inactive"]
+    for change in changes_by_membership_id.values():
+        evidence_metadata = change["evidence"][0]["metadata"]
+        assert evidence_metadata["transition_id"] == "failed_crash_check"
+        assert evidence_metadata["observed"]["completed_episodes"] == 0
+        assert evidence_metadata["observed"]["failed_episodes"] == 2
+        assert evidence_metadata["observed"]["scheduled_episodes"] == 2
+        assert len(evidence_metadata["failed_request_ids"]) == 2
+        assert evidence_metadata["failure_error_samples"] == ["container exited"]
 
 
 def test_round_websocket_completes_when_one_episode_fails() -> None:

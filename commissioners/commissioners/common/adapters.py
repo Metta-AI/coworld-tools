@@ -29,7 +29,6 @@ from commissioners.common.protocol import (
     DescribeDivisionResponse,
     DivisionDescription as CommissionerDivisionDescription,
     DivisionLeaderboardEntry as CommissionerDivisionLeaderboardEntry,
-    DivisionRanking as CommissionerDivisionRanking,
 )
 from commissioners.common.protocol import (
     MembershipChange as CommissionerMembershipChange,
@@ -62,6 +61,7 @@ from commissioners.common.protocol import (
     ScheduleEpisodes as CommissionerScheduleEpisodes,
 )
 from commissioners.common.protocol import (
+    EpisodeFailed as CommissionerProtocolEpisodeFailed,
     EpisodeRequest as CommissionerProtocolEpisodeRequest,
     EpisodeResult as CommissionerProtocolEpisodeResult,
 )
@@ -330,10 +330,11 @@ def complete_round_for_round_start(
     round_start: CommissionerRoundStart,
     episode_results: list[CommissionerProtocolEpisodeResult],
     scheduled_episodes: list[CommissionerProtocolEpisodeRequest] | None = None,
+    failed_episodes: list[CommissionerProtocolEpisodeFailed] | None = None,
 ) -> CommissionerRoundComplete:
     custom_completer = getattr(commissioner, "complete_round_for_round_start", None)
     if callable(custom_completer):
-        return custom_completer(round_start, episode_results, scheduled_episodes)
+        return custom_completer(round_start, episode_results, scheduled_episodes, failed_episodes)
     local_episode_results = [
         EpisodeResult(
             episode_request_id=UUID(int=index + 1),
