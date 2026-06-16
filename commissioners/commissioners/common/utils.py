@@ -26,8 +26,11 @@ DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
 AMONG_THEM_RESULT_METADATA_VERSION = 2
 MEAN_ROUND_SCORE_KIND = "mean_round_score"
 COMPLETED_EPISODE_COUNT_METADATA_KEY = "completed_episode_count"
+RANKED_SCORE_COUNT_METADATA_KEY = "ranked_score_count"
 MEAN_SCORE_EWMA_SCORING_MECHANICS = (
     "Rounds rank policies by the average score reported by the game across each policy's episode slots. "
+    "A zero score is ignored only when another policy in the same episode received a negative score, so no-show "
+    "penalties do not turn an active opponent's neutral timeout score into ranking signal. "
     "The division leaderboard only uses current average-score round results and combines completed rounds with a "
     "2-hour half-life EWMA, so newer rounds count more than older rounds."
 )
@@ -202,7 +205,12 @@ def _pool_episode_count(*, config: PoolConfig, num_entries: int, num_agents: int
 def _score_lists_by_policy(episode_results: list[EpisodeResult]) -> dict[UUID, list[float]]:
     score_lists: dict[UUID, list[float]] = defaultdict(list)
     for result in episode_results:
+        negative_policy_ids = {score.policy_version_id for score in result.scores if score.score < 0}
         for score in result.scores:
+            if score.score == 0 and any(
+                policy_version_id != score.policy_version_id for policy_version_id in negative_policy_ids
+            ):
+                continue
             score_lists[score.policy_version_id].append(score.score)
     return score_lists
 

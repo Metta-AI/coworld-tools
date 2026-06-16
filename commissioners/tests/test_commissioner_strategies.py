@@ -30,6 +30,7 @@ from commissioners.common.protocol import (
 from commissioners.common.commissioners import (
     MEAN_ROUND_SCORE_KIND,
     MEAN_SCORE_EWMA_SCORING_MECHANICS,
+    RANKED_SCORE_COUNT_METADATA_KEY,
     BaselineCommissioner,
     RulesetStrategyCommissioner,
     EpisodeResult,
@@ -204,6 +205,115 @@ def test_default_commissioner_round_robin_generation_and_ranking() -> None:
         policy_version_ids[2],
     ]
     assert [ranking.score for ranking in rankings] == pytest.approx([6.0, 16.0 / 3.0, 3.0])
+
+
+def test_default_commissioner_ignores_neutral_zero_scores_only_when_episode_has_negative_score() -> None:
+    policy_version_ids = [uuid4() for _ in range(3)]
+    pool = PolicyPool(
+        id=uuid4(),
+        label="Round",
+        pool_type="round",
+        config={"num_episodes": 3},
+    )
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+
+    complete = BaselineCommissioner().complete_round(
+        round_row=Round(
+            id=uuid4(),
+            division_id=uuid4(),
+            round_number=1,
+            commissioner_key="auto",
+        ),
+        pool=pool,
+        entries=entries,
+        episode_results=[
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=0.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=-100.0),
+                ],
+            ),
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=10.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=5.0),
+                ],
+            ),
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=0.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=5.0),
+                ],
+            ),
+        ],
+    )
+
+    rankings_by_policy = {ranking.policy_version_id: ranking for ranking in complete.results[0].rankings}
+
+    assert rankings_by_policy[policy_version_ids[0]].score == pytest.approx(10.0)
+    assert rankings_by_policy[policy_version_ids[0]].result_metadata[RANKED_SCORE_COUNT_METADATA_KEY] == 1
+    assert rankings_by_policy[policy_version_ids[1]].score == pytest.approx(-30.0)
+    assert rankings_by_policy[policy_version_ids[1]].result_metadata[RANKED_SCORE_COUNT_METADATA_KEY] == 3
+    assert rankings_by_policy[policy_version_ids[2]].score == pytest.approx(0.0)
+    assert rankings_by_policy[policy_version_ids[2]].result_metadata[RANKED_SCORE_COUNT_METADATA_KEY] == 1
+
+
+def test_division_leaderboard_ignores_round_result_with_no_ranked_scores() -> None:
+    division_id = uuid4()
+    latest_round_id = uuid4()
+    older_round_id = uuid4()
+    policy_id = uuid4()
+    response = rank_division_for_request(
+        BaselineCommissioner(),
+        RankDivisionRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0, type="competition"),
+            completed_rounds=[
+                RoundInfo(
+                    id=latest_round_id,
+                    division_id=division_id,
+                    round_number=2,
+                    status="completed",
+                    completed_at="2026-06-07T02:00:00+00:00",
+                ),
+                RoundInfo(
+                    id=older_round_id,
+                    division_id=division_id,
+                    round_number=1,
+                    status="completed",
+                    completed_at="2026-06-07T00:00:00+00:00",
+                ),
+            ],
+            recent_rounds=[],
+            round_results=[
+                LeaderboardRoundResultInfo(
+                    round_id=latest_round_id,
+                    policy_version_id=policy_id,
+                    player_id="player-1",
+                    rank=1,
+                    score=0.0,
+                    result_metadata={RANKED_SCORE_COUNT_METADATA_KEY: 0},
+                ),
+                LeaderboardRoundResultInfo(
+                    round_id=older_round_id,
+                    policy_version_id=policy_id,
+                    player_id="player-1",
+                    rank=1,
+                    score=25.0,
+                    result_metadata={RANKED_SCORE_COUNT_METADATA_KEY: 1},
+                ),
+            ],
+        ),
+    )
+
+    assert len(response.rankings) == 1
+    assert response.rankings[0].score == pytest.approx(25.0)
 
 
 def test_cogs_vs_clips_config_qualifier_round_uses_qualifier_stage() -> None:
