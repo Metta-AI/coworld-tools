@@ -83,7 +83,7 @@ def _round_start(
     # The helper's members are the active division's entrants: qualifying members in a
     # staging division, champions in a competition division.
     member_status, member_substatus = (
-        ("qualifying", None) if division_type == "staging" else ("competing", "champion")
+        ("qualifying", None) if division_type == "staging" else ("competing", "active")
     )
     member_is_champion = division_type != "staging"
     return RoundStart(
@@ -751,7 +751,7 @@ def test_ruleset_strategy_cue_n_woo_competition_non_positive_average_disqualifie
             policy_version_id=policy_version_id,
             player_id=f"player-{index}",
             status="competing",
-            substatus="champion",
+            substatus="active",
             is_champion=True,
         )
         for index, (membership_id, policy_version_id) in enumerate(
@@ -1510,6 +1510,180 @@ def test_baseline_round_start_uses_is_champion_for_competition_entries() -> None
 
     scheduled_policy_ids = {policy_id for episode in schedule.episodes for policy_id in episode.policy_version_ids}
     assert scheduled_policy_ids == {boolean_champion_id}
+
+
+def test_baseline_round_completion_marks_default_competing_substatuses() -> None:
+    division_id = uuid4()
+    champion_membership_id = uuid4()
+    benched_membership_id = uuid4()
+    champion_policy_id = uuid4()
+    benched_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        division_id=division_id,
+        state={"round_config": {"current_division_id": str(division_id)}},
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=champion_membership_id,
+            league_id=round_start.league.id,
+            division_id=division_id,
+            policy_version_id=champion_policy_id,
+            status="competing",
+            substatus=None,
+            is_champion=True,
+        ),
+        MembershipInfo(
+            id=benched_membership_id,
+            league_id=round_start.league.id,
+            division_id=division_id,
+            policy_version_id=benched_policy_id,
+            status="competing",
+            substatus=None,
+            is_champion=False,
+        ),
+    ]
+
+    complete = complete_round_for_round_start(
+        BaselineCommissioner(),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=champion_policy_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[champion_policy_id] * 2,
+            )
+        ],
+    )
+
+    events = {event.league_policy_membership_id: event for event in complete.policy_membership_events}
+    assert events[champion_membership_id].status == "competing"
+    assert events[champion_membership_id].substatus == "active"
+    assert events[benched_membership_id].status == "competing"
+    assert events[benched_membership_id].substatus == "benched"
+
+
+def test_default_competing_substatus_marks_skip_existing_values() -> None:
+    division_id = uuid4()
+    champion_policy_id = uuid4()
+    benched_policy_id = uuid4()
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        division_id=division_id,
+        state={"round_config": {"current_division_id": str(division_id)}},
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=uuid4(),
+            league_id=round_start.league.id,
+            division_id=division_id,
+            policy_version_id=champion_policy_id,
+            status="competing",
+            substatus="active",
+            is_champion=True,
+        ),
+        MembershipInfo(
+            id=uuid4(),
+            league_id=round_start.league.id,
+            division_id=division_id,
+            policy_version_id=benched_policy_id,
+            status="competing",
+            substatus="benched",
+            is_champion=False,
+        ),
+    ]
+
+    complete = complete_round_for_round_start(
+        BaselineCommissioner(),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=champion_policy_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[champion_policy_id] * 2,
+            )
+        ],
+    )
+
+    assert complete.policy_membership_events == []
+
+
+def test_ruleset_membership_change_skips_noop_status_substatus_and_division() -> None:
+    division_id = uuid4()
+    policy_id = uuid4()
+    config = {
+        "defaults": {"min_entries_to_start": 1, "stage": {"label": "Round", "episodes": 1}},
+        "divisions": {
+            "competition": {
+                "match": {"type": "competition"},
+                "entrants": {"status": "competing", "substatus": "active", "match_substatus": True},
+                "on_round_complete": [
+                    {
+                        "id": "already_active",
+                        "criteria": "otherwise",
+                        "actions": [
+                            {
+                                "type": "update_membership",
+                                "status": "competing",
+                                "substatus": "active",
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+    round_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        division_id=division_id,
+        state={"round_config": {"current_division_id": str(division_id)}},
+    )
+    round_start.memberships = [
+        MembershipInfo(
+            id=uuid4(),
+            league_id=round_start.league.id,
+            division_id=division_id,
+            policy_version_id=policy_id,
+            status="competing",
+            substatus="active",
+            is_champion=True,
+        )
+    ]
+
+    complete = complete_round_for_round_start(
+        RulesetStrategyCommissioner(config),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=policy_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[policy_id] * 2,
+            )
+        ],
+    )
+
+    assert complete.policy_membership_events == []
 
 
 def test_ruleset_champions_selector_uses_is_champion() -> None:

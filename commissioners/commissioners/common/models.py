@@ -27,6 +27,8 @@ class PolicyMembershipStatus(str, Enum):
         return (cls.submitted, cls.qualifying, cls.competing)
 
 
+POLICY_MEMBERSHIP_SUBSTATUS_ACTIVE = "active"
+POLICY_MEMBERSHIP_SUBSTATUS_BENCHED = "benched"
 POLICY_MEMBERSHIP_SUBSTATUS_CHAMPION = "champion"
 POLICY_MEMBERSHIP_SUBSTATUS_CRASH = "crash"
 POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE = "inactive"
