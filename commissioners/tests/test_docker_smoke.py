@@ -100,7 +100,6 @@ def _round_start_json(*, policy_count: int, num_agents: int) -> str:
                     id="default",
                     name="Default",
                     game_config={"num_agents": num_agents},
-                    num_agents=num_agents,
                 )
             ],
         ).to_json()

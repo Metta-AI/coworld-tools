@@ -60,7 +60,6 @@ class VariantInfo(BaseModel):
     id: str
     name: str
     game_config: dict[str, Any]
-    num_agents: int = Field(gt=0)
 
 
 class EpisodeRequest(BaseModel):

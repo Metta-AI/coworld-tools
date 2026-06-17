@@ -278,12 +278,6 @@ class AmongThemSchedulingConfig(RoundSchedulingConfig):
     dirt_division_name: str = "Dirt"
     wood_division_name: str = "Wood"
 
-    @model_validator(mode="after")
-    def require_inferred_minimum_champions(self) -> AmongThemSchedulingConfig:
-        if "minimum_champions" not in self.model_fields_set:
-            raise ValueError("AmongThem scheduling requires minimum_champions inferred from the Coworld token count")
-        return self
-
 
 # ---------------------------------------------------------------------------
 # Snapshot models — lightweight copies of ORM objects for commissioner methods.

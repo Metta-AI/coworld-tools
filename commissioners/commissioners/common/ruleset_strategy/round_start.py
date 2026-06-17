@@ -91,7 +91,10 @@ class RoundStartView:
             variant_id = variant.id
         if variant is None:
             return variant_id, 1
-        return variant_id, variant.num_agents
+        num_agents = variant.game_config.get("num_agents")
+        if isinstance(num_agents, int):
+            return variant_id, num_agents
+        return variant_id, len(self.entries(None)) or 1
 
     def entries(self, rule: DivisionRule | None) -> list[PolicyPoolEntry]:
         entries = division_entries(self.current_division, self.memberships, rule)

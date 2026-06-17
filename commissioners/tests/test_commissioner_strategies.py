@@ -242,7 +242,6 @@ def _round_start(
                 id="default",
                 name="Default",
                 game_config={"num_agents": num_agents},
-                num_agents=num_agents,
             )
         ],
         state=state,
