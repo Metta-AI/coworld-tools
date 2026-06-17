@@ -75,6 +75,14 @@ class Division(BaseModel):
     type: str = DIVISION_TYPE_COMPETITION
 
 
+class DivisionConfig(BaseModel):
+    name: str
+    level: int
+    type: str = DIVISION_TYPE_COMPETITION
+    description: str | None = None
+    previous_name: str | None = None
+
+
 class LeaguePolicyMembership(BaseModel):
     id: UUID
     league_id: UUID
@@ -427,6 +435,21 @@ class ScheduleContext(BaseModel):
     divisions: list[DivisionSnapshot]
     active_memberships: list[MembershipSnapshot]
     recent_rounds: list[RoundSnapshot]
+
+
+class LeagueMigrationConfigContext(BaseModel):
+    league: LeagueSnapshot
+    divisions: list[DivisionSnapshot]
+
+
+class LeagueMigrationContext(BaseModel):
+    league: LeagueSnapshot
+    divisions: list[DivisionSnapshot]
+    memberships: list[MembershipSnapshot]
+
+
+class LeagueMigrationResult(BaseModel):
+    policy_membership_events: list[PolicyMembershipEventChange] = Field(default_factory=list)
 
 
 class DivisionLeaderboardContext(BaseModel):

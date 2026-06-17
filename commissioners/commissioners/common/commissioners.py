@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: F401,E402
+
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -34,6 +36,7 @@ from commissioners.common.models import (
     LeaderboardRecentRoundPublic,
     League,
     Division,
+    DivisionConfig,
     LeaguePolicyMembership,
     PolicyPool,
     PolicyPoolEntry,
@@ -66,6 +69,9 @@ from commissioners.common.models import (
     LeaderboardRoundResultSnapshot,
     RoundSpec,
     ScheduleContext,
+    LeagueMigrationConfigContext,
+    LeagueMigrationContext,
+    LeagueMigrationResult,
     DivisionLeaderboardContext,
     SubmissionPlacementContext,
     OnRoundCompletedContext,
@@ -107,6 +113,8 @@ from commissioners.common.adapters import (
     schedule_episodes_for_round_start,
     complete_round_for_round_start,
     schedule_rounds_for_request,
+    league_migration_config_for_request,
+    migrate_league_for_request,
     rank_division_for_request,
     describe_division_for_request,
     round_completed_for_request,
@@ -135,6 +143,19 @@ class Commissioner(ABC):
 
     def schedule_rounds(self, ctx: ScheduleContext) -> list[RoundSpec]:
         return []
+
+    def league_migration_config(self, ctx: LeagueMigrationConfigContext) -> list[DivisionConfig]:
+        return [
+            DivisionConfig(
+                name=division.name,
+                level=division.level,
+                type=division.type,
+            )
+            for division in ctx.divisions
+        ]
+
+    def migrate_league(self, ctx: LeagueMigrationContext) -> LeagueMigrationResult:
+        return LeagueMigrationResult()
 
     @abstractmethod
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]: ...
