@@ -340,6 +340,62 @@ def test_default_commissioner_round_robin_generation_and_ranking() -> None:
     assert [ranking.score for ranking in rankings] == pytest.approx([6.0, 16.0 / 3.0, 3.0])
 
 
+def test_ruleset_strategy_rank_round_score_uses_per_episode_placement() -> None:
+    # Same episode results as the mean test above, but with scoring.round_score = "rank": the
+    # round score becomes the mean of each policy's per-episode rank points (placement N..1),
+    # not the mean raw score.
+    policy_version_ids = [uuid4() for _ in range(3)]
+    pool = PolicyPool(id=uuid4(), label="Round", pool_type="round", config={"num_episodes": 2})
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+    commissioner = RulesetStrategyCommissioner(
+        {
+            "scoring": {"round_score": "rank"},
+            "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
+        }
+    )
+
+    complete = commissioner.complete_round(
+        round_row=Round(id=uuid4(), division_id=uuid4(), round_number=1, commissioner_key="ruleset_strategy"),
+        pool=pool,
+        entries=entries,
+        episode_results=[
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=4.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=2.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=6.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=8.0),
+                ],
+            ),
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=10.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=0.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=6.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=4.0),
+                ],
+            ),
+        ],
+    )
+
+    rankings = complete.results[0].rankings
+    by_policy = {ranking.policy_version_id: ranking for ranking in rankings}
+    # Per-episode rank points (N=4 each episode), averaged across a policy's seats:
+    #   p0: ep1 scores 4->2pts, 8->4pts; ep2 score 6->3pts  => (2+4+3)/3 = 3.0
+    #   p1: ep1 score 2->1pt;            ep2 10->4pts, 4->2pts => (1+4+2)/3 = 7/3
+    #   p2: ep1 score 6->3pts;           ep2 score 0->1pt    => (3+1)/2 = 2.0
+    assert by_policy[policy_version_ids[0]].score == pytest.approx(3.0)
+    assert by_policy[policy_version_ids[1]].score == pytest.approx(7.0 / 3.0)
+    assert by_policy[policy_version_ids[2]].score == pytest.approx(2.0)
+    assert [ranking.policy_version_id for ranking in rankings] == policy_version_ids
+    assert by_policy[policy_version_ids[0]].result_metadata["score_kind"] == "rank_episode_round_score"
+
+
 def test_default_commissioner_ignores_neutral_zero_scores_only_when_episode_has_negative_score() -> None:
     policy_version_ids = [uuid4() for _ in range(3)]
     pool = PolicyPool(

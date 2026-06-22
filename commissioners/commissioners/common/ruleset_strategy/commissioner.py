@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from commissioners.common.commissioners import BaselineCommissioner
 from commissioners.common.models import (
@@ -40,6 +41,7 @@ from commissioners.common.utils import (
     _duration_text,
     _leaderboard_rules_description,
     _plural_word,
+    _rank_points_lists_by_policy,
     _round_structure_description,
     _schedule_slot_description,
 )
@@ -245,6 +247,29 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             protocol_policy_membership_event(change) for change in hook.policy_membership_events
         ]
         return complete
+
+    def _round_scores_by_policy(
+        self,
+        entries: list[PolicyPoolEntry],
+        episode_results: list[EpisodeResult],
+    ) -> tuple[dict[UUID, float], dict[UUID, int]]:
+        scoring = self._config().scoring
+        if scoring is None or scoring.round_score != "rank":
+            return super()._round_scores_by_policy(entries, episode_results)
+        points_lists = _rank_points_lists_by_policy(episode_results)
+        scores = {
+            entry.policy_version_id: (
+                sum(points_lists.get(entry.policy_version_id, []))
+                / len(points_lists.get(entry.policy_version_id, []))
+                if points_lists.get(entry.policy_version_id)
+                else 0.0
+            )
+            for entry in entries
+        }
+        ranked_counts = {
+            entry.policy_version_id: len(points_lists.get(entry.policy_version_id, [])) for entry in entries
+        }
+        return scores, ranked_counts
 
     def complete_round(
         self,

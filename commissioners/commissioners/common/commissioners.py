@@ -409,6 +409,31 @@ class BaselineCommissioner(Commissioner):
             )
         return CommissionerScheduleEpisodes(episodes=episodes)
 
+    def _round_scores_by_policy(
+        self,
+        entries: list[PolicyPoolEntry],
+        episode_results: list[EpisodeResult],
+    ) -> tuple[dict[UUID, float], dict[UUID, int]]:
+        """Per-policy round score and the number of samples behind each.
+
+        Default: the mean of a policy's per-episode scores. Subclasses (e.g. the ruleset
+        commissioner's rank-by-episode mode) override this to score rounds differently while
+        reusing the ranking/metadata assembly in ``complete_round``.
+        """
+        score_lists = _score_lists_by_policy(episode_results)
+        scores = {
+            entry.policy_version_id: (
+                sum(score_lists.get(entry.policy_version_id, [])) / len(score_lists.get(entry.policy_version_id, []))
+                if score_lists.get(entry.policy_version_id)
+                else 0.0
+            )
+            for entry in entries
+        }
+        ranked_counts = {
+            entry.policy_version_id: len(score_lists.get(entry.policy_version_id, [])) for entry in entries
+        }
+        return scores, ranked_counts
+
     def complete_round(
         self,
         *,
@@ -417,23 +442,15 @@ class BaselineCommissioner(Commissioner):
         entries: list[PolicyPoolEntry],
         episode_results: list[EpisodeResult],
     ) -> CommissionerRoundComplete:
-        score_lists = _score_lists_by_policy(episode_results)
+        round_score_by_policy, ranked_score_counts = self._round_scores_by_policy(entries, episode_results)
         completed_episode_counts: dict[UUID, int] = defaultdict(int)
         for result in episode_results:
             for policy_version_id in {score.policy_version_id for score in result.scores}:
                 completed_episode_counts[policy_version_id] += 1
-        avg_score_by_policy = {
-            entry.policy_version_id: (
-                sum(score_lists.get(entry.policy_version_id, [])) / len(score_lists.get(entry.policy_version_id, []))
-                if score_lists.get(entry.policy_version_id)
-                else 0.0
-            )
-            for entry in entries
-        }
         ranked_entries = sorted(
             entries,
             key=lambda entry: (
-                -avg_score_by_policy[entry.policy_version_id],
+                -round_score_by_policy[entry.policy_version_id],
                 entry.seed_order,
                 str(entry.policy_version_id),
             ),
@@ -443,11 +460,11 @@ class BaselineCommissioner(Commissioner):
                 policy_version_id=entry.policy_version_id,
                 player_id=str(entry.player_id) if entry.player_id is not None else None,
                 rank=rank,
-                score=avg_score_by_policy[entry.policy_version_id],
+                score=round_score_by_policy[entry.policy_version_id],
                 result_metadata={
                     "seed_order": entry.seed_order,
                     COMPLETED_EPISODE_COUNT_METADATA_KEY: completed_episode_counts[entry.policy_version_id],
-                    RANKED_SCORE_COUNT_METADATA_KEY: len(score_lists.get(entry.policy_version_id, [])),
+                    RANKED_SCORE_COUNT_METADATA_KEY: ranked_score_counts[entry.policy_version_id],
                 },
             )
             for rank, entry in enumerate(ranked_entries, start=1)

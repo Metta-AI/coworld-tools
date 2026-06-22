@@ -16,7 +16,12 @@ from commissioners.common.models import (
     MembershipSnapshot,
 )
 from commissioners.common.models import V2StageConfig
-from commissioners.common.utils import MEAN_ROUND_SCORE_KIND, MEAN_SCORE_EWMA_SCORING_MECHANICS
+from commissioners.common.utils import (
+    MEAN_ROUND_SCORE_KIND,
+    MEAN_SCORE_EWMA_SCORING_MECHANICS,
+    RANK_EPISODE_EWMA_SCORING_MECHANICS,
+    RANK_EPISODE_ROUND_SCORE_KIND,
+)
 
 CONFIG_KEY = "ruleset_strategy"
 IMAGE_CONFIG_NAME_ENV = "RULESET_STRATEGY_CONFIG_NAME"
@@ -155,7 +160,10 @@ class LeaderboardScoringConfig(_ConfigModel):
 
 
 class ScoringConfig(_ConfigModel):
-    round_score: Literal["mean"] = "mean"
+    # "mean": round score is the mean of a policy's per-episode scores.
+    # "rank": round score is the mean of a policy's per-episode rank points (placement within
+    #         each episode, N..1), so margins of victory are discarded and only placement counts.
+    round_score: Literal["mean", "rank"] = "mean"
     leaderboard: LeaderboardScoringConfig = Field(default_factory=LeaderboardScoringConfig)
     mechanics: str | None = None
 
@@ -356,12 +364,21 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         return self.defaults.insufficient_players()
 
     @property
+    def round_score_kind(self) -> str:
+        if self.scoring is not None and self.scoring.round_score == "rank":
+            return RANK_EPISODE_ROUND_SCORE_KIND
+        return MEAN_ROUND_SCORE_KIND
+
+    @property
     def ranking(self) -> RankingConfig:
         if self.scoring is None:
             return RankingConfig()
+        # Tag/filter round results by score kind so that switching round_score (e.g. mean -> rank)
+        # excludes the now-incomparable prior-regime results from the leaderboard instead of
+        # blending different score scales.
         return RankingConfig(
-            result_metadata={"score_kind": MEAN_ROUND_SCORE_KIND},
-            filter_metadata={"score_kind": MEAN_ROUND_SCORE_KIND},
+            result_metadata={"score_kind": self.round_score_kind},
+            filter_metadata={"score_kind": self.round_score_kind},
             ewma_halflife_hours=self.scoring.leaderboard.half_life_hours,
         )
 
@@ -372,9 +389,17 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         if self.scoring.mechanics is not None:
             return self.scoring.mechanics
         half_life_hours = self.scoring.leaderboard.half_life_hours
+        is_rank = self.scoring.round_score == "rank"
         if half_life_hours == 2:
-            return MEAN_SCORE_EWMA_SCORING_MECHANICS
+            return RANK_EPISODE_EWMA_SCORING_MECHANICS if is_rank else MEAN_SCORE_EWMA_SCORING_MECHANICS
         half_life_text = int(half_life_hours) if half_life_hours.is_integer() else half_life_hours
+        if is_rank:
+            return (
+                "Rounds rank policies by placement within each episode (N points for the episode winner of an "
+                "N-policy game down to 1 for last, ties sharing the better place), averaged across the episodes "
+                "each policy played. The division leaderboard combines completed rounds with a "
+                f"{half_life_text}-hour half-life EWMA, so newer rounds count more than older rounds."
+            )
         return (
             "Rounds rank policies by the average score reported by the game across each policy's episode slots. "
             "The division leaderboard only uses current average-score round results and combines completed rounds "
