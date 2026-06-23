@@ -19,6 +19,11 @@ from players.player_sdk.llm import (
     select_client,
     usage_dict,
 )
+from players.player_sdk.cogweb_bridge import (
+    CogwebContext,
+    env_ws_url,
+    run_cogweb_bridge,
+)
 from players.player_sdk.message_bridge import (
     ClosePolicy,
     MessageHandler,
@@ -82,6 +87,7 @@ __all__ = [
     "AsyncStrategyRunner",
     "BeliefSnapshot",
     "ClosePolicy",
+    "CogwebContext",
     "DirectiveValidationError",
     "EmptyModeParams",
     "EventEmitter",
@@ -122,11 +128,13 @@ __all__ = [
     "WandbMetricsSink",
     "bedrock_enabled",
     "call_json",
+    "env_ws_url",
     "exit_zero_on_unclean_close",
     "extract_json_object",
     "parse_trace_output_specs",
     "resolve_model",
     "response_text",
+    "run_cogweb_bridge",
     "run_message_bridge",
     "select_client",
     "usage_dict",
