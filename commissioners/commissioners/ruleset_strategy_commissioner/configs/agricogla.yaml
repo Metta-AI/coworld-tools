@@ -1,5 +1,5 @@
 # agricogla: 4-seat worker-placement game. Same as `default` except:
-#   - competition rounds run 10 episodes (not 1) so baseline_window seating seats
+#   - competition rounds run 100 episodes (not 1) so baseline_window seating seats
 #     every champion across the 4 seats each round instead of only 4 of them.
 #   - rounds are scored by per-episode placement (round_score: rank) instead of mean
 #     score, so the league rewards consistently beating the table, not blowouts.
@@ -12,7 +12,7 @@ defaults:
   min_entries_to_start: 2
   stage:
     label: Round
-    episodes: 10
+    episodes: 100
     min_episodes_per_entrant: 1
 
 divisions:
