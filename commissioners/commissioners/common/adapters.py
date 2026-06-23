@@ -93,10 +93,7 @@ def _round_start_config(round_start: CommissionerRoundStart) -> dict[str, Any]:
     config = round_start.league.commissioner_config or {}
     state = round_start.state if isinstance(round_start.state, dict) else {}
     round_config = state.get("round_config") if isinstance(state.get("round_config"), dict) else {}
-    merged = {**config, **round_config}
-    if "minimum_champions" not in merged and round_start.variants:
-        merged["minimum_champions"] = round_start.variants[0].num_agents
-    return merged
+    return {**config, **round_config}
 
 
 def _current_division(round_start: CommissionerRoundStart) -> DivisionSnapshot:
@@ -228,11 +225,9 @@ def _round_start_variant(round_start: CommissionerRoundStart) -> tuple[str, int]
         variant_id = variant.id
     if variant is None:
         return variant_id, len(_round_start_entries(round_start))
-    tokens = variant.game_config.get("tokens")
-    token_count = len(tokens) if isinstance(tokens, list) else None
-    num_agents = variant.num_agents or variant.game_config.get("num_agents") or token_count
+    num_agents = variant.game_config.get("num_agents")
     if not isinstance(num_agents, int):
-        raise ValueError("round_start variant must include num_agents")
+        return variant_id, len(_round_start_entries(round_start))
     return variant_id, num_agents
 
 

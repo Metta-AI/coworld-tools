@@ -48,7 +48,7 @@ def _round_start_json() -> tuple[dict, list[str]]:
             for policy_version_id in policy_version_ids
         ],
         recent_results=[],
-        variants=[VariantInfo(id="default", name="Default", game_config={"num_agents": 2}, num_agents=2)],
+        variants=[VariantInfo(id="default", name="Default", game_config={"num_agents": 2})],
     )
     return round_start.to_json(), [str(policy_version_id) for policy_version_id in policy_version_ids]
 
@@ -153,7 +153,7 @@ def test_round_websocket_deactivates_all_failed_qualifier_memberships() -> None:
             for membership_id, policy_version_id in zip(membership_ids, policy_version_ids, strict=True)
         ],
         recent_results=[],
-        variants=[VariantInfo(id="default", name="Default", game_config={"num_agents": 2}, num_agents=2)],
+        variants=[VariantInfo(id="default", name="Default", game_config={"num_agents": 2})],
     ).to_json()
 
     with client.websocket_connect("/round") as websocket:
@@ -328,7 +328,6 @@ def test_episode_duration_limit_has_five_minute_floor() -> None:
             id="default",
             name="Default",
             game_config={"timeout_seconds": 60},
-            num_agents=2,
         )
     }
 
@@ -342,7 +341,6 @@ def test_episode_duration_limit_doubles_timeout() -> None:
             id="default",
             name="Default",
             game_config={"timeout_seconds": 240},
-            num_agents=2,
         )
     }
 
@@ -356,7 +354,6 @@ def test_episode_duration_limit_doubles_ten_minute_round_timeout() -> None:
             id="default",
             name="Default",
             game_config={"round_timeout_seconds": 600},
-            num_agents=2,
         )
     }
 
