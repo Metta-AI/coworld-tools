@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Any
@@ -26,6 +27,7 @@ DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE_HOURS = 2
 AMONG_THEM_RESULT_METADATA_VERSION = 2
 MEAN_ROUND_SCORE_KIND = "mean_round_score"
 RANK_EPISODE_ROUND_SCORE_KIND = "rank_episode_round_score"
+WIN_EPISODE_ROUND_SCORE_KIND = "win_episode_round_score"
 COMPLETED_EPISODE_COUNT_METADATA_KEY = "completed_episode_count"
 RANKED_SCORE_COUNT_METADATA_KEY = "ranked_score_count"
 MEAN_SCORE_EWMA_SCORING_MECHANICS = (
@@ -41,6 +43,13 @@ RANK_EPISODE_EWMA_SCORING_MECHANICS = (
     "a policy's round score is the average of those rank points across the episodes it played. Margins of victory "
     "are discarded — only who beat whom each game matters. The division leaderboard combines completed rounds with "
     "a 2-hour half-life EWMA, so newer rounds count more than older rounds."
+)
+WIN_EPISODE_EWMA_SCORING_MECHANICS = (
+    "Rounds score policies by win rate rather than by raw score or placement: in each episode the "
+    "top-scoring policy earns 1 and everyone else earns 0 (a tie for first shares the win, so every "
+    "top scorer gets 1), and a policy's round score is the fraction of its episodes it won. Margins and "
+    "lower placements are discarded — only winning the game matters. The division leaderboard combines "
+    "completed rounds with a 2-hour half-life EWMA, so newer rounds count more than older rounds."
 )
 AMONG_THEM_SCORE_KIND = MEAN_ROUND_SCORE_KIND
 AMONG_THEM_SCORING_MECHANICS = MEAN_SCORE_EWMA_SCORING_MECHANICS
@@ -233,17 +242,33 @@ def _episode_rank_points(scores: list[float]) -> list[float]:
     return [float(n - sum(1 for other in scores if other > score)) for score in scores]
 
 
-def _rank_points_lists_by_policy(episode_results: list[EpisodeResult]) -> dict[UUID, list[float]]:
-    """Per-policy lists of per-episode rank points across every episode the policy played.
+def _episode_win_points(scores: list[float]) -> list[float]:
+    """Convert one episode's per-policy scores into binary win points.
 
-    Unlike ``_score_lists_by_policy`` no scores are dropped: placement is meaningful for every
-    seat in an episode, including a zero score, so each episode contributes one rank point per
+    The episode's top scorer earns 1 and everyone else earns 0; a tie for first shares the win, so
+    every policy at the top score gets 1. Margins and lower placements are discarded — only winning
+    the episode counts. An empty episode yields no points.
+    """
+    if not scores:
+        return []
+    top = max(scores)
+    return [1.0 if score == top else 0.0 for score in scores]
+
+
+def _episode_points_lists_by_policy(
+    episode_results: list[EpisodeResult],
+    episode_points: Callable[[list[float]], list[float]],
+) -> dict[UUID, list[float]]:
+    """Per-policy lists of per-episode points (rank or win) across every episode the policy played.
+
+    Unlike ``_score_lists_by_policy`` no scores are dropped: ``episode_points`` is meaningful for
+    every seat in an episode, including a zero score, so each episode contributes one point per
     participating policy.
     """
     points_lists: dict[UUID, list[float]] = defaultdict(list)
     for result in episode_results:
         episode_scores = [(score.policy_version_id, score.score) for score in result.scores]
-        points = _episode_rank_points([score for _, score in episode_scores])
+        points = episode_points([score for _, score in episode_scores])
         for (policy_version_id, _), point in zip(episode_scores, points, strict=True):
             points_lists[policy_version_id].append(point)
     return points_lists
