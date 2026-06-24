@@ -42,6 +42,8 @@ spec; see ``README.md`` here for the user-facing description.
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from typing import Any
 
@@ -51,6 +53,7 @@ from reporter_sdk import (
     ReporterInputs,
     build_report_zip,
     load_reporter_inputs,
+    read_json,
     write_uri,
 )
 
@@ -60,6 +63,7 @@ from reporter_sdk import (
 # itself is published under ``metta-ai/`` on GHCR — the reporter_id and
 # the image tag are independent identifiers.
 REPORTER_ID = "softmax/default-reporter"
+REPORT_REQUEST_ENV_VAR = "COGAME_REPORT_REQUEST"
 
 
 def _safe_scores(results: Any) -> list[Any] | None:
@@ -221,5 +225,59 @@ def run(inputs: ReporterInputs) -> None:
     )
 
 
+def _direct_episode_results(episode: dict[str, Any]) -> Any:
+    """Read results from a direct report_request episode if present."""
+    try:
+        uri = episode["artifacts"]["results"]["uri"]
+    except (KeyError, TypeError):
+        return None
+    try:
+        return read_json(uri)
+    except Exception as exc:  # noqa: BLE001 — defensive by design
+        print(
+            f"[{REPORTER_ID}] warning: could not read direct results: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
+def run_report_request(raw_request: str) -> None:
+    """Read a direct COGAME_REPORT_REQUEST, build the zip, and write it."""
+    request = json.loads(raw_request)
+    episodes = request.get("episodes")
+    if isinstance(episodes, list) and episodes:
+        episode = episodes[0]
+    else:
+        episode = {}
+
+    if isinstance(episode, dict):
+        manifest = episode.get("manifest", {})
+    else:
+        manifest = {}
+    if not isinstance(manifest, dict):
+        manifest = {}
+    if isinstance(episode, dict):
+        results = _direct_episode_results(episode)
+    else:
+        results = None
+
+    payload = build_zip_bytes(
+        ereq_id=manifest.get("ereq_id"),
+        status=manifest.get("status"),
+        results=results,
+    )
+    write_uri(request["report_uri"], payload, content_type="application/zip")
+    print(
+        f"[{REPORTER_ID}] wrote zip to {request['report_uri']}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 if __name__ == "__main__":
-    run(load_reporter_inputs())
+    raw_request = os.environ.get(REPORT_REQUEST_ENV_VAR)
+    if raw_request:
+        run_report_request(raw_request)
+    else:
+        run(load_reporter_inputs())

@@ -100,6 +100,40 @@ def test_run_writes_report_zip(tmp_path: Path, report_uri: str) -> None:
     assert "summary.md" in names
 
 
+def test_run_report_request_writes_report_zip(
+    tmp_path: Path,
+    report_uri: str,
+) -> None:
+    """The direct certifier contract passes COGAME_REPORT_REQUEST."""
+    results_path = tmp_path / "results.json"
+    results_path.write_text(json.dumps({"scores": [3.0, 4.0]}))
+    request = {
+        "request_id": "direct_default_test_0001",
+        "report_uri": report_uri,
+        "episodes": [
+            {
+                "manifest": {
+                    "ereq_id": "ereq_direct_default_test_0001",
+                    "status": "success",
+                },
+                "artifacts": {
+                    "results": {
+                        "uri": results_path.as_uri(),
+                    },
+                },
+            }
+        ],
+    }
+
+    dr.run_report_request(json.dumps(request))
+
+    names, manifest, summary = _read_report(report_uri)
+    assert "manifest.json" in names
+    assert manifest["reporter_id"] == "softmax/default-reporter"
+    assert "Slot 0 scored 3.0" in summary
+    assert "Slot 1 scored 4.0" in summary
+
+
 def test_output_manifest_shape(tmp_path: Path, report_uri: str) -> None:
     """The in-zip ``manifest.json`` declares ``reporter_id`` =
     ``"softmax/default-reporter"``, ``render="summary.md"``, and no
