@@ -39,9 +39,11 @@ from commissioners.common.utils import (
     _count_text,
     _current_schedule_slot,
     _duration_text,
+    _episode_points_lists_by_policy,
+    _episode_rank_points,
+    _episode_win_points,
     _leaderboard_rules_description,
     _plural_word,
-    _rank_points_lists_by_policy,
     _round_structure_description,
     _schedule_slot_description,
 )
@@ -254,9 +256,10 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         episode_results: list[EpisodeResult],
     ) -> tuple[dict[UUID, float], dict[UUID, int]]:
         scoring = self._config().scoring
-        if scoring is None or scoring.round_score != "rank":
+        if scoring is None or scoring.round_score == "mean":
             return super()._round_scores_by_policy(entries, episode_results)
-        points_lists = _rank_points_lists_by_policy(episode_results)
+        episode_points = _episode_win_points if scoring.round_score == "win" else _episode_rank_points
+        points_lists = _episode_points_lists_by_policy(episode_results, episode_points)
         scores = {
             entry.policy_version_id: (
                 sum(points_lists.get(entry.policy_version_id, []))
