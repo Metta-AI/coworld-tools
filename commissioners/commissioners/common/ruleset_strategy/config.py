@@ -21,8 +21,6 @@ from commissioners.common.utils import (
     MEAN_SCORE_EWMA_SCORING_MECHANICS,
     RANK_EPISODE_EWMA_SCORING_MECHANICS,
     RANK_EPISODE_ROUND_SCORE_KIND,
-    WIN_EPISODE_EWMA_SCORING_MECHANICS,
-    WIN_EPISODE_ROUND_SCORE_KIND,
 )
 
 CONFIG_KEY = "ruleset_strategy"
@@ -165,9 +163,7 @@ class ScoringConfig(_ConfigModel):
     # "mean": round score is the mean of a policy's per-episode scores.
     # "rank": round score is the mean of a policy's per-episode rank points (placement within
     #         each episode, N..1), so margins of victory are discarded and only placement counts.
-    # "win":  round score is the policy's win rate — 1 for each episode it (co-)won, 0 otherwise —
-    #         so only winning the game matters, not placement or margin.
-    round_score: Literal["mean", "rank", "win"] = "mean"
+    round_score: Literal["mean", "rank"] = "mean"
     leaderboard: LeaderboardScoringConfig = Field(default_factory=LeaderboardScoringConfig)
     mechanics: str | None = None
 
@@ -369,12 +365,8 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
 
     @property
     def round_score_kind(self) -> str:
-        if self.scoring is None:
-            return MEAN_ROUND_SCORE_KIND
-        if self.scoring.round_score == "rank":
+        if self.scoring is not None and self.scoring.round_score == "rank":
             return RANK_EPISODE_ROUND_SCORE_KIND
-        if self.scoring.round_score == "win":
-            return WIN_EPISODE_ROUND_SCORE_KIND
         return MEAN_ROUND_SCORE_KIND
 
     @property
@@ -397,25 +389,15 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         if self.scoring.mechanics is not None:
             return self.scoring.mechanics
         half_life_hours = self.scoring.leaderboard.half_life_hours
-        round_score = self.scoring.round_score
+        is_rank = self.scoring.round_score == "rank"
         if half_life_hours == 2:
-            return {
-                "rank": RANK_EPISODE_EWMA_SCORING_MECHANICS,
-                "win": WIN_EPISODE_EWMA_SCORING_MECHANICS,
-            }.get(round_score, MEAN_SCORE_EWMA_SCORING_MECHANICS)
+            return RANK_EPISODE_EWMA_SCORING_MECHANICS if is_rank else MEAN_SCORE_EWMA_SCORING_MECHANICS
         half_life_text = int(half_life_hours) if half_life_hours.is_integer() else half_life_hours
-        if round_score == "rank":
+        if is_rank:
             return (
                 "Rounds rank policies by placement within each episode (N points for the episode winner of an "
                 "N-policy game down to 1 for last, ties sharing the better place), averaged across the episodes "
                 "each policy played. The division leaderboard combines completed rounds with a "
-                f"{half_life_text}-hour half-life EWMA, so newer rounds count more than older rounds."
-            )
-        if round_score == "win":
-            return (
-                "Rounds score policies by win rate within each episode (1 for the episode winner, 0 for everyone "
-                "else, a tie for first sharing the win), averaged across the episodes each policy played. The "
-                "division leaderboard combines completed rounds with a "
                 f"{half_life_text}-hour half-life EWMA, so newer rounds count more than older rounds."
             )
         return (

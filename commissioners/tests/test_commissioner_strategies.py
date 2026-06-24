@@ -395,65 +395,6 @@ def test_ruleset_strategy_rank_round_score_uses_per_episode_placement() -> None:
     assert by_policy[policy_version_ids[0]].result_metadata["score_kind"] == "rank_episode_round_score"
 
 
-def test_ruleset_strategy_win_round_score_uses_binary_win_points() -> None:
-    # scoring.round_score = "win": each episode's top scorer earns 1 and everyone else 0 (a tie
-    # for first shares the win), and a policy's round score is its win rate across its seats.
-    policy_version_ids = [uuid4() for _ in range(3)]
-    pool = PolicyPool(id=uuid4(), label="Round", pool_type="round", config={"num_episodes": 2})
-    entries = [
-        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
-        for index, policy_version_id in enumerate(policy_version_ids)
-    ]
-    commissioner = RulesetStrategyCommissioner(
-        {
-            "scoring": {"round_score": "win"},
-            "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
-        }
-    )
-
-    complete = commissioner.complete_round(
-        round_row=Round(id=uuid4(), division_id=uuid4(), round_number=1, commissioner_key="ruleset_strategy"),
-        pool=pool,
-        entries=entries,
-        episode_results=[
-            EpisodeResult(
-                episode_request_id=uuid4(),
-                scores=[
-                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=10.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=5.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=3.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=2.0),
-                ],
-            ),
-            EpisodeResult(
-                episode_request_id=uuid4(),
-                scores=[
-                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=8.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=8.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=4.0),
-                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=1.0),
-                ],
-            ),
-        ],
-    )
-
-    rankings = complete.results[0].rankings
-    by_policy = {ranking.policy_version_id: ranking for ranking in rankings}
-    # Per-episode win points (1 for the episode's top score, ties shared), averaged across a policy's seats:
-    #   p0: ep1 10->1, 2->0; ep2 1->0           => (1+0+0)/3 = 1/3
-    #   p1: ep1 5->0;        ep2 8->1, 8->1      => (0+1+1)/3 = 2/3  (the tied-for-first seats both win)
-    #   p2: ep1 3->0;        ep2 4->0           => (0+0)/2   = 0.0
-    assert by_policy[policy_version_ids[0]].score == pytest.approx(1.0 / 3.0)
-    assert by_policy[policy_version_ids[1]].score == pytest.approx(2.0 / 3.0)
-    assert by_policy[policy_version_ids[2]].score == pytest.approx(0.0)
-    assert [ranking.policy_version_id for ranking in rankings] == [
-        policy_version_ids[1],
-        policy_version_ids[0],
-        policy_version_ids[2],
-    ]
-    assert by_policy[policy_version_ids[1]].result_metadata["score_kind"] == "win_episode_round_score"
-
-
 def test_default_commissioner_ignores_neutral_zero_scores_only_when_episode_has_negative_score() -> None:
     policy_version_ids = [uuid4() for _ in range(3)]
     pool = PolicyPool(
