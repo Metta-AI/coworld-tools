@@ -21,6 +21,7 @@ def schedule_entries(
     filler_entries: list[PolicyPoolEntry],
     num_agents: int,
     variant_id: str,
+    game_config: dict[str, Any] | None,
     config: RulesetStrategyCommissionerConfig,
     recent_results: list[Any] | None = None,
 ) -> CommissionerScheduleEpisodes:
@@ -34,6 +35,7 @@ def schedule_entries(
                 CommissionerEpisodeRequest(
                     request_id=str(entry_index * episodes_per_entrant + episode_index),
                     variant_id=variant_id,
+                    game_config=game_config,
                     policy_version_ids=[entry.policy_version_id] * num_agents,
                     tags={"pool_id": str(pool.id)},
                 )
@@ -66,6 +68,7 @@ def schedule_entries(
                 CommissionerEpisodeRequest(
                     request_id=str(job_index),
                     variant_id=variant_id,
+                    game_config=game_config,
                     policy_version_ids=[
                         primary_entries[entry_index].policy_version_id
                         for entry_index in entry_indices
@@ -84,6 +87,7 @@ def schedule_entries(
             filler_entries=filler_entries,
             num_agents=num_agents,
             variant_id=variant_id,
+            game_config=game_config,
             recent_results=recent_results or [],
         )
 
@@ -97,6 +101,7 @@ def schedule_entries(
             CommissionerEpisodeRequest(
                 request_id=str(job_index),
                 variant_id=variant_id,
+                game_config=game_config,
                 policy_version_ids=[
                     entry.policy_version_id
                     for entry in episode_entries(
@@ -167,6 +172,7 @@ def _schedule_leaderboard_neighbors(
     filler_entries: list[PolicyPoolEntry],
     num_agents: int,
     variant_id: str,
+    game_config: dict[str, Any] | None,
     recent_results: list[Any],
 ) -> CommissionerScheduleEpisodes:
     if num_agents != 2:
@@ -196,6 +202,7 @@ def _schedule_leaderboard_neighbors(
                 CommissionerEpisodeRequest(
                     request_id=str(len(episodes)),
                     variant_id=variant_id,
+                    game_config=game_config,
                     policy_version_ids=[anchor.policy_version_id, opponent.policy_version_id],
                     tags={"pool_id": str(pool.id)},
                 )

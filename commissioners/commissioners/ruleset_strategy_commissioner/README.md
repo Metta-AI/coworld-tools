@@ -23,7 +23,9 @@ Key config areas:
 - `defaults`: scheduling, seating, minimum entrants, and underfilled-seat behavior shared by divisions.
 - `divisions`: logical tournament divisions, each with a real Coworld division match and entrant selector.
 - `stages`: named substeps inside a division, commonly used for multi-stage qualifiers.
-- `on_round_complete`: ordered criteria-based transitions produced when round results are complete.
+- `game_config`: optional division or stage game-config overrides emitted on scheduled episode requests.
+- `policy_membership_events`: ordered criteria-based transitions produced when round results are complete.
+  `on_round_complete` is still accepted as an alias, and `on_episode_complete` is still accepted as a legacy alias.
 - `scoring`: optional round-score and leaderboard aggregation settings.
 - `dispatch_throttle`: optional WebSocket episode release throttling for games that should not receive the full round
   schedule at once.
@@ -32,9 +34,14 @@ The current Coworld commissioner protocol only sends memberships from the active
 can fill from other divisions in the same league when matching memberships are included in `round_start`. Filling from
 another league or tournament requires the platform to include those memberships in `round_start`.
 
-`on_round_complete` entries are evaluated in order after a round completes. The first matching transition is applied,
-and the emitted `policy_membership_event` includes evidence with the selected transition id, declared criteria, observed
-values, and target metadata. `on_episode_complete` is still accepted as a legacy alias for existing configs.
+`policy_membership_events` entries are evaluated in order after a round completes. The first matching transition is
+applied, and the emitted `policy_membership_event` includes evidence with the selected transition id, declared criteria,
+observed values, and target metadata. Put these entries on the division or on a stage to make policy membership events
+division-specific. `on_round_complete` and `on_episode_complete` are still accepted aliases for existing configs.
+
+`game_config` may be set on a division, or on a stage to override the division for that stage. It is merged over the
+incoming variant's game config and included on every scheduled episode request for that division or stage. `num_agents`
+from the selected game config controls the number of policy slots in the scheduled episodes.
 
 Example ruleset configs live in `configs/`:
 

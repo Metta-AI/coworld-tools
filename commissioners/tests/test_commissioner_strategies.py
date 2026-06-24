@@ -634,6 +634,7 @@ def test_ruleset_strategy_default_config_matches_default_schedule() -> None:
     assert [episode.policy_version_ids for episode in schedule.episodes] == [
         [policy_version_ids[0], policy_version_ids[1], policy_version_ids[2], policy_version_ids[0]]
     ]
+    assert schedule.episodes[0].game_config is None
 
 
 def test_ruleset_strategy_default_config_schedules_one_appearance_per_competitor() -> None:
@@ -712,6 +713,200 @@ def test_ruleset_strategy_ignores_legacy_wire_commissioner_config() -> None:
         [policy_version_ids[1]] * 4,
         [policy_version_ids[1]] * 4,
     ]
+
+
+def test_ruleset_strategy_policy_membership_events_are_selected_by_division() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_id = uuid4()
+    competition_policy_id = uuid4()
+    qualifier_membership_id = uuid4()
+    competition_membership_id = uuid4()
+    config = {
+        "defaults": {"min_entries_to_start": 1, "stage": {"label": "Round", "episodes": 1}},
+        "divisions": {
+            "qualifiers": {
+                "match": {"name": "Qualifiers", "type": "staging"},
+                "entrants": "qualifying",
+                "policy_membership_events": [
+                    {
+                        "id": "qualifier_review",
+                        "criteria": "otherwise",
+                        "actions": [
+                            {
+                                "type": "update_membership",
+                                "status": "qualifying",
+                                "substatus": "qualifier_review",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "competition": {
+                "match": {"name": "Competition", "type": "competition"},
+                "entrants": "champions",
+                "policy_membership_events": [
+                    {
+                        "id": "competition_review",
+                        "criteria": "otherwise",
+                        "actions": [
+                            {
+                                "type": "update_membership",
+                                "status": "competing",
+                                "substatus": "competition_review",
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    }
+
+    qualifier_start = _round_start(
+        policy_version_ids=[],
+        num_agents=1,
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        extra_divisions=[DivisionInfo(id=competition_id, name="Competition", level=1, type="competition")],
+        state={"round_config": {"current_division_id": str(qualifier_id)}},
+    )
+    qualifier_start.memberships = [
+        MembershipInfo(
+            id=qualifier_membership_id,
+            league_id=qualifier_start.league.id,
+            division_id=qualifier_id,
+            policy_version_id=qualifier_policy_id,
+            status="qualifying",
+        )
+    ]
+
+    qualifier_complete = complete_round_for_round_start(
+        RulesetStrategyCommissioner(config),
+        qualifier_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=qualifier_policy_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[qualifier_policy_id],
+            )
+        ],
+    )
+
+    competition_start = _round_start(
+        policy_version_ids=[],
+        num_agents=2,
+        division_name="Competition",
+        division_id=competition_id,
+        state={"round_config": {"current_division_id": str(competition_id)}},
+    )
+    competition_start.memberships = [
+        MembershipInfo(
+            id=competition_membership_id,
+            league_id=competition_start.league.id,
+            division_id=competition_id,
+            policy_version_id=competition_policy_id,
+            status="competing",
+            substatus="active",
+            is_champion=True,
+        )
+    ]
+
+    competition_complete = complete_round_for_round_start(
+        RulesetStrategyCommissioner(config),
+        competition_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[EpisodeScore(policy_version_id=competition_policy_id, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[competition_policy_id] * 2,
+            )
+        ],
+    )
+
+    assert len(qualifier_complete.policy_membership_events) == 1
+    qualifier_event = qualifier_complete.policy_membership_events[0]
+    assert qualifier_event.league_policy_membership_id == qualifier_membership_id
+    assert qualifier_event.status == "qualifying"
+    assert qualifier_event.substatus == "qualifier_review"
+    assert qualifier_event.evidence[0].metadata["transition_id"] == "qualifier_review"
+
+    assert len(competition_complete.policy_membership_events) == 1
+    competition_event = competition_complete.policy_membership_events[0]
+    assert competition_event.league_policy_membership_id == competition_membership_id
+    assert competition_event.status == "competing"
+    assert competition_event.substatus == "competition_review"
+    assert competition_event.evidence[0].metadata["transition_id"] == "competition_review"
+
+
+def test_ruleset_strategy_game_config_is_selected_by_division() -> None:
+    qualifier_id = uuid4()
+    competition_id = uuid4()
+    qualifier_policy_id = uuid4()
+    competition_policy_ids = [uuid4(), uuid4(), uuid4(), uuid4()]
+    config = {
+        "defaults": {"min_entries_to_start": 1, "stage": {"label": "Round", "episodes": 1}},
+        "divisions": {
+            "qualifiers": {
+                "match": {"name": "Qualifiers", "type": "staging"},
+                "entrants": "qualifying",
+                "game_config": {"num_agents": 1, "map": "qualifier"},
+            },
+            "competition": {
+                "match": {"name": "Competition", "type": "competition"},
+                "entrants": "champions",
+                "game_config": {"num_agents": 3, "map": "competition"},
+            },
+        },
+    }
+
+    qualifier_start = _round_start(
+        policy_version_ids=[qualifier_policy_id],
+        num_agents=9,
+        division_name="Qualifiers",
+        division_id=qualifier_id,
+        division_type="staging",
+        state={"round_config": {"current_division_id": str(qualifier_id)}},
+    )
+    qualifier_start.variants[0].game_config["timeout_seconds"] = 30
+
+    competition_start = _round_start(
+        policy_version_ids=competition_policy_ids,
+        num_agents=9,
+        division_name="Competition",
+        division_id=competition_id,
+        extra_divisions=[DivisionInfo(id=qualifier_id, name="Qualifiers", level=-99, type="staging")],
+        state={"round_config": {"current_division_id": str(competition_id)}},
+    )
+    competition_start.variants[0].game_config["timeout_seconds"] = 60
+
+    qualifier_schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(config), qualifier_start)
+    competition_schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(config), competition_start)
+
+    assert qualifier_schedule.episodes[0].policy_version_ids == [qualifier_policy_id]
+    assert qualifier_schedule.episodes[0].game_config == {
+        "num_agents": 1,
+        "timeout_seconds": 30,
+        "map": "qualifier",
+    }
+    assert competition_schedule.episodes[0].policy_version_ids == competition_policy_ids[:3]
+    assert competition_schedule.episodes[0].game_config == {
+        "num_agents": 3,
+        "timeout_seconds": 60,
+        "map": "competition",
+    }
 
 
 @pytest.mark.parametrize("config_name", ["default", "cogs_vs_clips", "proxywar"])

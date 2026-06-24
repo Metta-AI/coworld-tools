@@ -189,7 +189,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         config = self._config()
         view = RoundStartView(round_start, config)
         rule = select_rule(config, view.current_division, view.memberships)
-        variant_id, num_agents = view.variant()
+        variant_id, num_agents, game_config = view.variant(rule)
         entries = view.entries(rule)
         return schedule_entries(
             pool=view.pool(rule),
@@ -197,6 +197,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             filler_entries=view.filler_entries(entries),
             num_agents=num_agents,
             variant_id=variant_id,
+            game_config=game_config,
             config=config,
             recent_results=round_start.recent_results,
         )
@@ -216,6 +217,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             filler_entries=[],
             num_agents=num_agents,
             variant_id=variant_id,
+            game_config=None,
             config=config,
         )
 
