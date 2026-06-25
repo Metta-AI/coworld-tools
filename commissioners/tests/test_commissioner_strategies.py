@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from itertools import combinations
+from itertools import combinations, count
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from commissioners.common.models import PolicyMembershipEventChange
+from commissioners.common.ruleset_strategy import scheduling
 from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DivisionInfo,
@@ -2985,7 +2986,11 @@ def _covered_pairs_over_rounds(
     return covered
 
 
-def test_agricogla_shuffled_window_covers_every_champion_pair_across_rounds() -> None:
+def test_agricogla_shuffled_window_covers_every_champion_pair_across_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The shuffle seed is the wall clock in prod; pin it to a deterministic increasing sequence so
+    # the coverage assertion is reproducible.
+    seeds = count(1)
+    monkeypatch.setattr(scheduling, "_round_shuffle_seed", lambda: next(seeds))
     policy_version_ids = [uuid4() for _ in range(13)]
     all_pairs = {frozenset(pair) for pair in combinations(policy_version_ids, 2)}
 
@@ -3022,19 +3027,20 @@ def test_baseline_window_seating_starves_distant_champion_pairs() -> None:
     assert len(covered) == 39
 
 
-def test_shuffled_window_is_deterministic_per_round_and_round_dependent() -> None:
+def test_shuffled_window_draws_a_fresh_seed_each_schedule(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two schedulings of the SAME round must not reuse a permutation: the seed advances each call.
+    seeds = count(1)
+    monkeypatch.setattr(scheduling, "_round_shuffle_seed", lambda: next(seeds))
     policy_version_ids = [uuid4() for _ in range(13)]
     commissioner = _ruleset_commissioner("agricogla")
 
-    def seats(round_id: UUID) -> list[list[UUID]]:
-        round_start = _competition_round_start(policy_version_ids, round_id=round_id)
+    def seats() -> list[list[UUID]]:
+        round_start = _competition_round_start(policy_version_ids, round_id=UUID(int=1))
         return [episode.policy_version_ids for episode in schedule_episodes_for_round_start(commissioner, round_start).episodes]
 
-    seats_a = seats(UUID(int=1))
-    seats_a_repeat = seats(UUID(int=1))
-    seats_b = seats(UUID(int=2))
+    first = seats()
+    second = seats()
 
-    assert seats_a == seats_a_repeat  # same pool id -> identical schedule (reproducible)
-    assert seats_a != seats_b  # different round -> the band moves
+    assert first != second  # fresh seed each scheduling -> no permutation/seed reuse for the same round
     # Participation is preserved: every champion is still seated within the round.
-    assert {policy_version_id for episode in seats_a for policy_version_id in episode} == set(policy_version_ids)
+    assert {policy_version_id for episode in first for policy_version_id in episode} == set(policy_version_ids)
