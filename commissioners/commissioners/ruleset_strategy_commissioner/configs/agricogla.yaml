@@ -1,24 +1,24 @@
 # agricogla: 4-seat worker-placement game. Same as `default` except:
-#   - competition rounds run 50 episodes (not 1) so every champion is seated across
-#     the 4 seats each round instead of only 4 of them.
-#   - shuffled_window seating: baseline_window seats a fixed 4-wide window of consecutive
-#     champions in a seed order stable across rounds, so two champions co-occur only when
-#     within 3 of each other in that order -- distant champions NEVER play, round after
-#     round (a banded matchup graph, not the round-robin the league wants). shuffled_window
-#     permutes the order each round so the band precesses and every champion eventually faces
-#     every other across rounds, which is the granularity the EWMA leaderboard aggregates at.
+#   - competition rounds run 50 episodes (not 1) so every champion is seated several times
+#     across the 4 seats each round.
+#   - mmr_neighbors seating: each round orders champions by current OpenSkill skill (mu, replayed
+#     from recent results) and seats rolling windows of 4 over that order, so every episode is a
+#     cohort of skill-neighbours -- close, informative matches whose outcome actually moves ratings,
+#     instead of uniformly random cohorts. Overlapping windows keep the field connected so the MMR
+#     ranker can still order across it, and a wall-clock jitter varies cohorts round to round (it
+#     degrades to random seating at a cold start when no champion is rated yet).
 #   - rounds are scored by per-episode win rate (round_score: win): 1 for the episode
 #     winner, 0 for everyone else (a tie for first shares the win), so the league
 #     rewards winning games outright, not placement or margin.
+#   - the division is ranked by per-policy OpenSkill MMR (mu - 3*sigma): each round is one
+#     free-for-all match ranked by win-rate finishing position, so standings reflect who you beat.
 scoring:
   round_score: win
-  # Rank the division by per-policy OpenSkill MMR (mu - 3*sigma): each round is one free-for-all
-  # match ranked by win-rate finishing position, so standings reflect who you beat, not raw score.
   leaderboard:
     type: mmr
 
 defaults:
-  seating: shuffled_window
+  seating: mmr_neighbors
   fill_seats: duplicate
   min_entries_to_start: 2
   stage:

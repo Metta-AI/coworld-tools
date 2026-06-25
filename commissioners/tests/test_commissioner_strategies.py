@@ -3099,3 +3099,60 @@ def test_agricogla_ranks_division_by_mmr() -> None:
     # MMR (conservative ordinal) is strictly ordered, and games_played is tracked.
     assert ranking[0].score > ranking[1].score > ranking[2].score
     assert all(snapshot.rounds_played == 6 for snapshot in ranking)
+
+
+def test_agricogla_mmr_neighbors_seats_skill_bands() -> None:
+    from collections import defaultdict
+    from itertools import combinations
+
+    from commissioners.common.commissioners import PolicyPool, PolicyPoolEntry
+    from commissioners.common.protocol import RecentResult
+    from commissioners.common.ruleset_strategy.scheduling import schedule_entries
+
+    cfg = _ruleset_commissioner("agricogla")._config()
+    assert cfg.seating == "mmr_neighbors"
+
+    # 8 policies with a strict, repeated finishing order (pvids[i] finishes rank i+1).
+    n = 8
+    pvids = [uuid4() for _ in range(n)]  # index 0 = strongest ... 7 = weakest
+    division_id = uuid4()
+    recent = [
+        RecentResult(round_id=round_id, division_id=division_id, round_number=rnd + 1,
+                     policy_version_id=pvids[i], rank=i + 1, score=float(n - i))
+        for rnd, round_id in enumerate(uuid4() for _ in range(6))
+        for i in range(n)
+    ]
+    pool = PolicyPool(id=uuid4(), label="Round", pool_type="round",
+                      config={"num_episodes": 50, "min_episodes_per_entrant": 1})
+    entries = [PolicyPoolEntry(pool_id=pool.id, policy_version_id=pv, seed_order=i) for i, pv in enumerate(pvids)]
+
+    # Pass entries in REVERSE seed order to prove seating reorders by skill, not seed order.
+    schedule = schedule_entries(
+        pool=pool, primary_entries=list(reversed(entries)), filler_entries=[], num_agents=4,
+        variant_id="default", game_config=None, config=cfg, recent_results=recent,
+    )
+
+    skill_rank = {pv: i for i, pv in enumerate(pvids)}
+    co: dict[int, set[int]] = defaultdict(set)
+    seated: set[int] = set()
+    for episode in schedule.episodes:
+        ranks = [skill_rank[pv] for pv in episode.policy_version_ids]
+        seated.update(ranks)
+        for a, b in combinations(set(ranks), 2):
+            co[a].add(b)
+            co[b].add(a)
+
+    assert seated == set(range(n))  # everyone plays
+    # Skill-banded: the strongest only meets its 3 skill-neighbours, never the bottom half.
+    assert co[0] == {1, 2, 3}
+    assert co[n - 1] == {n - 4, n - 3, n - 2}
+    assert (n - 1) not in co[0] and 0 not in co[n - 1]  # top and bottom never meet
+    # The non-wrapping windows still leave the field a single connected chain.
+    assert all((r - 1 in co[r]) or (r + 1 in co[r]) for r in range(n))
+
+    # Cold start: no results -> all unrated -> still seats everyone (degrades to random cohorts).
+    cold = schedule_entries(
+        pool=pool, primary_entries=entries, filler_entries=[], num_agents=4,
+        variant_id="default", game_config=None, config=cfg, recent_results=[],
+    )
+    assert {pv for episode in cold.episodes for pv in episode.policy_version_ids} == set(pvids)

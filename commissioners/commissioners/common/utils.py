@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from math import ceil
 from typing import Any
 from uuid import UUID
 
 from commissioners.common.models import (
-    DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE,
     DIVISION_TYPE_STAGING,
     DEFAULT_STAGES,
     DivisionSnapshot,
@@ -211,6 +210,21 @@ def _build_rolling_window_entry_indices(*, job_index: int, num_entries: int, num
     if num_entries <= 0:
         raise ValueError("pool must have at least one entry")
     return [(job_index + seat) % num_entries for seat in range(num_agents)]
+
+
+def _build_sliding_window_entry_indices(*, job_index: int, num_entries: int, num_agents: int) -> list[int]:
+    """Non-wrapping window of `num_agents` consecutive indices.
+
+    Unlike the rolling (circular) window, this never wraps the last entry around to the first, so
+    over a skill-ordered list the top group never shares a window with the bottom group. The window
+    start cycles through the `num_entries - num_agents + 1` valid positions; consecutive windows
+    overlap by `num_agents - 1`, keeping the whole list a single connected chain.
+    """
+    if num_entries < num_agents:
+        raise ValueError("sliding window requires at least num_agents entries")
+    num_windows = num_entries - num_agents + 1
+    start = job_index % num_windows
+    return [start + seat for seat in range(num_agents)]
 
 
 def _pool_episode_count(*, config: PoolConfig, num_entries: int, num_agents: int) -> int:
