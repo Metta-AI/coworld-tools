@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import combinations
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -2951,3 +2952,89 @@ def test_extended_hook_adapters_map_internal_models_to_protocol_models() -> None
             reason="mapped",
         )
     ]
+
+
+def _competition_round_start(policy_version_ids: list[UUID], *, round_id: UUID) -> RoundStart:
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=4,
+        commissioner_config={},
+        division_name="Competition",
+        division_type="competition",
+    )
+    # The per-round shuffle is keyed by the round's pool id (== round_id), so a deterministic,
+    # distinct id per round makes the test reproducible while still exercising distinct bands.
+    round_start.round_id = round_id
+    round_start.round_number = round_id.int
+    return round_start
+
+
+def _covered_pairs_over_rounds(
+    commissioner: RulesetStrategyCommissioner,
+    policy_version_ids: list[UUID],
+    *,
+    rounds: int,
+) -> set[frozenset[UUID]]:
+    covered: set[frozenset[UUID]] = set()
+    for round_index in range(rounds):
+        round_start = _competition_round_start(policy_version_ids, round_id=UUID(int=round_index + 1))
+        schedule = schedule_episodes_for_round_start(commissioner, round_start)
+        for episode in schedule.episodes:
+            for left, right in combinations(set(episode.policy_version_ids), 2):
+                covered.add(frozenset((left, right)))
+    return covered
+
+
+def test_agricogla_shuffled_window_covers_every_champion_pair_across_rounds() -> None:
+    policy_version_ids = [uuid4() for _ in range(13)]
+    all_pairs = {frozenset(pair) for pair in combinations(policy_version_ids, 2)}
+
+    covered = _covered_pairs_over_rounds(_ruleset_commissioner("agricogla"), policy_version_ids, rounds=40)
+
+    # shuffled_window precesses the band each round, so all 78 champion pairs meet across rounds.
+    assert covered == all_pairs
+
+
+def test_baseline_window_seating_starves_distant_champion_pairs() -> None:
+    # Characterizes the bug shuffled_window fixes: with a seed order stable across rounds,
+    # baseline_window seats a fixed 4-wide band, so each champion only ever meets its 3 seed
+    # neighbours on each side (6 of 12 opponents) and the other half are never scheduled together,
+    # no matter how many rounds run.
+    policy_version_ids = [uuid4() for _ in range(13)]
+    all_pairs = {frozenset(pair) for pair in combinations(policy_version_ids, 2)}
+    commissioner = RulesetStrategyCommissioner(
+        {
+            "scoring": {"round_score": "win"},
+            "defaults": {
+                "seating": "baseline_window",
+                "fill_seats": "duplicate",
+                "min_entries_to_start": 2,
+                "stage": {"label": "Round", "episodes": 50, "min_episodes_per_entrant": 1},
+            },
+            "divisions": {"competition": {"match": {"type": "competition"}, "entrants": "champions"}},
+        }
+    )
+
+    covered = _covered_pairs_over_rounds(commissioner, policy_version_ids, rounds=40)
+
+    # 13 champions * 6 distinct opponents / 2 = 39 of the 78 pairs ever co-occur; the rest are starved.
+    assert covered != all_pairs
+    assert len(covered) == 39
+
+
+def test_shuffled_window_is_deterministic_per_round_and_round_dependent() -> None:
+    policy_version_ids = [uuid4() for _ in range(13)]
+    commissioner = _ruleset_commissioner("agricogla")
+
+    def seats(round_id: UUID) -> list[list[UUID]]:
+        round_start = _competition_round_start(policy_version_ids, round_id=round_id)
+        return [episode.policy_version_ids for episode in schedule_episodes_for_round_start(commissioner, round_start).episodes]
+
+    seats_a = seats(UUID(int=1))
+    seats_a_repeat = seats(UUID(int=1))
+    seats_b = seats(UUID(int=2))
+
+    assert seats_a == seats_a_repeat  # same pool id -> identical schedule (reproducible)
+    assert seats_a != seats_b  # different round -> the band moves
+    # Participation is preserved: every champion is still seated within the round.
+    assert {policy_version_id for episode in seats_a for policy_version_id in episode} == set(policy_version_ids)

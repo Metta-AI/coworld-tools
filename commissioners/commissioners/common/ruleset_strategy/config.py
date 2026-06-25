@@ -31,7 +31,9 @@ IMAGE_CONFIG_PATH_ENV = "RULESET_STRATEGY_CONFIG_PATH"
 DEFAULT_IMAGE_CONFIG_NAME = "default"
 BUNDLED_CONFIG_DIR = Path(__file__).resolve().parents[2] / "ruleset_strategy_commissioner" / "configs"
 
-SeatingStrategy = Literal["baseline_window", "rolling_window", "team_blocks", "leaderboard_neighbors"]
+SeatingStrategy = Literal[
+    "baseline_window", "rolling_window", "shuffled_window", "team_blocks", "leaderboard_neighbors"
+]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
 EntrantShortcut = Literal["qualifying", "champions"]
 

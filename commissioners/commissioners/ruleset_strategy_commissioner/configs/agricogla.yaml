@@ -1,6 +1,12 @@
 # agricogla: 4-seat worker-placement game. Same as `default` except:
-#   - competition rounds run 50 episodes (not 1) so baseline_window seating seats
-#     every champion across the 4 seats each round instead of only 4 of them.
+#   - competition rounds run 50 episodes (not 1) so every champion is seated across
+#     the 4 seats each round instead of only 4 of them.
+#   - shuffled_window seating: baseline_window seats a fixed 4-wide window of consecutive
+#     champions in a seed order stable across rounds, so two champions co-occur only when
+#     within 3 of each other in that order -- distant champions NEVER play, round after
+#     round (a banded matchup graph, not the round-robin the league wants). shuffled_window
+#     permutes the order each round so the band precesses and every champion eventually faces
+#     every other across rounds, which is the granularity the EWMA leaderboard aggregates at.
 #   - rounds are scored by per-episode win rate (round_score: win): 1 for the episode
 #     winner, 0 for everyone else (a tie for first shares the win), so the league
 #     rewards winning games outright, not placement or margin.
@@ -8,7 +14,7 @@ scoring:
   round_score: win
 
 defaults:
-  seating: baseline_window
+  seating: shuffled_window
   fill_seats: duplicate
   min_entries_to_start: 2
   stage:
