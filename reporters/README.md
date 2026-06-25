@@ -2,7 +2,9 @@
 
 Reporter implementations for **Coworlds** — on-demand runnables that turn one episode's bundle (`results.json`, `replay.json`, optional logs, optional config and error info) into a single zip containing a rendered highlight (`.md` or `.html`), a structured event log (Parquet), and optional machine traces.
 
-This is the canonical per-role repository for `Metta-AI/reporters`, one of the six Coworld supporting-role repos described in [`docs/specs/0045-coworld-role-repos.md`](../metta/docs/specs/0045-coworld-role-repos.md) in metta.
+> **Status:** shared reporter source inside `Metta-AI/coworld-tools`. The old `Metta-AI/reporters` repo is archived.
+> Keep reusable reporters and reporter SDK work here. Keep a reporter beside a game when it is game-specific and should
+> be rebuilt with that `Metta-AI/coworld-<slug>` repo.
 
 > **Canonical contract:** [`packages/coworld/src/coworld/docs/roles/reporter.md`](../metta/packages/coworld/src/coworld/docs/roles/reporter.md) in metta. Local restatement: [`docs/REPORTER_DESIGN.md`](docs/REPORTER_DESIGN.md). Navigation guide into the rest of metta: [`docs/COWORLD_REFERENCE.md`](docs/COWORLD_REFERENCE.md).
 >
@@ -105,7 +107,7 @@ entries:
   - name: paint-arena-summarizer
     image: ghcr.io/metta-ai/reporters-paint-arena-summarizer:latest
     source: reporters/paint_arena/paint_arena_summarizer
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/paint_arena/paint_arena_summarizer
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/paint_arena/paint_arena_summarizer
     status: active
     target: paint_arena
     owner: jboggs

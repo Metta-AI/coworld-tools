@@ -2,6 +2,12 @@
 
 Configurable Coworld commissioner whose behavior is packaged in the container image.
 
+This is the shared reusable ruleset commissioner in `Metta-AI/coworld-tools`. Change configs here only when the behavior
+should remain shared. If a Coworld needs its own commissioner behavior, add a game-local commissioner/config in
+`Metta-AI/coworld-<slug>` and update that Coworld manifest's `commissioner[].source_url` to the game repo. The usual
+path is to copy this shared implementation or one of the `packages/coworld` commissioner templates into
+`coworld-<slug>/commissioner/`, then customize the game-local copy.
+
 The runnable does not read `league.commissioner_config` for behavior. That field is a platform wire artifact and may
 contain legacy data while Coworlds roll over to container commissioners. Configs are authored in the readable
 shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
@@ -14,9 +20,9 @@ image with:
 commissioners/ruleset_strategy_commissioner/build.sh
 ```
 
-For a downstream Coworld-specific image, build through `commissioners/build_image.sh` with the target image tag and
-ruleset config name, or derive from the default image, copy a config file into the image, and set
-`RULESET_STRATEGY_CONFIG_PATH` to that file. The Coworld manifest should only need to point at that image.
+For a downstream Coworld-specific image, copy the implementation into the game repo and make it a service in that
+Coworld's compose file so `coworld build` builds and pins the game-local source. The Coworld manifest should point at
+the game repo, not this shared source tree.
 
 Key config areas:
 

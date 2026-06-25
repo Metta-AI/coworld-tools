@@ -2,7 +2,13 @@
 
 Diagnoser implementations for **coworlds** - policy-facing runnables and prompts that evaluate a target policy and produce actionable advice or assay results.
 
-> **Status:** canonical Coworld role repo. The Among Them starter diagnoser is implemented in [`diagnosers/among_them/among_them_diagnoser/`](diagnosers/among_them/among_them_diagnoser/). The role is defined at the manifest level, but hosted runner support is still pending.
+> **Status:** shared diagnoser source inside `Metta-AI/coworld-tools`. The old `Metta-AI/diagnosers` repo is archived.
+> Keep reusable diagnosers here. Keep a diagnoser beside a game when it is game-specific and should be rebuilt with that
+> `Metta-AI/coworld-<slug>` repo.
+>
+> The Among Them starter diagnoser is implemented in
+> [`diagnosers/among_them/among_them_diagnoser/`](diagnosers/among_them/among_them_diagnoser/). The role is defined at
+> the manifest level, but hosted runner support is still pending.
 
 ## What is a coworld diagnoser?
 
@@ -67,6 +73,7 @@ Each leaf diagnoser directory follows the same placeholder shape:
 - Keep concrete diagnoser implementations under the top-level `diagnosers/` tree.
 - Keep one leaf directory per runnable image or entrypoint.
 - Keep game-specific code under that game's directory.
-- Keep diagnosers policy-facing. Episode-only summaries, stats dumps, HTML reports, and highlight reels belong in `Metta-AI/reporters`.
+- Keep diagnosers policy-facing. Episode-only summaries, stats dumps, HTML reports, and highlight reels belong in
+  `coworld-tools/reporters`.
 - Do not invent a conflicting runtime contract inside an implementation. Update `docs/DIAGNOSER_DESIGN.md` and the metta coworld contract first.
 - Keep game/runtime package code in its owning repo unless the file is genuinely diagnoser source.

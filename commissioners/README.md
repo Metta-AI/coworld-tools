@@ -2,7 +2,14 @@
 
 Commissioner implementations for **coworlds** - containers and tooling that orchestrate tournament rounds, schedule episodes, carry round state, and return scoring or graduation decisions to the platform.
 
-> **Status:** canonical Coworld role repo. The config-driven commissioner is the active runnable container with `/healthz` and `/round` endpoints. The coworld `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md) for pointers and repo conventions.
+> **Status:** shared commissioner source inside `Metta-AI/coworld-tools`. The old `Metta-AI/commissioners` repo is
+> archived. Edit this tree for reusable commissioner code/config. If you are fixing the commissioner for exactly one
+> Coworld, start from the closest template, Paint Arena example, or implementation here, copy it beside the game in
+> `Metta-AI/coworld-<slug>/commissioner/`, and point the manifest there.
+>
+> The config-driven commissioner is the active runnable container with `/healthz` and `/round` endpoints. The coworld
+> `commissioner` role already has a protocol in metta; see [`docs/COMMISSIONER_DESIGN.md`](docs/COMMISSIONER_DESIGN.md)
+> for pointers and repo conventions.
 
 ## What is a coworld commissioner?
 
@@ -64,6 +71,8 @@ Leaf runnable directories keep thin entrypoints and build scripts:
 
 - Keep reusable commissioner implementations under `commissioners/common/`.
 - Keep one leaf directory per runnable image or entrypoint.
-- Keep game-specific code under that game's directory.
+- Keep shared game configs here only when multiple Coworlds should reuse the same implementation.
+- Keep game-specific commissioner code under that game's `coworld-<slug>` repo after copying from a template, Paint
+  Arena, or the closest shared implementation.
 - Treat `packages/coworld/src/coworld/commissioner/protocol.py` as canonical. If the protocol needs to change, change it in metta first.
 - Keep game/runtime package code in its owning repo unless the file is genuinely commissioner source.
