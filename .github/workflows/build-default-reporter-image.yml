@@ -5,6 +5,7 @@ name: "Build Default Reporter Image"
 # - On push to main with a relevant path change, the image is built and
 #   pushed to ghcr.io/metta-ai/reporters-default:latest plus an
 #   immutable :main-<sha> tag.
+# - On pull requests, the image is built but not pushed.
 # - On workflow_dispatch, the latest commit on main is rebuilt
 #   manually.
 #
@@ -16,12 +17,17 @@ name: "Build Default Reporter Image"
 # on).
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/build-default-reporter-image.yml"
+      - "reporters/reporters/default/**"
+      - "reporters/reporters/reporter_sdk/**"
   push:
     branches: [main]
     paths:
       - ".github/workflows/build-default-reporter-image.yml"
-      - "reporters/default/**"
-      - "reporters/reporter_sdk/**"
+      - "reporters/reporters/default/**"
+      - "reporters/reporters/reporter_sdk/**"
   workflow_dispatch:
 
 env:
@@ -43,6 +49,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -54,18 +61,22 @@ jobs:
         run: |
           REPO="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           SHORT_SHA="${GITHUB_SHA::12}"
-          TAGS="${REPO}:latest,${REPO}:main-${SHORT_SHA}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${REPO}:pr-${{ github.event.number }}"
+          else
+            TAGS="${REPO}:latest,${REPO}:main-${SHORT_SHA}"
+          fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           echo "primary_tag=${REPO}:main-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          # Build context is `reporters/` so the Dockerfile can COPY
+          # Build context is the imported reporters package directory so the Dockerfile can COPY
           # both the shared reporter_sdk/ and the default reporter
           # source from a single context (matches reporters/default/build.sh).
-          context: ./reporters
-          file: ./reporters/default/Dockerfile
+          context: ./reporters/reporters
+          file: ./reporters/reporters/default/Dockerfile
           platforms: linux/amd64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}

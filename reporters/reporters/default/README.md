@@ -68,7 +68,7 @@ IMAGE=ghcr.io/metta-ai/reporters-default:dev ./build.sh
 PLATFORM=linux/arm64 ./build.sh           # local-only platform override
 ```
 
-The Docker build context is `reporters/` (the directory containing `reporter_sdk/` and the per-coworld reporter trees), so the Dockerfile can `COPY` both the shared SDK and this reporter's source from one context. The image is published to GHCR via `.github/workflows/build-default-reporter-image.yml`.
+The Docker build context is `reporters/` (the directory containing `reporter_sdk/` and the per-coworld reporter trees), so the Dockerfile can `COPY` both the shared SDK and this reporter's source from one context. The image is published to GHCR via the coworld-tools root workflow at `.github/workflows/build-default-reporter-image.yml`.
 
 ## Tests
 

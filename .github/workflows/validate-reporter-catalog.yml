@@ -1,0 +1,49 @@
+name: "Validate reporter catalog"
+
+# Validates reporters/CATALOG.yaml against the spec-0045 schema. The validator itself lives at
+# reporters/tools/validate_catalog.py and is exercised by reporters/tools/tests/test_validate_catalog.py.
+#
+# Spec source: docs/specs/0045-coworld-role-repos.md in metta
+# (§"CATALOG.yaml schema").
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-reporter-catalog.yml"
+      - "reporters/CATALOG.yaml"
+      - "reporters/reporters/**"
+      - "reporters/tools/**"
+  pull_request:
+    paths:
+      - ".github/workflows/validate-reporter-catalog.yml"
+      - "reporters/CATALOG.yaml"
+      - "reporters/reporters/**"
+      - "reporters/tools/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install validator dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml pytest
+
+      - name: Run validator against reporters/CATALOG.yaml
+        run: python reporters/tools/validate_catalog.py reporters/CATALOG.yaml
+
+      - name: Run validator self-test
+        run: python reporters/tools/validate_catalog.py --self-test
+
+      - name: Run validator unit tests
+        run: pytest reporters/tools/tests/ -v

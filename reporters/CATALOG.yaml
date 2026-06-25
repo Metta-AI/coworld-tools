@@ -11,7 +11,7 @@
 # Their descriptions call out the scaffold state explicitly.
 #
 # Image tags: ghcr.io/metta-ai/reporters-<name>:latest follows the
-# convention established by .github/workflows/build-default-reporter-image.yml.
+# convention established by the coworld-tools root .github/workflows/build-default-reporter-image.yml.
 # Every finished (non-scaffold) reporter has a sibling workflow that
 # publishes its image to GHCR on push to main:
 #   - paint-arena-summarizer       → build-paint-arena-summarizer-image.yml
@@ -23,8 +23,8 @@
 # is implemented and a build-image workflow is added. See README.md
 # §"Conventions for new reporters" for the workflow rule.
 #
-# Validator: tools/validate_catalog.py (run on every PR via
-# .github/workflows/validate-catalog.yml).
+# Validator: tools/validate_catalog.py (run on every reporter PR via the
+# coworld-tools root .github/workflows/validate-reporter-catalog.yml).
 
 entries:
   - name: paint-arena-summarizer
