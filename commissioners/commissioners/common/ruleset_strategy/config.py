@@ -74,6 +74,7 @@ class DivisionRule(_ConfigModel):
     entrants: EntrantSelector | None = None
     minimum_entrants: int = Field(default=1, gt=0)
     stages: list[V2StageConfig] | None = None
+    game_config: dict[str, Any] | None = None
     description: str | None = None
 
 
@@ -280,17 +281,29 @@ class EpisodeCompleteTransition(_ConfigModel):
 class DivisionStageConfig(_ConfigModel):
     id: str
     entrants: EntrantSelector | EntrantShortcut | None = None
+    game_config: dict[str, Any] | None = None
     schedule: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
+    policy_membership_events: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_round_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_single_transition_hook(self) -> DivisionStageConfig:
-        if self.on_round_complete and self.on_episode_complete:
+        configured_hooks = [
+            bool(self.policy_membership_events),
+            bool(self.on_round_complete),
+            bool(self.on_episode_complete),
+        ]
+        if sum(configured_hooks) > 1:
             raise ValueError(
-                "stage config may use either on_round_complete or legacy on_episode_complete, not both"
+                "stage config may use only one of policy_membership_events, on_round_complete, or legacy "
+                "on_episode_complete"
             )
         return self
+
+    @property
+    def round_complete_transitions(self) -> list[EpisodeCompleteTransition]:
+        return self.policy_membership_events or self.on_round_complete or self.on_episode_complete
 
 
 class RulesetDivisionConfig(_ConfigModel):
@@ -300,9 +313,11 @@ class RulesetDivisionConfig(_ConfigModel):
     description: str | None = None
     match: DivisionMatch = Field(default_factory=DivisionMatch)
     entrants: EntrantSelector | EntrantShortcut | None = None
+    game_config: dict[str, Any] | None = None
     min_entries_to_start: int | None = Field(default=None, gt=0)
     stage: StageScheduleConfig | None = None
     stages: list[DivisionStageConfig] = Field(default_factory=list)
+    policy_membership_events: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_round_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
     on_episode_complete: list[EpisodeCompleteTransition] = Field(default_factory=list)
 
@@ -310,9 +325,15 @@ class RulesetDivisionConfig(_ConfigModel):
     def require_single_stage_shape(self) -> RulesetDivisionConfig:
         if self.stage is not None and self.stages:
             raise ValueError("division config may use either stage or stages, not both")
-        if self.on_round_complete and self.on_episode_complete:
+        configured_hooks = [
+            bool(self.policy_membership_events),
+            bool(self.on_round_complete),
+            bool(self.on_episode_complete),
+        ]
+        if sum(configured_hooks) > 1:
             raise ValueError(
-                "division config may use either on_round_complete or legacy on_episode_complete, not both"
+                "division config may use only one of policy_membership_events, on_round_complete, or legacy "
+                "on_episode_complete"
             )
         if self.round_complete_transitions and self.stages:
             raise ValueError("division-level on_round_complete is only valid with a single stage")
@@ -320,7 +341,7 @@ class RulesetDivisionConfig(_ConfigModel):
 
     @property
     def round_complete_transitions(self) -> list[EpisodeCompleteTransition]:
-        return self.on_round_complete or self.on_episode_complete
+        return self.policy_membership_events or self.on_round_complete or self.on_episode_complete
 
 
 class RulesetStrategyCommissionerConfig(_ConfigModel):
@@ -474,6 +495,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
                     entrants=self._entrant_selector(division.entrants, division.match),
                     minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
                     stages=[division.stage.to_stage_config()] if division.stage is not None else None,
+                    game_config=division.game_config,
                 )
             ]
 
@@ -484,6 +506,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
                 entrants=self._stage_entrant_selector(division, stage, index, len(stages)),
                 minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
                 stages=[stage.schedule.to_stage_config()],
+                game_config=stage.game_config or division.game_config,
             )
             for index, stage in reversed(list(enumerate(stages)))
         ]
@@ -551,14 +574,16 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
         return [
             DivisionStageConfig(
                 id="round",
+                game_config=division.game_config,
                 schedule=division.stage or self.defaults.stage,
+                policy_membership_events=division.policy_membership_events,
                 on_round_complete=division.on_round_complete,
                 on_episode_complete=division.on_episode_complete,
             )
         ]
 
     def _round_complete_transitions(self, stage: DivisionStageConfig) -> list[EpisodeCompleteTransition]:
-        return stage.on_round_complete or stage.on_episode_complete
+        return stage.round_complete_transitions
 
     def _stage_entrant_selector(
         self,

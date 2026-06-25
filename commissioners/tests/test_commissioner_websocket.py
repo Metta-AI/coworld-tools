@@ -360,6 +360,24 @@ def test_episode_duration_limit_doubles_ten_minute_round_timeout() -> None:
     assert _episode_duration_limit_seconds(episode, variants) == 1200
 
 
+def test_episode_duration_limit_prefers_episode_game_config() -> None:
+    episode = EpisodeRequest(
+        request_id="1",
+        variant_id="default",
+        policy_version_ids=[uuid4(), uuid4()],
+        game_config={"timeout_seconds": 45},
+    )
+    variants = {
+        "default": VariantInfo(
+            id="default",
+            name="Default",
+            game_config={"timeout_seconds": 600},
+        )
+    }
+
+    assert _episode_duration_limit_seconds(episode, variants) == 300
+
+
 def test_round_websocket_rejects_unknown_episode_result_request_id() -> None:
     client = TestClient(app)
     round_start, _policy_version_ids = _round_start_json()

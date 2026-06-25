@@ -80,17 +80,22 @@ def _configured_episode_timeout_seconds(config: Mapping[str, Any]) -> float | No
     return _positive_number(config.get("player_connect_timeout_seconds"))
 
 
-def _episode_duration_limit_seconds(episode: EpisodeRequest, variants: dict[str, Any]) -> float | None:
+def _episode_game_config(episode: EpisodeRequest, variants: dict[str, Any]) -> Mapping[str, Any]:
+    if episode.game_config is not None:
+        return episode.game_config
     variant = variants[episode.variant_id]
-    timeout = _configured_episode_timeout_seconds(variant.game_config)
+    return variant.game_config
+
+
+def _episode_duration_limit_seconds(episode: EpisodeRequest, variants: dict[str, Any]) -> float | None:
+    timeout = _configured_episode_timeout_seconds(_episode_game_config(episode, variants))
     if timeout is None:
         return None
     return max(_MIN_EPISODE_DURATION_SECONDS, 2 * timeout)
 
 
 def _episode_game_timeout_seconds(episode: EpisodeRequest, variants: dict[str, Any]) -> float | None:
-    variant = variants[episode.variant_id]
-    return _configured_episode_timeout_seconds(variant.game_config)
+    return _configured_episode_timeout_seconds(_episode_game_config(episode, variants))
 
 
 def _duration_text(seconds: float) -> str:

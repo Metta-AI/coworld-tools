@@ -66,6 +66,7 @@ class EpisodeRequest(BaseModel):
     request_id: str
     variant_id: str
     policy_version_ids: list[UUID]
+    game_config: dict[str, Any] | None = None
     seed: int = Field(default_factory=random_episode_seed)
     tags: dict[str, str] = Field(default_factory=dict)
 
@@ -265,7 +266,7 @@ class ScheduleEpisodes(BaseModel):
     episodes: list[EpisodeRequest]
 
     def to_json(self) -> dict[str, Any]:
-        data = self.model_dump(mode="json")
+        data = self.model_dump(mode="json", exclude_none=True)
         data["type"] = "schedule_episodes"
         return data
 
@@ -447,7 +448,7 @@ class EpisodeCompletedResponse(BaseModel):
     episodes: list[EpisodeRequest] = Field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
-        data = self.model_dump(mode="json")
+        data = self.model_dump(mode="json", exclude_none=True)
         data["type"] = "episode_completed_response"
         return data
 
