@@ -64,7 +64,13 @@ from commissioners.common.models import (
     MembershipSnapshot,
     RoundSnapshot,
     RoundResultSnapshot,
+    DivisionLeaderboardAxisSnapshot,
+    DivisionLeaderboardColumnSnapshot,
+    DivisionLeaderboardRowSnapshot,
     DivisionLeaderboardSnapshot,
+    DivisionLeaderboardTablesSnapshot,
+    DivisionLeaderboardViewSnapshot,
+    DivisionLeaderboardsSnapshot,
     _LeaderboardAgg,
     LeaderboardRoundResultSnapshot,
     RoundSpec,
@@ -160,6 +166,47 @@ class Commissioner(ABC):
     @abstractmethod
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]: ...
 
+    def rank_division_leaderboards(self, ctx: DivisionLeaderboardContext) -> DivisionLeaderboardsSnapshot:
+        # TODO: delete compatibility shim after all commissioners implement generic leaderboard views.
+        entries = self.rank_division(ctx)
+        view = DivisionLeaderboardViewSnapshot(
+            key="score",
+            title="Score",
+            axis_values={"metric": "score", "timeframe": "legacy"},
+            columns=[
+                DivisionLeaderboardColumnSnapshot(key="rank", label="Rank", value_type="integer", sort="asc"),
+                DivisionLeaderboardColumnSnapshot(key="score", label="Score", value_type="number", sort="desc"),
+                DivisionLeaderboardColumnSnapshot(
+                    key="rounds_played",
+                    label="Rounds Played",
+                    value_type="integer",
+                ),
+            ],
+            rows=[
+                DivisionLeaderboardRowSnapshot(
+                    subject_id=entry.player_id,
+                    subject_name=entry.player_name,
+                    values={
+                        "rank": entry.rank,
+                        "score": entry.score,
+                        "rounds_played": entry.rounds_played,
+                    },
+                    policy_version_ids=entry.policy_version_ids,
+                    recent_rounds=entry.recent_rounds,
+                )
+                for entry in entries
+            ],
+        )
+        return DivisionLeaderboardsSnapshot(
+            default_view_key=view.key,
+            axes=_leaderboard_axes([view]),
+            views=[view],
+        )
+
+    def rank_division_tables(self, ctx: DivisionLeaderboardContext) -> DivisionLeaderboardTablesSnapshot:
+        # TODO: delete compatibility shim after callers stop using table terminology.
+        return self.rank_division_leaderboards(ctx)
+
     @abstractmethod
     def describe_division(self, ctx: DivisionDescriptionContext) -> DivisionCommissionerDescriptionPublic: ...
 
@@ -205,11 +252,265 @@ def _phase_summary(pool: PolicyPool, num_entries: int) -> dict[str, object]:
     }
 
 
+def _string_axis_values(raw_value: Any) -> dict[str, str]:
+    if not isinstance(raw_value, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw_value.items()}
+
+
+def _default_axis_values(score_key: str, window_hours: Any) -> dict[str, str]:
+    return {
+        "metric": score_key,
+        "timeframe": f"{window_hours}h" if window_hours is not None else "all",
+    }
+
+
+def _leaderboard_axes(views: list[DivisionLeaderboardViewSnapshot]) -> list[DivisionLeaderboardAxisSnapshot]:
+    axis_keys: list[str] = []
+    for view in views:
+        for key in view.axis_values:
+            if key not in axis_keys:
+                axis_keys.append(key)
+    return [DivisionLeaderboardAxisSnapshot(key=key, label=key.replace("_", " ").title()) for key in axis_keys]
+
+
 class BaselineCommissioner(Commissioner):
     """Cadence-scheduled commissioner with mean-score ranking and no graduation."""
 
     def _scheduling_config(self, commissioner_config: dict[str, Any] | None) -> RoundSchedulingConfig:
         return RoundSchedulingConfig.model_validate(commissioner_config or {})
+
+    def _round_result_score(self, result: LeaderboardRoundResultSnapshot, score_key: str) -> float | None:
+        if score_key == "score":
+            return result.score
+        scores = result.result_metadata.get("scores")
+        if not isinstance(scores, dict):
+            return None
+        value = scores.get(score_key)
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _rank_division_view_by_metric(
+        self,
+        ctx: DivisionLeaderboardContext,
+        *,
+        view_key: str = "score",
+        title: str = "Score",
+        description: str | None = None,
+        score_axis_label: str = "Score",
+        axis_values: dict[str, str] | None = None,
+        score_key: str = "score",
+        half_life_hours: float | None = None,
+        window_hours: float | None = None,
+    ) -> DivisionLeaderboardViewSnapshot:
+        columns = [
+            DivisionLeaderboardColumnSnapshot(key="rank", label="Rank", value_type="integer", sort="asc"),
+            DivisionLeaderboardColumnSnapshot(key=score_key, label=score_axis_label, value_type="number", sort="desc"),
+            DivisionLeaderboardColumnSnapshot(key="rounds_played", label="Rounds Played", value_type="integer"),
+        ]
+        if not ctx.completed_rounds or not ctx.round_results:
+            return DivisionLeaderboardViewSnapshot(
+                key=view_key,
+                title=title,
+                description=description,
+                axis_values=axis_values or {},
+                columns=columns,
+            )
+
+        completed_rounds = ctx.completed_rounds
+        latest_completed_at = completed_rounds[0].completed_at
+        assert latest_completed_at is not None, f"Completed round {ctx.completed_rounds[0].id} is missing completed_at"
+        if window_hours is not None:
+            cutoff = latest_completed_at - timedelta(hours=window_hours)
+            completed_rounds = [
+                round_row
+                for round_row in completed_rounds
+                if round_row.completed_at is not None and round_row.completed_at >= cutoff
+            ]
+        if not completed_rounds:
+            return DivisionLeaderboardViewSnapshot(
+                key=view_key,
+                title=title,
+                description=description,
+                axis_values=axis_values or {},
+                columns=columns,
+            )
+
+        completed_rounds_by_id = {round_row.id: round_row for round_row in completed_rounds}
+        halflife_seconds = (
+            timedelta(hours=half_life_hours).total_seconds()
+            if half_life_hours is not None
+            else self._leaderboard_ewma_halflife(ctx).total_seconds()
+        )
+
+        player_rounds: dict[tuple[PlayerId, UUID], LeaderboardRoundResultSnapshot] = {}
+        for result in ctx.round_results:
+            if int(result.result_metadata.get(RANKED_SCORE_COUNT_METADATA_KEY, 1)) <= 0:
+                continue
+            score = self._round_result_score(result, score_key)
+            if score is None:
+                continue
+            key = (result.player_id, result.round_id)
+            current = player_rounds.get(key)
+            current_score = self._round_result_score(current, score_key) if current is not None else None
+            if current is None or current_score is None or (score, -result.rank) > (current_score, -current.rank):
+                player_rounds[key] = result
+
+        rounds_played_by_player: dict[PlayerId, int] = {}
+        aggs: dict[PlayerId, _LeaderboardAgg] = {}
+        for player_round in player_rounds.values():
+            round_row = completed_rounds_by_id.get(player_round.round_id)
+            if round_row is None:
+                continue
+            score = self._round_result_score(player_round, score_key)
+            if score is None:
+                continue
+            rounds_played_by_player[player_round.player_id] = rounds_played_by_player.get(player_round.player_id, 0) + 1
+            if player_round.player_id not in aggs:
+                aggs[player_round.player_id] = _LeaderboardAgg(
+                    player_id=player_round.player_id,
+                    player_name=player_round.player_name,
+                )
+            assert round_row.completed_at is not None, f"Completed round {round_row.id} is missing completed_at"
+            weight = 0.5 ** ((latest_completed_at - round_row.completed_at).total_seconds() / halflife_seconds)
+            aggs[player_round.player_id].policy_version_ids.add(player_round.policy_version_id)
+            aggs[player_round.player_id].weighted_score_sum += score * weight
+            aggs[player_round.player_id].weight_sum += weight
+
+        ranks_by_round_and_player = {
+            (player_round.round_id, player_round.player_id): player_round.rank
+            for player_round in player_rounds.values()
+        }
+        scores_by_round_and_player = {
+            (player_round.round_id, player_round.player_id): self._round_result_score(player_round, score_key)
+            for player_round in player_rounds.values()
+        }
+
+        def build_recent_rounds(player_id: PlayerId) -> list[LeaderboardRecentRoundPublic] | None:
+            if not ctx.recent_rounds:
+                return None
+            return [
+                LeaderboardRecentRoundPublic(
+                    id=round_row.public_id,
+                    round_number=round_row.round_number,
+                    status=round_row.status,
+                    rank=ranks_by_round_and_player.get((round_row.id, player_id)),
+                    score=scores_by_round_and_player.get((round_row.id, player_id)),
+                    started_at=round_row.started_at,
+                    completed_at=round_row.completed_at,
+                )
+                for round_row in ctx.recent_rounds
+            ]
+
+        ranked_aggs = sorted(
+            [agg for agg in aggs.values() if agg.weight_sum > 0],
+            key=lambda agg: (
+                -agg.score(),
+                agg.player_name or "",
+                str(agg.player_id),
+            ),
+        )
+        return DivisionLeaderboardViewSnapshot(
+            key=view_key,
+            title=title,
+            description=description,
+            axis_values=axis_values or {},
+            columns=columns,
+            rows=[
+                DivisionLeaderboardRowSnapshot(
+                    subject_id=agg.player_id,
+                    subject_name=agg.player_name,
+                    values={
+                        "rank": rank,
+                        score_key: agg.score(),
+                        "rounds_played": rounds_played_by_player[agg.player_id],
+                    },
+                    policy_version_ids=agg.policy_version_ids,
+                    recent_rounds=build_recent_rounds(agg.player_id),
+                )
+                for rank, agg in enumerate(ranked_aggs, start=1)
+            ],
+        )
+
+    def _rank_division_leaderboards_from_config(
+        self,
+        ctx: DivisionLeaderboardContext,
+        leaderboard_configs: list[dict[str, Any]],
+        *,
+        default_half_life_hours: float | None = None,
+    ) -> DivisionLeaderboardsSnapshot:
+        if not leaderboard_configs:
+            leaderboard_configs = [{"key": "score", "title": "Score", "score_key": "score", "default": True}]
+
+        default_view_key = "score"
+        views: list[DivisionLeaderboardViewSnapshot] = []
+        for raw_view in leaderboard_configs:
+            raw_columns = raw_view.get("columns")
+            # TODO: delete compatibility alias after old configs stop using axes as display columns.
+            raw_columns = raw_columns if raw_columns is not None else raw_view.get("axes")
+            columns_config: list[Any] = raw_columns if isinstance(raw_columns, list) else []
+            configured_score_axis = next(
+                (column for column in columns_config if isinstance(column, dict) and column.get("sort") == "desc"),
+                None,
+            )
+            score_key = str(
+                raw_view.get("score_key")
+                or raw_view.get("metric")
+                or (configured_score_axis or {}).get("key")
+                or raw_view.get("key")
+                or raw_view.get("id")
+                or "score"
+            )
+            view_key = str(raw_view.get("key") or raw_view.get("id") or score_key)
+            if raw_view.get("default", raw_view.get("primary", False)):
+                default_view_key = view_key
+            title = str(raw_view.get("title") or raw_view.get("label") or score_key.replace("_", " ").title())
+            score_axis_label = str(raw_view.get("score_axis_label") or raw_view.get("score_label") or title)
+            window_hours = raw_view.get("window_hours", raw_view.get("lookback_hours"))
+            axis_values = _string_axis_values(raw_view.get("axis_values")) or _default_axis_values(
+                score_key,
+                window_hours,
+            )
+            view = self._rank_division_view_by_metric(
+                ctx,
+                view_key=view_key,
+                title=title,
+                description=raw_view.get("description"),
+                score_axis_label=score_axis_label,
+                axis_values=axis_values,
+                score_key=score_key,
+                half_life_hours=float(raw_view.get("half_life_hours", default_half_life_hours))
+                if raw_view.get("half_life_hours", default_half_life_hours) is not None
+                else None,
+                window_hours=float(window_hours) if window_hours is not None else None,
+            )
+            if columns_config:
+                view.columns = [DivisionLeaderboardColumnSnapshot.model_validate(column) for column in columns_config]
+            views.append(view)
+
+        if not any(view.key == default_view_key for view in views) and views:
+            default_view_key = views[0].key
+        return DivisionLeaderboardsSnapshot(default_view_key=default_view_key, axes=_leaderboard_axes(views), views=views)
+
+    def _rank_division_tables_from_config(
+        self,
+        ctx: DivisionLeaderboardContext,
+        leaderboard_configs: list[dict[str, Any]],
+        *,
+        default_half_life_hours: float | None = None,
+    ) -> DivisionLeaderboardTablesSnapshot:
+        # TODO: delete compatibility shim after callers stop using table terminology.
+        return self._rank_division_leaderboards_from_config(
+            ctx,
+            leaderboard_configs,
+            default_half_life_hours=default_half_life_hours,
+        )
+
+    def rank_division_leaderboards(self, ctx: DivisionLeaderboardContext) -> DivisionLeaderboardsSnapshot:
+        return self._rank_division_leaderboards_from_config(ctx, [])
+
+    def rank_division_tables(self, ctx: DivisionLeaderboardContext) -> DivisionLeaderboardTablesSnapshot:
+        # TODO: delete compatibility shim after callers stop using table terminology.
+        return self.rank_division_leaderboards(ctx)
 
     def rank_division(self, ctx: DivisionLeaderboardContext) -> list[DivisionLeaderboardSnapshot]:
         if not ctx.completed_rounds or not ctx.round_results:
