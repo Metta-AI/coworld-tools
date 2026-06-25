@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import random
 import time
+from collections import defaultdict
 from typing import Any
+
+from openskill.models import PlackettLuce
 
 from commissioners.common.models import PolicyPool, PolicyPoolEntry, PoolConfig
 from commissioners.common.protocol import EpisodeRequest as CommissionerEpisodeRequest
@@ -10,6 +13,7 @@ from commissioners.common.protocol import ScheduleEpisodes as CommissionerSchedu
 from commissioners.common.utils import (
     _build_entry_indices,
     _build_rolling_window_entry_indices,
+    _build_sliding_window_entry_indices,
     _entry_index_offset,
     _pool_episode_count,
 )
@@ -104,6 +108,16 @@ def schedule_entries(
         # any round/pool id, so a re-scheduled round never reuses its previous order.
         primary_entries = _round_shuffled_entries(primary_entries)
 
+    if config.seating == "mmr_neighbors":
+        # Order entries by current skill (OpenSkill mu, replayed from recent results) and then
+        # rolling-window seat below, so each episode is a cohort of num_agents skill-neighbours --
+        # close, informative matches whose outcome actually moves ratings, instead of uniformly
+        # random cohorts. The overlapping windows keep the whole field connected (a skill chain) so
+        # the MMR ranker can still order across it; a small wall-clock jitter breaks near-ties so
+        # cohorts vary round to round and unrated policies (all at the default mu -- e.g. a cold
+        # start with no results yet) are seated randomly among themselves.
+        primary_entries = _mmr_ordered_entries(primary_entries, recent_results or [])
+
     num_episodes = _pool_episode_count(
         config=pool_config,
         num_entries=len(primary_entries),
@@ -151,6 +165,15 @@ def episode_entries(
                     num_agents=num_agents,
                 ),
             )
+        elif config.seating == "mmr_neighbors":
+            # Non-wrapping sliding window over the (skill-ordered) entries: cohorts are
+            # skill-neighbours and the top never wraps around to face the bottom. Adjacent windows
+            # overlap by num_agents-1, so the field stays a single connected chain.
+            indices = _build_sliding_window_entry_indices(
+                job_index=job_index,
+                num_entries=len(primary_entries),
+                num_agents=num_agents,
+            )
         else:
             indices = _build_rolling_window_entry_indices(
                 job_index=job_index,
@@ -187,6 +210,55 @@ def _round_shuffled_entries(entries: list[PolicyPoolEntry]) -> list[PolicyPoolEn
     shuffled = list(entries)
     random.Random(_round_shuffle_seed()).shuffle(shuffled)
     return shuffled
+
+
+def _rate_mu_from_recent(recent_results: list[Any]) -> dict[Any, float]:
+    """Replay recent round results through OpenSkill and return each policy's current mu.
+
+    Each round is one free-for-all match (policies ordered by finishing rank), replayed oldest-first
+    by round number. Mirrors the MMR ranker, but here we only need the mean skill estimate (mu) to
+    seat skill-neighbours, so the conservative ordinal and player priors are not applied.
+    """
+    by_round: dict[Any, list[Any]] = defaultdict(list)
+    round_number: dict[Any, Any] = {}
+    for result in recent_results:
+        round_id = result.round_id
+        by_round[round_id].append(result)
+        round_number[round_id] = getattr(result, "round_number", 0)
+
+    model = PlackettLuce()
+    ratings: dict[Any, Any] = {}
+    for round_id in sorted(by_round, key=lambda r: round_number[r]):
+        results = by_round[round_id]
+        if len(results) < 2:
+            continue  # a one-policy round is not a match
+        for result in results:
+            if result.policy_version_id not in ratings:
+                ratings[result.policy_version_id] = model.rating()
+        ordered = sorted(results, key=lambda r: r.rank)
+        rated = model.rate(
+            [[ratings[r.policy_version_id]] for r in ordered],
+            ranks=[r.rank for r in ordered],
+        )
+        for result, team in zip(ordered, rated, strict=True):
+            ratings[result.policy_version_id] = team[0]
+    return {policy_version_id: rating.mu for policy_version_id, rating in ratings.items()}
+
+
+def _mmr_ordered_entries(entries: list[PolicyPoolEntry], recent_results: list[Any]) -> list[PolicyPoolEntry]:
+    mu_by_policy = _rate_mu_from_recent(recent_results)
+    base = PlackettLuce().rating()
+    # Wall-clock jitter (~a quarter of the default sigma) breaks near-ties so cohorts vary round to
+    # round and unrated policies (all at the default mu) don't form a fixed block, without overriding
+    # real skill gaps. Unrated policies sort at the default mu (mid-field) until they earn results.
+    rng = random.Random(_round_shuffle_seed())
+    jitter_scale = base.sigma * 0.25
+
+    def sort_key(entry: PolicyPoolEntry) -> float:
+        mu = mu_by_policy.get(entry.policy_version_id, base.mu)
+        return -(mu + rng.gauss(0.0, jitter_scale))
+
+    return sorted(entries, key=sort_key)
 
 
 def _schedule_leaderboard_neighbors(
