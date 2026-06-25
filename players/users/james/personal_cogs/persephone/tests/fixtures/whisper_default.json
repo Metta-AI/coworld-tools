@@ -1,0 +1,15 @@
+{
+  "view": "whisper",
+  "source": {
+    "tick": 520,
+    "date": "2026-05-04",
+    "seed": 42
+  },
+  "assertions": {
+    "chatroom.occupant_count": 2,
+    "chatroom.bottom_bar": {
+      "not_none": true
+    }
+  },
+  "note": "Whisper (private chatroom) between two players"
+}

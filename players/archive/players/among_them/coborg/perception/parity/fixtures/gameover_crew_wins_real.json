@@ -1,0 +1,1405 @@
+{
+  "fixture": "gameover_crew_wins_real.bin",
+  "schema_version": 5,
+  "frame_length": 16384,
+  "screen_width": 128,
+  "screen_height": 128,
+  "sprite_matches": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": [
+        [
+          17,
+          4
+        ],
+        [
+          31,
+          4
+        ],
+        [
+          45,
+          4
+        ],
+        [
+          59,
+          4
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          0,
+          28
+        ],
+        [
+          0,
+          72
+        ],
+        [
+          0,
+          87
+        ],
+        [
+          1,
+          28
+        ],
+        [
+          1,
+          72
+        ],
+        [
+          3,
+          35
+        ],
+        [
+          3,
+          77
+        ],
+        [
+          4,
+          81
+        ],
+        [
+          6,
+          30
+        ],
+        [
+          6,
+          31
+        ],
+        [
+          6,
+          43
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          6,
+          51
+        ],
+        [
+          6,
+          65
+        ],
+        [
+          6,
+          71
+        ],
+        [
+          6,
+          72
+        ],
+        [
+          6,
+          73
+        ],
+        [
+          6,
+          85
+        ],
+        [
+          6,
+          86
+        ],
+        [
+          18,
+          17
+        ],
+        [
+          19,
+          17
+        ],
+        [
+          21,
+          31
+        ],
+        [
+          32,
+          15
+        ],
+        [
+          33,
+          15
+        ],
+        [
+          35,
+          22
+        ],
+        [
+          38,
+          17
+        ],
+        [
+          46,
+          15
+        ],
+        [
+          47,
+          15
+        ],
+        [
+          49,
+          22
+        ],
+        [
+          52,
+          17
+        ],
+        [
+          60,
+          15
+        ],
+        [
+          61,
+          15
+        ],
+        [
+          63,
+          22
+        ],
+        [
+          66,
+          17
+        ],
+        [
+          66,
+          18
+        ],
+        [
+          66,
+          30
+        ],
+        [
+          66,
+          31
+        ],
+        [
+          66,
+          38
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          17,
+          4
+        ],
+        [
+          31,
+          4
+        ],
+        [
+          45,
+          4
+        ],
+        [
+          59,
+          4
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          17,
+          8
+        ],
+        [
+          31,
+          8
+        ],
+        [
+          31,
+          9
+        ],
+        [
+          45,
+          8
+        ],
+        [
+          45,
+          9
+        ],
+        [
+          59,
+          8
+        ],
+        [
+          59,
+          9
+        ]
+      ]
+    }
+  ],
+  "actor_color_index": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          17,
+          4,
+          0
+        ],
+        [
+          31,
+          4,
+          1
+        ],
+        [
+          45,
+          4,
+          2
+        ],
+        [
+          59,
+          4,
+          3
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          0,
+          28,
+          15
+        ],
+        [
+          0,
+          72,
+          15
+        ],
+        [
+          0,
+          87,
+          15
+        ],
+        [
+          1,
+          28,
+          15
+        ],
+        [
+          1,
+          72,
+          15
+        ],
+        [
+          3,
+          35,
+          15
+        ],
+        [
+          3,
+          77,
+          15
+        ],
+        [
+          4,
+          81,
+          15
+        ],
+        [
+          6,
+          30,
+          15
+        ],
+        [
+          6,
+          31,
+          15
+        ],
+        [
+          6,
+          43,
+          15
+        ],
+        [
+          6,
+          44,
+          15
+        ],
+        [
+          6,
+          51,
+          15
+        ],
+        [
+          6,
+          65,
+          15
+        ],
+        [
+          6,
+          71,
+          15
+        ],
+        [
+          6,
+          72,
+          15
+        ],
+        [
+          6,
+          73,
+          15
+        ],
+        [
+          6,
+          85,
+          15
+        ],
+        [
+          6,
+          86,
+          15
+        ],
+        [
+          18,
+          17,
+          15
+        ],
+        [
+          19,
+          17,
+          15
+        ],
+        [
+          21,
+          31,
+          15
+        ],
+        [
+          32,
+          15,
+          15
+        ],
+        [
+          33,
+          15,
+          15
+        ],
+        [
+          35,
+          22,
+          15
+        ],
+        [
+          38,
+          17,
+          15
+        ],
+        [
+          46,
+          15,
+          15
+        ],
+        [
+          47,
+          15,
+          15
+        ],
+        [
+          49,
+          22,
+          15
+        ],
+        [
+          52,
+          17,
+          15
+        ],
+        [
+          60,
+          15,
+          15
+        ],
+        [
+          61,
+          15,
+          15
+        ],
+        [
+          63,
+          22,
+          15
+        ],
+        [
+          66,
+          17,
+          15
+        ],
+        [
+          66,
+          18,
+          15
+        ],
+        [
+          66,
+          30,
+          15
+        ],
+        [
+          66,
+          31,
+          15
+        ],
+        [
+          66,
+          38,
+          15
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          17,
+          4,
+          0
+        ],
+        [
+          31,
+          4,
+          1
+        ],
+        [
+          45,
+          4,
+          2
+        ],
+        [
+          59,
+          4,
+          3
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": [
+        [
+          17,
+          8,
+          15
+        ],
+        [
+          31,
+          8,
+          15
+        ],
+        [
+          31,
+          9,
+          15
+        ],
+        [
+          45,
+          8,
+          15
+        ],
+        [
+          45,
+          9,
+          15
+        ],
+        [
+          59,
+          8,
+          15
+        ],
+        [
+          59,
+          9,
+          15
+        ]
+      ]
+    }
+  ],
+  "role": {
+    "ghost_icon_frames": 0,
+    "kill_icon_frames": 0,
+    "is_ghost": false,
+    "kill_ready": false,
+    "role_updated": true,
+    "new_role": "crewmate"
+  },
+  "self_color": {
+    "updated": false,
+    "color_index": -1
+  },
+  "crewmates": [
+    {
+      "x": 4,
+      "y": 17,
+      "color_index": 0,
+      "flip_h": false
+    },
+    {
+      "x": 4,
+      "y": 31,
+      "color_index": 1,
+      "flip_h": false
+    },
+    {
+      "x": 4,
+      "y": 45,
+      "color_index": 2,
+      "flip_h": false
+    },
+    {
+      "x": 4,
+      "y": 59,
+      "color_index": 3,
+      "flip_h": false
+    }
+  ],
+  "bodies": [
+    {
+      "x": 28,
+      "y": 0,
+      "color_index": 15
+    },
+    {
+      "x": 72,
+      "y": 0,
+      "color_index": 15
+    },
+    {
+      "x": 87,
+      "y": 0,
+      "color_index": 15
+    },
+    {
+      "x": 35,
+      "y": 3,
+      "color_index": 15
+    },
+    {
+      "x": 77,
+      "y": 3,
+      "color_index": 15
+    },
+    {
+      "x": 81,
+      "y": 4,
+      "color_index": 15
+    },
+    {
+      "x": 30,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 43,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 51,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 65,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 71,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 73,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 85,
+      "y": 6,
+      "color_index": 15
+    },
+    {
+      "x": 17,
+      "y": 18,
+      "color_index": 15
+    },
+    {
+      "x": 31,
+      "y": 21,
+      "color_index": 15
+    },
+    {
+      "x": 15,
+      "y": 32,
+      "color_index": 15
+    },
+    {
+      "x": 22,
+      "y": 35,
+      "color_index": 15
+    },
+    {
+      "x": 17,
+      "y": 38,
+      "color_index": 15
+    },
+    {
+      "x": 15,
+      "y": 46,
+      "color_index": 15
+    },
+    {
+      "x": 22,
+      "y": 49,
+      "color_index": 15
+    },
+    {
+      "x": 17,
+      "y": 52,
+      "color_index": 15
+    },
+    {
+      "x": 15,
+      "y": 60,
+      "color_index": 15
+    },
+    {
+      "x": 22,
+      "y": 63,
+      "color_index": 15
+    },
+    {
+      "x": 17,
+      "y": 66,
+      "color_index": 15
+    },
+    {
+      "x": 30,
+      "y": 66,
+      "color_index": 15
+    },
+    {
+      "x": 38,
+      "y": 66,
+      "color_index": 15
+    }
+  ],
+  "ghosts": [
+    {
+      "x": 4,
+      "y": 17,
+      "flip_h": false
+    },
+    {
+      "x": 8,
+      "y": 17,
+      "flip_h": true
+    },
+    {
+      "x": 4,
+      "y": 31,
+      "flip_h": false
+    },
+    {
+      "x": 8,
+      "y": 31,
+      "flip_h": true
+    },
+    {
+      "x": 4,
+      "y": 45,
+      "flip_h": false
+    },
+    {
+      "x": 8,
+      "y": 45,
+      "flip_h": true
+    },
+    {
+      "x": 4,
+      "y": 59,
+      "flip_h": false
+    },
+    {
+      "x": 8,
+      "y": 59,
+      "flip_h": true
+    }
+  ],
+  "radar_dots": [],
+  "interstitial": {
+    "is_interstitial": true,
+    "kind": "unknown",
+    "black_pixel_count": 15757
+  },
+  "ignore_phase_1_0": {
+    "stamped_pixel_count": 401,
+    "sha1": "352BF792905FF456EB3274E0054E3F0FF82233A7"
+  },
+  "score_camera_probes": [
+    {
+      "cam_x": 0,
+      "cam_y": 0,
+      "score": -15808,
+      "errors": 15808,
+      "compared": 15983
+    },
+    {
+      "cam_x": 478,
+      "cam_y": 65,
+      "score": -13875,
+      "errors": 13875,
+      "compared": 15983
+    },
+    {
+      "cam_x": -50,
+      "cam_y": -50,
+      "score": -6305,
+      "errors": 6305,
+      "compared": 15983
+    },
+    {
+      "cam_x": 400,
+      "cam_y": 250,
+      "score": -6964,
+      "errors": 6964,
+      "compared": 15983
+    }
+  ],
+  "frame_patch_hashes": {
+    "hashes": [
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "DC731F22EED99ABD",
+      "19782A4F59FA7573",
+      "3653FA6DCB6B8CA1",
+      "B8C6A2A3B86EC3B9",
+      "96A867809DFAF439",
+      "F2E51680AA994C6D",
+      "AB3C6C5BBCC71FCB",
+      "E32352F6936FC1A9",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "6FFF5DA0C600DBA7",
+      "7C415FF3B20AB281",
+      "AE1DBDCF812D9603",
+      "8370892F832B3923",
+      "58488AC45D5095E5",
+      "53C47D90AC736B15",
+      "B6A1E38E1F79A17D",
+      "B3B4925D27375F67",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "973590904B1A1D45",
+      "08A0F0766B89E643",
+      "8E713C32BC604841",
+      "C73AF29189E88A15",
+      "1230F0A55C16BC8D",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "A0A64CEDA91495C6",
+      "696C639532D42843",
+      "65D3E85551BCCA27",
+      "2A669DC8F8F0912B",
+      "0AACF3C5859EDF87",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "5CC7F371D876B360",
+      "A3BE3A400C8C3D14",
+      "7E9C61B5DBC70477",
+      "94AD35DCB0091127",
+      "ABAD1B9DF5653F3D",
+      "7C6E5CD415A8839B",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "5DAAFFAB04EA2763",
+      "AED164489F33C7FA",
+      "C8FA82338335D7F5",
+      "E7549407F63F32A3",
+      "7018C1C4DB974C21",
+      "2049FAA595A92F49",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "8114FD6F11E1BF6A",
+      "D877E0A220FCCA2D",
+      "312D66EF615D7847",
+      "AF2CA6A9A72B9525",
+      "40E14973A500BBB9",
+      "993D558CDEC668BF",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "438CF2B712A6A5CD",
+      "24031AF676AB7ED7",
+      "0C99F5CB5434989F",
+      "D3173A50725A7D55",
+      "125D081CFFA90CDB",
+      "740A3D5D4AE08569",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "29E4966C07D9A171",
+      "8A9B6E295F156D33",
+      "0615B90EF2D722CD",
+      "E9A8FE9625E2A875",
+      "E6B58313FD601683",
+      "2D25B925AD5E5A7B",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5"
+    ],
+    "valid": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "patch_vote_top_candidates": [],
+  "localize_first_frame": {
+    "camera_x": 0,
+    "camera_y": 0,
+    "camera_score": -12564,
+    "camera_lock": "no_lock",
+    "localized": false,
+    "self_x": 0,
+    "self_y": 0
+  },
+  "task_icons": [],
+  "ocr_classify_interstitial": {
+    "kind": "game_over"
+  },
+  "ocr_best_glyph_probes": [
+    {
+      "x": 1,
+      "y": 1,
+      "char": " ",
+      "errors": 0,
+      "advance": 4
+    },
+    {
+      "x": 10,
+      "y": 30,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 40,
+      "y": 60,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 50,
+      "y": 80,
+      "char": " ",
+      "errors": 0,
+      "advance": 4
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "view": "hostage_select",
+  "source": {
+    "tick": 600,
+    "date": "2026-05-04",
+    "seed": 100
+  },
+  "assertions": {
+    "overworld.room": "mortal_realm",
+    "overworld.self_position": {
+      "not_none": true
+    },
+    "overworld.minimap_dot_count": {
+      "gte": 3,
+      "lte": 3
+    },
+    "overworld.bottom_bar": {
+      "not_none": true
+    }
+  },
+  "note": "Hostage select phase (non-leader POV)"
+}

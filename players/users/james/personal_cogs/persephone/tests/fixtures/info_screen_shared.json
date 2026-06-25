@@ -1,0 +1,13 @@
+{
+  "view": "info_screen",
+  "source": {
+    "tick": 512,
+    "date": "2026-05-04",
+    "seed": 42
+  },
+  "assertions": {
+    "info_screen.mode": "shared",
+    "info_screen.known_player_count": 1
+  },
+  "note": "Info screen shared mode (KNOWN PLAYERS list)"
+}

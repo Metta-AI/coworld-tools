@@ -1,0 +1,26 @@
+{
+  "view": "playing",
+  "source": {
+    "tick": 504,
+    "date": "2026-05-04",
+    "seed": 42
+  },
+  "assertions": {
+    "overworld.round": 1,
+    "overworld.timer_secs": 15,
+    "overworld.role_name": "NYMPH",
+    "overworld.role_team_color": 14,
+    "overworld.room": "underworld",
+    "overworld.self_position": {
+      "not_none": true
+    },
+    "overworld.minimap_dot_count": {
+      "gte": 1
+    },
+    "overworld.bottom_bar": {
+      "not_none": true
+    }
+  },
+  "known_bugs": [],
+  "note": "First round playing, HUD shows R1 0:15 timer and NYMPH role name."
+}

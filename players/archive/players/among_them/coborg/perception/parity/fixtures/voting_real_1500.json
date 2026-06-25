@@ -1,0 +1,1297 @@
+{
+  "fixture": "voting_real_1500.bin",
+  "schema_version": 5,
+  "frame_length": 16384,
+  "screen_width": 128,
+  "screen_height": 128,
+  "sprite_matches": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": [
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          3,
+          50
+        ],
+        [
+          3,
+          66
+        ],
+        [
+          3,
+          82
+        ],
+        [
+          3,
+          98
+        ],
+        [
+          3,
+          114
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 8,
+      "min_stable": 8,
+      "min_tint": 8,
+      "anchors": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          3,
+          34
+        ],
+        [
+          14,
+          0
+        ],
+        [
+          14,
+          1
+        ],
+        [
+          14,
+          2
+        ],
+        [
+          14,
+          3
+        ],
+        [
+          14,
+          4
+        ],
+        [
+          14,
+          5
+        ],
+        [
+          14,
+          6
+        ],
+        [
+          14,
+          8
+        ],
+        [
+          14,
+          9
+        ],
+        [
+          18,
+          62
+        ],
+        [
+          19,
+          62
+        ],
+        [
+          21,
+          53
+        ],
+        [
+          21,
+          67
+        ],
+        [
+          21,
+          69
+        ],
+        [
+          24,
+          47
+        ],
+        [
+          24,
+          48
+        ],
+        [
+          24,
+          61
+        ],
+        [
+          24,
+          62
+        ],
+        [
+          24,
+          63
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          3,
+          50
+        ],
+        [
+          3,
+          66
+        ],
+        [
+          3,
+          82
+        ],
+        [
+          3,
+          98
+        ],
+        [
+          3,
+          114
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "max_misses": 9,
+      "min_stable": 6,
+      "min_tint": 6,
+      "anchors": [
+        [
+          3,
+          22
+        ],
+        [
+          3,
+          23
+        ],
+        [
+          3,
+          54
+        ],
+        [
+          3,
+          55
+        ],
+        [
+          3,
+          70
+        ],
+        [
+          3,
+          71
+        ],
+        [
+          3,
+          86
+        ],
+        [
+          3,
+          87
+        ],
+        [
+          3,
+          102
+        ],
+        [
+          3,
+          103
+        ]
+      ]
+    }
+  ],
+  "actor_color_index": [
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          3,
+          18,
+          1
+        ],
+        [
+          3,
+          50,
+          3
+        ],
+        [
+          3,
+          66,
+          4
+        ],
+        [
+          3,
+          82,
+          5
+        ],
+        [
+          3,
+          98,
+          6
+        ],
+        [
+          3,
+          114,
+          7
+        ]
+      ]
+    },
+    {
+      "sprite": "player",
+      "atlas_index": 0,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": []
+    },
+    {
+      "sprite": "body",
+      "atlas_index": 1,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          3,
+          34,
+          2
+        ],
+        [
+          14,
+          0,
+          15
+        ],
+        [
+          14,
+          1,
+          15
+        ],
+        [
+          14,
+          2,
+          15
+        ],
+        [
+          14,
+          3,
+          15
+        ],
+        [
+          14,
+          4,
+          15
+        ],
+        [
+          14,
+          5,
+          15
+        ],
+        [
+          14,
+          6,
+          15
+        ],
+        [
+          14,
+          8,
+          15
+        ],
+        [
+          14,
+          9,
+          15
+        ],
+        [
+          18,
+          62,
+          15
+        ],
+        [
+          19,
+          62,
+          15
+        ],
+        [
+          21,
+          53,
+          15
+        ],
+        [
+          21,
+          67,
+          15
+        ],
+        [
+          21,
+          69,
+          15
+        ],
+        [
+          24,
+          47,
+          15
+        ],
+        [
+          24,
+          48,
+          15
+        ],
+        [
+          24,
+          61,
+          15
+        ],
+        [
+          24,
+          62,
+          15
+        ],
+        [
+          24,
+          63,
+          15
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": false,
+      "indices": [
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          3,
+          18,
+          1
+        ],
+        [
+          3,
+          50,
+          3
+        ],
+        [
+          3,
+          66,
+          4
+        ],
+        [
+          3,
+          82,
+          5
+        ],
+        [
+          3,
+          98,
+          6
+        ],
+        [
+          3,
+          114,
+          7
+        ]
+      ]
+    },
+    {
+      "sprite": "ghost",
+      "atlas_index": 2,
+      "sh": 12,
+      "sw": 12,
+      "flip_h": true,
+      "indices": [
+        [
+          3,
+          22,
+          15
+        ],
+        [
+          3,
+          23,
+          15
+        ],
+        [
+          3,
+          54,
+          15
+        ],
+        [
+          3,
+          55,
+          15
+        ],
+        [
+          3,
+          70,
+          15
+        ],
+        [
+          3,
+          71,
+          15
+        ],
+        [
+          3,
+          86,
+          15
+        ],
+        [
+          3,
+          87,
+          15
+        ],
+        [
+          3,
+          102,
+          15
+        ],
+        [
+          3,
+          103,
+          15
+        ]
+      ]
+    }
+  ],
+  "role": {
+    "ghost_icon_frames": 0,
+    "kill_icon_frames": 0,
+    "is_ghost": false,
+    "kill_ready": false,
+    "role_updated": true,
+    "new_role": "crewmate"
+  },
+  "self_color": {
+    "updated": false,
+    "color_index": -1
+  },
+  "crewmates": [
+    {
+      "x": 2,
+      "y": 3,
+      "color_index": 0,
+      "flip_h": false
+    },
+    {
+      "x": 18,
+      "y": 3,
+      "color_index": 1,
+      "flip_h": false
+    },
+    {
+      "x": 50,
+      "y": 3,
+      "color_index": 3,
+      "flip_h": false
+    },
+    {
+      "x": 66,
+      "y": 3,
+      "color_index": 4,
+      "flip_h": false
+    },
+    {
+      "x": 82,
+      "y": 3,
+      "color_index": 5,
+      "flip_h": false
+    },
+    {
+      "x": 98,
+      "y": 3,
+      "color_index": 6,
+      "flip_h": false
+    },
+    {
+      "x": 114,
+      "y": 3,
+      "color_index": 7,
+      "flip_h": false
+    }
+  ],
+  "bodies": [
+    {
+      "x": 34,
+      "y": 3,
+      "color_index": 2
+    },
+    {
+      "x": 0,
+      "y": 14,
+      "color_index": 15
+    },
+    {
+      "x": 2,
+      "y": 14,
+      "color_index": 15
+    },
+    {
+      "x": 4,
+      "y": 14,
+      "color_index": 15
+    },
+    {
+      "x": 6,
+      "y": 14,
+      "color_index": 15
+    },
+    {
+      "x": 8,
+      "y": 14,
+      "color_index": 15
+    },
+    {
+      "x": 62,
+      "y": 18,
+      "color_index": 15
+    },
+    {
+      "x": 53,
+      "y": 21,
+      "color_index": 15
+    },
+    {
+      "x": 67,
+      "y": 21,
+      "color_index": 15
+    },
+    {
+      "x": 69,
+      "y": 21,
+      "color_index": 15
+    },
+    {
+      "x": 47,
+      "y": 24,
+      "color_index": 15
+    },
+    {
+      "x": 61,
+      "y": 24,
+      "color_index": 15
+    },
+    {
+      "x": 63,
+      "y": 24,
+      "color_index": 15
+    }
+  ],
+  "ghosts": [
+    {
+      "x": 2,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 18,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 22,
+      "y": 3,
+      "flip_h": true
+    },
+    {
+      "x": 50,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 54,
+      "y": 3,
+      "flip_h": true
+    },
+    {
+      "x": 66,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 70,
+      "y": 3,
+      "flip_h": true
+    },
+    {
+      "x": 82,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 86,
+      "y": 3,
+      "flip_h": true
+    },
+    {
+      "x": 98,
+      "y": 3,
+      "flip_h": false
+    },
+    {
+      "x": 102,
+      "y": 3,
+      "flip_h": true
+    },
+    {
+      "x": 114,
+      "y": 3,
+      "flip_h": false
+    }
+  ],
+  "radar_dots": [],
+  "interstitial": {
+    "is_interstitial": true,
+    "kind": "unknown",
+    "black_pixel_count": 15537
+  },
+  "ignore_phase_1_0": {
+    "stamped_pixel_count": 379,
+    "sha1": "B2C091A56959C912AD9E771CFA19056E4FE60E21"
+  },
+  "score_camera_probes": [
+    {
+      "cam_x": 0,
+      "cam_y": 0,
+      "score": -15847,
+      "errors": 15847,
+      "compared": 16005
+    },
+    {
+      "cam_x": 478,
+      "cam_y": 65,
+      "score": -13990,
+      "errors": 13990,
+      "compared": 16005
+    },
+    {
+      "cam_x": -50,
+      "cam_y": -50,
+      "score": -6390,
+      "errors": 6390,
+      "compared": 16005
+    },
+    {
+      "cam_x": 400,
+      "cam_y": 250,
+      "score": -7383,
+      "errors": 7383,
+      "compared": 16005
+    }
+  ],
+  "frame_patch_hashes": {
+    "hashes": [
+      "6A9977195E1A29DE",
+      "436CADE580B99F3D",
+      "AEF02DB8E4DA5D06",
+      "5285C3139538A671",
+      "B08F41BF8EEA43D9",
+      "AB4F2698A3119375",
+      "3B130673A831E58B",
+      "BE4222E16FE0CDE9",
+      "E09819FB236BB4CD",
+      "6D7E2C4DA539BA19",
+      "6CBAF2B5E6C33D52",
+      "D93A8C1B7FE1E191",
+      "4BA0553467B7AD78",
+      "1C94F09F75367F21",
+      "DB4D3E96482FCDCD",
+      "4FDA28FB6F94BEC6",
+      "0024119FDE0246F1",
+      "855D1B6B768347DD",
+      "649AE2533A42020D",
+      "83BFE90C893BB7D5",
+      "4919D77858690EA1",
+      "CD9528B2C5885C0B",
+      "3119FE9202C89A89",
+      "17458832715635AB",
+      "8E9C6CE24167B234",
+      "4C159F1ABBAEF88F",
+      "B4E384C03F21349D",
+      "8EE7B1B47B93FFBD",
+      "E9C52CC1AFD52A96",
+      "AF621A372CD1F5E9",
+      "D236CC018AEEF469",
+      "2E7569A18DA4FEC5",
+      "B2FD83C88FD2BDFB",
+      "EED6ACB902496A87",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "F9C482F2BF4021B9",
+      "6BCFF32DECD076D5",
+      "73164A074A059CAB",
+      "A00412630D16A2CD",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "102C3EF930DF1AE7",
+      "33B5411DD019A253",
+      "8BC7EC14B2B4758D",
+      "105B9F8E588C1F57",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "0C97F5C5062FA0A5",
+      "B76468C0BAB565D5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "97255D93780BB1E5",
+      "08DE7BCA2F9F59B3",
+      "673FB359AB2C08C5",
+      "D002BAAF2B81E71D"
+    ],
+    "valid": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "patch_vote_top_candidates": [],
+  "localize_first_frame": {
+    "camera_x": 0,
+    "camera_y": 0,
+    "camera_score": -12676,
+    "camera_lock": "no_lock",
+    "localized": false,
+    "self_x": 0,
+    "self_y": 0
+  },
+  "task_icons": [],
+  "ocr_classify_interstitial": {
+    "kind": "unknown"
+  },
+  "ocr_best_glyph_probes": [
+    {
+      "x": 1,
+      "y": 1,
+      "char": "?",
+      "errors": 1,
+      "advance": 0
+    },
+    {
+      "x": 10,
+      "y": 30,
+      "char": " ",
+      "errors": 0,
+      "advance": 4
+    },
+    {
+      "x": 40,
+      "y": 60,
+      "char": " ",
+      "errors": 0,
+      "advance": 4
+    },
+    {
+      "x": 50,
+      "y": 80,
+      "char": " ",
+      "errors": 0,
+      "advance": 4
+    }
+  ]
+}

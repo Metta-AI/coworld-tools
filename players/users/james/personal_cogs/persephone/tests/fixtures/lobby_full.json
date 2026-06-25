@@ -1,0 +1,14 @@
+{
+  "view": "lobby",
+  "source": {
+    "tick": 10,
+    "date": "2026-05-04",
+    "seed": 42
+  },
+  "assertions": {
+    "lobby.player_count": 10,
+    "lobby.max_players": 10
+  },
+  "known_bugs": [],
+  "note": "Full 10-player lobby."
+}

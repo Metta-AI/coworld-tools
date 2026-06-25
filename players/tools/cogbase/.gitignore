@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Generated pipeline artifacts
+testbed/eyes_v1/output/**
+!testbed/eyes_v1/output/
+!testbed/eyes_v1/output/README.md
+testbed/eyes_v1/captured_frames/
+testbed/guide_v1/output/**
+!testbed/guide_v1/output/
+!testbed/guide_v1/output/README.md
+testbed/maker_v1/output/**
+!testbed/maker_v1/output/
+!testbed/maker_v1/output/README.md
+
+# Hypothesis
+.hypothesis/
+
+# Pytest
+.pytest_cache/

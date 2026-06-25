@@ -1,0 +1,8 @@
+{
+  "player": 0,
+  "body": 1,
+  "ghost": 2,
+  "task": 3,
+  "kill_button": 4,
+  "ghost_icon": 5
+}

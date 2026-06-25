@@ -1,0 +1,4 @@
+# Compiled Nim binary; produced by `nim c extract_oracle.nim`. The .nim
+# source is the source of truth — checked-in sidecars under
+# ../fixtures/*.json are the regenerable output of running it.
+extract_oracle

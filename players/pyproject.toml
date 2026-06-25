@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=70.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "players"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "anthropic>=0.40.0",
+  "cramjam>=2.8.0",
+  "numpy>=2.0.0",
+  "pydantic>=2.12.2",
+  "websockets>=16.0",
+]
+
+[project.optional-dependencies]
+cogames = ["cogames", "mettagrid"]
+# Required only when a player routes Anthropic calls through AWS Bedrock
+# (e.g. crewborg's meeting LLM with USE_BEDROCK=1). boto3 backs the Anthropic
+# SDK's AnthropicBedrock client and the AWS credential chain.
+bedrock = ["boto3>=1.34.0"]
+trace-parquet = ["pyarrow>=24.0.0"]
+test = [
+    "pytest",
+    "pytest-asyncio>=1.3.0",
+    "pytest-xdist",
+    "ruff",
+]
+cogsguard = [
+    "cogsguard",
+    "mettagrid",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "players",
+  "players.*",
+]
+
+[tool.setuptools.package-data]
+players = [
+  "**/*.html",
+  "**/*.json",
+  "**/*.lock",
+  "**/*.map",
+  "**/*.md",
+  "**/*.nim",
+  "**/*.nims",
+  "**/*.npz",
+  "**/*.resources",
+  "**/*.txt",
+  "**/.nim-version",
+  "**/.nimby-version",
+]
+
+[tool.uv.sources]
+cogsguard = { git = "https://github.com/Metta-AI/coworld-cogs-vs-clips.git", branch = "relh/cogsguard-semantic-surface" }
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+# `archive/` holds retired code kept only for recovery; never collect it.
+norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "archive"]
+markers = [
+  "docker: tests that drive built docker images; skipped when the docker CLI or the relevant image is unavailable",
+]

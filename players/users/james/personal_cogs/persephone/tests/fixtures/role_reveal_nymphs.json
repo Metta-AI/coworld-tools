@@ -1,0 +1,18 @@
+{
+  "view": "role_reveal",
+  "source": {
+    "tick": 200,
+    "date": "2026-05-04",
+    "seed": 42
+  },
+  "assertions": {
+    "role_reveal.team": "Nymphs",
+    "role_reveal.team_color": 14,
+    "role_reveal.role": "Nymph",
+    "role_reveal.room": "Underworld",
+    "role_reveal.player_count": 10,
+    "role_reveal.room_size": 120
+  },
+  "known_bugs": [],
+  "note": "Role reveal screen mid-countdown. All fields now extracted correctly."
+}

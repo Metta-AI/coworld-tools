@@ -1,0 +1,37 @@
+*.egg-info/
+__pycache__/
+.eval_results/
+.benchmarks/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.nimcache/
+nimcache/
+*.pyc
+*.dylib
+*.so
+*.o
+
+# macOS
+.DS_Store
+
+# Claude Code session locks
+**/.claude/scheduled_tasks.lock
+
+# Coworld manifest/image cache downloaded by `coworld download` (see e.g.
+# archive/players/among_them/coborg/scripts/play_local.sh).
+/coworld/
+
+# Nimby-generated FFI bindings and path-config for Nim builds in
+# players/cogsguard/nim/. (Hand-written nim.cfg elsewhere, e.g.
+# guided_bot/nim.cfg, stays tracked.)
+players/cogsguard/nim/bindings/
+players/cogsguard/nim/nim.cfg
+
+# Per-user ephemeral run outputs (coworld replays, smoke-test logs, etc.).
+users/**/tmp/
+
+# Per-player build artifacts produced by each leaf's ``build.sh`` (the snippet
+# JSON + coplayer_manifest.json sidecar). The contract is documented in
+# docs/coworld-player-packaging.md §5.
+players/*/*/dist/
