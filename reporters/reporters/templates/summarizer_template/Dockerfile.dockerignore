@@ -1,0 +1,31 @@
+# Per-Dockerfile ignore for summarizer_template.
+#
+# The build context is reporters/ (so the Dockerfile can COPY the shared
+# reporter_sdk/ from a single context), but this image only needs the SDK
+# plus the template's runtime entrypoint. Everything else under reporters/
+# -- other reporters' trees, tests, designs, build scripts, smoke fixtures,
+# editor metadata -- must stay out of the build context so the image stays
+# small.
+#
+# Style: exclude everything, then re-include only what Dockerfile COPYs.
+# Docker 25+ honors this <Dockerfile>.dockerignore in preference to a
+# reporters/.dockerignore at the context root, which is what lets each
+# reporter (and this template) scope its own allowlist.
+
+**
+
+# Shared SDK. Re-include the whole tree.
+!reporter_sdk/**
+
+# The template's runtime source. Notably absent: Dockerfile itself,
+# build.sh, smoke.sh, smoke/, tests/, README.md.
+!templates/summarizer_template/requirements.txt
+!templates/summarizer_template/summarizer.py
+
+# Re-exclude junk that may live inside the re-included trees.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/*.egg-info
+**/.DS_Store
