@@ -1,10 +1,23 @@
-name: CI
+name: TribalCog CI
+
+# This workflow must live at the repo root. Commands run from the imported TribalCog project
+# directory so the existing Makefile, nimby.lock, and Python package paths still line up.
 
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/tribalcog-ci.yml"
+      - "games/games/tribalcog/**"
   pull_request:
     branches: [main]
+    paths:
+      - ".github/workflows/tribalcog-ci.yml"
+      - "games/games/tribalcog/**"
+
+defaults:
+  run:
+    working-directory: games/games/tribalcog
 
 jobs:
   check:
@@ -123,6 +136,6 @@ jobs:
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage.xml
+          files: ./games/games/tribalcog/coverage.xml
           fail_ci_if_error: false
         continue-on-error: true
