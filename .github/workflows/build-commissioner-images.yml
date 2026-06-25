@@ -1,21 +1,20 @@
 name: Build commissioner images
 
+# This workflow must live at the REPO ROOT (.github/workflows/) to run. The commissioners project
+# keeps its own copy under commissioners/.github/, which GitHub ignores (only root workflows run).
+# Paths/context below are relative to the coworld-tools root, where the project lives under
+# commissioners/ and its package under commissioners/commissioners/.
+
 on:
   pull_request:
     paths:
       - ".github/workflows/build-commissioner-images.yml"
-      - "CATALOG.yaml"
       - "commissioners/**"
-      - "pyproject.toml"
-      - "README.md"
   push:
     branches: [main]
     paths:
       - ".github/workflows/build-commissioner-images.yml"
-      - "CATALOG.yaml"
       - "commissioners/**"
-      - "pyproject.toml"
-      - "README.md"
   workflow_dispatch:
 
 permissions:
@@ -86,8 +85,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: commissioners/Dockerfile
+          context: commissioners
+          file: commissioners/commissioners/Dockerfile
           build-args: |
             COMMISSIONER_KEY=${{ matrix.commissioner_key }}
             RULESET_STRATEGY_CONFIG_NAME=${{ matrix.ruleset_strategy_config_name }}
