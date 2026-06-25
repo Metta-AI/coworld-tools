@@ -3044,3 +3044,58 @@ def test_shuffled_window_draws_a_fresh_seed_each_schedule(monkeypatch: pytest.Mo
     assert first != second  # fresh seed each scheduling -> no permutation/seed reuse for the same round
     # Participation is preserved: every champion is still seated within the round.
     assert {policy_version_id for episode in first for policy_version_id in episode} == set(policy_version_ids)
+
+
+def test_agricogla_ranks_division_by_mmr() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from commissioners.common.models import (
+        DivisionLeaderboardContext,
+        DivisionSnapshot,
+        LeaderboardRoundResultSnapshot,
+        LeagueSnapshot,
+        RoundSnapshot,
+    )
+
+    # agricogla opts into leaderboard.type: mmr.
+    cfg = _ruleset_config("agricogla")
+    assert cfg["scoring"]["leaderboard"]["type"] == "mmr"
+    commissioner = RulesetStrategyCommissioner(cfg)
+
+    # Three policies, a strict dominance order held across enough rounds to clear placement (5).
+    strong, mid, weak = uuid4(), uuid4(), uuid4()
+    players = {strong: "ply-strong", mid: "ply-mid", weak: "ply-weak"}
+    now = datetime.now(UTC)
+    meta = {"score_kind": "win_episode_round_score"}  # win round_score tags results with this kind
+    rounds: list[RoundSnapshot] = []
+    results: list[LeaderboardRoundResultSnapshot] = []
+    for i in range(6):
+        round_id = uuid4()
+        rounds.append(  # completed_rounds is newest-first
+            RoundSnapshot(
+                id=round_id, public_id=f"r{i}", division_id=uuid4(), round_number=6 - i,
+                status="completed", round_config={}, completed_at=now - timedelta(hours=i),
+            )
+        )
+        for policy_version_id, rank, score in [(strong, 1, 1.0), (mid, 2, 0.5), (weak, 3, 0.0)]:
+            results.append(
+                LeaderboardRoundResultSnapshot(
+                    round_id=round_id, policy_version_id=policy_version_id, rank=rank, score=score,
+                    player_id=players[policy_version_id], player_name=players[policy_version_id],
+                    result_metadata=meta,
+                )
+            )
+
+    ctx = DivisionLeaderboardContext(
+        league=LeagueSnapshot(id=uuid4(), commissioner_key="config_driven", commissioner_config={}),
+        division=DivisionSnapshot(id=uuid4(), name="Competition", level=1, league_id=uuid4(), type="competition"),
+        completed_rounds=rounds, recent_rounds=rounds, round_results=results,
+    )
+
+    ranking = commissioner.rank_division(ctx)
+
+    assert [snapshot.player_id for snapshot in ranking] == ["ply-strong", "ply-mid", "ply-weak"]
+    assert [snapshot.rank for snapshot in ranking] == [1, 2, 3]
+    # MMR (conservative ordinal) is strictly ordered, and games_played is tracked.
+    assert ranking[0].score > ranking[1].score > ranking[2].score
+    assert all(snapshot.rounds_played == 6 for snapshot in ranking)

@@ -59,6 +59,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "openskill" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
@@ -74,6 +75,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<0.116" },
+    { name = "openskill", specifier = ">=6.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
@@ -182,6 +184,25 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
+]
+
+[[package]]
+name = "openskill"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/fb/1ce1702a8677729cde83cb7f5924953c0704e95620898d991711a0dc57e4/openskill-6.2.0.tar.gz", hash = "sha256:817c5192aaed489697a1703fc2a3f9ea84b4487b09d0c27fd270a04f08f13d67", size = 47848, upload-time = "2026-01-11T16:49:15.249Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/3e/12a147cc98959a4d7c3b64504db80b65f10d903f778935e2322ac5f20008/openskill-6.2.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:702ccb698a8c215fd895410bf6c6b39f16ac980f00ec50056cfc17ad9e2075ae", size = 494330, upload-time = "2026-01-11T16:49:01.207Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/26/3f00066a73922ffefb3aedb351a19114317703f0bdbe1ffadd2bda923830/openskill-6.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:9de4689a6c6061e1a8c20903a6bc7a6f07ee7a9623b64df0b657311936bc0b7f", size = 460486, upload-time = "2026-01-11T16:49:02.402Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/e5/4dcd2dd8a26a3148d3a356041a66b213c952b55bbaa956657ba98f90813e/openskill-6.2.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e3b34f1f92a80e4d28a314c350a5b9830cc404396dffb52235f89e0c6dd7b6ed", size = 672606, upload-time = "2026-01-11T16:49:03.716Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/2d/1eed648456acbc525fcfad6d9875ccebf825f7618ec22c82b9269a35f09a/openskill-6.2.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:624e3d1841d299f54f1705517ea38361af3f062380936bdd98e0b33a671183f1", size = 719197, upload-time = "2026-01-11T16:49:05.607Z" },
+    { url = "https://files.pythonhosted.org/packages/af/fe/5a0e6b26cedb2f341c08c64ce8851544aa83560e6dcaf61b98a38e2f998e/openskill-6.2.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e4bba56d04f8580b078d1ea329056c842362b14114d8c9308d9fdb5517bf6694", size = 710102, upload-time = "2026-01-11T16:49:06.852Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/15/413093c3b00bc27dcdbaf6b9b9b0b3076df9ef5462e87ba75fdd5257669c/openskill-6.2.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:2b1e8f66bcc9be185e6e2a0219e7c1764b9bbed35c22e44b41f07949221e77ca", size = 698172, upload-time = "2026-01-11T16:49:08.151Z" },
+    { url = "https://files.pythonhosted.org/packages/54/2d/78d5b708f0ab57c7b136b461b91eff92b892d37c6963bfef5cbebbe52966/openskill-6.2.0-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:8709089db3692ab2e829b1f4af97d90b00705158cfb67264c02db2db8b7f606b", size = 715316, upload-time = "2026-01-11T16:49:09.39Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/87/c4a1801557511ff211dee67c403db774c5604b583dedef508f11ae7e7be9/openskill-6.2.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:2aa8a3213658133659c92087327d6d1d3c48bb4df2f9e9a1596a6c40e5d4ba17", size = 713484, upload-time = "2026-01-11T16:49:10.737Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/f6/f885eb0d65538c3c8346b433fb2267a96d2c7b2fff714facaf8626d63e72/openskill-6.2.0-cp313-cp313-win32.whl", hash = "sha256:1306e5ba09b8a7599d9f295533239255b39766ba69ff224eaac22b6fbc0a99c5", size = 317714, upload-time = "2026-01-11T16:49:11.911Z" },
+    { url = "https://files.pythonhosted.org/packages/98/24/59b440a6015fcd90545d0deb0d34d295a3a3a2d835c387f65fa053068954/openskill-6.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:8bc4d3f01991c4bb636018fd2e0e7ff90eb934404f42e5a18b1d2be67ee10858", size = 356016, upload-time = "2026-01-11T16:49:13.068Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/11/2e0981f11153a06f6a6c7ae5bd84977e76c0e510af2d629288d4d5bdf81d/openskill-6.2.0-py3-none-any.whl", hash = "sha256:7c9cf8447181a5402793afe9230058ae1091ceb7fc0364b9ab3eb51e9eac1ac9", size = 48417, upload-time = "2026-01-11T16:49:14.274Z" },
 ]
 
 [[package]]
