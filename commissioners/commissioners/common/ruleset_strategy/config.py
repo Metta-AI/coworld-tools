@@ -168,6 +168,62 @@ class LeaderboardScoringConfig(_ConfigModel):
     half_life_hours: float = Field(default=2.0, gt=0)
 
 
+class LeaderboardAxisConfig(_ConfigModel):
+    key: str
+    label: str | None = None
+
+
+class LeaderboardColumnConfig(_ConfigModel):
+    key: str
+    label: str | None = None
+    value_type: Literal["number", "integer", "string", "boolean"] = "number"
+    sort: Literal["asc", "desc"] | None = None
+
+
+class LeaderboardViewConfig(_ConfigModel):
+    key: str = ""
+    title: str | None = None
+    description: str | None = None
+    score_key: str | None = None
+    score_axis_label: str | None = None
+    axis_values: dict[str, str] = Field(default_factory=dict)
+    columns: list[LeaderboardColumnConfig] = Field(default_factory=list)
+    half_life_hours: float | None = Field(default=None, gt=0)
+    window_hours: float | None = Field(default=None, gt=0)
+    lookback_hours: float | None = Field(default=None, gt=0)
+    default: bool = False
+    # TODO: delete compatibility fields after old config payloads stop using table terminology.
+    axes: list[LeaderboardColumnConfig] = Field(default_factory=list)
+    id: str | None = None
+    label: str | None = None
+    score_label: str | None = None
+    primary: bool = False
+
+    @model_validator(mode="after")
+    def fill_compatibility_names(self) -> "LeaderboardViewConfig":
+        if not self.columns and self.axes:
+            # TODO: delete compatibility shim after old configs stop using axes as display columns.
+            self.columns = self.axes
+        if self.id is not None and self.key == "":
+            self.key = self.id
+        if self.key == "":
+            score_column = next((column for column in self.columns if column.sort == "desc"), None)
+            self.key = self.score_key or (score_column.key if score_column is not None else "score")
+        if self.title is None and self.label is not None:
+            self.title = self.label
+        if self.score_axis_label is None and self.score_label is not None:
+            self.score_axis_label = self.score_label
+        if not self.axis_values:
+            window_hours = self.window_hours if self.window_hours is not None else self.lookback_hours
+            self.axis_values = {
+                "metric": self.score_key or self.key or "score",
+                "timeframe": f"{window_hours}h" if window_hours is not None else "all",
+            }
+        if self.primary:
+            self.default = True
+        return self
+
+
 class ScoringConfig(_ConfigModel):
     # "mean": round score is the mean of a policy's per-episode scores.
     # "rank": round score is the mean of a policy's per-episode rank points (placement within
@@ -176,6 +232,9 @@ class ScoringConfig(_ConfigModel):
     #         so only winning the game matters, not placement or margin.
     round_score: Literal["mean", "rank", "win"] = "mean"
     leaderboard: LeaderboardScoringConfig = Field(default_factory=LeaderboardScoringConfig)
+    leaderboards: list[LeaderboardViewConfig] = Field(default_factory=list)
+    # TODO: delete compatibility field after old config payloads stop using table terminology.
+    leaderboard_tables: list[LeaderboardViewConfig] = Field(default_factory=list)
     mechanics: str | None = None
 
 

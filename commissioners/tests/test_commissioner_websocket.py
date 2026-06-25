@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -7,8 +8,13 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from commissioners.common.app import commissioner_app
-from commissioners.common.server import _configured_episode_timeout_seconds, _episode_duration_limit_seconds, create_app
 from commissioners.common.commissioners import RulesetStrategyCommissioner
+from commissioners.common.server import (
+    RoundPlatformClient,
+    _configured_episode_timeout_seconds,
+    _episode_duration_limit_seconds,
+    create_app,
+)
 from commissioners.common.protocol import (
     CommissionerMessage,
     DivisionInfo,
@@ -17,7 +23,9 @@ from commissioners.common.protocol import (
     EpisodeScore,
     LeagueInfo,
     MembershipInfo,
+    RecentResult,
     RoundInfo,
+    RoundResultsRequest,
     RoundStart,
     VariantInfo,
 )
@@ -89,6 +97,56 @@ def test_round_websocket_schedules_and_completes() -> None:
     rankings = complete["results"][0]["rankings"]
     assert [ranking["policy_version_id"] for ranking in rankings] == [policy_version_ids[1], policy_version_ids[0]]
     assert [ranking["rank"] for ranking in rankings] == [1, 2]
+
+
+def test_round_platform_client_requests_round_results() -> None:
+    history_result = {
+        "round_id": str(uuid4()),
+        "division_id": str(uuid4()),
+        "round_number": 9,
+        "policy_version_id": str(uuid4()),
+        "rank": 1,
+        "score": 0.83,
+        "player_id": "player_abc",
+        "player_name": "Ada",
+        "result_metadata": {"score_kind": "score"},
+        "completed_at": "2026-06-25T00:00:00+00:00",
+    }
+    division_id = uuid4()
+
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict] = []
+
+        async def send_json(self, data: dict) -> None:
+            self.sent.append(data)
+
+        async def receive_json(self) -> dict:
+            return {
+                "type": "round_results_response",
+                "request_id": self.sent[0]["request_id"],
+                "results": [history_result],
+            }
+
+    async def run() -> tuple[FakeWebSocket, list[RecentResult]]:
+        websocket = FakeWebSocket()
+        client = RoundPlatformClient(websocket, asyncio.Lock())
+        results = await client.get_round_results(division_ids=[division_id], limit=2)
+        return websocket, results
+
+    websocket, results = asyncio.run(run())
+
+    assert websocket.sent == [
+        {
+            "type": "round_results_request",
+            "request_id": websocket.sent[0]["request_id"],
+            "division_ids": [str(division_id)],
+            "since_completed_at": None,
+            "before_completed_at": None,
+            "limit": 2,
+        }
+    ]
+    assert results == [RecentResult.model_validate(history_result)]
 
 
 def test_round_websocket_completes_with_zero_counts_when_all_episodes_fail() -> None:
@@ -400,6 +458,7 @@ def test_round_websocket_rejects_unknown_episode_result_request_id() -> None:
 
 
 def test_protocol_accepts_prefixed_round_public_id_and_episode_completed_response() -> None:
+    division_id = uuid4()
     round_info = RoundInfo(
         id=uuid4(),
         public_id="round_abc123",
@@ -423,3 +482,17 @@ def test_protocol_accepts_prefixed_round_public_id_and_episode_completed_respons
     assert round_info.public_id == "round_abc123"
     assert isinstance(parsed, EpisodeCompletedResponse)
     assert isinstance(parsed.episodes[0], EpisodeRequest)
+
+    history_request = CommissionerMessage.from_json(
+        {
+            "type": "round_results_request",
+            "request_id": "ewma-history-1",
+            "division_ids": [str(division_id)],
+            "limit": 250,
+        }
+    )
+    assert history_request == RoundResultsRequest(
+        request_id="ewma-history-1",
+        division_ids=[division_id],
+        limit=250,
+    )

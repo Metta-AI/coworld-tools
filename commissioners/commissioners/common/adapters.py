@@ -32,7 +32,8 @@ from commissioners.common.protocol import (
     DescribeDivisionResponse,
     DivisionDescription as CommissionerDivisionDescription,
     DivisionConfig as CommissionerDivisionConfig,
-    DivisionLeaderboardEntry as CommissionerDivisionLeaderboardEntry,
+    DivisionLeaderboard as CommissionerDivisionLeaderboard,
+    DivisionLeaderboardView as CommissionerDivisionLeaderboardView,
 )
 from commissioners.common.protocol import (
     MembershipChange as CommissionerMembershipChange,
@@ -312,8 +313,20 @@ def _protocol_round_spec(spec: RoundSpec) -> CommissionerRoundSpec:
     return CommissionerRoundSpec.model_validate(spec.model_dump(mode="json"))
 
 
-def _protocol_leaderboard_entry(entry: CommissionerDivisionLeaderboardEntry) -> CommissionerDivisionLeaderboardEntry:
-    return CommissionerDivisionLeaderboardEntry.model_validate(entry.model_dump(mode="json"))
+def _protocol_leaderboard_view(view: Any) -> CommissionerDivisionLeaderboardView:
+    return CommissionerDivisionLeaderboardView.model_validate(view.model_dump(mode="json"))
+
+
+def _protocol_division_leaderboard(
+    division_id: UUID,
+    leaderboards: Any,
+) -> CommissionerDivisionLeaderboard:
+    return CommissionerDivisionLeaderboard.model_validate(
+        {
+            "division_id": division_id,
+            **leaderboards.model_dump(mode="json"),
+        }
+    )
 
 
 def _protocol_division_description(
@@ -332,6 +345,98 @@ def _protocol_membership_change(change: Any) -> CommissionerMembershipChange:
 
 def _protocol_policy_membership_event(change: Any) -> CommissionerPolicyMembershipEventChange:
     return CommissionerPolicyMembershipEventChange.model_validate(change.model_dump(mode="json"))
+
+
+def _round_start_leaderboard_context(
+    round_start: CommissionerRoundStart,
+    complete: CommissionerRoundComplete,
+) -> DivisionLeaderboardContext:
+    current_division = _current_division(round_start)
+    membership_by_policy_version_id = {
+        membership.policy_version_id: membership
+        for membership in round_start.memberships
+        if membership.division_id == current_division.id
+    }
+    now = datetime.now(UTC)
+    completed_rounds_by_id: dict[UUID, RoundSnapshot] = {
+        round_start.round_id: RoundSnapshot(
+            id=round_start.round_id,
+            public_id=str(round_start.round_id),
+            division_id=current_division.id,
+            round_number=round_start.round_number,
+            status="completed",
+            round_config=_round_start_config(round_start),
+            completed_at=now,
+        )
+    }
+    round_results: list[LeaderboardRoundResultSnapshot] = []
+    for division_ranking in complete.results:
+        if division_ranking.division_id != current_division.id:
+            continue
+        for ranking in division_ranking.rankings:
+            membership = membership_by_policy_version_id.get(ranking.policy_version_id)
+            player_id = ranking.player_id or (membership.player_id if membership is not None else None)
+            if player_id is None:
+                continue
+            round_results.append(
+                LeaderboardRoundResultSnapshot(
+                    round_id=round_start.round_id,
+                    policy_version_id=ranking.policy_version_id,
+                    rank=ranking.rank,
+                    score=ranking.score,
+                    result_metadata=ranking.result_metadata,
+                    player_id=player_id,
+                )
+            )
+    for recent_result in round_start.recent_results:
+        if recent_result.division_id != current_division.id:
+            continue
+        completed_at = _parse_datetime(recent_result.completed_at)
+        if completed_at is None:
+            continue
+        completed_rounds_by_id.setdefault(
+            recent_result.round_id,
+            RoundSnapshot(
+                id=recent_result.round_id,
+                public_id=str(recent_result.round_id),
+                division_id=current_division.id,
+                round_number=recent_result.round_number,
+                status="completed",
+                round_config={},
+                completed_at=completed_at,
+            ),
+        )
+        membership = membership_by_policy_version_id.get(recent_result.policy_version_id)
+        player_id = recent_result.player_id or (membership.player_id if membership is not None else None)
+        if player_id is None:
+            continue
+        round_results.append(
+            LeaderboardRoundResultSnapshot(
+                round_id=recent_result.round_id,
+                policy_version_id=recent_result.policy_version_id,
+                rank=recent_result.rank,
+                score=recent_result.score,
+                result_metadata=recent_result.result_metadata,
+                player_id=player_id,
+                player_name=recent_result.player_name,
+            )
+        )
+    completed_rounds = sorted(
+        completed_rounds_by_id.values(),
+        key=lambda round_row: (round_row.completed_at or now, round_row.round_number),
+        reverse=True,
+    )
+    return DivisionLeaderboardContext(
+        league=LeagueSnapshot(
+            id=round_start.league.id,
+            commissioner_key=round_start.league.commissioner_key or "container",
+            commissioner_config=_round_start_config(round_start),
+        ),
+        division=current_division,
+        completed_rounds=completed_rounds,
+        recent_rounds=completed_rounds,
+        round_results=round_results,
+    )
 
 
 def complete_round_for_round_start(
@@ -397,6 +502,12 @@ def complete_round_for_round_start(
     complete.membership_changes = [_protocol_membership_change(change) for change in hook_result.membership_changes]
     complete.policy_membership_events = [
         _protocol_policy_membership_event(change) for change in hook_result.policy_membership_events
+    ]
+    complete.leaderboards = [
+        _protocol_division_leaderboard(
+            _current_division(round_start).id,
+            commissioner.rank_division_leaderboards(_round_start_leaderboard_context(round_start, complete)),
+        )
     ]
     return complete
 
@@ -516,7 +627,7 @@ def rank_division_for_request(
     commissioner: Commissioner,
     request: RankDivisionRequest,
 ) -> RankDivisionResponse:
-    rankings = commissioner.rank_division(
+    leaderboards = commissioner.rank_division_leaderboards(
         DivisionLeaderboardContext(
             league=LeagueSnapshot(
                 id=request.league.id,
@@ -546,7 +657,11 @@ def rank_division_for_request(
             ],
         )
     )
-    return RankDivisionResponse(rankings=[_protocol_leaderboard_entry(ranking) for ranking in rankings])
+    return RankDivisionResponse(
+        default_view_key=leaderboards.default_view_key,
+        axes=[axis.model_dump(mode="json") for axis in leaderboards.axes],
+        views=[_protocol_leaderboard_view(view) for view in leaderboards.views],
+    )
 
 
 def describe_division_for_request(
