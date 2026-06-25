@@ -6,6 +6,10 @@ The old standalone role repos (`players`, `commissioners`, `reporters`, `graders
 pointers to this repo. New shared role work belongs here. Game-specific pieces belong beside their game in the relevant
 `Metta-AI/coworld-<slug>` repo.
 
+The canonical Coworld rebuild flow is to start from a `packages/coworld` template, the Paint Arena example, or the
+closest implementation in this repo, then copy any Coworld-specific piece into the owning `coworld-<slug>` repo before
+customizing it.
+
 When rebuilding a Coworld, choose exactly one source owner for each runnable:
 
 - use a `coworld-tools/...` path for a shared implementation; or
