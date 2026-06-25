@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import random
+import time
 from typing import Any
 
 from commissioners.common.models import PolicyPool, PolicyPoolEntry, PoolConfig
@@ -98,10 +98,11 @@ def schedule_entries(
         # seed order that is stable across rounds, so two entries co-occur only when their circular
         # distance is below num_agents -- distant entries never share an episode no matter how many
         # rounds run (a banded matchup graph, not a round-robin). shuffled_window permutes the entry
-        # order per round, keyed by the round's pool id, so the band precesses every round and full
-        # pairwise coverage accrues across rounds (the granularity the EWMA leaderboard aggregates at)
-        # while preserving balanced per-entrant appearances.
-        primary_entries = _round_shuffled_entries(primary_entries, pool.id)
+        # order each time a round is scheduled so the band precesses and full pairwise coverage
+        # accrues across rounds (the granularity the EWMA leaderboard aggregates at) while preserving
+        # balanced per-entrant appearances. The permutation is seeded from the wall clock, not from
+        # any round/pool id, so a re-scheduled round never reuses its previous order.
+        primary_entries = _round_shuffled_entries(primary_entries)
 
     num_episodes = _pool_episode_count(
         config=pool_config,
@@ -176,13 +177,15 @@ def cycled(entries: list[PolicyPoolEntry], count: int, *, offset: int = 0) -> li
     return [entries[(offset + index) % len(entries)] for index in range(count)]
 
 
-def _round_shuffled_entries(entries: list[PolicyPoolEntry], pool_id: Any) -> list[PolicyPoolEntry]:
-    # Deterministic per-round permutation: same pool id -> same order (reproducible across the
-    # commissioner's schedule/score passes and independent of PYTHONHASHSEED), different rounds -> a
-    # different band.
-    seed = int.from_bytes(hashlib.sha256(str(pool_id).encode()).digest()[:8], "big")
+def _round_shuffle_seed() -> int:
+    # Wall-clock seed so each scheduling draws a fresh, never-reused permutation (a round id would be
+    # reused if the same round were re-scheduled). Isolated in a function so tests can pin it.
+    return time.time_ns()
+
+
+def _round_shuffled_entries(entries: list[PolicyPoolEntry]) -> list[PolicyPoolEntry]:
     shuffled = list(entries)
-    random.Random(seed).shuffle(shuffled)
+    random.Random(_round_shuffle_seed()).shuffle(shuffled)
     return shuffled
 
 

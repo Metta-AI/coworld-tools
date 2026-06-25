@@ -53,7 +53,7 @@ Example ruleset configs live in `configs/`:
 - `proxywar.yaml`: ProxyWar config with rolling-window 2-player/4-player scheduling, duplicate filling for short pools, crash-check qualifiers, and throttled episode dispatch.
 - `agricogla.yaml`: Agricogla config with `shuffled_window` scheduling (per-round-permuted entry order so every champion eventually meets every other across rounds, instead of the fixed band `baseline_window`/`rolling_window` produce) and per-episode win-rate scoring.
 
-`shuffled_window` seating is the round-robin-over-rounds option: `baseline_window` and `rolling_window` seat a fixed-width window of consecutive entries in a seed order that is stable across rounds, so two entries co-occur only when within `num_agents - 1` of each other and distant entries never share an episode. `shuffled_window` permutes the entry order each round (keyed by the round's pool id, so it stays reproducible) so the band precesses and full pairwise coverage accrues across rounds while per-entrant appearances stay balanced.
+`shuffled_window` seating is the round-robin-over-rounds option: `baseline_window` and `rolling_window` seat a fixed-width window of consecutive entries in a seed order that is stable across rounds, so two entries co-occur only when within `num_agents - 1` of each other and distant entries never share an episode. `shuffled_window` permutes the entry order each time a round is scheduled (seeded from the wall clock, so a re-scheduled round never reuses its previous order) so the band precesses and full pairwise coverage accrues across rounds while per-entrant appearances stay balanced.
 
 ## Among Them Style Staged Qualifier
 
