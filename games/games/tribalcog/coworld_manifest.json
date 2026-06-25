@@ -1,0 +1,244 @@
+{
+  "$schema": "../../coworld_manifest_schema.json",
+  "game": {
+    "name": "tribalcog",
+    "version": "0.3.0",
+    "description": "Tribal Cog packaged as a hosted Coworld with one controller slot per town. Controllers edit building program templates while citizens continue under compiled policies.",
+    "owner": "cogames@softmax.com",
+    "runnable": {
+      "type": "game",
+      "image": "coworld-tribalcog-game:latest",
+      "run": [
+        "python",
+        "-m",
+        "tribal_village_env.coworld.server"
+      ]
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "max_steps",
+        "seed",
+        "step_seconds",
+        "victory_condition"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Eight Coworld controller tokens, one for each town/team."
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "victory_condition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 180
+        },
+        "render_every_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 1
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scores",
+        "team_scores",
+        "steps",
+        "winner_team",
+        "victory_condition",
+        "truncation_reason"
+      ],
+      "properties": {
+        "scores": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          },
+          "description": "One cumulative reward score for each town controller slot."
+        },
+        "team_scores": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          },
+          "description": "Eight team scores matching the town-controller scores."
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "winner_team": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 7
+        },
+        "victory_condition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "truncation_reason": {
+          "type": "string",
+          "enum": [
+            "max_steps",
+            "game_over"
+          ]
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/player_protocol_spec.md"
+      },
+      "global": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/global_protocol_spec.md"
+      }
+    },
+    "docs": {
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/rules.md"
+          }
+        },
+        {
+          "id": "play_tribalcog.md",
+          "title": "play_tribalcog.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/games/blob/main/games/tribalcog/tribal_village_env/coworld/docs/play_tribalcog.md"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "town-overseer-player",
+      "name": "Town Overseer Player",
+      "type": "player",
+      "image": "coworld-tribalcog-player:latest",
+      "run": [
+        "python",
+        "-m",
+        "tribal_village_env.coworld.player"
+      ],
+      "description": "Lightweight reference player that connects as a town overseer, observes team fog-of-war, and edits visible building program templates."
+    }
+  ],
+  "variants": [
+    {
+      "id": "hosted-daily",
+      "name": "Hosted Daily",
+      "game_config": {
+        "max_steps": 1000,
+        "seed": 0,
+        "step_seconds": 0.1,
+        "victory_condition": 0,
+        "player_connect_timeout_seconds": 180,
+        "render_every_steps": 1
+      },
+      "description": "Hosted eight-town Tribal Cog match with one Coworld controller per town/team."
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "max_steps": 3,
+      "seed": 0,
+      "step_seconds": 0.01,
+      "victory_condition": 0,
+      "player_connect_timeout_seconds": 1,
+      "render_every_steps": 1
+    },
+    "players": [
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      },
+      {
+        "player_id": "town-overseer-player"
+      }
+    ]
+  },
+  "reporter": [
+    {
+      "id": "softmax-default-reporter",
+      "type": "reporter",
+      "name": "Softmax Default Reporter",
+      "description": "Softmax-published default reporter that writes a concise Markdown summary from Tribal Cog results. Tribal Cog has no game-specific reporter yet, so it references the default reporter.",
+      "source_url": "https://github.com/Metta-AI/reporters/tree/main/reporters/default",
+      "image": "ghcr.io/metta-ai/reporters-default:latest"
+    }
+  ],
+  "grader": [
+    {
+      "id": "tribal-cog-grader",
+      "name": "Tribal Cog Grader",
+      "type": "grader",
+      "description": "Reference Tribal Cog grader that scores team separation, decisive winners, episode length, and completion reason.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/tribal_cog/tribal_cog_grader",
+      "image": "ghcr.io/metta-ai/graders-tribal-cog:latest"
+    }
+  ]
+}

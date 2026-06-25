@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bombercog"
+version = "0.1.0"
+description = "Bomberman-style deathmatch game for the MettaGrid multi-agent environment"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [
+    { name = "Metta-AI" },
+]
+keywords = ["mettagrid", "multi-agent", "reinforcement-learning", "bomberman"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mettagrid>=0.25.5",
+    "pydantic>=2",
+    "numpy>=1.26",
+    "typer>=0.12",
+    "typing-extensions>=4.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+bombercog-play = "bombercog.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/bomber-cog"
+Repository = "https://github.com/Metta-AI/bomber-cog"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bombercog"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

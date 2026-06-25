@@ -1,0 +1,14 @@
+"""Role-specific tutorial eval missions — one per role."""
+
+from __future__ import annotations
+
+from cogsguard.missions.mission import CvCMission
+from cogsguard.missions.tutorial import TUTORIAL_SUB_MISSIONS, make_tutorial_mission
+
+
+def _make_role_tutorial(role: str) -> CvCMission:
+    base = make_tutorial_mission()
+    return base.with_variants([role]).model_copy(update={"name": f"{role}_tutorial", "num_agents": 4})
+
+
+EVAL_MISSIONS: list[CvCMission] = [_make_role_tutorial(role) for role in TUTORIAL_SUB_MISSIONS]

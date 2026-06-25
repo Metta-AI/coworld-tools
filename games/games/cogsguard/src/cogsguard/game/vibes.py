@@ -1,0 +1,54 @@
+"""Vibes variants for enabling or disabling explicit vibe actions."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from typing_extensions import override
+
+from pydantic import Field
+
+from cogsguard.core import CogsguardMissionVariant, Deps
+from mettagrid.config.action_config import ChangeVibeActionConfig
+from mettagrid.config.mettagrid_config import MettaGridConfig
+from mettagrid.config.vibes import Vibe
+
+if TYPE_CHECKING:
+    from cogsguard.missions.mission import CvCMission
+
+
+class VibesVariant(CogsguardMissionVariant):
+    """Add vibes and the change_vibe action."""
+
+    name: str = "vibes"
+    description: str = "Agents can express vibes via the change_vibe action."
+    vibes: list[Vibe] = Field(
+        default_factory=lambda: [
+            Vibe("😐", "default"),
+            Vibe("❤️", "heart"),
+            Vibe("⚙️", "gear"),
+            Vibe("🌀", "scrambler"),
+            Vibe("🔗", "aligner"),
+            Vibe("⛏️", "miner"),
+            Vibe("🔭", "scout"),
+        ]
+    )
+
+    @override
+    def modify_env(self, mission: CvCMission, env: MettaGridConfig) -> None:
+        env.game.vibe_names = [v.name for v in self.vibes]
+        env.game.actions.change_vibe = ChangeVibeActionConfig(vibes=self.vibes)
+
+
+class NoVibesVariant(CogsguardMissionVariant):
+    """Disable explicit vibe-changing while preserving existing vibe semantics."""
+
+    name: str = "no_vibes"
+    description: str = "Remove change_vibe actions from the action space."
+
+    @override
+    def dependencies(self) -> Deps:
+        return Deps(optional=[VibesVariant])
+
+    @override
+    def modify_env(self, mission: CvCMission, env: MettaGridConfig) -> None:
+        env.game.actions.change_vibe.enabled = False

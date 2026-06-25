@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tribal Cog Replay</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #101313; color: #eef2ee; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+    main { display: grid; place-items: center; padding: 16px; background: #171b1b; }
+    aside { border-left: 1px solid #303838; padding: 16px; background: #111616; }
+    canvas { width: min(100%, 1200px); height: auto; background: #070908; border: 1px solid #303838; }
+    h1 { margin: 0 0 12px; font-size: 18px; }
+    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #253030; font-size: 14px; }
+    input { width: 100%; accent-color: #80d39b; }
+    @media (max-width: 800px) { body { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #303838; } }
+  </style>
+</head>
+<body>
+  <main><canvas id="view" width="1" height="1"></canvas></main>
+  <aside>
+    <h1>Replay</h1>
+    <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
+    <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
+    <div class="stat"><span>Objects</span><strong id="objects">0</strong></div>
+    <input id="scrub" type="range" min="0" max="0" value="0">
+  </aside>
+  <script>
+    const pageUrl = new URL(window.location.href);
+    const canvas = document.getElementById("view");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const stepEl = document.getElementById("step");
+    const objectsEl = document.getElementById("objects");
+    const scrubEl = document.getElementById("scrub");
+    let replay = null;
+
+    const ws = new WebSocket(websocketAddress("/replay"));
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type !== "replay") return;
+      replay = message.replay;
+      statusEl.textContent = "loaded";
+      objectsEl.textContent = message.object_count;
+      const maxSteps = Number(message.max_steps || replay.max_steps || 0);
+      scrubEl.max = Math.max(0, maxSteps - 1);
+      stepEl.textContent = `0 / ${maxSteps}`;
+      initCanvas(replay);
+      drawStep(0);
+    };
+    ws.onclose = () => { if (!replay) statusEl.textContent = "closed"; };
+    scrubEl.oninput = () => drawStep(Number(scrubEl.value));
+
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/replay(\/.*)?$/, `${path}$1`);
+      target.hash = "";
+      return target.toString();
+    }
+
+    function initCanvas(data) {
+      const size = data.map_size || [306, 192];
+      canvas.width = size[0];
+      canvas.height = size[1];
+    }
+
+    function drawStep(step) {
+      if (!replay) return;
+      ctx.fillStyle = "#0a0c0b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const colors = ["#e45757", "#4f8de4", "#74bd66", "#e6c64c", "#b875e6", "#46c5c8", "#e58a4c", "#c7d3d5", "#9aa54e"];
+      for (const obj of replay.objects || []) {
+        const location = valueAt(obj.location, step);
+        if (!location || location[0] < 0 || location[1] < 0) continue;
+        const color = valueAt(obj.color, step) ?? 8;
+        ctx.fillStyle = colors[Math.max(0, Math.min(colors.length - 1, color))];
+        ctx.fillRect(location[0], location[1], 2, 2);
+      }
+      stepEl.textContent = `${step} / ${replay.max_steps || 0}`;
+    }
+
+    function valueAt(series, step) {
+      if (!Array.isArray(series)) return null;
+      let value = null;
+      for (const change of series) {
+        if (change[0] > step) break;
+        value = change[1];
+      }
+      return value;
+    }
+  </script>
+</body>
+</html>

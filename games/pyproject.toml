@@ -1,0 +1,36 @@
+[project]
+name = "metta-games"
+version = "0.1.0"
+description = "Consolidated game definitions and runtime packages for Metta-AI Coworld-style environments."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Pin mettagrid at the published Metta-AI/mettagrid mirror so workspace members
+# resolve `mettagrid.cogame` and `mettagrid.sdk.cogsguard` (added in
+# mettagrid-v0.26.24, not yet on PyPI). Drop this once a newer mettagrid wheel
+# is published.
+mettagrid = { git = "https://github.com/Metta-AI/mettagrid.git", tag = "mettagrid-v0.26.24" }
+
+[tool.uv.workspace]
+members = [
+  "games/amongcogs",
+  "games/bombercog",
+  "games/cogisis",
+  "games/cogony",
+  "games/diplomacog",
+  "games/euchre",
+  "games/hungercog",
+  "games/overcogged",
+  "games/tribalcog",
+  "games/werecog",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.12",
+]

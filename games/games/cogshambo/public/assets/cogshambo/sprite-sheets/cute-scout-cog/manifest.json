@@ -1,0 +1,78 @@
+{
+  "name": "cute-scout-cog",
+  "source_sheet": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/cute-scout-cog-sheet.png",
+  "source_sheet_url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/cute-scout-cog-sheet.png",
+  "frame_width": 48,
+  "frame_height": 48,
+  "columns": 4,
+  "rows": 4,
+  "frame_count": 16,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-01.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-02.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-02.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-03.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-03.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-04.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-04.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-05.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-05.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-06.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-06.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-07.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-07.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-08.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-08.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-09.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-09.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-10.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-10.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-11.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-11.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-12.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-12.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-13.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-13.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-14.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-14.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-15.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-15.png"
+    },
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-16.png",
+      "url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/frames/cute-scout-cog-16.png"
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/cute-scout-cog/cute-scout-cog-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/cute-scout-cog/cute-scout-cog-preview.png"
+}

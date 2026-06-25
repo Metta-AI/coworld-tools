@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from typing_extensions import Self
+
+from cogsguard.core import CogsguardMission
+from cogsguard.missions.terrain import find_machina_arena
+from mettagrid.config.action_config import ActionsConfig, MoveActionConfig, NoopActionConfig
+from mettagrid.config.mettagrid_config import AgentConfig, GameConfig, MettaGridConfig, WallConfig
+from mettagrid.config.obs_config import GlobalObsConfig, ObsConfig
+from mettagrid.config.render_config import RenderConfig
+
+
+class CvCMission(CogsguardMission):
+    """Mission configuration for CvC game mode."""
+
+    default_variant: str | None = "machina_1"
+    max_steps: int = 10000
+    num_agents: int = 8
+
+    @classmethod
+    def variant_module_prefixes(cls) -> tuple[str, ...]:
+        return ("cogsguard.",)
+
+    def with_cogs(self, cogs: int) -> Self:
+        map_builder = self.map_builder.model_copy(deep=True)
+        arena = find_machina_arena(map_builder)
+        if arena is not None:
+            arena.spawn_count = cogs
+        return self.model_copy(deep=True, update={"num_cogs": cogs, "num_agents": cogs, "map_builder": map_builder})
+
+    def make_base_env(self) -> MettaGridConfig:
+        return MettaGridConfig(
+            game=GameConfig(
+                map_builder=self.map_builder,
+                max_steps=self.max_steps,
+                num_agents=self.num_agents,
+                resource_names=[],
+                obs=ObsConfig(
+                    global_obs=GlobalObsConfig(
+                        local_position=True,
+                        last_action_move=True,
+                    ),
+                    territory=True,
+                ),
+                actions=ActionsConfig(
+                    move=MoveActionConfig(),
+                    noop=NoopActionConfig(),
+                ),
+                agents=[AgentConfig() for _ in range(self.num_agents)],
+                objects={"wall": WallConfig(name="wall")},
+                render=RenderConfig(symbols={"wall": "⬛"}),
+                events={},
+            )
+        )

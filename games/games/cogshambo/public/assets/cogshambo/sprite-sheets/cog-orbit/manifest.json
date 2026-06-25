@@ -1,0 +1,32 @@
+{
+  "name": "cog-orbit",
+  "source_sheet": "public/assets/cogshambo/cogs/cog-orbit.png",
+  "source_sheet_url": "/assets/cogshambo/cogs/cog-orbit.png",
+  "frame_width": 192,
+  "frame_height": 192,
+  "columns": 1,
+  "rows": 1,
+  "frame_count": 1,
+  "frames": [
+    {
+      "path": "public/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01.png",
+      "url": "/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01.png",
+      "spriteUrls": {
+        "red": "/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-red.png",
+        "blue": "/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-blue.png"
+      },
+      "variants": {
+        "red": {
+          "path": "public/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-red.png",
+          "url": "/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-red.png"
+        },
+        "blue": {
+          "path": "public/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-blue.png",
+          "url": "/assets/cogshambo/sprite-sheets/cog-orbit/frames/cog-orbit-01-blue.png"
+        }
+      }
+    }
+  ],
+  "preview": "public/assets/cogshambo/sprite-sheets/cog-orbit/cog-orbit-preview.png",
+  "preview_url": "/assets/cogshambo/sprite-sheets/cog-orbit/cog-orbit-preview.png"
+}

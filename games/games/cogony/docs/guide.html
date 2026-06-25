@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cogony -- Player Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --core: #8899aa;
+    --os: #00e5ff;
+    --gen: #e0e8f0;
+    --storage: #ffab00;
+    --heal: #30d158;
+    --utility: #ff8c00;
+    --bg: #0a0e14;
+    --bg-surface: #111820;
+    --bg-card: #151c26;
+    --border: #1e2a38;
+    --text: #c8d6e5;
+    --text-dim: #6b7f95;
+    --text-bright: #e8f0fa;
+    --accent: #00e5ff;
+    --accent-dim: #006878;
+    --red: #ff4d6a;
+    --blue: #4d9fff;
+    --green: #30d158;
+    --yellow: #ffab00;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    min-height: 100vh;
+  }
+
+  .container {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 56px 32px 120px;
+  }
+
+  /* ---- HEADER ---- */
+  header {
+    text-align: center;
+    padding-bottom: 48px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+
+  header h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 44px;
+    letter-spacing: 4px;
+    color: var(--text-bright);
+    text-transform: uppercase;
+    text-shadow: 0 0 40px rgba(0,229,255,0.2), 0 0 80px rgba(0,229,255,0.08);
+    margin-bottom: 8px;
+  }
+
+  header .tagline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+  }
+
+  /* ---- NAV PILLS ---- */
+  .nav-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 24px;
+  }
+
+  .nav-pills a {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    transition: all 0.2s;
+  }
+
+  .nav-pills a:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+    background: rgba(0,229,255,0.04);
+  }
+
+  /* ---- SECTIONS ---- */
+  h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 1.5px;
+    color: var(--text-bright);
+    margin-top: 56px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    scroll-margin-top: 32px;
+  }
+
+  h2 .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    background: rgba(0,229,255,0.08);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+
+  h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.8px;
+    color: var(--accent);
+    margin-top: 28px;
+    margin-bottom: 10px;
+  }
+
+  p { margin-bottom: 14px; }
+
+  /* ---- CODE ---- */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: rgba(0,229,255,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* ---- CARDS ---- */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+
+  .card.tip {
+    border-left: 3px solid var(--accent);
+  }
+
+  .card.warn {
+    border-left: 3px solid var(--yellow);
+  }
+
+  .card.danger {
+    border-left: 3px solid var(--red);
+  }
+
+  .card strong { color: var(--text-bright); }
+
+  /* ---- CALLOUT ---- */
+  .callout {
+    background: rgba(0,229,255,0.03);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 20px;
+    margin: 14px 0;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+
+  .callout strong { color: var(--text-bright); }
+
+  /* ---- FORMULA ---- */
+  .formula {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 20px;
+    margin: 14px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  /* ---- TABLES ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 14px;
+  }
+
+  thead th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(30,42,56,0.5);
+    vertical-align: top;
+  }
+
+  tbody tr:hover { background: rgba(0,229,255,0.02); }
+
+  /* ---- LISTS ---- */
+  ul, ol { margin: 10px 0 14px 20px; }
+  li { margin-bottom: 8px; }
+
+  /* ---- DOTS ---- */
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .dot-core    { background: var(--core); }
+  .dot-os      { background: var(--os); }
+  .dot-gen     { background: var(--gen); }
+  .dot-storage { background: var(--storage); }
+  .dot-heal    { background: var(--heal); }
+
+  /* ---- SUB LABELS ---- */
+  .sub-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .sub-label.core    { color: var(--core); background: rgba(136,153,170,0.12); }
+  .sub-label.os      { color: var(--os); background: rgba(0,229,255,0.1); }
+  .sub-label.gen     { color: var(--gen); background: rgba(224,232,240,0.1); }
+  .sub-label.storage { color: var(--storage); background: rgba(255,171,0,0.1); }
+
+  /* ---- GEAR INLINE ---- */
+  .gear-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0 24px;
+  }
+
+  .gear-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    flex: 0 0 auto;
+  }
+
+  .gear-chip img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 4px;
+    filter: drop-shadow(0 0 4px rgba(0,229,255,0.08));
+  }
+
+  .gear-chip .gc-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .gear-chip .gc-stat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .gc-core    { color: var(--core); }
+  .gc-os      { color: var(--os); }
+  .gc-gen     { color: var(--gen); }
+  .gc-storage { color: var(--storage); }
+  .gc-heal    { color: var(--heal); }
+  .gc-util    { color: var(--utility); }
+
+  /* ---- TEAM COLORS ---- */
+  .team-red    { color: #ff4d6a; }
+  .team-blue   { color: #4d9fff; }
+  .team-green  { color: #30d158; }
+  .team-yellow { color: #ffab00; }
+
+  /* ---- STEP LIST ---- */
+  .steps { counter-reset: step; list-style: none; margin-left: 0; padding-left: 0; }
+
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 48px;
+    margin-bottom: 20px;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0; top: 0;
+    width: 32px; height: 32px;
+    background: rgba(0,229,255,0.08);
+    border: 1px solid var(--accent-dim);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  /* ---- HORIZONTAL RULE ---- */
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* ---- SCROLLBAR ---- */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ---- TIP GRID ---- */
+  .tip-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+
+  .tip-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+
+  .tip-item strong {
+    color: var(--accent);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 640px) {
+    .tip-grid { grid-template-columns: 1fr; }
+    .container { padding: 32px 20px 80px; }
+    header h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- ======== HEADER ======== -->
+<header>
+  <h1>Cogony</h1>
+  <div class="tagline">player guide // learn the system, run the grid</div>
+  <nav class="nav-pills">
+    <a href="#world">The World</a>
+    <a href="#goal">Goal</a>
+    <a href="#first-steps">First Steps</a>
+    <a href="#combat">Combat</a>
+    <a href="#gear">Gear</a>
+    <a href="#economy">Economy</a>
+    <a href="#teams">Teams</a>
+    <a href="#death">Death</a>
+    <a href="#tips">Tips</a>
+  </nav>
+</header>
+
+<!-- ======== THE WORLD ======== -->
+<h2 id="world"><span class="num">01</span> The World</h2>
+
+<p>Welcome to Cogony. Everything here runs on <strong>CogOS</strong> &mdash; an agentic operating system that powers every entity in the world. Your cog, the extractors you mine, the junctions you fight over &mdash; they all run CogOS instances. This shared substrate is what makes the world tick.</p>
+
+<div class="card tip">
+  <p><strong>Coherence</strong> is the measure of how well CogOS holds an entity together. Think of it as structural integrity. When coherence drops to zero, the entity's CogOS instance crashes and it enters a disabled state &mdash; a reboot cycle where it can be looted, reprogrammed, or left to recover.</p>
+</div>
+
+<p>You are a <strong>cog</strong> &mdash; a digital cognitive entity, an autonomous agent navigating a grid of resources, stations, and other cogs. The world is populated with <strong>extractors</strong> (resource nodes running CogOS), <strong>junctions</strong> (territorial control points running CogOS), <strong>hubs</strong> (team headquarters), and <strong>stations</strong> (shops where you upgrade).</p>
+
+<p>Every entity that can be attacked has a coherence bar. When you damage something, you're disrupting its CogOS instance. When it hits zero, the process crashes, the entity goes down, and opportunity opens up.</p>
+
+<!-- ======== GOAL ======== -->
+<h2 id="goal"><span class="num">02</span> Goal</h2>
+
+<p>Accumulate <strong>hearts</strong> &mdash; the victory points of Cogony. Hearts are permanent: they survive death, looting, everything. Your reward each step is proportional to how many hearts you've earned:</p>
+
+<div class="formula">reward = delta_hearts / max_steps</div>
+
+<p>To get hearts you need creds. To get creds you need elements. To get elements you need to mine extractors. The pipeline:</p>
+
+<div class="card">
+  <p style="text-align:center; font-family:'JetBrains Mono',monospace; font-size:14px; color: var(--text-bright);">
+    extractors &rarr; elements &rarr; market &rarr; creds &rarr; heart station &rarr; hearts
+  </p>
+</div>
+
+<!-- ======== FIRST STEPS ======== -->
+<h2 id="first-steps"><span class="num">03</span> First Steps</h2>
+
+<p>You spawn with 50 coherence, 100 creds, 5 gear slots, and zero combat stats. Here's how to get moving:</p>
+
+<ol class="steps">
+  <li>
+    <strong>Buy gear.</strong> Find a gear station and bump it. Your first piece costs 10 creds, the second costs 20, and so on (<code>10 &times; gear_held</code>). With 100 starting creds, you can afford several pieces. Prioritize attack gear &mdash; you need to kill extractors.
+  </li>
+  <li>
+    <strong>Farm low-level extractors.</strong> Level 1&ndash;3 extractors have zero damage &mdash; they can't fight back. Bump them to attack. When their coherence hits 0, they drop <code>rand(0, 10 &times; level)</code> elements. Bump the disabled node again to loot.
+  </li>
+  <li>
+    <strong>Sell at the market.</strong> Find a market station and bump it. Every 10 elements (any mix) converts to 1 cred.
+  </li>
+  <li>
+    <strong>Buy hearts.</strong> When you have 100 creds, find a heart station. Each bump converts 100 creds to 1 heart. This is your score.
+  </li>
+  <li>
+    <strong>Scale up.</strong> Buy more gear slots at the slot station (10 creds each). Stack attack and defense gear. Farm higher-level extractors for bigger loot drops. Join a team for passive cred income.
+  </li>
+</ol>
+
+<!-- ======== COMBAT ======== -->
+<h2 id="combat"><span class="num">04</span> Combat</h2>
+
+<p>Combat in Cogony resolves across <strong>four subsystems simultaneously</strong>:</p>
+
+<table>
+  <thead><tr><th>Subsystem</th><th>Attack stat</th><th>Defense stat</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot dot-core"></span>Core</td><td><code>core_a</code></td><td><code>core_d</code></td></tr>
+    <tr><td><span class="dot dot-os"></span>OS</td><td><code>os_a</code></td><td><code>os_d</code></td></tr>
+    <tr><td><span class="dot dot-gen"></span>Generator</td><td><code>gen_a</code></td><td><code>gen_d</code></td></tr>
+    <tr><td><span class="dot dot-storage"></span>Storage</td><td><code>storage_a</code></td><td><code>storage_d</code></td></tr>
+  </tbody>
+</table>
+
+<p>When you bump an enemy, damage is calculated for each channel:</p>
+
+<div class="formula">damage = &Sigma; max(0, your_attack[C] &minus; target_defense[C])</div>
+
+<p>If the target survives (coherence &gt; 0), it <strong>strikes back</strong> using the same formula in reverse. Combat is symmetric &mdash; there is no separate counterattack stat. This means picking fights with stronger entities is risky.</p>
+
+<div class="card warn">
+  <p><strong>Balance matters.</strong> If your core_a is 5 but their core_d is 6, that channel does zero damage. Stack attack in subsystems where enemies are weak. Spread defense to cover your own gaps.</p>
+</div>
+
+<h3>Vibes</h3>
+<p>You can override your default bump behavior with vibes:</p>
+<ul>
+  <li><code>vibe_attack</code> &mdash; every bump becomes an attack, even against teammates</li>
+  <li><code>vibe_heal</code> &mdash; every bump heals the target by your <code>patch</code> stat</li>
+  <li><code>vibe_patch</code> &mdash; one-shot heal: heals once, then reverts to default behavior</li>
+  <li><code>vibe_default</code> &mdash; normal context-dependent bumps</li>
+</ul>
+
+<!-- ======== GEAR ======== -->
+<h2 id="gear"><span class="num">05</span> Gear</h2>
+
+<p>Gear is everything. Without it, all your combat stats are zero. Each piece occupies 1 slot and gives +1 to its stat. There are 10 gear types across 4 subsystems plus 2 utilities:</p>
+
+<h3>Subsystem Gear</h3>
+<div class="gear-row">
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/core_a.concept.png" alt="core_a"><div><div class="gc-name gc-core">core_a</div><div class="gc-stat">Core ATK +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/core_d.concept.png" alt="core_d"><div><div class="gc-name gc-core">core_d</div><div class="gc-stat">Core DEF +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/os_a.concept.png" alt="os_a"><div><div class="gc-name gc-os">os_a</div><div class="gc-stat">OS ATK +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/os_d.concept.png" alt="os_d"><div><div class="gc-name gc-os">os_d</div><div class="gc-stat">OS DEF +1</div></div></div>
+</div>
+<div class="gear-row">
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/gen_a.concept.png" alt="gen_a"><div><div class="gc-name gc-gen">gen_a</div><div class="gc-stat">GEN ATK +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/gen_d.concept.png" alt="gen_d"><div><div class="gc-name gc-gen">gen_d</div><div class="gc-stat">GEN DEF +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/storage_a.concept.png" alt="storage_a"><div><div class="gc-name gc-storage">storage_a</div><div class="gc-stat">STO ATK +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/generated_imgs/generated-2026-04-28T19-21-13-351Z-jwinh1.png" alt="storage_d"><div><div class="gc-name gc-storage">storage_d</div><div class="gc-stat">STO DEF +1</div></div></div>
+</div>
+
+<h3>Utility Gear</h3>
+<div class="gear-row">
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/patch.concept.png" alt="patch"><div><div class="gc-name gc-heal">patch</div><div class="gc-stat">Heal +1</div></div></div>
+  <div class="gear-chip"><img src="file:///Users/daveey/code/cogame-cogony/assets/artgen/artout/arttmp/cargo.concept.png" alt="cargo"><div><div class="gc-name gc-util">cargo</div><div class="gc-stat">Cargo +20</div></div></div>
+</div>
+
+<h3>Costs</h3>
+<div class="formula">gear_cost = 10 &times; gear_held&ensp;&ensp;// 1st = 10, 2nd = 20, 3rd = 30 ...</div>
+<div class="formula">slot_cost = 10 creds&ensp;&ensp;// flat rate per additional slot</div>
+
+<!-- ======== ECONOMY ======== -->
+<h2 id="economy"><span class="num">06</span> Economy</h2>
+
+<p>The economy flows in one direction: raw materials to victory.</p>
+
+<h3>Elements</h3>
+<p>Four element types, mined from extractors:</p>
+<ul>
+  <li><span class="dot dot-core"></span><strong>Carbon (C)</strong> &mdash; from carbon extractors</li>
+  <li><span class="dot dot-os"></span><strong>Oxygen (O)</strong> &mdash; from oxygen extractors</li>
+  <li><span class="dot dot-gen"></span><strong>Germanium (G)</strong> &mdash; from germanium extractors</li>
+  <li><span class="dot dot-storage"></span><strong>Silicon (S)</strong> &mdash; from silicon extractors</li>
+</ul>
+<p>Your cargo capacity limits how many elements you can carry. Base is 100; each <code>cargo</code> gear adds 20.</p>
+
+<h3>Conversion Chain</h3>
+<table>
+  <thead><tr><th>From</th><th>To</th><th>Where</th><th>Rate</th></tr></thead>
+  <tbody>
+    <tr><td>Elements</td><td>Creds</td><td>Market station</td><td>10 elements &rarr; 1 cred</td></tr>
+    <tr><td>Creds</td><td>Hearts</td><td>Heart station</td><td>100 creds &rarr; 1 heart</td></tr>
+  </tbody>
+</table>
+
+<h3>Extractors Level Up</h3>
+<p>Extractors grow every time they reboot. Higher level means more loot but tougher fights:</p>
+<table>
+  <thead><tr><th>Stat</th><th>Formula</th></tr></thead>
+  <tbody>
+    <tr><td>Max coherence</td><td><code>level &times; 20</code></td></tr>
+    <tr><td>Resist (all 4)</td><td><code>level</code></td></tr>
+    <tr><td>Damage (all 4)</td><td><code>max(0, level &minus; 3)</code></td></tr>
+    <tr><td>Loot drop</td><td><code>rand(0, 10 &times; level)</code></td></tr>
+    <tr><td>Reboot time</td><td><code>10 &times; level</code> ticks</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>Subsystem specialization:</strong> Each extractor type has primary and secondary subsystems. On each reboot, those subsystem stats (attack + defense) each have a 50% chance of gaining +1. Over time, extractors become lopsided &mdash; strong in some channels, normal in others. Learn to read which subsystems to attack through.
+</div>
+
+<p>Extractors also visually grow &mdash; sprites start at 40% size (level 1) and scale to 100% at level 8+.</p>
+
+<!-- ======== TEAMS ======== -->
+<h2 id="teams"><span class="num">07</span> Teams</h2>
+
+<p>There are four teams: <span class="team-red">cogs_red</span>, <span class="team-blue">cogs_blue</span>, <span class="team-green">cogs_green</span>, <span class="team-yellow">cogs_yellow</span>. You start teamless. To join, bump a team's hub.</p>
+
+<h3>Join Cost</h3>
+<div class="formula">cost = 100 &times; |aligned_junctions| // max(1, num_members)&ensp;&ensp;creds</div>
+<p>Bigger teams with more junctions cost more to join. Small scrappy teams are cheaper.</p>
+
+<h3>Passive Income</h3>
+<p>Every 100 ticks, each team's hub:</p>
+<ol>
+  <li>Gains <code>10 &times; junctions_held</code> creds</li>
+  <li>Distributes its entire balance equally to all members</li>
+  <li>Keeps any remainder for the next cycle</li>
+</ol>
+
+<div class="card tip">
+  <p><strong>Junctions are the key to team wealth.</strong> Control junctions by attacking them down (they strike back just like extractors) and then bumping the disabled junction to align it to your team. Each junction your team holds generates 10 creds per payout cycle, split among members.</p>
+</div>
+
+<h3>Junctions vs Extractors</h3>
+<p>Junctions use the same level/stats system as extractors but with two differences:</p>
+<ul>
+  <li>They hold <strong>no elements</strong> &mdash; you can't loot resources from them</li>
+  <li>They do <strong>NOT</strong> gain random subsystem bonuses on reboot &mdash; they only gain the base stats from leveling</li>
+</ul>
+
+<!-- ======== DEATH ======== -->
+<h2 id="death"><span class="num">08</span> Death</h2>
+
+<p>When your coherence hits 0, your CogOS instance crashes. You enter a disabled state:</p>
+
+<ul>
+  <li>A <code>reboot</code> counter increments each tick</li>
+  <li>When <code>reboot &ge; max_coherence // 2</code>, you restart at 50% coherence</li>
+  <li>While disabled, anyone can loot your <strong>elements and gear</strong></li>
+</ul>
+
+<div class="card danger">
+  <p><strong>What you lose:</strong> Elements (all types) and gear &mdash; everything lootable is up for grabs.</p>
+  <p style="margin-top:8px"><strong>What you keep:</strong> Creds and hearts. These are permanent and cannot be taken.</p>
+</div>
+
+<p>This means converting elements to creds (at the market) and creds to hearts (at the heart station) as quickly as possible is critical. Raw elements in your inventory are a liability.</p>
+
+<!-- ======== TIPS ======== -->
+<h2 id="tips"><span class="num">09</span> Tips</h2>
+
+<div class="tip-grid">
+  <div class="tip-item">
+    <strong>Convert early</strong>
+    Elements in your cargo can be looted. Sell at the market the moment you have 10+ elements. Don't hoard.
+  </div>
+  <div class="tip-item">
+    <strong>Read the levels</strong>
+    Extractors at level 1-3 can't fight back (Dmg = 0). Level 4+ gets dangerous. Size tells you level &mdash; bigger sprite = higher level.
+  </div>
+  <div class="tip-item">
+    <strong>Stack one channel</strong>
+    Five core_a gear gives 5 attack in Core. If the enemy has 2 core_d, you deal 3 damage per hit in that channel alone. Focused builds punch through.
+  </div>
+  <div class="tip-item">
+    <strong>Slot station is cheap</strong>
+    10 creds per extra slot. More slots means more gear, which means more stats. Get slots early.
+  </div>
+  <div class="tip-item">
+    <strong>Heal teammates</strong>
+    Bumping a teammate with coherence > 0 heals them by your <code>patch</code> stat. Stack patch gear to be a dedicated healer.
+  </div>
+  <div class="tip-item">
+    <strong>Use vibe_patch</strong>
+    One-shot heal mode: apply your patch heal once and automatically revert to default. Perfect for quick drive-by healing without staying stuck in heal mode.
+  </div>
+  <div class="tip-item">
+    <strong>Join a team</strong>
+    Passive cred income from junctions adds up. Even a few junctions mean free creds every 100 ticks. Coordinate to hold more.
+  </div>
+  <div class="tip-item">
+    <strong>Loot the disabled</strong>
+    Disabled cogs drop elements AND gear. A defeated enemy is a gear piata. Disabled extractors drop bonus elements on top of whatever they were holding.
+  </div>
+  <div class="tip-item">
+    <strong>Watch reboot timers</strong>
+    Extractor reboot = <code>10 &times; level</code> ticks. High-level nodes take longer to come back. Time your farming runs.
+  </div>
+  <div class="tip-item">
+    <strong>Subsystem scouting</strong>
+    Each extractor type specializes in specific subsystems. Carbon extractors build up Core/OS stats; silicon builds Storage/Core. Attack through their weak channels.
+  </div>
+</div>
+
+<hr>
+<p style="color:var(--text-dim);font-size:12px;font-family:'JetBrains Mono',monospace;text-align:center;margin-top:32px">cogony player guide // boot up, gear up, stack hearts</p>
+
+</div>
+
+</body>
+</html>

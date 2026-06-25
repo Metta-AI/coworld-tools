@@ -1,0 +1,9 @@
+agents/werewolf_mafia_villager.{dir}.png	Pixel art villager role unit sprite for werewolf mafia game. {orientation}
+agents/werewolf_mafia_werewolf.{dir}.png	Pixel art werewolf role unit sprite for werewolf mafia game. {orientation}
+agents/werewolf_mafia_dead.{dir}.png	Pixel art dead villager sprite with a red X overlay for werewolf mafia game. {orientation}
+objects/werewolf_mafia_villager_station.png	Pixel art villager station object sprite for werewolf mafia game.
+objects/werewolf_mafia_werewolf_station.png	Pixel art werewolf station object sprite for werewolf mafia game.
+objects/werewolf_mafia_meeting_bell.png	Pixel art meeting bell object sprite for werewolf mafia game.
+resources/alive.png	Pixel art alive resource icon for werewolf mafia game.
+resources/vote_token.png	Pixel art vote token resource icon for werewolf mafia game.
+resources/suspicion.png	Pixel art suspicion resource icon for werewolf mafia game.

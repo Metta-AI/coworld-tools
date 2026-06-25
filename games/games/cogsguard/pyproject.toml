@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogsguard"
+description = "CogsGuard game runtime for Coworld"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "mettagrid>=0.26.11",
+  "pydantic>=2.11.5",
+  "typing-extensions>=4.12.0",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-xdist"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cogsguard", "cogsguard.*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+cogsguard = [
+  "docs/*.md",
+  "evals/*.md",
+  "maps/*.map",
+  "maps/**/*.map",
+]
+
+[tool.setuptools_scm]
+version_scheme = "no-guess-dev"
+local_scheme = "no-local-version"
+fallback_version = "0.0.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

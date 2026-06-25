@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "overcogged"
+version = "0.1.0"
+description = "Standalone Overcogged game built on mettagrid"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Metta AI", email = "info@metta.ai" }]
+requires-python = ">=3.11,<3.13"
+keywords = ["mettagrid", "cogames", "multi-agent", "reinforcement-learning", "overcogged"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "websockets>=15.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "fastapi>=0.115.0",
+  "mettagrid>=0.25.4",
+  "pydantic>=2.11.5",
+  "rich>=13.7.0",
+  "typer>=0.19.2",
+  "typing_extensions>=4.12.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.4"]
+test = ["pytest>=8.0.0"]
+
+[project.scripts]
+overcogged = "overcogged.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/coworld-overcogged"
+Repository = "https://github.com/Metta-AI/coworld-overcogged.git"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/overcogged"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/docs",
+  "/skills",
+  "/README.md",
+  "/AGENTS.md",
+  "/LICENSE",
+  "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# typer.Option(...) in argument defaults is the standard typer idiom.
+"src/overcogged/cli.py" = ["B008"]

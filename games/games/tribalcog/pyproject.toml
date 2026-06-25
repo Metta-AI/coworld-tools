@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tribalcog"
+version = "0.1.2"
+description = "Tribal Village - Multi-agent RL environment built with Nim"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Metta AI", email = "info@metta.ai" }]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "numpy>=1.20.0",
+  "gymnasium>=0.29.0",
+  "pufferlib-core>=3.0.0",
+  "opencv-python-headless>=4.8.0",
+  "fastapi>=0.115.0",
+  "typer>=0.19.2",
+  "rich>=13.7.0",
+  "pydantic>=2.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "websockets>=15.0.0",
+]
+
+[project.scripts]
+tribalcog = "tribal_village_env.cli:app"
+
+[tool.setuptools]
+include-package-data = true
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/games/tree/main/games/tribalcog"
+Repository = "https://github.com/Metta-AI/games.git"
+
+[project.optional-dependencies]
+cogames = [
+  "cogames",
+  "mettagrid",
+]
+test = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tribal_village_env*"]
+
+[tool.setuptools.package-data]
+tribal_village_env = [
+  "*.so",
+  "*.dylib",
+  "*.dll",
+  "libtribal_village.*",
+  "coworld/clients/*.html",
+  "coworld/docs/*.md",
+]
+
+[tool.uv]
+cache-keys = [
+  { file = "tribal_village.nim" },
+  { file = "tribal_village.nimble" },
+  { file = "nimby.lock" },
+  { file = "src/**/*.nim" },
+  { file = "tribal_village_env/**/*.py" },
+  { file = "tribal_village_env/libtribal_village.*" },
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

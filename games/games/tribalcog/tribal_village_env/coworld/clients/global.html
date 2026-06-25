@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Tribal Cog Coworld</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0f1312; color: #eef2ee; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 320px; background: #121716; }
+    main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0a0d0c; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; image-rendering: pixelated; image-rendering: crisp-edges; }
+    canvas.dragging { cursor: grabbing; }
+    aside { border-left: 1px solid #293330; padding: 16px; background: #101615; overflow: auto; }
+    h1 { margin: 0 0 14px; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+    .stat { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #24302d; font-size: 14px; }
+    .stat span { color: #aab7b1; }
+    .stat strong { min-width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
+    .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 4px; }
+    button { min-height: 34px; border: 1px solid #40504c; background: #1c2523; color: #eef2ee; font: inherit; }
+    button:hover { border-color: #81908b; }
+    button:active { transform: translateY(1px); }
+    .teams { display: grid; gap: 6px; margin-top: 14px; }
+    .team { display: grid; grid-template-columns: 64px 1fr 58px; align-items: center; gap: 8px; font-size: 13px; }
+    .bar { height: 8px; background: #26312e; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: #82d59b; }
+    .badge { position: absolute; left: 14px; top: 14px; padding: 6px 9px; border: 1px solid rgba(238, 242, 238, 0.2); background: rgba(9, 13, 12, 0.82); color: #d8e1dc; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
+    @media (max-width: 840px) {
+      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 68vh) minmax(0, 32vh); }
+      main { min-height: 0; }
+      aside { border-left: 0; border-top: 1px solid #293330; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="view"></canvas>
+    <div class="badge" id="viewport">0 x 0</div>
+  </main>
+  <aside>
+    <h1>Tribal Cog</h1>
+    <div class="stat"><span>Step</span><strong id="step">0 / 0</strong></div>
+    <div class="stat"><span>Teams</span><strong id="players">0 / 8</strong></div>
+    <div class="stat"><span>Status</span><strong id="status">connecting</strong></div>
+    <div class="stat"><span>Sprites</span><strong id="sprites">0</strong></div>
+    <div class="tools">
+      <button id="zoomOut" type="button">-</button>
+      <button id="home" type="button">Home</button>
+      <button id="zoomIn" type="button">+</button>
+    </div>
+    <div class="teams" id="teams"></div>
+  </aside>
+  <script>
+    const canvas = document.getElementById("view");
+    const ctx = canvas.getContext("2d");
+    const viewportEl = document.getElementById("viewport");
+    const stepEl = document.getElementById("step");
+    const playersEl = document.getElementById("players");
+    const statusEl = document.getElementById("status");
+    const spritesEl = document.getElementById("sprites");
+    const teamsEl = document.getElementById("teams");
+    const params = new URLSearchParams(location.search);
+    const pageUrl = new URL(window.location.href);
+    const terrainColors = {
+      empty: "#3f4a3b",
+      water: "#3276a8",
+      shallow_water: "#4f9ab9",
+      bridge: "#8f7a52",
+      fertile: "#6a8f3f",
+      road: "#7a715d",
+      grass: "#4f8146",
+      dune: "#b69b55",
+      sand: "#c8ad74",
+      snow: "#d8e7e8",
+      mud: "#685947",
+      mountain: "#777b80",
+      fog: "#5d6661",
+    };
+    const terrainSpriteMinTile = 8;
+    const objectSpriteMinTile = 6;
+    const defaultTeamColors = [
+      "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
+      "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
+    ];
+    const teamColors = defaultTeamColors.slice();
+    const spriteCache = new Map();
+    const tintedSpriteCache = new Map();
+    let world = null;
+    let latestState = null;
+    let tileSize = clamp(Number(params.get("tile")) || 24, 6, 96);
+    let offsetX = 0;
+    let offsetY = 0;
+    let didInitialCenter = false;
+    let autoFit = true;
+    let dragging = false;
+    let dragX = 0;
+    let dragY = 0;
+    let drawScheduled = false;
+
+    ctx.imageSmoothingEnabled = false;
+    connectGlobal();
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    if (window.ResizeObserver) new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+
+    document.getElementById("zoomOut").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
+    };
+    document.getElementById("zoomIn").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    };
+    document.getElementById("home").onclick = () => {
+      autoFit = true;
+      fitWorld();
+      requestDraw();
+    };
+
+    canvas.addEventListener("mousedown", (event) => {
+      dragging = true;
+      autoFit = false;
+      dragX = event.clientX;
+      dragY = event.clientY;
+      canvas.classList.add("dragging");
+    });
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      canvas.classList.remove("dragging");
+    });
+    window.addEventListener("mousemove", (event) => {
+      if (dragging) {
+        offsetX += event.clientX - dragX;
+        offsetY += event.clientY - dragY;
+        dragX = event.clientX;
+        dragY = event.clientY;
+        requestDraw();
+        return;
+      }
+      updateTitle(event);
+    });
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      autoFit = false;
+      const nextSize = tileSize * (event.deltaY > 0 ? 0.88 : 1.14);
+      const rect = canvas.getBoundingClientRect();
+      zoomAt(event.clientX - rect.left, event.clientY - rect.top, nextSize);
+    }, { passive: false });
+
+    document.addEventListener("keydown", (event) => {
+      if (handlePanKey(event)) {
+        event.preventDefault();
+      }
+    });
+
+    function connectGlobal() {
+      const ws = new WebSocket(websocketAddress("/global"));
+      ws.onmessage = (event) => {
+        latestState = JSON.parse(event.data);
+        updateStats(latestState);
+        if (latestState.view_plane) {
+          loadWorld(latestState.view_plane);
+        }
+      };
+      ws.onclose = () => { statusEl.textContent = "closed"; };
+    }
+
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/global$/, path);
+      target.hash = "";
+      return target.toString();
+    }
+
+    function updateStats(state) {
+      stepEl.textContent = `${state.step} / ${state.max_steps}`;
+      playersEl.textContent = `${state.connected_players} / ${state.total_player_slots}`;
+      statusEl.textContent = state.done ? "done" : state.started ? "running" : "waiting";
+      renderTeams(state);
+    }
+
+    function loadWorld(view) {
+      syncTeamColors(view.team_colors);
+      world = {
+        view,
+        terrain: decodeTerrain(view.terrain),
+        tint: decodeTint(view.tint, view.width, view.height),
+        terrainSprites: view.terrain.sprites || [],
+        objects: decodeObjects(view),
+      };
+      spritesEl.textContent = String(world.objects.length);
+      if (!didInitialCenter) {
+        fitWorld();
+        didInitialCenter = true;
+      } else if (autoFit) {
+        fitWorld();
+      }
+      requestDraw();
+    }
+
+    function decodeTerrain(terrain) {
+      const raw = atob(terrain.data || "");
+      const bytes = new Uint8Array(raw.length);
+      for (let index = 0; index < raw.length; index++) {
+        bytes[index] = raw.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    function decodeTint(tintInfo, width, height) {
+      const bytes = new Uint8Array(width * height * 4);
+      if (!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
+      const raw = atob(tintInfo.data || "");
+      for (let index = 0; index < Math.min(raw.length, bytes.length); index++) {
+        bytes[index] = raw.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    function decodeObjects(view) {
+      const payload = view.objects || [];
+      if (Array.isArray(payload)) return payload;
+      if (payload.encoding !== "i16-base64") return [];
+      const columns = payload.columns || [];
+      const columnCount = columns.length;
+      if (columnCount === 0) return [];
+      const raw = atob(payload.data || "");
+      const data = new DataView(new ArrayBuffer(raw.length));
+      for (let index = 0; index < raw.length; index++) data.setUint8(index, raw.charCodeAt(index));
+      const labels = view.legend || {};
+      const column = Object.fromEntries(columns.map((name, index) => [name, index]));
+      const rows = [];
+      for (let offset = 0; offset + columnCount * 2 <= data.byteLength; offset += columnCount * 2) {
+        const row = [];
+        for (let index = 0; index < columnCount; index++) row.push(data.getInt16(offset + index * 2, true));
+        const thing = label(labels.thing, row[column.thing]);
+        if (!thing) continue;
+        const teamId = row[column.team_id] >= 0 ? row[column.team_id] : null;
+        const layer = label(labels.object_layer, row[column.layer]) || "foreground";
+        const x = row[column.x];
+        const y = row[column.y];
+        rows.push({
+          id: `${layer}:${x}:${y}`,
+          layer,
+          x,
+          y,
+          z: row[column.z],
+          thing,
+          team_id: teamId,
+          agent_id: row[column.agent_id] >= 0 ? row[column.agent_id] : null,
+          unit_class: label(labels.unit_class, row[column.unit_class]),
+          orientation: label(labels.orientation, row[column.orientation]),
+          asset: spriteFrom(payload.sprites, row[column.asset]),
+          glyph: thing.slice(0, 1).toUpperCase(),
+          color: teamColor(teamId) || "#ffffff",
+        });
+      }
+      return rows;
+    }
+
+    function syncTeamColors(colors) {
+      for (let index = 0; index < teamColors.length; index++) {
+        teamColors[index] = defaultTeamColors[index];
+      }
+      if (!Array.isArray(colors)) return;
+      colors.slice(0, teamColors.length).forEach((color, index) => {
+        if (typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) {
+          teamColors[index] = color;
+        }
+      });
+    }
+
+    function teamColor(teamId) {
+      return Number.isInteger(teamId) && teamId >= 0 && teamId < teamColors.length
+        ? teamColors[teamId]
+        : null;
+    }
+
+    function label(labels, index) {
+      return Array.isArray(labels) && index >= 0 && index < labels.length ? labels[index] : null;
+    }
+
+    function spriteFrom(sprites, index) {
+      return Array.isArray(sprites) && index >= 0 && index < sprites.length ? sprites[index] : null;
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      if (autoFit) fitWorld();
+      requestDraw();
+    }
+
+    function requestDraw() {
+      if (drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(() => {
+        drawScheduled = false;
+        draw();
+      });
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, viewWidth(), viewHeight());
+      if (!world) return;
+      drawTerrain();
+      drawObjects();
+      drawViewportBadge();
+    }
+
+    function drawTerrain() {
+      const view = world.view;
+      const startX = clamp(Math.floor((-offsetX) / tileSize) - 1, 0, view.width - 1);
+      const startY = clamp(Math.floor((-offsetY) / tileSize) - 1, 0, view.height - 1);
+      const endX = clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, view.width);
+      const endY = clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, view.height);
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const terrainId = world.terrain[y * view.width + x] || 0;
+          const sprite = world.terrainSprites[terrainId] || {};
+          const px = offsetX + x * tileSize;
+          const py = offsetY + y * tileSize;
+          drawTerrainCell(sprite, px, py, x, y);
+        }
+      }
+      if (tileSize >= 14) drawGrid(startX, startY, endX, endY);
+    }
+
+    function drawTerrainCell(sprite, x, y, worldX, worldY) {
+      const isFog = sprite.label === "fog";
+      ctx.fillStyle = isFog ? terrainColors.fog : (sprite.color || terrainColors[sprite.label] || "#4b534c");
+      ctx.fillRect(x, y, tileSize, tileSize);
+      if (!isFog && tileSize >= terrainSpriteMinTile) {
+        drawCover(sprite.asset, x, y, tileSize, tileSize);
+      }
+      if (!isFog) {
+        drawTerritoryTint(ctx, territoryTintAt(worldX, worldY), x, y, tileSize, tileSize);
+      }
+    }
+
+    function drawGrid(startX, startY, endX, endY) {
+      ctx.strokeStyle = "rgba(7, 10, 9, 0.42)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = startX; x <= endX; x++) {
+        const px = Math.round(offsetX + x * tileSize) + 0.5;
+        ctx.moveTo(px, offsetY + startY * tileSize);
+        ctx.lineTo(px, offsetY + endY * tileSize);
+      }
+      for (let y = startY; y <= endY; y++) {
+        const py = Math.round(offsetY + y * tileSize) + 0.5;
+        ctx.moveTo(offsetX + startX * tileSize, py);
+        ctx.lineTo(offsetX + endX * tileSize, py);
+      }
+      ctx.stroke();
+    }
+
+    function drawObjects() {
+      for (const object of world.objects) {
+        const x = offsetX + object.x * tileSize;
+        const y = offsetY + object.y * tileSize;
+        if (x > viewWidth() || y > viewHeight() || x + tileSize < 0 || y + tileSize < 0) continue;
+        const inset = object.layer === "background" ? 0.05 : 0.08;
+        const tintColor = teamColor(object.team_id);
+        if (tileSize < objectSpriteMinTile) {
+          const dotSize = Math.max(1.4, tileSize * (object.thing === "agent" ? 0.6 : 0.45));
+          ctx.fillStyle = tintColor || object.color || "#dbe6df";
+          ctx.fillRect(x + (tileSize - dotSize) / 2, y + (tileSize - dotSize) / 2, dotSize, dotSize);
+          continue;
+        }
+        const drawn = drawContain(
+          object.asset,
+          x + tileSize * inset,
+          y + tileSize * inset,
+          tileSize * (1 - inset * 2),
+          tileSize * (1 - inset * 2),
+          tintColor,
+        );
+        if (!drawn && tileSize >= 10) drawGlyph(object.glyph || "?", x, y, tileSize, tintColor);
+      }
+    }
+
+    function territoryTintAt(x, y) {
+      if (!world?.tint) return null;
+      const index = (y * world.view.width + x) * 4;
+      const alpha = world.tint[index + 3] || 0;
+      if (alpha <= 0) return null;
+      return [
+        world.tint[index],
+        world.tint[index + 1],
+        world.tint[index + 2],
+        alpha,
+      ];
+    }
+
+    function drawTerritoryTint(targetCtx, rgba, x, y, width, height) {
+      if (!rgba || rgba[3] <= 0) return;
+      targetCtx.save();
+      targetCtx.globalAlpha = Math.min(0.58, rgba[3] / 255 * 0.68);
+      targetCtx.fillStyle = `rgb(${rgba[0]}, ${rgba[1]}, ${rgba[2]})`;
+      targetCtx.fillRect(x, y, width, height);
+      targetCtx.restore();
+    }
+
+    function drawCover(src, x, y, width, height) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      ctx.drawImage(image, x, y, width, height);
+      return true;
+    }
+
+    function drawContain(src, x, y, width, height, tintColor = null) {
+      const image = cachedImage(src);
+      if (!image) return false;
+      const drawable = tintColor ? tintedImage(src, image, tintColor) : image;
+      const ratio = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const drawWidth = image.naturalWidth * ratio;
+      const drawHeight = image.naturalHeight * ratio;
+      ctx.drawImage(drawable, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+      return true;
+    }
+
+    function tintedImage(src, image, color) {
+      const key = `${src}|${color}`;
+      let canvas = tintedSpriteCache.get(key);
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const buffer = canvas.getContext("2d");
+        buffer.imageSmoothingEnabled = false;
+        buffer.drawImage(image, 0, 0);
+        buffer.globalCompositeOperation = "source-atop";
+        buffer.globalAlpha = 0.82;
+        buffer.fillStyle = color;
+        buffer.fillRect(0, 0, canvas.width, canvas.height);
+        buffer.globalCompositeOperation = "source-over";
+        buffer.globalAlpha = 0.22;
+        buffer.drawImage(image, 0, 0);
+        tintedSpriteCache.set(key, canvas);
+      }
+      return canvas;
+    }
+
+    function cachedImage(src) {
+      if (!src) return null;
+      let entry = spriteCache.get(src);
+      if (!entry) {
+        const image = new Image();
+        entry = { image, loaded: false, failed: false };
+        image.onload = () => { entry.loaded = true; requestDraw(); };
+        image.onerror = () => { entry.failed = true; requestDraw(); };
+        image.src = src;
+        spriteCache.set(src, entry);
+      }
+      if (entry.failed || !entry.loaded) return null;
+      return entry.image;
+    }
+
+    function drawGlyph(glyph, x, y, size, color = null) {
+      ctx.fillStyle = color || "#eef4ed";
+      ctx.font = `700 ${Math.max(10, Math.floor(size * 0.34))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph, x + size / 2, y + size / 2);
+    }
+
+    function drawViewportBadge() {
+      const centerX = Math.floor((viewWidth() / 2 - offsetX) / tileSize);
+      const centerY = Math.floor((viewHeight() / 2 - offsetY) / tileSize);
+      viewportEl.textContent = `${centerX}, ${centerY} @ ${tileSize.toFixed(1)}`;
+    }
+
+    function renderTeams(state) {
+      const scores = state.team_scores || [];
+      const maxScore = Math.max(1, ...scores.map(score => Math.abs(score)));
+      teamsEl.innerHTML = "";
+      scores.forEach((score, index) => {
+        const row = document.createElement("div");
+        row.className = "team";
+        const width = Math.min(100, Math.abs(score) / maxScore * 100);
+        row.innerHTML = `<span>Team ${index}</span><div class="bar"><span style="width:${width}%; background:${teamColor(index) || "#82d59b"}"></span></div><strong>${Number(score).toFixed(1)}</strong>`;
+        teamsEl.appendChild(row);
+      });
+    }
+
+    function fitWorld() {
+      if (!world) return;
+      const bounds = { minX: 0, minY: 0, maxX: world.view.width - 1, maxY: world.view.height - 1 };
+      const screenPadding = 18;
+      const areaW = Math.max(1, bounds.maxX - bounds.minX + 1);
+      const areaH = Math.max(1, bounds.maxY - bounds.minY + 1);
+      const availableW = Math.max(1, viewWidth() - screenPadding * 2);
+      const availableH = Math.max(1, viewHeight() - screenPadding * 2);
+      tileSize = clamp(Math.min(availableW / areaW, availableH / areaH), 1, 96);
+      offsetX = Math.floor((viewWidth() - areaW * tileSize) / 2 - bounds.minX * tileSize);
+      offsetY = Math.floor((viewHeight() - areaH * tileSize) / 2 - bounds.minY * tileSize);
+    }
+
+    function zoomAt(screenX, screenY, nextSize) {
+      const oldSize = tileSize;
+      tileSize = clamp(nextSize, 1, 96);
+      const worldX = (screenX - offsetX) / oldSize;
+      const worldY = (screenY - offsetY) / oldSize;
+      offsetX = screenX - worldX * tileSize;
+      offsetY = screenY - worldY * tileSize;
+      requestDraw();
+    }
+
+    function updateTitle(event) {
+      if (!world) return;
+      const rect = canvas.getBoundingClientRect();
+      const worldX = Math.floor((event.clientX - rect.left - offsetX) / tileSize);
+      const worldY = Math.floor((event.clientY - rect.top - offsetY) / tileSize);
+      if (worldX < 0 || worldY < 0 || worldX >= world.view.width || worldY >= world.view.height) return;
+      const object = [...world.objects].reverse().find(candidate => candidate.x === worldX && candidate.y === worldY);
+      const terrainId = world.terrain[worldY * world.view.width + worldX] || 0;
+      const terrain = world.terrainSprites[terrainId] || {};
+      canvas.title = [
+        `${worldX},${worldY}`,
+        terrain.label,
+        object && object.thing,
+        object && object.unit_class,
+      ].filter(Boolean).join(" ");
+    }
+
+    function handlePanKey(event) {
+      const amount = Math.max(32, tileSize * 4);
+      if (event.key === "ArrowUp") offsetY += amount;
+      else if (event.key === "ArrowDown") offsetY -= amount;
+      else if (event.key === "ArrowLeft") offsetX += amount;
+      else if (event.key === "ArrowRight") offsetX -= amount;
+      else return false;
+      autoFit = false;
+      requestDraw();
+      return true;
+    }
+
+    function viewWidth() {
+      return canvas.clientWidth || 1;
+    }
+
+    function viewHeight() {
+      return canvas.clientHeight || 1;
+    }
+
+    function clamp(value, minValue, maxValue) {
+      return Math.max(minValue, Math.min(maxValue, value));
+    }
+  </script>
+</body>
+</html>

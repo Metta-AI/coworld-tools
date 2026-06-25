@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=70.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogony-policy"
+version = "0.1.0"
+description = "Cogony policy for CoGames — clone, improve, submit"
+requires-python = ">=3.12"
+dependencies = [
+  "mettagrid",
+  "typer>=0.12",
+  "jinja2>=3.1",
+]
+
+[project.scripts]
+cgp = "cogony_policy.cli:app"
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.64.0"]
+test = ["pytest>=8.0"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-timeout", "pytest-asyncio", "pytest-cov>=6", "hypothesis>=6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+timeout = 3
+addopts = "-m 'not llm and not scenario'"
+log_cli_level = "WARNING"
+markers = [
+  "llm: tests that hit the LLM or spawn subprocesses; excluded by default. Run with `pytest -m llm` or `pytest -m ''`.",
+  "scenario: scenario harness tests that build real mettagrid envs; excluded by default. Run with `pytest -m scenario`.",
+]
+
+[tool.coverage.run]
+source = ["cogony_policy"]
+omit = [
+  "src/cogony_policy/setup_policy.py",
+]
+
+[tool.uv.sources]
+mettagrid = {git = "https://github.com/Metta-AI/mettagrid.git"}

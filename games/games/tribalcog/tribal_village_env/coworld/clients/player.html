@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Tribal Cog Town</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0e1211; color: #edf2ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 300px; background: #151918; }
+    main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #080b0a; }
+    canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+    #map { display: block; width: 100%; height: 100%; cursor: grab; }
+    #map.dragging { cursor: grabbing; }
+    aside { min-width: 0; border-left: 1px solid #2b3633; background: #101514; overflow: auto; }
+    .panel { padding: 8px 10px; border-bottom: 1px solid #28322f; }
+    h1 { margin: 0 0 4px; font-size: 16px; font-weight: 700; letter-spacing: 0; }
+    h2 { margin: 0 0 5px; font-size: 12px; font-weight: 700; color: #dfe7e3; letter-spacing: 0; }
+    .stat { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 12px; line-height: 1.2; }
+    .stat span { color: #9fadA8; }
+    .stat strong { text-align: right; font-variant-numeric: tabular-nums; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
+    .metric { min-width: 0; font-size: 11px; line-height: 1.15; }
+    .metric span { display: block; color: #9fadA8; }
+    .metric strong { display: block; margin-top: 1px; overflow-wrap: anywhere; color: #edf2ef; font-size: 12px; font-variant-numeric: tabular-nums; }
+    #pip { display: block; width: min(100%, 168px); height: auto; aspect-ratio: 1 / 1; margin: 0 auto 5px; background: #050706; border: 1px solid #3a4642; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+    .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 7px; }
+    select, button { width: 100%; min-height: 28px; border: 1px solid #465651; background: #1c2422; color: #eef2ee; font: inherit; font-size: 12px; }
+    button:hover, select:hover { border-color: #81908b; }
+    details { font-size: 12px; color: #dfe7e3; }
+    summary { cursor: pointer; user-select: none; }
+    pre { margin: 6px 0 0; max-height: 88px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #cbd8d2; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.25; }
+    .row { display: grid; grid-template-columns: 1fr 72px; gap: 6px; align-items: center; }
+    .badge { position: absolute; left: 12px; top: 12px; padding: 6px 8px; border: 1px solid rgba(238,242,238,.24); background: rgba(7,10,9,.84); color: #dce5e0; font-size: 12px; pointer-events: none; }
+    @media (max-width: 900px) {
+      body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 68vh) minmax(0, 32vh); }
+      main { min-height: 0; }
+      aside { border-left: 0; border-top: 1px solid #2b3633; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="map"></canvas>
+    <div class="badge" id="badge">connecting</div>
+  </main>
+  <aside>
+    <section class="panel">
+      <h1>Tribal Cog</h1>
+      <div class="metrics">
+        <div class="metric"><span>Status</span><strong id="status">connecting</strong></div>
+        <div class="metric"><span>Team</span><strong id="team">-</strong></div>
+        <div class="metric"><span>Step</span><strong id="step">0 / 0</strong></div>
+        <div class="metric"><span>Score</span><strong id="score">0</strong></div>
+      </div>
+      <div class="tools">
+        <button id="zoomOut" type="button">-</button>
+        <button id="home" type="button">Home</button>
+        <button id="zoomIn" type="button">+</button>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Citizen</h2>
+      <canvas id="pip" width="1056" height="1056"></canvas>
+      <div class="metrics">
+        <div class="metric"><span>Selected</span><strong id="selected">-</strong></div>
+        <div class="metric"><span>Program</span><strong id="citizenProgram">-</strong></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="stat"><span>Building</span><strong id="building">-</strong></div>
+      <div class="row">
+        <select id="programSelect"></select>
+        <button id="applyProgram" type="button">Apply</button>
+      </div>
+    </section>
+    <section class="panel">
+      <details>
+        <summary>Program</summary>
+        <pre id="programSource">-</pre>
+      </details>
+    </section>
+    <section class="panel">
+      <h2>Stockpile</h2>
+      <div class="grid" id="stockpile"></div>
+    </section>
+  </aside>
+  <script>
+    const mapCanvas = document.getElementById("map");
+    const mapCtx = mapCanvas.getContext("2d");
+    const pipCanvas = document.getElementById("pip");
+    const pipCtx = pipCanvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const teamEl = document.getElementById("team");
+    const stepEl = document.getElementById("step");
+    const scoreEl = document.getElementById("score");
+    const selectedEl = document.getElementById("selected");
+    const citizenProgramEl = document.getElementById("citizenProgram");
+    const buildingEl = document.getElementById("building");
+    const programSelect = document.getElementById("programSelect");
+    const programSourceEl = document.getElementById("programSource");
+    const stockpileEl = document.getElementById("stockpile");
+    const badgeEl = document.getElementById("badge");
+    const params = new URLSearchParams(location.search);
+    const pageUrl = new URL(window.location.href);
+    const slot = params.get("slot") || "0";
+    const token = params.get("token") || "";
+    const terrainColors = {
+      empty: "#3f4a3b", water: "#3276a8", shallow_water: "#4f9ab9",
+      bridge: "#8f7a52", fertile: "#6a8f3f", road: "#7a715d",
+      grass: "#4f8146", dune: "#b69b55", sand: "#c8ad74",
+      snow: "#d8e7e8", mud: "#685947", mountain: "#777b80",
+      fog: "#5d6661",
+    };
+    const terrainSpriteMinTile = 8;
+    const objectSpriteMinTile = 6;
+    const defaultTeamColors = [
+      "#65c56b", "#d85b58", "#5b8de0", "#d9b44a",
+      "#a96ed6", "#df8a3b", "#58b6b2", "#d96f9f",
+    ];
+    const teamColors = defaultTeamColors.slice();
+    const spriteCache = new Map();
+    const tintedSpriteCache = new Map();
+    let ws = null;
+    let latest = null;
+    let world = null;
+    let terrain = null;
+    let tileSize = 24;
+    let offsetX = 0;
+    let offsetY = 0;
+    let selectedBuilding = null;
+    let didFit = false;
+    let autoFit = true;
+    let pointerDown = false;
+    let dragging = false;
+    let dragX = 0;
+    let dragY = 0;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let suppressClick = false;
+    let drawScheduled = false;
+
+    mapCtx.imageSmoothingEnabled = false;
+    pipCtx.imageSmoothingEnabled = false;
+    connect();
+    resize();
+    addEventListener("resize", resize);
+    if(window.ResizeObserver) new ResizeObserver(resize).observe(mapCanvas.parentElement);
+    mapCanvas.addEventListener("click", onMapClick);
+    mapCanvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+    mapCanvas.addEventListener("wheel", onWheel, {passive:false});
+    document.getElementById("zoomOut").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize / 1.25);
+    };
+    document.getElementById("zoomIn").onclick = () => {
+      autoFit = false;
+      zoomAt(viewWidth() / 2, viewHeight() / 2, tileSize * 1.25);
+    };
+    document.getElementById("home").onclick = () => {
+      autoFit = true;
+      fitWorld();
+      requestDrawMap();
+    };
+    document.getElementById("applyProgram").onclick = applyProgram;
+
+    function connect(){
+      ws = new WebSocket(websocketAddress("/player"));
+      ws.onmessage = event => handleMessage(JSON.parse(event.data));
+      ws.onclose = () => { statusEl.textContent = "closed"; badgeEl.textContent = "closed"; };
+    }
+
+    function websocketAddress(path) {
+      const address = pageUrl.searchParams.get("address");
+      const target = new URL(address || window.location.href, window.location.href);
+      if (target.protocol === "http:") target.protocol = "ws:";
+      if (target.protocol === "https:") target.protocol = "wss:";
+      if (!address) target.pathname = target.pathname.replace(/\/client\/player$/, path);
+      target.hash = "";
+      return target.toString();
+    }
+
+    function handleMessage(message){
+      if(message.type === "ack") return;
+      if(message.type === "error"){ badgeEl.textContent = message.error || "error"; return; }
+      latest = message;
+      statusEl.textContent = message.done ? "done" : message.started ? "running" : "waiting";
+      teamEl.textContent = String(message.team_id);
+      stepEl.textContent = `${message.step} / ${message.max_steps}`;
+      scoreEl.textContent = Number(message.team_score || 0).toFixed(1);
+      selectedEl.textContent = String(message.selected_agent_id ?? "-");
+      const program = message.citizen_program || {};
+      citizenProgramEl.textContent = program.key || "-";
+      programSourceEl.textContent = program.source || "-";
+      renderProgramOptions(message.program_catalog || []);
+      renderStockpile(message.stockpiles || {});
+      if(message.view_plane) loadWorld(message.view_plane);
+      if(message.sprite_view) drawPip(message.sprite_view);
+      if(selectedBuilding) buildingEl.textContent = `${selectedBuilding.x},${selectedBuilding.y}`;
+      else buildingEl.textContent = "-";
+    }
+
+    function renderProgramOptions(programs){
+      const selected = programSelect.value;
+      programSelect.textContent = "";
+      for(const program of programs){
+        const option = document.createElement("option");
+        option.value = String(program.id);
+        option.textContent = program.key;
+        programSelect.append(option);
+      }
+      if(selected) programSelect.value = selected;
+    }
+
+    function renderStockpile(stockpile){
+      stockpileEl.textContent = "";
+      for(const [key,value] of Object.entries(stockpile)){
+        const row = document.createElement("div");
+        row.className = "stat";
+        row.innerHTML = `<span>${key}</span><strong>${value}</strong>`;
+        stockpileEl.append(row);
+      }
+    }
+
+    function loadWorld(view){
+      syncTeamColors(view.team_colors);
+      world = {...view, objects: decodeObjects(view)};
+      terrain = decodeTerrain(view.terrain);
+      world.tint = decodeTint(view.tint, view.width, view.height);
+      if(!didFit || autoFit) fitWorld();
+      didFit = true;
+      requestDrawMap();
+    }
+
+    function decodeTerrain(terrainInfo){
+      const raw = atob(terrainInfo.data || "");
+      const bytes = new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i++) bytes[i] = raw.charCodeAt(i);
+      return bytes;
+    }
+
+    function decodeTint(tintInfo, width, height){
+      const bytes = new Uint8Array(width * height * 4);
+      if(!tintInfo || tintInfo.encoding !== "rgba8-base64") return bytes;
+      const raw = atob(tintInfo.data || "");
+      for(let i=0;i<Math.min(raw.length, bytes.length);i++) bytes[i] = raw.charCodeAt(i);
+      return bytes;
+    }
+
+    function decodeObjects(view){
+      const payload = view.objects || [];
+      if(Array.isArray(payload)) return payload;
+      if(payload.encoding !== "i16-base64") return [];
+      const columns = payload.columns || [];
+      const columnCount = columns.length;
+      if(columnCount === 0) return [];
+      const raw = atob(payload.data || "");
+      const data = new DataView(new ArrayBuffer(raw.length));
+      for(let i=0;i<raw.length;i++) data.setUint8(i, raw.charCodeAt(i));
+      const labels = view.legend || {};
+      const column = Object.fromEntries(columns.map((name, index) => [name, index]));
+      const rows = [];
+      for(let offset=0; offset + columnCount * 2 <= data.byteLength; offset += columnCount * 2){
+        const row = [];
+        for(let i=0;i<columnCount;i++) row.push(data.getInt16(offset + i * 2, true));
+        const thing = label(labels.thing, row[column.thing]);
+        if(!thing) continue;
+        const teamId = row[column.team_id] >= 0 ? row[column.team_id] : null;
+        const layer = label(labels.object_layer, row[column.layer]) || "foreground";
+        const x = row[column.x];
+        const y = row[column.y];
+        rows.push({
+          id: `${layer}:${x}:${y}`,
+          layer,
+          x,
+          y,
+          z: row[column.z],
+          thing,
+          team_id: teamId,
+          agent_id: row[column.agent_id] >= 0 ? row[column.agent_id] : null,
+          unit_class: label(labels.unit_class, row[column.unit_class]),
+          orientation: label(labels.orientation, row[column.orientation]),
+          asset: spriteFrom(payload.sprites, row[column.asset]),
+          glyph: thing.slice(0, 1).toUpperCase(),
+          color: teamColor(teamId) || "#ffffff",
+        });
+      }
+      return rows;
+    }
+
+    function syncTeamColors(colors){
+      for(let i=0;i<teamColors.length;i++) teamColors[i] = defaultTeamColors[i];
+      if(!Array.isArray(colors)) return;
+      colors.slice(0, teamColors.length).forEach((color, index) => {
+        if(typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) {
+          teamColors[index] = color;
+        }
+      });
+    }
+
+    function teamColor(teamId){
+      return Number.isInteger(teamId) && teamId >= 0 && teamId < teamColors.length
+        ? teamColors[teamId]
+        : null;
+    }
+
+    function label(labels, index){
+      return Array.isArray(labels) && index >= 0 && index < labels.length ? labels[index] : null;
+    }
+
+    function spriteFrom(sprites, index){
+      return Array.isArray(sprites) && index >= 0 && index < sprites.length ? sprites[index] : null;
+    }
+
+    function resize(){
+      const rect = mapCanvas.getBoundingClientRect();
+      const dpr = devicePixelRatio || 1;
+      mapCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      mapCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      if(didFit && autoFit) fitWorld();
+      requestDrawMap();
+    }
+
+    function fitWorld(){
+      if(!world || !terrain) return;
+      const w = mapCanvas.clientWidth || 1;
+      const h = mapCanvas.clientHeight || 1;
+      const bounds = visibleBounds();
+      const paddingTiles = 2;
+      const minX = Math.max(0, bounds.minX - paddingTiles);
+      const maxX = Math.min(world.width - 1, bounds.maxX + paddingTiles);
+      const minY = Math.max(0, bounds.minY - paddingTiles);
+      const maxY = Math.min(world.height - 1, bounds.maxY + paddingTiles);
+      const areaW = Math.max(1, maxX - minX + 1);
+      const areaH = Math.max(1, maxY - minY + 1);
+      const screenPadding = 18;
+      const availableW = Math.max(1, w - screenPadding * 2);
+      const availableH = Math.max(1, h - screenPadding * 2);
+      tileSize = clamp(Math.min(availableW / areaW, availableH / areaH), 2, 32);
+      offsetX = Math.floor((w - areaW * tileSize) / 2 - minX * tileSize);
+      offsetY = Math.floor((h - areaH * tileSize) / 2 - minY * tileSize);
+    }
+
+    function visibleBounds(){
+      let minX = world.width, minY = world.height, maxX = -1, maxY = -1;
+      const sprites = world.terrain.sprites || [];
+      for(let y=0;y<world.height;y++){
+        for(let x=0;x<world.width;x++){
+          const id = terrain[y * world.width + x] || 0;
+          const sprite = sprites[id] || {};
+          if(sprite.label === "fog") continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      for(const object of world.objects || []){
+        minX = Math.min(minX, object.x);
+        maxX = Math.max(maxX, object.x);
+        minY = Math.min(minY, object.y);
+        maxY = Math.max(maxY, object.y);
+      }
+      if(maxX >= minX && maxY >= minY) return {minX, minY, maxX, maxY};
+      return {minX: 0, minY: 0, maxX: world.width - 1, maxY: world.height - 1};
+    }
+
+    function requestDrawMap(){
+      if(drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(() => {
+        drawScheduled = false;
+        drawMap();
+      });
+    }
+
+    function drawMap(){
+      const dpr = devicePixelRatio || 1;
+      mapCtx.setTransform(dpr,0,0,dpr,0,0);
+      mapCtx.imageSmoothingEnabled = false;
+      mapCtx.clearRect(0,0,mapCanvas.clientWidth || 1,mapCanvas.clientHeight || 1);
+      if(!world || !terrain) return;
+      const range = visibleRange();
+      for(let y=range.startY;y<range.endY;y++){
+        for(let x=range.startX;x<range.endX;x++){
+          const id = terrain[y * world.width + x] || 0;
+          const sprite = (world.terrain.sprites || [])[id] || {};
+          const px = offsetX + x * tileSize;
+          const py = offsetY + y * tileSize;
+          const isFog = sprite.label === "fog";
+          mapCtx.fillStyle = isFog ? terrainColors.fog : (sprite.color || terrainColors[sprite.label] || "#4b534c");
+          mapCtx.fillRect(px, py, tileSize, tileSize);
+          if(!isFog && tileSize >= terrainSpriteMinTile){
+            drawCover(mapCtx, sprite.asset, px, py, tileSize, tileSize);
+          }
+          if(!isFog){
+            drawTerritoryTint(mapCtx, territoryTintAt(x, y), px, py, tileSize, tileSize);
+          }
+        }
+      }
+      for(const object of world.objects || []){
+        const px = offsetX + object.x * tileSize;
+        const py = offsetY + object.y * tileSize;
+        if(px > viewWidth() || py > viewHeight() || px + tileSize < 0 || py + tileSize < 0) continue;
+        const tintColor = teamColor(object.team_id);
+        if(tileSize < objectSpriteMinTile){
+          const dotSize = Math.max(1.4, tileSize * (object.thing === "agent" ? 0.6 : 0.45));
+          mapCtx.fillStyle = tintColor || object.color || "#dbe6df";
+          mapCtx.fillRect(px + (tileSize - dotSize) / 2, py + (tileSize - dotSize) / 2, dotSize, dotSize);
+        } else {
+          drawContain(
+            mapCtx,
+            object.asset,
+            px + tileSize*.08,
+            py + tileSize*.08,
+            tileSize*.84,
+            tileSize*.84,
+            tintColor,
+          );
+        }
+        if(object.agent_id === latest?.selected_agent_id) ring(mapCtx, px, py, tileSize, "#f2f5de");
+        if(selectedBuilding && object.x === selectedBuilding.x && object.y === selectedBuilding.y) ring(mapCtx, px, py, tileSize, "#9ee7ff");
+      }
+      badgeEl.textContent = `team ${latest?.team_id ?? "-"} fog`;
+    }
+
+    function visibleRange(){
+      return {
+        startX: clamp(Math.floor((-offsetX) / tileSize) - 1, 0, world.width - 1),
+        startY: clamp(Math.floor((-offsetY) / tileSize) - 1, 0, world.height - 1),
+        endX: clamp(Math.ceil((viewWidth() - offsetX) / tileSize) + 1, 0, world.width),
+        endY: clamp(Math.ceil((viewHeight() - offsetY) / tileSize) + 1, 0, world.height),
+      };
+    }
+
+    function onPointerDown(event){
+      if(event.button !== 0) return;
+      pointerDown = true;
+      dragging = false;
+      dragX = event.clientX;
+      dragY = event.clientY;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+    }
+
+    function onPointerMove(event){
+      if(!pointerDown) return;
+      const totalMove = Math.hypot(event.clientX - dragStartX, event.clientY - dragStartY);
+      if(!dragging && totalMove > 4){
+        dragging = true;
+        suppressClick = true;
+        autoFit = false;
+        mapCanvas.classList.add("dragging");
+      }
+      if(dragging){
+        offsetX += event.clientX - dragX;
+        offsetY += event.clientY - dragY;
+        requestDrawMap();
+      }
+      dragX = event.clientX;
+      dragY = event.clientY;
+    }
+
+    function onPointerUp(){
+      const wasDragging = dragging;
+      pointerDown = false;
+      dragging = false;
+      mapCanvas.classList.remove("dragging");
+      if(wasDragging) setTimeout(() => { suppressClick = false; }, 0);
+    }
+
+    function onWheel(event){
+      event.preventDefault();
+      autoFit = false;
+      const nextSize = tileSize * (event.deltaY > 0 ? 0.88 : 1.14);
+      const rect = mapCanvas.getBoundingClientRect();
+      zoomAt(event.clientX - rect.left, event.clientY - rect.top, nextSize);
+    }
+
+    function drawPip(view){
+      const size = 96;
+      pipCanvas.width = view.width * size;
+      pipCanvas.height = view.height * size;
+      pipCtx.imageSmoothingEnabled = false;
+      pipCtx.clearRect(0,0,pipCanvas.width,pipCanvas.height);
+      for(const row of view.cells){
+        for(const cell of row){
+          const x = cell.x * size, y = cell.y * size;
+          pipCtx.fillStyle = terrainColors[cell.terrain] || "#4b534c";
+          pipCtx.fillRect(x, y, size, size);
+          drawCover(pipCtx, cell.terrain_asset, x, y, size, size);
+          drawTerritoryTint(pipCtx, cell.territory_tint?.rgba, x, y, size, size);
+          const drawables = Array.isArray(cell.thing_drawables)
+            ? cell.thing_drawables
+            : (cell.thing_assets || []).map(asset => ({asset, team_id: cell.team_id}));
+          for(const drawable of drawables) {
+            drawContain(
+              pipCtx,
+              drawable.asset,
+              x + size*.08,
+              y + size*.08,
+              size*.84,
+              size*.84,
+              teamColor(drawable.team_id),
+            );
+          }
+        }
+      }
+      ring(pipCtx, view.center.x * size, view.center.y * size, size, "#f2f5de");
+    }
+
+    function onMapClick(event){
+      if(suppressClick){
+        suppressClick = false;
+        return;
+      }
+      if(!world) return;
+      const rect = mapCanvas.getBoundingClientRect();
+      const x = Math.floor((event.clientX - rect.left - offsetX) / tileSize);
+      const y = Math.floor((event.clientY - rect.top - offsetY) / tileSize);
+      const objects = [...(world.objects || [])].filter(obj => obj.x === x && obj.y === y);
+      if(objects.length === 0) return;
+      const friendlyCitizen = [...objects].reverse().find(obj =>
+        obj.agent_id !== null &&
+        obj.agent_id !== undefined &&
+        obj.team_id === latest?.team_id
+      );
+      if(friendlyCitizen){
+        send({type:"town.select_citizen", agent_id:friendlyCitizen.agent_id});
+        return;
+      }
+      const building = (latest.visible_buildings || []).find(entry => entry.x === x && entry.y === y);
+      if(building){
+        selectedBuilding = {x, y};
+        if(building?.program){
+          programSelect.value = String(building.program.id);
+          programSourceEl.textContent = building.program.source || "-";
+        }
+        send({type:"town.select_building", x, y});
+        requestDrawMap();
+      }
+    }
+
+    function applyProgram(){
+      if(!selectedBuilding) return;
+      send({
+        type:"town.set_program",
+        x:selectedBuilding.x,
+        y:selectedBuilding.y,
+        program_id:Number(programSelect.value),
+      });
+    }
+
+    function send(payload){
+      if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+    }
+
+    function territoryTintAt(x, y){
+      if(!world?.tint) return null;
+      const index = (y * world.width + x) * 4;
+      const alpha = world.tint[index + 3] || 0;
+      if(alpha <= 0) return null;
+      return [
+        world.tint[index],
+        world.tint[index + 1],
+        world.tint[index + 2],
+        alpha,
+      ];
+    }
+
+    function drawTerritoryTint(ctx, rgba, x, y, w, h){
+      if(!rgba || rgba[3] <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.58, rgba[3] / 255 * 0.68);
+      ctx.fillStyle = `rgb(${rgba[0]}, ${rgba[1]}, ${rgba[2]})`;
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
+    }
+
+    function zoomAt(screenX, screenY, nextSize){
+      const oldSize = tileSize;
+      tileSize = clamp(nextSize, 2, 64);
+      const worldX = (screenX - offsetX) / oldSize;
+      const worldY = (screenY - offsetY) / oldSize;
+      offsetX = screenX - worldX * tileSize;
+      offsetY = screenY - worldY * tileSize;
+      requestDrawMap();
+    }
+
+    function drawCover(ctx, src, x, y, w, h){
+      const img = cached(src);
+      if(!img) return false;
+      ctx.drawImage(img, x, y, w, h);
+      return true;
+    }
+
+    function drawContain(ctx, src, x, y, w, h, tintColor = null){
+      const img = cached(src);
+      if(!img) return false;
+      const drawable = tintColor ? tintedImage(src, img, tintColor) : img;
+      const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+      ctx.drawImage(drawable, x + (w - dw)/2, y + (h - dh)/2, dw, dh);
+      return true;
+    }
+
+    function tintedImage(src, image, color){
+      const key = `${src}|${color}`;
+      let canvas = tintedSpriteCache.get(key);
+      if(!canvas){
+        canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const buffer = canvas.getContext("2d");
+        buffer.imageSmoothingEnabled = false;
+        buffer.drawImage(image, 0, 0);
+        buffer.globalCompositeOperation = "source-atop";
+        buffer.globalAlpha = 0.82;
+        buffer.fillStyle = color;
+        buffer.fillRect(0, 0, canvas.width, canvas.height);
+        buffer.globalCompositeOperation = "source-over";
+        buffer.globalAlpha = 0.22;
+        buffer.drawImage(image, 0, 0);
+        tintedSpriteCache.set(key, canvas);
+      }
+      return canvas;
+    }
+
+    function cached(src){
+      if(!src) return null;
+      let entry = spriteCache.get(src);
+      if(!entry){
+        const image = new Image();
+        entry = {image, loaded:false, failed:false};
+        image.onload = () => { entry.loaded = true; requestDrawMap(); if(latest?.sprite_view) drawPip(latest.sprite_view); };
+        image.onerror = () => { entry.failed = true; };
+        image.src = src;
+        spriteCache.set(src, entry);
+      }
+      return entry.loaded && !entry.failed ? entry.image : null;
+    }
+
+    function ring(ctx, x, y, size, color){
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, Math.floor(size*.08));
+      ctx.strokeRect(x + 2, y + 2, size - 4, size - 4);
+    }
+
+    function viewWidth(){
+      return mapCanvas.clientWidth || 1;
+    }
+
+    function viewHeight(){
+      return mapCanvas.clientHeight || 1;
+    }
+
+    function clamp(value, minValue, maxValue){
+      return Math.max(minValue, Math.min(maxValue, value));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/metta/main/packages/coworld/src/coworld/coworld_manifest_schema.json",
+  "game": {
+    "name": "amongcogs",
+    "version": "0.1.0",
+    "description": "AmongCogs packaged as a Coworld: an Among-Us-inspired MettaGrid game with scripted reference players.",
+    "owner": "coworld@softmax.com",
+    "runnable": {
+      "type": "game",
+      "image": "coworld-amongcogs-game:latest",
+      "run": [
+        "python",
+        "-m",
+        "amongcogs.coworld.server"
+      ],
+      "source_url": "ssh://git@github.com/Metta-AI/coworld-amongcogs.git"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "max_steps",
+        "seed",
+        "step_seconds"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "game",
+        "scores",
+        "steps"
+      ],
+      "properties": {
+        "game": {
+          "type": "string",
+          "const": "amongcogs"
+        },
+        "scores": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          }
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/coworld-amongcogs/blob/main/src/amongcogs/coworld/docs/player_protocol_spec.md"
+      },
+      "global": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/coworld-amongcogs/blob/main/src/amongcogs/coworld/docs/global_protocol_spec.md"
+      }
+    },
+    "docs": {
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/coworld-amongcogs/blob/main/src/amongcogs/coworld/docs/rules.md"
+          }
+        },
+        {
+          "id": "play_amongcogs.md",
+          "title": "play_amongcogs.md",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/coworld-amongcogs/blob/main/src/amongcogs/coworld/docs/play_amongcogs.md"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "amongcogs-reference-player",
+      "name": "amongcogs reference player",
+      "type": "player",
+      "image": "coworld-amongcogs-player:latest",
+      "run": [
+        "python",
+        "/app/player.py"
+      ],
+      "description": "Bundled reference player for amongcogs that sends legal actions over the Coworld player websocket.",
+      "source_url": "ssh://git@github.com/Metta-AI/coworld-amongcogs.git"
+    }
+  ],
+  "reporter": [
+    {
+      "id": "softmax-default-reporter",
+      "type": "reporter",
+      "name": "Softmax Default Reporter",
+      "description": "Default reporter for amongcogs results.",
+      "source_url": "https://github.com/Metta-AI/reporters/tree/main/reporters/default",
+      "image": "ghcr.io/metta-ai/reporters-default:latest"
+    }
+  ],
+  "grader": [
+    {
+      "id": "mettagrid-score-grader",
+      "name": "MettaGrid Score Grader",
+      "type": "grader",
+      "description": "Generic MettaGrid grader that scores simple score-and-steps results from spread, margin, magnitude, and episode length.",
+      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/mettagrid/mettagrid_score_grader",
+      "image": "ghcr.io/metta-ai/graders-mettagrid-score:latest"
+    }
+  ],
+  "variants": [
+    {
+      "id": "hosted-daily",
+      "name": "Hosted Daily",
+      "description": "Default hosted amongcogs Coworld episode.",
+      "game_config": {
+        "max_steps": 120,
+        "seed": 0,
+        "step_seconds": 0.05,
+        "variants": []
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "max_steps": 8,
+      "seed": 0,
+      "step_seconds": 0.01,
+      "variants": []
+    },
+    "players": [
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      },
+      {
+        "player_id": "amongcogs-reference-player"
+      }
+    ]
+  }
+}
