@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import random
 from typing import Any
 
 from commissioners.common.models import PolicyPool, PolicyPoolEntry, PoolConfig
@@ -91,6 +93,16 @@ def schedule_entries(
             recent_results=recent_results or [],
         )
 
+    if config.seating == "shuffled_window":
+        # baseline_window / rolling_window seat a fixed-width window of CONSECUTIVE entries in a
+        # seed order that is stable across rounds, so two entries co-occur only when their circular
+        # distance is below num_agents -- distant entries never share an episode no matter how many
+        # rounds run (a banded matchup graph, not a round-robin). shuffled_window permutes the entry
+        # order per round, keyed by the round's pool id, so the band precesses every round and full
+        # pairwise coverage accrues across rounds (the granularity the EWMA leaderboard aggregates at)
+        # while preserving balanced per-entrant appearances.
+        primary_entries = _round_shuffled_entries(primary_entries, pool.id)
+
     num_episodes = _pool_episode_count(
         config=pool_config,
         num_entries=len(primary_entries),
@@ -162,6 +174,16 @@ def cycled(entries: list[PolicyPoolEntry], count: int, *, offset: int = 0) -> li
     if count <= 0 or not entries:
         return []
     return [entries[(offset + index) % len(entries)] for index in range(count)]
+
+
+def _round_shuffled_entries(entries: list[PolicyPoolEntry], pool_id: Any) -> list[PolicyPoolEntry]:
+    # Deterministic per-round permutation: same pool id -> same order (reproducible across the
+    # commissioner's schedule/score passes and independent of PYTHONHASHSEED), different rounds -> a
+    # different band.
+    seed = int.from_bytes(hashlib.sha256(str(pool_id).encode()).digest()[:8], "big")
+    shuffled = list(entries)
+    random.Random(seed).shuffle(shuffled)
+    return shuffled
 
 
 def _schedule_leaderboard_neighbors(
