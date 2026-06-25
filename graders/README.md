@@ -2,8 +2,12 @@
 
 Grader implementations for Coworld supporting runnables.
 
-> **Status:** Coworld role repo under construction. The Coworld grader role is still `reserved`, but the current
-> tentative contract is documented in `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md`.
+> **Status:** shared grader source inside `Metta-AI/coworld-tools`. The old `Metta-AI/graders` repo is archived. Keep
+> reusable graders here. Keep a grader beside a game when it is game-specific and should be rebuilt with that
+> `Metta-AI/coworld-<slug>` repo.
+>
+> The Coworld grader role is still `reserved`, but the current tentative contract is documented in
+> `~/coding/metta/packages/coworld/src/coworld/docs/roles/grader.md`.
 
 ## What Is A Coworld Grader?
 

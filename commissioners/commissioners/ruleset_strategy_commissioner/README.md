@@ -2,6 +2,10 @@
 
 Configurable Coworld commissioner whose behavior is packaged in the container image.
 
+This is the shared reusable ruleset commissioner in `Metta-AI/coworld-tools`. Change configs here only when the behavior
+should remain shared. If a Coworld needs its own commissioner behavior, add a game-local commissioner/config in
+`Metta-AI/coworld-<slug>` and update that Coworld manifest's `commissioner[].source_url` to the game repo.
+
 The runnable does not read `league.commissioner_config` for behavior. That field is a platform wire artifact and may
 contain legacy data while Coworlds roll over to container commissioners. Configs are authored in the readable
 shape below, copied into the image, and selected by the image's `RULESET_STRATEGY_CONFIG_NAME` or
