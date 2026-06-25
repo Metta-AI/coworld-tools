@@ -54,6 +54,7 @@ from commissioners.common.ruleset_strategy.membership_events import (
     build_membership_events,
     protocol_policy_membership_event,
 )
+from commissioners.common.ruleset_strategy.mmr import rank_division_by_mmr
 from commissioners.common.ruleset_strategy.round_start import RoundStartView
 from commissioners.common.ruleset_strategy.scheduling import schedule_entries
 
@@ -124,6 +125,8 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
                 if all(result.result_metadata.get(key) == value for key, value in config.ranking.filter_metadata.items())
             ]
             ctx = ctx.model_copy(update={"round_results": filtered})
+        if config.scoring is not None and config.scoring.leaderboard.type == "mmr":
+            return rank_division_by_mmr(ctx)
         return super().rank_division(ctx)
 
     def _leaderboard_ewma_halflife(self, ctx: DivisionLeaderboardContext) -> timedelta:

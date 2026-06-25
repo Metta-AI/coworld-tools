@@ -160,7 +160,11 @@ MembershipChangeRule = TransitionRule
 
 
 class LeaderboardScoringConfig(_ConfigModel):
-    type: Literal["ewma"] = "ewma"
+    # "ewma": rank by an exponentially-weighted moving average of per-round scores.
+    # "mmr": rank by a per-policy OpenSkill (Plackett-Luce) skill rating — each completed round is
+    #        one free-for-all match ranked by finishing position, so standing reflects who you beat,
+    #        not raw score. Displayed MMR is the conservative ordinal mu - 3*sigma.
+    type: Literal["ewma", "mmr"] = "ewma"
     half_life_hours: float = Field(default=2.0, gt=0)
 
 

@@ -12,6 +12,10 @@
 #     rewards winning games outright, not placement or margin.
 scoring:
   round_score: win
+  # Rank the division by per-policy OpenSkill MMR (mu - 3*sigma): each round is one free-for-all
+  # match ranked by win-rate finishing position, so standings reflect who you beat, not raw score.
+  leaderboard:
+    type: mmr
 
 defaults:
   seating: shuffled_window
