@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -27,8 +28,11 @@ from commissioners.common.protocol import (
     LeagueMigrationConfigRequest,
     LeagueMigrationRequest,
     RankDivisionRequest,
+    RecentResult,
     RoundAbort,
     RoundCompletedRequest,
+    RoundResultsRequest,
+    RoundResultsResponse,
     RoundStart,
     ScheduleRoundsRequest,
     ScheduleEpisodes,
@@ -104,6 +108,51 @@ def _duration_text(seconds: float) -> str:
     return f"{seconds:.1f} seconds"
 
 
+class RoundPlatformClient:
+    def __init__(self, websocket: WebSocket, send_lock: asyncio.Lock) -> None:
+        self._websocket = websocket
+        self._send_lock = send_lock
+
+    async def get_round_results(
+        self,
+        *,
+        division_ids: Iterable[UUID] | None = None,
+        since_completed_at: str | None = None,
+        before_completed_at: str | None = None,
+        limit: int = 500,
+    ) -> list[RecentResult]:
+        request = RoundResultsRequest(
+            request_id=f"round-results-{uuid4()}",
+            division_ids=list(division_ids) if division_ids is not None else None,
+            since_completed_at=since_completed_at,
+            before_completed_at=before_completed_at,
+            limit=limit,
+        )
+        async with self._send_lock:
+            await self._websocket.send_json(request.to_json())
+
+        data = await self._websocket.receive_json()
+        if data.get("type") != "round_results_response":
+            raise ValueError(f"expected round_results_response, got {data.get('type')!r}")
+        response = RoundResultsResponse.model_validate({key: value for key, value in data.items() if key != "type"})
+        if response.request_id != request.request_id:
+            raise ValueError(
+                f"round_results_response request_id {response.request_id!r} did not match {request.request_id!r}"
+            )
+        return response.results
+
+
+async def _schedule_episodes_for_round_start(
+    commissioner: Commissioner,
+    round_start: RoundStart,
+    platform: RoundPlatformClient,
+) -> ScheduleEpisodes:
+    custom_async_scheduler = getattr(commissioner, "schedule_episodes_for_round_start_async", None)
+    if callable(custom_async_scheduler):
+        return await custom_async_scheduler(round_start, platform)
+    return schedule_episodes_for_round_start(commissioner, round_start)
+
+
 def create_app(commissioner: Commissioner) -> FastAPI:
     app = FastAPI()
 
@@ -125,6 +174,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
         send_tasks: set[asyncio.Task[None]] = set()
         variants_by_id: dict[str, Any] = {}
         send_lock = asyncio.Lock()
+        platform = RoundPlatformClient(websocket, send_lock)
         round_complete_sent = False
         throttle_config_fn = getattr(commissioner, "dispatch_throttle_config", None)
         throttle_config = throttle_config_fn() if callable(throttle_config_fn) else None
@@ -234,7 +284,7 @@ def create_app(commissioner: Commissioner) -> FastAPI:
                     round_start = RoundStart.model_validate(
                         {key: value for key, value in data.items() if key != "type"}
                     )
-                    schedule = schedule_episodes_for_round_start(commissioner, round_start)
+                    schedule = await _schedule_episodes_for_round_start(commissioner, round_start, platform)
                     expected_request_ids = {episode.request_id for episode in schedule.episodes}
                     variants_by_id = {variant.id: variant for variant in round_start.variants}
                     if throttle_enabled():

@@ -60,6 +60,29 @@ class RecentResult(BaseModel):
     completed_at: str | None = None
 
 
+class RoundResultsRequest(BaseModel):
+    request_id: str
+    division_ids: list[UUID] | None = None
+    since_completed_at: str | None = None
+    before_completed_at: str | None = None
+    limit: int = Field(default=500, ge=1, le=5000)
+
+    def to_json(self) -> dict[str, Any]:
+        data = self.model_dump(mode="json")
+        data["type"] = "round_results_request"
+        return data
+
+
+class RoundResultsResponse(BaseModel):
+    request_id: str
+    results: list[RecentResult] = Field(default_factory=list)
+
+    def to_json(self) -> dict[str, Any]:
+        data = self.model_dump(mode="json")
+        data["type"] = "round_results_response"
+        return data
+
+
 class VariantInfo(BaseModel):
     id: str
     name: str
@@ -667,6 +690,7 @@ class EpisodeCompletedResponse(BaseModel):
 
 PlatformMessage = (
     RoundStart
+    | RoundResultsResponse
     | EpisodeAccepted
     | EpisodesRejected
     | EpisodeResult
@@ -682,7 +706,8 @@ PlatformMessage = (
 )
 
 CommissionerMessageType = (
-    ScheduleEpisodes
+    RoundResultsRequest
+    | ScheduleEpisodes
     | EpisodeCancel
     | RoundComplete
     | ScheduleRoundsResponse
@@ -695,6 +720,7 @@ CommissionerMessageType = (
 )
 
 _COMMISSIONER_MESSAGE_TYPES: dict[str, type[CommissionerMessageType]] = {
+    "round_results_request": RoundResultsRequest,
     "schedule_episodes": ScheduleEpisodes,
     "episode_cancel": EpisodeCancel,
     "round_complete": RoundComplete,
