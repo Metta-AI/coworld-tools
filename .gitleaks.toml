@@ -1,0 +1,9 @@
+title = "coworld-tools gitleaks config"
+
+[allowlist]
+description = "Known false positives from the imported source histories."
+regexes = [
+  '''Author: tv-wisp-1au4h''',
+  '''minimapInvScaleX = MapWidth\.float32 / MinimapSize\.float32''',
+  '''minimapInvScaleY = MapHeight\.float32 / MinimapSize\.float32''',
+]
