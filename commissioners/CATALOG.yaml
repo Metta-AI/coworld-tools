@@ -1,0 +1,49 @@
+entries:
+  - name: default-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-default:latest
+    target: "*"
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the default round-robin config.
+  - name: among-them-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-among-them-commissioner:latest
+    target: among_them
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the Among Them ruleset config.
+  - name: cogs-vs-clips-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest
+    target: cogs_vs_clips
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the Cogs vs Clips ruleset config.
+  - name: four-score-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-four-score:latest
+    target: four_score
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the Four Score team-block ruleset config.
+  - name: cue-n-woo-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-cue-n-woo:latest
+    target: cue_n_woo
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using Cue n Woo leaderboard-neighbor scheduling with throttled episode dispatch.
+  - name: proxywar-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-proxywar:latest
+    target: proxywar
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using ProxyWar rolling-window scheduling for 2-player and 4-player variants with throttled episode dispatch.
