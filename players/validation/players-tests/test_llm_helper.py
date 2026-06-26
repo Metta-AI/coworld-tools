@@ -5,9 +5,12 @@ from typing import Any
 
 import pytest
 
+import types
+
 from players.player_sdk import (
     DEFAULT_BEDROCK_MODEL,
     DEFAULT_DIRECT_MODEL,
+    bedrock_base_url,
     bedrock_enabled,
     call_json,
     extract_json_object,
@@ -16,6 +19,31 @@ from players.player_sdk import (
     select_client,
     usage_dict,
 )
+
+
+def _fake_anthropic_import(monkeypatch: pytest.MonkeyPatch, captured: dict[str, Any]) -> None:
+    """Make ``from anthropic import AnthropicBedrock`` yield a recorder of init kwargs."""
+
+    class FakeAnthropicBedrock:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    fake_module = types.ModuleType("anthropic")
+    fake_module.AnthropicBedrock = FakeAnthropicBedrock  # type: ignore[attr-defined]
+    real_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals_: dict[str, Any] | None = None,
+        locals_: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        if name == "anthropic" and "AnthropicBedrock" in fromlist:
+            return fake_module
+        return real_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
 
 
 class TextBlock:
@@ -169,6 +197,47 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
     assert result.model == "model-id"
     assert isinstance(result.latency_ms, float)
     assert result.latency_ms >= 0.0
+
+
+def test_bedrock_base_url_prefers_explicit_then_sidecar_then_none() -> None:
+    # No override -> direct AWS Bedrock.
+    assert bedrock_base_url({}) is None
+    assert bedrock_base_url({"AWS_ENDPOINT_URL_BEDROCK_RUNTIME": ""}) is None
+    # The Coworld loopback sidecar endpoint is used when present.
+    assert bedrock_base_url({"AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "http://127.0.0.1:9100"}) == "http://127.0.0.1:9100"
+    # An explicit ANTHROPIC_BEDROCK_BASE_URL wins over the sidecar.
+    assert (
+        bedrock_base_url(
+            {
+                "ANTHROPIC_BEDROCK_BASE_URL": "https://proxy.example",
+                "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "http://127.0.0.1:9100",
+            }
+        )
+        == "https://proxy.example"
+    )
+
+
+def test_select_client_bedrock_routes_through_sidecar_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    _fake_anthropic_import(monkeypatch, captured)
+    monkeypatch.delenv("ANTHROPIC_BEDROCK_BASE_URL", raising=False)
+    monkeypatch.setenv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "http://127.0.0.1:9100")
+
+    select_client(use_bedrock=True, timeout=2.0)
+
+    assert captured == {"timeout": 2.0, "base_url": "http://127.0.0.1:9100"}
+
+
+def test_select_client_bedrock_direct_when_no_sidecar_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    _fake_anthropic_import(monkeypatch, captured)
+    monkeypatch.delenv("ANTHROPIC_BEDROCK_BASE_URL", raising=False)
+    monkeypatch.delenv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", raising=False)
+
+    select_client(use_bedrock=True, timeout=2.0)
+
+    # No endpoint override -> AnthropicBedrock targets real AWS (no base_url passed).
+    assert captured == {"timeout": 2.0}
 
 
 def test_select_client_bedrock_missing_extra_raises_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
