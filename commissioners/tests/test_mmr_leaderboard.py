@@ -138,7 +138,13 @@ def _competition_commissioner() -> RulesetStrategyCommissioner:
     return RulesetStrategyCommissioner(yaml.safe_load((_CONFIG_DIR / "agricogla.yaml").read_text()))
 
 
-def _competition_round_start(round_no: int, state, recent: list[RecentResult], comp: uuid.UUID) -> RoundStart:
+def _competition_round_start(
+    round_no: int,
+    state,
+    recent: list[RecentResult],
+    comp: uuid.UUID,
+    active: list[int] | None = None,
+) -> RoundStart:
     league_id = uuid.UUID(int=1)
     memberships = [
         MembershipInfo(
@@ -151,7 +157,7 @@ def _competition_round_start(round_no: int, state, recent: list[RecentResult], c
             substatus="active",
             is_champion=True,
         )
-        for n in range(1, 5)
+        for n in (active if active is not None else range(1, 5))
     ]
     return RoundStart(
         round_id=uuid.UUID(int=1000 + round_no),
@@ -215,6 +221,40 @@ def test_commissioner_publishes_mmr_standings_and_carries_per_division_state() -
     # rating state is carried per division under the division id.
     assert str(comp) in complete.state["mmr"]
     assert len(complete.state["mmr"][str(comp)]["policies"]) == 4
+
+
+def test_demoted_policy_is_pruned_from_state_and_standings() -> None:
+    comm = _competition_commissioner()
+    comp = uuid.UUID(int=10)
+
+    state = None
+    recent: list[RecentResult] = []
+    for ridx, order in enumerate(_ROUNDS, start=1):
+        rs = _competition_round_start(ridx, state, recent, comp)
+        complete = comm.complete_round_for_round_start(rs, _episodes(order))
+        state = json.loads(json.dumps(complete.state))
+        recent = [
+            RecentResult(
+                round_id=rs.round_id,
+                division_id=comp,
+                round_number=ridx,
+                policy_version_id=_POLICY[n],
+                rank=i + 1,
+                score=float(len(order) - i),
+                player_id=_PLAYER[n],
+                player_name=_NAMES[n].title(),
+            )
+            for i, n in enumerate(order)
+        ]
+    assert len(state["mmr"][str(comp)]["policies"]) == 4
+
+    # dave (4) is demoted: its membership drops out of RoundStart, only 1/2/3 remain.
+    rs = _competition_round_start(99, state, recent, comp, active=[1, 2, 3])
+    complete = comm.complete_round_for_round_start(rs, _episodes([1, 2, 3]))
+    board_names = [row.subject_name for row in complete.leaderboards[0].views[0].rows]
+    assert "Dave" not in board_names
+    assert str(_POLICY[4]) not in complete.state["mmr"][str(comp)]["policies"]
+    assert len(complete.state["mmr"][str(comp)]["policies"]) == 3
 
 
 def test_staging_round_publishes_no_standings_and_preserves_competition_state() -> None:

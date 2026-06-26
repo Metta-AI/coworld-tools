@@ -306,8 +306,15 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
                 if division_ranking.division_id == division.id
                 for ranking in division_ranking.rankings
             ]
+            active_policy_version_ids = {
+                str(membership.policy_version_id)
+                for membership in round_start.memberships
+                if membership.division_id == division.id
+            }
             prior = MmrState.model_validate(states.get(str(division.id), {}))
-            new_state, snapshots = advance_mmr_state(prior, finishes)
+            new_state, snapshots = advance_mmr_state(
+                prior, finishes, active_policy_version_ids=active_policy_version_ids
+            )
             states[str(division.id)] = new_state.model_dump(mode="json")
             complete.leaderboards = [_mmr_leaderboard(division.id, snapshots)]
         complete.state = {MMR_STATE_KEY: states}
