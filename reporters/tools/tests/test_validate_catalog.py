@@ -34,7 +34,7 @@ def _minimal_entry(tmp_path: Path, **overrides) -> dict:
         "name": "example-reporter",
         "image": "ghcr.io/example/reporters-example:latest",
         "source": source,
-        "source_url": "https://github.com/Metta-AI/reporters/tree/main/impls/example",
+        "source_url": "https://github.com/Metta-AI/coworld-tools/tree/main/reporters/impls/example",
         "status": "active",
         "target": "paint_arena",
         "owner": "jboggs",

@@ -2,7 +2,7 @@ entries:
   - name: default-grader
     image: default-grader:latest
     source: graders/default/default_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/default/default_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/default/default_grader
     status: starter
     target: "*"
     owner: jamesboggs
@@ -11,7 +11,7 @@ entries:
   - name: among-them-grader
     image: among-them-grader:latest
     source: graders/among_them/among_them_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/among_them/among_them_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/among_them/among_them_grader
     status: starter
     target: among_them
     owner: jamesboggs
@@ -20,7 +20,7 @@ entries:
   - name: paint-arena-grader
     image: paint-arena-grader:latest
     source: graders/paint_arena/paint_arena_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/paint_arena/paint_arena_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/paint_arena/paint_arena_grader
     status: starter
     target: paintarena
     owner: jamesboggs
@@ -29,7 +29,7 @@ entries:
   - name: cogs-v-clips-grader
     image: cogs-v-clips-grader:latest
     source: graders/cogs_v_clips/cogs_v_clips_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/cogs_v_clips/cogs_v_clips_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/cogs_v_clips/cogs_v_clips_grader
     status: starter
     target: cogs_vs_clips
     owner: jamesboggs
@@ -38,7 +38,7 @@ entries:
   - name: bitworld-score-grader
     image: bitworld-score-grader:latest
     source: graders/bitworld_score/bitworld_score_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/bitworld_score/bitworld_score_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/bitworld_score/bitworld_score_grader
     status: starter
     target: bitworld_score
     owner: jamesboggs
@@ -47,7 +47,7 @@ entries:
   - name: crewrift-grader
     image: crewrift-grader:latest
     source: graders/crewrift/crewrift_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/crewrift/crewrift_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/crewrift/crewrift_grader
     status: starter
     target: crewrift
     owner: jamesboggs
@@ -56,7 +56,7 @@ entries:
   - name: mettagrid-score-grader
     image: mettagrid-score-grader:latest
     source: graders/mettagrid/mettagrid_score_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/mettagrid/mettagrid_score_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/mettagrid/mettagrid_score_grader
     status: starter
     target: mettagrid
     owner: jamesboggs
@@ -65,7 +65,7 @@ entries:
   - name: liarliar-grader
     image: liarliar-grader:latest
     source: graders/liarliar/liarliar_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/liarliar/liarliar_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/liarliar/liarliar_grader
     status: starter
     target: liar-liar-cut-the-wire
     owner: jamesboggs
@@ -74,7 +74,7 @@ entries:
   - name: persephones-escape-grader
     image: persephones-escape-grader:latest
     source: graders/persephones_escape/persephones_escape_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/persephones_escape/persephones_escape_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/persephones_escape/persephones_escape_grader
     status: starter
     target: persephones_escape
     owner: jamesboggs
@@ -83,7 +83,7 @@ entries:
   - name: tribal-cog-grader
     image: tribal-cog-grader:latest
     source: graders/tribal_cog/tribal_cog_grader
-    source_url: https://github.com/Metta-AI/graders/tree/main/graders/tribal_cog/tribal_cog_grader
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/graders/graders/tribal_cog/tribal_cog_grader
     status: starter
     target: tribal_cog
     owner: jamesboggs
