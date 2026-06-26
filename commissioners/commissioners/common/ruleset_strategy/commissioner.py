@@ -6,7 +6,6 @@ from uuid import UUID
 
 from commissioners.common.commissioners import BaselineCommissioner
 from commissioners.common.models import (
-    DIVISION_TYPE_COMPETITION,
     POLICY_MEMBERSHIP_SUBSTATUS_INACTIVE,
     DivisionCommissionerDescriptionPublic,
     DivisionConfig,
@@ -29,11 +28,6 @@ from commissioners.common.models import (
     V2RoundConfig,
 )
 from commissioners.common.protocol import (
-    DivisionLeaderboard as CommissionerDivisionLeaderboard,
-    DivisionLeaderboardAxis as CommissionerDivisionLeaderboardAxis,
-    DivisionLeaderboardColumn as CommissionerDivisionLeaderboardColumn,
-    DivisionLeaderboardRow as CommissionerDivisionLeaderboardRow,
-    DivisionLeaderboardView as CommissionerDivisionLeaderboardView,
     EpisodeFailed as CommissionerProtocolEpisodeFailed,
     EpisodeRequest as CommissionerProtocolEpisodeRequest,
     EpisodeResult as CommissionerProtocolEpisodeResult,
@@ -63,12 +57,7 @@ from commissioners.common.ruleset_strategy.membership_events import (
     build_membership_events,
     protocol_policy_membership_event,
 )
-from commissioners.common.ruleset_strategy.mmr import (
-    MmrRoundFinish,
-    MmrState,
-    advance_mmr_state,
-    rank_division_by_mmr,
-)
+from commissioners.common.ruleset_strategy.mmr import rank_division_by_mmr
 from commissioners.common.ruleset_strategy.round_start import RoundStartView
 from commissioners.common.ruleset_strategy.scheduling import schedule_entries
 
@@ -267,57 +256,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         complete.policy_membership_events = [
             protocol_policy_membership_event(change) for change in hook.policy_membership_events
         ]
-        if config.scoring is not None and config.scoring.leaderboard.type == "mmr":
-            self._publish_mmr_standings(complete, round_start, view)
         return complete
-
-    def _publish_mmr_standings(
-        self,
-        complete: CommissionerRoundComplete,
-        round_start: CommissionerRoundStart,
-        view: RoundStartView,
-    ) -> None:
-        """Advance the carried MMR standings by this round and publish them as the division leaderboard.
-
-        The platform hands back the commissioner's own ``state`` from the previous round, so we update
-        the existing standings with just this round's finishes instead of recomputing from scratch, then
-        store the advanced rating state back for the next round. Rating state is kept per division: the
-        platform persists ``state`` per league, so each division's pool is keyed by its id and the other
-        divisions' pools are carried through untouched. We always re-emit the full carried state -- even
-        for a staging round that ranks nothing -- because the platform overwrites commissioner_state with
-        whatever we return, so dropping it would wipe the competition divisions' standings.
-        """
-        states = _load_mmr_states(round_start.state)
-        division = view.current_division
-        if division.type == DIVISION_TYPE_COMPETITION:
-            name_by_player = {
-                result.player_id: result.player_name
-                for result in round_start.recent_results
-                if result.player_id is not None and result.player_name
-            }
-            finishes = [
-                MmrRoundFinish(
-                    policy_version_id=ranking.policy_version_id,
-                    player_id=ranking.player_id,
-                    player_name=name_by_player.get(ranking.player_id),
-                    rank=ranking.rank,
-                )
-                for division_ranking in complete.results
-                if division_ranking.division_id == division.id
-                for ranking in division_ranking.rankings
-            ]
-            active_policy_version_ids = {
-                str(membership.policy_version_id)
-                for membership in round_start.memberships
-                if membership.division_id == division.id
-            }
-            prior = MmrState.model_validate(states.get(str(division.id), {}))
-            new_state, snapshots = advance_mmr_state(
-                prior, finishes, active_policy_version_ids=active_policy_version_ids
-            )
-            states[str(division.id)] = new_state.model_dump(mode="json")
-            complete.leaderboards = [_mmr_leaderboard(division.id, snapshots)]
-        complete.state = {MMR_STATE_KEY: states}
 
     def _round_scores_by_policy(
         self,
@@ -398,56 +337,6 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             exclude_membership_ids={event.league_policy_membership_id for event in events},
         )
         return OnRoundCompletedResult(policy_membership_events=[*events, *default_events])
-
-
-# commissioner_state key under which the per-division MMR rating state lives across rounds.
-MMR_STATE_KEY = "mmr"
-
-
-def _load_mmr_states(state: Any) -> dict[str, Any]:
-    """Per-division MMR state blobs (``{division_id: rating_state}``) carried in commissioner_state."""
-    if isinstance(state, dict):
-        raw = state.get(MMR_STATE_KEY)
-        if isinstance(raw, dict):
-            return dict(raw)
-    return {}
-
-
-def _mmr_leaderboard(
-    division_id: UUID,
-    snapshots: list[DivisionLeaderboardSnapshot],
-) -> CommissionerDivisionLeaderboard:
-    rows = [
-        CommissionerDivisionLeaderboardRow(
-            subject_type="player",
-            subject_id=str(snapshot.player_id),
-            subject_name=snapshot.player_name,
-            values={
-                "rank": snapshot.rank,
-                "score": snapshot.score,
-                "rounds_played": snapshot.rounds_played,
-            },
-            policy_version_ids=snapshot.policy_version_ids,
-        )
-        for snapshot in snapshots
-    ]
-    view = CommissionerDivisionLeaderboardView(
-        key="mmr",
-        title="MMR",
-        axis_values={"metric": "mmr"},
-        columns=[
-            CommissionerDivisionLeaderboardColumn(key="rank", label="Rank", value_type="integer", sort="asc"),
-            CommissionerDivisionLeaderboardColumn(key="score", label="MMR", value_type="number", sort="desc"),
-            CommissionerDivisionLeaderboardColumn(key="rounds_played", label="Rounds", value_type="integer"),
-        ],
-        rows=rows,
-    )
-    return CommissionerDivisionLeaderboard(
-        division_id=division_id,
-        default_view_key="mmr",
-        axes=[CommissionerDivisionLeaderboardAxis(key="metric", label="Metric")],
-        views=[view],
-    )
 
 
 def _membership_status(status: Any) -> str:
