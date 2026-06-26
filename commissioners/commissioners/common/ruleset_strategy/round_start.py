@@ -104,8 +104,17 @@ class RoundStartView:
         configured_order = self.round_config.get("entrant_policy_version_ids")
         if isinstance(configured_order, list):
             order = {UUID(str(policy_id)): index for index, policy_id in enumerate(configured_order)}
-            entries = [entry for entry in entries if entry.policy_version_id in order]
-            entries.sort(key=lambda entry: order[entry.policy_version_id])
+            # Keep the scheduled entrants in their declared order, then append any current champion
+            # promoted after the round was scheduled (e.g. a freshly-uploaded champion). Without this
+            # such a champion would sit out until the next schedule -- a 1-2 round seating gap where a
+            # new champion vanishes from the board. The platform validates episodes against current
+            # memberships, so these late additions are valid entrants.
+            scheduled = sorted(
+                (entry for entry in entries if entry.policy_version_id in order),
+                key=lambda entry: order[entry.policy_version_id],
+            )
+            promoted_after_scheduling = [entry for entry in entries if entry.policy_version_id not in order]
+            entries = [*scheduled, *promoted_after_scheduling]
             for index, entry in enumerate(entries):
                 entry.seed_order = index
         for entry in entries:
