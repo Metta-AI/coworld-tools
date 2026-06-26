@@ -4,8 +4,10 @@ Each completed round is treated as one free-for-all match: the participating pol
 fed to the Bayesian rater ordered by their finishing rank (lower is better; ties allowed), so a
 policy's rating reflects the strength of the opponents it actually beat, not a raw score. Rounds
 are replayed oldest-first so ratings evolve causally. The displayed MMR is the conservative ordinal
-mu - 3*sigma; a brand-new policy from a player who already has a rated policy starts at that
-player's best established mu (with the default wide sigma) so its first ranks aren't insane.
+mu - 3*sigma. A newly-uploaded champion from a player who already has a rated policy inherits that
+player's best established mu and is treated as already placed -- it keeps the score and is ranked
+immediately, with no placement period. Only a genuinely new player's first policy must complete the
+placement games before it earns a numeric rank (so a single lucky win can't rocket it to the top).
 
 Mirrors the platform-side ranker in app_backend `v2/commissioners.rank_division_by_mmr`.
 """
@@ -33,11 +35,15 @@ MMR_PLACEMENT_MIN_GAMES = 5
 class _MmrPolicy:
     """Mutable per-policy rating state accumulated while replaying a division's rounds."""
 
-    def __init__(self, result: LeaderboardRoundResultSnapshot, rating: Any) -> None:
+    def __init__(self, result: LeaderboardRoundResultSnapshot, rating: Any, inherited: bool) -> None:
         self.policy_version_id = result.policy_version_id
         self.player_id = result.player_id
         self.player_name = result.player_name
         self.rating = rating
+        # True when this policy started from its player's established rating (a newly-uploaded
+        # champion from a player who already has a rated policy). Such a policy keeps that rating
+        # and is treated as already placed, so it never sits in the placement period.
+        self.inherited = inherited
         self.wins = 0
         self.losses = 0
         self.games_played = 0
@@ -77,7 +83,7 @@ def rank_division_by_mmr(
             if result.policy_version_id not in policies:
                 prior_mu = player_prior_mu.get(result.player_id)
                 rating = model.rating(mu=prior_mu) if prior_mu is not None else model.rating()
-                policies[result.policy_version_id] = _MmrPolicy(result, rating)
+                policies[result.policy_version_id] = _MmrPolicy(result, rating, inherited=prior_mu is not None)
 
         ordered = sorted(round_results, key=lambda r: r.rank)
         rated = model.rate(
@@ -97,11 +103,13 @@ def rank_division_by_mmr(
                 if best is None or policy.rating.mu > best:
                     player_prior_mu[policy.player_id] = policy.rating.mu
 
-    # Out-of-placement policies first (by descending MMR), then in-placement, also by MMR.
+    # Placed policies first (by descending MMR), then in-placement, also by MMR. A policy that
+    # inherited its player's established rating is already placed -- a newly-uploaded champion keeps
+    # the score and skips placement; only a genuinely new player's first policy must place.
     ordered_policies = sorted(
         policies.values(),
         key=lambda p: (
-            p.games_played < placement_min_games,
+            p.games_played < placement_min_games and not p.inherited,
             -p.rating.ordinal(),
             str(p.policy_version_id),
         ),
