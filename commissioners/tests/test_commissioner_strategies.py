@@ -24,6 +24,7 @@ from commissioners.common.protocol import (
     MembershipInfo,
     RankDivisionRequest,
     RecentResult,
+    RoundComplete,
     RoundCompletedRequest,
     RoundConfig,
     RoundInfo,
@@ -341,6 +342,48 @@ def test_default_commissioner_round_robin_generation_and_ranking() -> None:
     assert [ranking.score for ranking in rankings] == pytest.approx([6.0, 16.0 / 3.0, 3.0])
 
 
+def test_complete_round_emits_observability_report() -> None:
+    policy_version_ids = [uuid4() for _ in range(3)]
+    pool = PolicyPool(id=uuid4(), label="Round", pool_type="round", config={"num_episodes": 2})
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+    division_id = uuid4()
+    complete = BaselineCommissioner().complete_round(
+        round_row=Round(id=uuid4(), division_id=division_id, round_number=1, commissioner_key="auto"),
+        pool=pool,
+        entries=entries,
+        episode_results=[
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=4.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=2.0),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=6.0),
+                ],
+            ),
+        ],
+    )
+
+    report = complete.observability
+    assert report is not None
+    assert report.rule_id == "mean_episode_score"
+    assert report.division_id == division_id
+    # One entrant report per ranking, aligned with the round's rankings.
+    rankings = complete.results[0].rankings
+    assert len(report.entrants) == len(rankings)
+    for ranking, entrant in zip(rankings, report.entrants):
+        assert entrant.policy_version_id == ranking.policy_version_id
+        assert entrant.score == pytest.approx(ranking.score)
+        assert entrant.steps and entrant.steps[0].label == "mean episode score"
+
+    # Round-trips through the wire encoding the platform deserializes.
+    rehydrated = RoundComplete.model_validate({k: v for k, v in complete.to_json().items() if k != "type"})
+    assert rehydrated.observability is not None
+    assert rehydrated.observability.rule_id == "mean_episode_score"
+
+
 def test_ruleset_strategy_rank_round_score_uses_per_episode_placement() -> None:
     # Same episode results as the mean test above, but with scoring.round_score = "rank": the
     # round score becomes the mean of each policy's per-episode rank points (placement N..1),
@@ -454,6 +497,10 @@ def test_ruleset_strategy_win_round_score_uses_binary_win_points() -> None:
         policy_version_ids[2],
     ]
     assert by_policy[policy_version_ids[1]].result_metadata["score_kind"] == "win_episode_round_score"
+    # Observability rule text names the configured win-points mode (not the mean default).
+    assert complete.observability is not None
+    assert complete.observability.rule_id == "competition_wins"
+    assert len(complete.observability.entrants) == len(rankings)
 
 
 def test_default_commissioner_ignores_neutral_zero_scores_only_when_episode_has_negative_score() -> None:

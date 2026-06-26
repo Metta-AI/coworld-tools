@@ -271,12 +271,77 @@ class ScheduleEpisodes(BaseModel):
         return data
 
 
+class CommissionerCalcStep(BaseModel):
+    """One step in deriving an entrant's outcome: a human label + the value it produced.
+
+    Steps read top-to-bottom as the arithmetic the commissioner performed
+    (e.g. "imposter seats" -> [0, 1]; "kills on those seats" -> 4; "threshold" -> 0.5).
+    ``inputs`` optionally records the raw per-seat / per-episode arrays the step
+    consumed so a reader can fully reconstruct the calculation.
+    """
+
+    label: str
+    value: Any = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    # Optional: did this step's value clear its own gate/threshold (for pass/fail steps).
+    passed: bool | None = None
+
+
+class CommissionerEntrantReport(BaseModel):
+    """How one entrant's round outcome was calculated, end to end.
+
+    This is the *scoring trace* — inputs -> derivation -> output — that explains
+    HOW a score was reached. It deliberately does NOT model the resulting
+    placement move (promote/relegate/disqualify): that is carried by
+    ``policy_membership_events`` and rendered by the Observatory separately.
+    """
+
+    policy_version_id: UUID
+    player_id: str | None = None
+    # The headline outcome the commissioner reached for this entrant this round
+    # (e.g. "PROMOTED", "HELD", "3 wins"). Free-form; rendered verbatim.
+    outcome: str
+    # The numeric round score recorded for this entrant, when applicable.
+    score: float | None = None
+    passed: bool | None = None
+    # Ordered calculation steps (inputs -> derivation -> output).
+    steps: list[CommissionerCalcStep] = Field(default_factory=list)
+    # One-line human explanation of the outcome.
+    summary: str | None = None
+
+
+class CommissionerRoundReport(BaseModel):
+    """Structured, game-agnostic explanation of how a commissioner scored a round.
+
+    The platform persists it per round and the Observatory renders it so every
+    scoring decision is inspectable. A game's commissioner fills in its own rule
+    text, metric labels, and per-entrant calculation steps.
+    """
+
+    rule_id: str
+    rule_description: str
+    division_id: UUID | None = None
+    entrants: list[CommissionerEntrantReport] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
+    # Optional self-contained, safe-render-profile HTML the commissioner authors
+    # to render its own view of the round (game-specific standings, MMR board,
+    # bracket). The platform embeds it in a sandboxed, script-disabled iframe.
+    # Optional and additive; omit to fall back to the generic structured view.
+    render_html: str | None = None
+
+
 class RoundComplete(BaseModel):
     results: list[DivisionRanking] = Field(default_factory=list)
     policy_membership_events: list[PolicyMembershipEventChange] = Field(default_factory=list)
     membership_changes: list[MembershipChange] = Field(default_factory=list)
     round_display: dict[str, Any] | None = None
     state: Any = None
+    # Structured, game-agnostic observability report describing HOW this round was
+    # scored. The platform persists it per round and the Observatory renders it so
+    # every scoring decision is inspectable. Optional and additive: a commissioner
+    # that omits it loses no existing behavior.
+    observability: CommissionerRoundReport | None = None
 
     @field_validator("state")
     @classmethod
