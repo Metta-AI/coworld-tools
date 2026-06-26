@@ -195,6 +195,7 @@ def advance_mmr_state(
     prior: MmrState,
     finishes: list[MmrRoundFinish],
     *,
+    active_policy_version_ids: set[str] | None = None,
     placement_min_games: int = MMR_PLACEMENT_MIN_GAMES,
 ) -> tuple[MmrState, list[DivisionLeaderboardSnapshot]]:
     """Advance the carried rating state by one completed round and return the new standings.
@@ -202,6 +203,11 @@ def advance_mmr_state(
     ``finishes`` is the round's final per-policy ranking (one entry per policy). A round with fewer
     than two policies is not a match and leaves ratings untouched (but still re-emits standings, so
     a freshly-deployed division surfaces its existing rated policies immediately).
+
+    ``active_policy_version_ids`` (when given) is the set of policies still competing in the division:
+    any carried policy no longer among them -- a demoted, disqualified, or relegated champion -- is
+    dropped from the state and the standings so stale policies don't occupy ranks forever. Other
+    policies keep the rating they earned beating it.
     """
     model = PlackettLuce()
     state = prior.model_copy(deep=True)
@@ -248,5 +254,12 @@ def advance_mmr_state(
                 best = state.player_prior_mu.get(rating.player_id)
                 if best is None or rating.mu > best:
                     state.player_prior_mu[rating.player_id] = rating.mu
+
+    if active_policy_version_ids is not None:
+        state.policies = {
+            policy_version_id: rating
+            for policy_version_id, rating in state.policies.items()
+            if policy_version_id in active_policy_version_ids
+        }
 
     return state, _snapshots_from_state(state, model, placement_min_games)
