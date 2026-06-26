@@ -1,7 +1,7 @@
 entries:
   - name: default-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-default:latest
     target: "*"
     status: active
@@ -9,7 +9,7 @@ entries:
     description: Config-driven commissioner using the default round-robin config.
   - name: among-them-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-among-them-commissioner:latest
     target: among_them
     status: active
@@ -17,7 +17,7 @@ entries:
     description: Config-driven commissioner using the Among Them ruleset config.
   - name: cogs-vs-clips-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-cogs-vs-clips:latest
     target: cogs_vs_clips
     status: active
@@ -25,7 +25,7 @@ entries:
     description: Config-driven commissioner using the Cogs vs Clips ruleset config.
   - name: four-score-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-four-score:latest
     target: four_score
     status: active
@@ -33,7 +33,7 @@ entries:
     description: Config-driven commissioner using the Four Score team-block ruleset config.
   - name: cue-n-woo-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-cue-n-woo:latest
     target: cue_n_woo
     status: active
@@ -41,7 +41,7 @@ entries:
     description: Config-driven commissioner using Cue n Woo leaderboard-neighbor scheduling with throttled episode dispatch.
   - name: proxywar-commissioner
     source: commissioners/ruleset_strategy_commissioner
-    source_url: https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
     image: ghcr.io/metta-ai/commissioners-proxywar:latest
     target: proxywar
     status: active

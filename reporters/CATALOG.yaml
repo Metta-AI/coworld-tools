@@ -30,7 +30,7 @@ entries:
   - name: paint-arena-summarizer
     image: ghcr.io/metta-ai/reporters-paint-arena-summarizer:latest
     source: reporters/paint_arena/paint_arena_summarizer
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/paint_arena/paint_arena_summarizer
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/paint_arena/paint_arena_summarizer
     status: active
     target: paint_arena
     owner: jboggs
@@ -39,7 +39,7 @@ entries:
   - name: among-them-summarizer
     image: ghcr.io/metta-ai/reporters-among-them-summarizer:latest
     source: reporters/among_them/among_them_summarizer
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/among_them/among_them_summarizer
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/among_them/among_them_summarizer
     status: active
     target: among_them
     owner: jboggs
@@ -48,7 +48,7 @@ entries:
   - name: softmax-default-reporter
     image: ghcr.io/metta-ai/reporters-default:latest
     source: reporters/default
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/default
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/default
     status: active
     target: "*"
     owner: jboggs
@@ -57,7 +57,7 @@ entries:
   - name: among-them-highlight-reel
     image: ghcr.io/metta-ai/reporters-among-them-highlight-reel:latest
     source: reporters/among_them/among_them_highlight_reel
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/among_them/among_them_highlight_reel
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/among_them/among_them_highlight_reel
     status: experimental
     target: among_them
     owner: jboggs
@@ -66,7 +66,7 @@ entries:
   - name: cogs-vs-clips-summarizer
     image: ghcr.io/metta-ai/reporters-cogs-vs-clips-summarizer:latest
     source: reporters/cogs_vs_clips/cogs_vs_clips_summarizer
-    source_url: https://github.com/Metta-AI/reporters/tree/main/reporters/cogs_vs_clips/cogs_vs_clips_summarizer
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/reporters/reporters/cogs_vs_clips/cogs_vs_clips_summarizer
     status: active
     target: cogs_vs_clips
     owner: jboggs
