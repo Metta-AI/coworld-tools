@@ -35,6 +35,9 @@ from commissioners.common.protocol import (
     RoundStart as CommissionerRoundStart,
     ScheduleEpisodes as CommissionerScheduleEpisodes,
 )
+from commissioners.common.protocol import (
+    CommissionerRoundReport,
+)
 from commissioners.common.utils import (
     _count_text,
     _current_schedule_slot,
@@ -299,6 +302,30 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
                 for ranking in division_ranking.rankings:
                     ranking.result_metadata = dict(ranking.result_metadata) | dict(config.ranking.result_metadata)
         return complete
+
+    def _round_report(self, **kwargs: Any) -> CommissionerRoundReport:
+        # The base builds the per-entrant scoring trace from this commissioner's
+        # (possibly overridden) round scores; here we only correct the rule label/
+        # description so it names the configured scoring mode (mean / win / rank)
+        # rather than the base's mean default.
+        report = super()._round_report(**kwargs)
+        scoring = self._config().scoring
+        mode = scoring.round_score if scoring is not None else "mean"
+        rule = {
+            "win": (
+                "competition_wins",
+                "Entrants are ranked by their mean win points across this round's episodes "
+                "(1 point per winning episode).",
+            ),
+            "rank": (
+                "mean_placement_points",
+                "Entrants are ranked by their mean per-episode placement points this round "
+                "(higher placement earns more points).",
+            ),
+        }.get(mode)
+        if rule is not None:
+            report.rule_id, report.rule_description = rule
+        return report
 
     def on_round_completed(self, ctx: OnRoundCompletedContext) -> OnRoundCompletedResult:
         config = self._config()

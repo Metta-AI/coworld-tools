@@ -23,6 +23,11 @@ from commissioners.common.protocol import (
 from commissioners.common.protocol import (
     RankingEntry as CommissionerRankingEntry,
 )
+from commissioners.common.protocol import (
+    CommissionerRoundReport,
+    CommissionerEntrantReport,
+    CommissionerCalcStep,
+)
 
 # Re-export models for backwards compatibility
 from commissioners.common.models import (
@@ -472,6 +477,60 @@ class BaselineCommissioner(Commissioner):
         return CommissionerRoundComplete(
             results=[CommissionerDivisionRanking(division_id=round_row.division_id, rankings=rankings)],
             round_display={"phases": [_phase_summary(pool, len(entries))]},
+            observability=self._round_report(
+                round_row=round_row,
+                ranked_entries=ranked_entries,
+                round_score_by_policy=round_score_by_policy,
+                ranked_score_counts=ranked_score_counts,
+                completed_episode_counts=completed_episode_counts,
+            ),
+        )
+
+    def _round_report(
+        self,
+        *,
+        round_row: Round,
+        ranked_entries: list[PolicyPoolEntry],
+        round_score_by_policy: dict[UUID, float],
+        ranked_score_counts: dict[UUID, int],
+        completed_episode_counts: dict[UUID, int],
+    ) -> CommissionerRoundReport:
+        """Structured scoring trace the Observatory renders per round.
+
+        Mirrors ``_round_scores_by_policy``: each entrant's round score is the mean
+        of its per-episode scores. Subclasses that score rounds differently
+        (e.g. the ruleset commissioner's rank-by-episode / MMR modes) should
+        override this so the rendered explanation matches their actual rule.
+        """
+        entrants = [
+            CommissionerEntrantReport(
+                policy_version_id=entry.policy_version_id,
+                player_id=str(entry.player_id) if entry.player_id is not None else None,
+                outcome=f"#{rank} · {round_score_by_policy[entry.policy_version_id]:g}",
+                score=round_score_by_policy[entry.policy_version_id],
+                steps=[
+                    CommissionerCalcStep(
+                        label="mean episode score",
+                        value=round_score_by_policy[entry.policy_version_id],
+                        inputs={
+                            "episodes_scored": ranked_score_counts[entry.policy_version_id],
+                            "episodes_completed": completed_episode_counts[entry.policy_version_id],
+                        },
+                    ),
+                ],
+                summary="Round score is the mean of this entrant's per-episode scores.",
+            )
+            for rank, entry in enumerate(ranked_entries, start=1)
+        ]
+        return CommissionerRoundReport(
+            rule_id="mean_episode_score",
+            rule_description=(
+                "Entrants are ranked by their round score, which is the mean of the per-episode "
+                "scores they earned this round (episodes with no recorded score are excluded)."
+            ),
+            division_id=round_row.division_id,
+            entrants=entrants,
+            notes=[f"Scored {len(ranked_entries)} entrant(s) across this round's episodes."],
         )
 
 
