@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from secrets import randbelow
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -54,10 +54,6 @@ class RecentResult(BaseModel):
     policy_version_id: UUID
     rank: int
     score: float
-    player_id: str | None = None
-    player_name: str | None = None
-    result_metadata: dict[str, Any] = Field(default_factory=dict)
-    completed_at: str | None = None
 
 
 class VariantInfo(BaseModel):
@@ -181,51 +177,6 @@ class DivisionLeaderboardEntry(BaseModel):
     rounds_played: int
     policy_version_ids: set[UUID] = Field(default_factory=set)
     recent_rounds: list[dict[str, Any]] | None = None
-
-
-# The commissioner owns the division standings: it publishes a ranked leaderboard in
-# RoundComplete.leaderboards and the platform stores and displays it verbatim. These view/row
-# shapes mirror the platform-side protocol in `coworld.commissioner.protocol`; a row's free-form
-# `values` dict carries both the displayed score and any private ranking state (e.g. MMR mu/sigma)
-# the commissioner needs to continue updating standings incrementally on the next round.
-LeaderboardValue = str | int | float | bool | None
-
-
-class DivisionLeaderboardAxis(BaseModel):
-    key: str
-    label: str | None = None
-
-
-class DivisionLeaderboardColumn(BaseModel):
-    key: str
-    label: str | None = None
-    value_type: Literal["number", "integer", "string", "boolean"] = "number"
-    sort: Literal["asc", "desc"] | None = None
-
-
-class DivisionLeaderboardRow(BaseModel):
-    subject_type: str = "player"
-    subject_id: str
-    subject_name: str | None = None
-    values: dict[str, LeaderboardValue] = Field(default_factory=dict)
-    policy_version_ids: set[UUID] = Field(default_factory=set)
-    recent_rounds: list[dict[str, Any]] | None = None
-
-
-class DivisionLeaderboardView(BaseModel):
-    key: str = "score"
-    title: str | None = None
-    description: str | None = None
-    axis_values: dict[str, str] = Field(default_factory=dict)
-    columns: list[DivisionLeaderboardColumn] = Field(default_factory=list)
-    rows: list[DivisionLeaderboardRow] = Field(default_factory=list)
-
-
-class DivisionLeaderboard(BaseModel):
-    division_id: UUID
-    default_view_key: str = "score"
-    axes: list[DivisionLeaderboardAxis] = Field(default_factory=list)
-    views: list[DivisionLeaderboardView] = Field(default_factory=list)
 
 
 class DivisionDescription(BaseModel):
@@ -382,7 +333,6 @@ class CommissionerRoundReport(BaseModel):
 
 class RoundComplete(BaseModel):
     results: list[DivisionRanking] = Field(default_factory=list)
-    leaderboards: list[DivisionLeaderboard] = Field(default_factory=list)
     policy_membership_events: list[PolicyMembershipEventChange] = Field(default_factory=list)
     membership_changes: list[MembershipChange] = Field(default_factory=list)
     round_display: dict[str, Any] | None = None
