@@ -31,6 +31,14 @@ entries:
     status: active
     owner: Metta-AI
     description: Config-driven commissioner using the Four Score team-block ruleset config.
+  - name: ctf-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-ctf:latest
+    target: ctf
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner using the CTF two-team-block ruleset config (8v8, win-based EWMA leaderboard).
   - name: cue-n-woo-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
