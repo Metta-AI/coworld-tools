@@ -62,4 +62,9 @@ divisions:
     level: 1
     match:
       type: competition
-    entrants: champions
+    # All competing policies play, not one champion per account: the platform
+    # allows a single is_champion membership per player, so a league seeded
+    # with many baselines from one account would otherwise never reach
+    # min_entries_to_start.
+    entrants:
+      status: competing
