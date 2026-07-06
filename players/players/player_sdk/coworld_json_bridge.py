@@ -160,6 +160,15 @@ async def run_bridge(
                 return
 
 
+# Standardized engine-bridge names (see the ``players.player_sdk`` bridge naming
+# convention: ``run_<engine>_bridge`` + ``<Engine>Bridge``). These alias the
+# originals; the module file name and the ``run_bridge`` / ``main`` entrypoint are
+# retained because Docker images launch this bridge as
+# ``python -m players.player_sdk.coworld_json_bridge``.
+run_mettagrid_bridge = run_bridge
+MettagridBridge = CoworldJsonBridge
+
+
 def _discover_extra_packages() -> None:
     """Walk packages listed in ``COGAMES_POLICY_DISCOVERY_PACKAGES``.
 

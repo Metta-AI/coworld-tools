@@ -82,6 +82,20 @@ decision. Each lands as an additive, backward-compatible change; the full
 | P4 | additive `step: str \| int \| None` on `TraceEvent` + `EventEmitter`; `tick` unchanged. JSONL omits `step` when absent (existing records byte-identical); CSV gains one named `step` column | `test_trace_outputs.py` |
 | P5 | `players/player_sdk/trace_config.py` — generic `TraceConfig` (env-driven groups/include/exclude/level, pluggable default filter), no crewborg taxonomy baked in | `test_trace_config.py` |
 
+**Update (2026-06-24):** the SDK now ships **engine bridges** as thin
+`decide`-callback specializations of `run_message_bridge`, under a standardized
+`run_<engine>_bridge` naming convention: `run_cogweb_bridge`
+(`cogweb_bridge.py`, `cogweb.player.v1`) and `run_sprite_bridge`
+(`sprite_bridge.py`, BitWorld/SpriteV1 `/sprite_player`). The sprite bridge
+realizes this section's "point crewborg's Sprite-v1 loop at `run_message_bridge`"
+goal as a reusable, grid-free SDK bridge (it owns the binary transport and hands
+`decide` the raw sprite/object world; perception stays in the game). The
+mettagrid bridge keeps its policy-hosting shape for now but is exported under the
+standardized `run_mettagrid_bridge` / `MettagridBridge` names (lazily, since it
+imports mettagrid). See `docs/README.md` → "Engine bridges". Migrating crewborg's
+own loop onto `run_sprite_bridge`, and `coworld_json_bridge` onto
+`run_message_bridge`, remain the open follow-ups.
+
 **Deferred follow-up (the migration pass):** point `coworld_json_bridge` and
 crewborg's Sprite-v1 loop at `run_message_bridge`; adopt `llm.py` in crewborg's
 `strategy/meeting/llm.py` and suspectra's `llm_meeting.py`; have crewborg's
