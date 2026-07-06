@@ -32,6 +32,14 @@ from players.player_sdk.message_bridge import (
     run_message_bridge,
 )
 from players.player_sdk.modes import DirectiveValidationError, Mode, ModeRegistry
+from players.player_sdk.sprite_bridge import (
+    Button,
+    SpriteContext,
+    SpriteDef,
+    SpriteObject,
+    SpriteWorld,
+    run_sprite_bridge,
+)
 from players.player_sdk.runtime import (
     AgentRuntime,
     Reflex,
@@ -87,6 +95,7 @@ __all__ = [
     "AsyncStrategy",
     "AsyncStrategyRunner",
     "BeliefSnapshot",
+    "Button",
     "ClosePolicy",
     "CogwebContext",
     "DirectiveValidationError",
@@ -114,6 +123,10 @@ __all__ = [
     "RuntimeContext",
     "SharedMemory",
     "SharedMemoryView",
+    "SpriteContext",
+    "SpriteDef",
+    "SpriteObject",
+    "SpriteWorld",
     "StepCompleteHook",
     "StepContext",
     "Strategy",
@@ -138,6 +151,32 @@ __all__ = [
     "response_text",
     "run_cogweb_bridge",
     "run_message_bridge",
+    "run_sprite_bridge",
     "select_client",
     "usage_dict",
 ]
+
+# The mettagrid bridge (``coworld.player.v1``) is exported under standardized
+# names for parity with the cogweb and sprite bridges, but LAZILY: it imports
+# mettagrid, so eager import here would force the optional ``cogames`` extra on
+# every SDK consumer (and break the grid-free core guarantee). Accessing
+# ``players.player_sdk.run_mettagrid_bridge`` / ``MettagridBridge`` resolves it on
+# demand. They are deliberately kept out of ``__all__`` so ``from
+# players.player_sdk import *`` stays grid-free.
+_LAZY_METTAGRID_BRIDGE = {
+    "run_mettagrid_bridge": "run_mettagrid_bridge",
+    "MettagridBridge": "MettagridBridge",
+}
+
+
+def __getattr__(name: str):  # noqa: D401 - PEP 562 lazy attribute hook
+    target = _LAZY_METTAGRID_BRIDGE.get(name)
+    if target is not None:
+        from players.player_sdk import coworld_json_bridge
+
+        return getattr(coworld_json_bridge, target)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted([*__all__, *_LAZY_METTAGRID_BRIDGE])

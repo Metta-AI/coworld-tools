@@ -328,8 +328,12 @@ written into the Coworld player artifact zip uploaded via
 The telemetry modules (`trace.py`, `trace_outputs.py`) and the core
 types/runtime/modes/strategy layer import nothing from `mettagrid`, `cogames`,
 or `torch`. The only `players.player_sdk` module that imports `mettagrid` is
-`coworld_json_bridge.py`, and that bridge is not imported from
-`players.player_sdk.__init__`. Non-grid players can therefore depend on
+`coworld_json_bridge.py`, and that bridge is not *eagerly* imported from
+`players.player_sdk.__init__` — it is exported lazily (PEP 562 `__getattr__`)
+under the standardized names `run_mettagrid_bridge` / `MettagridBridge`, so a
+bare `import players.player_sdk` never loads `mettagrid`. (The sprite bridge,
+`sprite_bridge.py`, is self-contained and imports no `mettagrid`, so it stays in
+the grid-free core.) Non-grid players can therefore depend on
 `players.player_sdk` or `players.player_sdk.telemetry` for telemetry and
 conventions without installing the `cogames` extra.
 

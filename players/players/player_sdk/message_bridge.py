@@ -11,9 +11,13 @@ Coworld's runner expects player containers to exit 0 after normal episode end;
 letting that close exception escape would fail the episode even though the game
 has simply ended.
 
-This module is the deferred migration target for the existing mettagrid JSON
-bridge and Crewrift/Sprite-v1 style bridges, but it does not import or depend on
-any grid-specific code.
+The engine-specific bridges layer on top of this transport:
+:mod:`players.player_sdk.cogweb_bridge` (cogweb ``cogweb.player.v1``) and
+:mod:`players.player_sdk.sprite_bridge` (BitWorld/SpriteV1 ``/sprite_player``)
+are both thin specializations that supply a handler and a ``decide`` callback.
+This module itself imports no grid-specific code. (The mettagrid
+:mod:`players.player_sdk.coworld_json_bridge` predates this transport and still
+runs its own loop; aligning it is a deferred follow-up.)
 """
 
 from __future__ import annotations
