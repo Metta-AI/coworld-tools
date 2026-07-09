@@ -50,12 +50,12 @@ def schedule_entries(
             ]
         )
 
-    if config.seating == "team_blocks":
+    if config.seating in ("team_blocks", "team_interleaved"):
         team_count = config.defaults.team_count
         if len(primary_entries) < team_count:
-            raise ValueError(f"team_blocks seating requires at least {team_count} primary entries")
+            raise ValueError(f"{config.seating} seating requires at least {team_count} primary entries")
         if num_agents % team_count != 0:
-            raise ValueError(f"team_blocks seating requires num_agents divisible by {team_count}")
+            raise ValueError(f"{config.seating} seating requires num_agents divisible by {team_count}")
 
         team_size = num_agents // team_count
         num_episodes = _pool_episode_count(
@@ -70,15 +70,20 @@ def schedule_entries(
             ]
             rotation = job_index % team_count
             entry_indices = entry_indices[rotation:] + entry_indices[:rotation]
+            if config.seating == "team_blocks":
+                # One contiguous block of seats per team: [A]*size + [B]*size + ...
+                seat_entry_indices = [entry_index for entry_index in entry_indices for _slot in range(team_size)]
+            else:
+                # Interleaved team seats for games that assign teams by slot parity
+                # (slot mod team_count), e.g. CTF: [A, B, A, B, ...].
+                seat_entry_indices = [entry_index for _slot in range(team_size) for entry_index in entry_indices]
             episodes.append(
                 CommissionerEpisodeRequest(
                     request_id=str(job_index),
                     variant_id=variant_id,
                     game_config=game_config,
                     policy_version_ids=[
-                        primary_entries[entry_index].policy_version_id
-                        for entry_index in entry_indices
-                        for _slot in range(team_size)
+                        primary_entries[entry_index].policy_version_id for entry_index in seat_entry_indices
                     ],
                     tags={"pool_id": str(pool.id)},
                 )
