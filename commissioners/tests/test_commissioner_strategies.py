@@ -1146,6 +1146,82 @@ def test_ruleset_strategy_four_score_config_schedules_four_repeated_teams() -> N
     assert appearances == {policy_version_id: 20 for policy_version_id in policy_version_ids}
 
 
+def test_ruleset_strategy_ctf_config_interleaves_two_teams() -> None:
+    """CTF assigns teams by slot parity, so the two entrants must alternate seats."""
+    policy_version_ids = [uuid4() for _ in range(3)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+
+    _assert_episode_seeds(schedule.episodes)
+    assert len(schedule.episodes) == 15
+    for episode in schedule.episodes:
+        assert len(episode.policy_version_ids) == 16
+        red_team = set(episode.policy_version_ids[0::2])
+        blue_team = set(episode.policy_version_ids[1::2])
+        assert len(red_team) == 1
+        assert len(blue_team) == 1
+        assert red_team != blue_team
+    # Side rotation: every entrant sits on the even (Red) seats in some episode.
+    first_red = {episode.policy_version_ids[0] for episode in schedule.episodes}
+    assert first_red == set(policy_version_ids)
+
+
+def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() -> None:
+    """A player's row must list all fielded policy versions, not just the per-round best.
+
+    The platform hides rows whose policy_version_ids miss the player's current champion, so
+    attributing only the best-per-round result erases a player whose champion is never its
+    best-ranked (e.g. deterministic tie ordering always favoring the same non-champion).
+    """
+    division_id = uuid4()
+    round_id = uuid4()
+    champion_policy_id = uuid4()
+    other_policy_id = uuid4()
+    response = rank_division_for_request(
+        BaselineCommissioner(),
+        RankDivisionRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0, type="competition"),
+            completed_rounds=[
+                RoundInfo(
+                    id=round_id,
+                    division_id=division_id,
+                    round_number=1,
+                    status="completed",
+                    completed_at="2026-06-07T00:00:00+00:00",
+                ),
+            ],
+            recent_rounds=[],
+            round_results=[
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=other_policy_id,
+                    player_id="player-1",
+                    rank=1,
+                    score=1.0,
+                    result_metadata={},
+                ),
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=champion_policy_id,
+                    player_id="player-1",
+                    rank=2,
+                    score=1.0,
+                    result_metadata={},
+                ),
+            ],
+        ),
+    )
+
+    assert len(response.rankings) == 1
+    assert set(response.rankings[0].policy_version_ids) == {champion_policy_id, other_policy_id}
+
+
 def test_ruleset_strategy_cue_n_woo_config_matches_leaderboard_neighbor_schedule() -> None:
     policy_version_ids = [uuid4() for _ in range(6)]
     round_start = _round_start(

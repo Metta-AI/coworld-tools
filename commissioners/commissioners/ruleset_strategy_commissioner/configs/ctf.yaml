@@ -15,7 +15,10 @@ dispatch_throttle:
   worker_seconds_per_episode: 45
 
 defaults:
-  seating: team_blocks
+  # CTF assigns teams by slot parity (even = Red, odd = Blue), so entrant
+  # policies must be seated interleaved. Contiguous team_blocks seating put 4
+  # agents of every policy on each team, which made every episode a scored tie.
+  seating: team_interleaved
   team_count: 2
   fill_seats: strict
   min_entries_to_start: 2

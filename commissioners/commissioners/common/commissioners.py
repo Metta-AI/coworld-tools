@@ -225,9 +225,11 @@ class BaselineCommissioner(Commissioner):
         assert latest_completed_at is not None, f"Completed round {ctx.completed_rounds[0].id} is missing completed_at"
 
         player_rounds: dict[tuple[PlayerId, UUID], LeaderboardRoundResultSnapshot] = {}
+        played_policy_version_ids: dict[PlayerId, set[UUID]] = {}
         for result in ctx.round_results:
             if int(result.result_metadata.get(RANKED_SCORE_COUNT_METADATA_KEY, 1)) <= 0:
                 continue
+            played_policy_version_ids.setdefault(result.player_id, set()).add(result.policy_version_id)
             key = (result.player_id, result.round_id)
             current = player_rounds.get(key)
             if current is None or (result.score, -result.rank) > (current.score, -current.rank):
@@ -250,7 +252,13 @@ class BaselineCommissioner(Commissioner):
                 (latest_completed_at - round_row.completed_at).total_seconds()
                 / self._leaderboard_ewma_halflife(ctx).total_seconds()
             )
-            aggs[player_round.player_id].policy_version_ids.add(player_round.policy_version_id)
+            # Attribute every policy version the player fielded, not just the per-round best:
+            # the platform drops rows whose policy_version_ids miss the player's current
+            # champion, and a player whose champion never happens to be its best-ranked entry
+            # would otherwise vanish from the board entirely.
+            aggs[player_round.player_id].policy_version_ids.update(
+                played_policy_version_ids.get(player_round.player_id, {player_round.policy_version_id})
+            )
             aggs[player_round.player_id].weighted_score_sum += player_round.score * weight
             aggs[player_round.player_id].weight_sum += weight
 
