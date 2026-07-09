@@ -48,6 +48,10 @@ jobs:
             commissioner_key: config_driven
             ruleset_strategy_config_name: four_score
             image: ghcr.io/metta-ai/commissioners-four-score
+          - name: ctf-commissioner
+            commissioner_key: config_driven
+            ruleset_strategy_config_name: ctf
+            image: ghcr.io/metta-ai/commissioners-ctf
           - name: cue-n-woo-commissioner
             commissioner_key: config_driven
             ruleset_strategy_config_name: cue_n_woo
