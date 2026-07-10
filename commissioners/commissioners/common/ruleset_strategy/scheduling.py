@@ -20,6 +20,20 @@ from commissioners.common.utils import (
 from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig
 
 
+def _two_team_round_robin_pair(job_index: int, *, num_entries: int) -> tuple[int, int]:
+    """Circle-method round-robin pairing for two-team episodes over an even field.
+
+    Episodes are scheduled in cycles of num_entries/2 pairs; each cycle every entrant plays
+    exactly once. Entry 0 stays fixed while the rest of the ring rotates one step per cycle,
+    so consecutive cycles pair every entrant against a different opponent (the standard
+    round-robin tournament schedule).
+    """
+    pairs_per_cycle = num_entries // 2
+    cycle, pair_index = divmod(job_index, pairs_per_cycle)
+    ring = [0] + [1 + (i + cycle) % (num_entries - 1) for i in range(num_entries - 1)]
+    return ring[pair_index], ring[num_entries - 1 - pair_index]
+
+
 def schedule_entries(
     *,
     pool: PolicyPool,
@@ -65,9 +79,19 @@ def schedule_entries(
         )
         episodes: list[CommissionerEpisodeRequest] = []
         for job_index in range(num_episodes):
-            entry_indices = [
-                (job_index * team_count + team_index) % len(primary_entries) for team_index in range(team_count)
-            ]
+            if team_count == 2 and len(primary_entries) % 2 == 0:
+                # Circle-method round-robin: the stride schedule below degenerates to a FIXED
+                # neighbor pairing whenever num_entries is divisible by team_count — every
+                # entrant then plays the same single opponent all round, so a pocket of
+                # mutually-drawing policies never meets the rest of the field. Rotate the
+                # ring each cycle so every entrant faces a different opponent per cycle.
+                entry_indices = list(
+                    _two_team_round_robin_pair(job_index, num_entries=len(primary_entries))
+                )
+            else:
+                entry_indices = [
+                    (job_index * team_count + team_index) % len(primary_entries) for team_index in range(team_count)
+                ]
             rotation = job_index % team_count
             entry_indices = entry_indices[rotation:] + entry_indices[:rotation]
             if config.seating == "team_blocks":
