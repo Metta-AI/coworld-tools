@@ -6,9 +6,16 @@ scoring:
     type: ewma
     half_life_hours: 2
 
+# The adaptive window needs a game timeout it can parse, but bitworld-family
+# game configs spell it camelCase (maxTicks) with an implicit 24 ticks/sec, so
+# _configured_episode_timeout_seconds resolves None and the throttle pins at
+# min_in_flight. CTF games run ~5.5 min realtime (maxTicks 10000 / 24); the
+# floor below IS the effective concurrency — sized so a 110-episode round
+# finishes in ~40 min instead of ~2.5 h (the 16 parallel crash-check rounds on
+# 2026-07-10 showed the cluster absorbs this comfortably).
 dispatch_throttle:
   enabled: true
-  min_in_flight: 4
+  min_in_flight: 16
   max_in_flight: 50
   startup_buffer_seconds: 30
   target_load: 0.75
