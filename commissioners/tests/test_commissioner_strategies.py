@@ -1171,6 +1171,38 @@ def test_ruleset_strategy_ctf_config_interleaves_two_teams() -> None:
     assert first_red == set(policy_version_ids)
 
 
+def test_ruleset_strategy_ctf_even_field_rotates_opponents() -> None:
+    """An even field must NOT degenerate to fixed neighbor pairs.
+
+    With the stride schedule, num_entries divisible by team_count locked every entrant to a
+    single opponent for the whole round, so a pocket of mutually-drawing policies never met
+    the rest of the field. The circle-method schedule pairs each entrant with a different
+    opponent every cycle.
+    """
+    policy_version_ids = [uuid4() for _ in range(4)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+
+    assert len(schedule.episodes) == 20
+    opponents: dict[UUID, set[UUID]] = {pv: set() for pv in policy_version_ids}
+    for episode in schedule.episodes:
+        red = set(episode.policy_version_ids[0::2])
+        blue = set(episode.policy_version_ids[1::2])
+        assert len(red) == 1 and len(blue) == 1
+        (a,), (b,) = red, blue
+        assert a != b
+        opponents[a].add(b)
+        opponents[b].add(a)
+    # 10 cycles over a 4-entrant field: everyone must have met every other entrant.
+    for pv, seen in opponents.items():
+        assert seen == set(policy_version_ids) - {pv}
+
+
 def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() -> None:
     """A player's row must list all fielded policy versions, not just the per-round best.
 
