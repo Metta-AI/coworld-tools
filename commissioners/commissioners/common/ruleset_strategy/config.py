@@ -38,6 +38,7 @@ SeatingStrategy = Literal[
     "mmr_neighbors",
     "team_blocks",
     "team_interleaved",
+    "shuffled_seats",
     "leaderboard_neighbors",
 ]
 FillSeatsStrategy = Literal["duplicate", "fill_from_divisions", "strict"]
