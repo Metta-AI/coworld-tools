@@ -64,6 +64,57 @@ def schedule_entries(
             ]
         )
 
+    if config.seating == "shuffled_seats":
+        # Every seat is dealt independently. Each episode seats up to num_agents
+        # DISTINCT entrants, dealt from a persistent shuffled ring so per-entrant
+        # appearances stay balanced across the round, and the chosen entrants are
+        # then shuffled ACROSS seat positions so games that derive teams from slot
+        # parity (e.g. CTF even=Red / odd=Blue) get random sides and random team
+        # compositions. With fewer entrants than seats the field is repeated as
+        # evenly as possible and still seat-shuffled -- never the fixed
+        # [A, B, A, B, ...] parity lock of team_interleaved. Like shuffled_window,
+        # the deal is seeded from the wall clock so a re-scheduled round never
+        # reuses its previous arrangement.
+        rng = random.Random(time.time_ns())
+        num_episodes = _pool_episode_count(
+            config=pool_config,
+            num_entries=len(primary_entries),
+            num_agents=num_agents,
+        )
+        distinct_field = len(primary_entries) >= num_agents
+        ring: list[int] = []
+        episodes = []
+        for job_index in range(num_episodes):
+            seats: list[int] = []
+            while len(seats) < num_agents:
+                if not ring:
+                    ring = list(range(len(primary_entries)))
+                    rng.shuffle(ring)
+                if distinct_field:
+                    pick = next((i for i, entry in enumerate(ring) if entry not in seats), None)
+                    if pick is None:
+                        # Every remaining ring entry is already seated this episode
+                        # (only near a cycle boundary): start a fresh cycle.
+                        ring = list(range(len(primary_entries)))
+                        rng.shuffle(ring)
+                        pick = next(i for i, entry in enumerate(ring) if entry not in seats)
+                    seats.append(ring.pop(pick))
+                else:
+                    seats.append(ring.pop())
+            rng.shuffle(seats)
+            episodes.append(
+                CommissionerEpisodeRequest(
+                    request_id=str(job_index),
+                    variant_id=variant_id,
+                    game_config=game_config,
+                    policy_version_ids=[
+                        primary_entries[entry_index].policy_version_id for entry_index in seats
+                    ],
+                    tags={"pool_id": str(pool.id)},
+                )
+            )
+        return CommissionerScheduleEpisodes(episodes=episodes)
+
     if config.seating in ("team_blocks", "team_interleaved"):
         team_count = config.defaults.team_count
         if len(primary_entries) < team_count:

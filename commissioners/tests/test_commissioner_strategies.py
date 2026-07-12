@@ -9,6 +9,7 @@ import yaml
 
 from commissioners.common.models import PolicyMembershipEventChange
 from commissioners.common.ruleset_strategy import scheduling
+from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig
 from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DivisionInfo,
@@ -1146,8 +1147,13 @@ def test_ruleset_strategy_four_score_config_schedules_four_repeated_teams() -> N
     assert appearances == {policy_version_id: 20 for policy_version_id in policy_version_ids}
 
 
-def test_ruleset_strategy_ctf_config_interleaves_two_teams() -> None:
-    """CTF assigns teams by slot parity, so the two entrants must alternate seats."""
+def test_ruleset_strategy_ctf_small_field_repeats_evenly_and_shuffles_seats() -> None:
+    """A field smaller than the seat count repeats entrants evenly and shuffles the seats.
+
+    team_interleaved seated only TWO entrants per episode as a fixed [A, B, A, B, ...]
+    parity pattern, so one policy always owned the even (Red) seats. shuffled_seats
+    balances appearances and randomizes which seats (and so which team) each policy gets.
+    """
     policy_version_ids = [uuid4() for _ in range(3)]
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
@@ -1158,28 +1164,43 @@ def test_ruleset_strategy_ctf_config_interleaves_two_teams() -> None:
     schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
 
     _assert_episode_seeds(schedule.episodes)
-    assert len(schedule.episodes) == 15
+    assert len(schedule.episodes) == 2  # ceil(3 entrants * 10 seat-appearances / 16 seats)
     for episode in schedule.episodes:
         assert len(episode.policy_version_ids) == 16
-        red_team = set(episode.policy_version_ids[0::2])
-        blue_team = set(episode.policy_version_ids[1::2])
-        assert len(red_team) == 1
-        assert len(blue_team) == 1
-        assert red_team != blue_team
-    # Side rotation: every entrant sits on the even (Red) seats in some episode.
-    first_red = {episode.policy_version_ids[0] for episode in schedule.episodes}
-    assert first_red == set(policy_version_ids)
+        counts = {pv: episode.policy_version_ids.count(pv) for pv in policy_version_ids}
+        assert set(counts) == set(policy_version_ids)
+        # The ring deal keeps an episode roughly even (an episode window can catch a
+        # partial ring cycle at both ends, so the spread is at most 2)...
+        assert max(counts.values()) - min(counts.values()) <= 2
+    # ...and exactly even at round level: 32 seats over 3 entrants -> 10/11/11.
+    appearances = {
+        pv: sum(episode.policy_version_ids.count(pv) for episode in schedule.episodes)
+        for pv in policy_version_ids
+    }
+    assert min(appearances.values()) >= 10
+    # Shuffled seats, not a fixed parity pattern: under team_interleaved one policy owned
+    # ALL the even (Red) seats of an episode; a shuffle puts some policy on both parities.
+    for episode in schedule.episodes:
+        parity_mixed = any(
+            {seat % 2 for seat, seated in enumerate(episode.policy_version_ids) if seated == pv} == {0, 1}
+            for pv in policy_version_ids
+        )
+        assert parity_mixed
 
 
-def test_ruleset_strategy_ctf_even_field_rotates_opponents() -> None:
-    """An even field must NOT degenerate to fixed neighbor pairs.
+def test_ruleset_strategy_ctf_competition_seats_champions_only() -> None:
+    """Tournament rounds seat each player's single designated (is_champion) policy;
+    benched versions and a player's other competing policies never get seats."""
+    config = RulesetStrategyCommissionerConfig.model_validate(_ruleset_config("ctf"))
+    competition = next(rule for rule in config.division_rules if rule.match.type == "competition")
+    assert competition.entrants is not None
+    assert competition.entrants.status == "competing"
+    assert competition.entrants.is_champion is True
 
-    With the stride schedule, num_entries divisible by team_count locked every entrant to a
-    single opponent for the whole round, so a pocket of mutually-drawing policies never met
-    the rest of the field. The circle-method schedule pairs each entrant with a different
-    opponent every cycle.
-    """
-    policy_version_ids = [uuid4() for _ in range(4)]
+
+def test_ruleset_strategy_ctf_full_field_seats_distinct_entrants() -> None:
+    """With at least num_agents entrants, every seat in an episode is a DIFFERENT policy."""
+    policy_version_ids = [uuid4() for _ in range(18)]
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
         num_agents=16,
@@ -1188,19 +1209,28 @@ def test_ruleset_strategy_ctf_even_field_rotates_opponents() -> None:
 
     schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
 
-    assert len(schedule.episodes) == 20
-    opponents: dict[UUID, set[UUID]] = {pv: set() for pv in policy_version_ids}
+    _assert_episode_seeds(schedule.episodes)
+    assert len(schedule.episodes) == 12  # ceil(18 entrants * 10 seat-appearances / 16 seats)
     for episode in schedule.episodes:
-        red = set(episode.policy_version_ids[0::2])
-        blue = set(episode.policy_version_ids[1::2])
-        assert len(red) == 1 and len(blue) == 1
-        (a,), (b,) = red, blue
-        assert a != b
-        opponents[a].add(b)
-        opponents[b].add(a)
-    # 10 cycles over a 4-entrant field: everyone must have met every other entrant.
-    for pv, seen in opponents.items():
-        assert seen == set(policy_version_ids) - {pv}
+        assert len(episode.policy_version_ids) == 16
+        assert len(set(episode.policy_version_ids)) == 16
+    # The ring deal balances appearances across the round: 192 seats / 18 entrants.
+    appearances = {
+        pv: sum(episode.policy_version_ids.count(pv) for episode in schedule.episodes)
+        for pv in policy_version_ids
+    }
+    assert min(appearances.values()) >= 10
+    # Sides are shuffled: some policy sits on both an even (Red) and an odd (Blue) seat
+    # across the round instead of being parity-locked.
+    def sides(pv: UUID) -> set[int]:
+        return {
+            seat % 2
+            for episode in schedule.episodes
+            for seat, seated in enumerate(episode.policy_version_ids)
+            if seated == pv
+        }
+
+    assert any(sides(pv) == {0, 1} for pv in policy_version_ids)
 
 
 def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() -> None:
