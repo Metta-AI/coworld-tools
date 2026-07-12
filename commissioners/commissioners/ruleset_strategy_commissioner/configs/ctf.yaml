@@ -73,9 +73,10 @@ divisions:
     level: 1
     match:
       type: competition
-    # All competing policies play, not one champion per account: the platform
-    # allows a single is_champion membership per player, so a league seeded
-    # with many baselines from one account would otherwise never reach
-    # min_entries_to_start.
-    entrants:
-      status: competing
+    # Tournament rounds seat CHAMPIONS ONLY: each player's single designated
+    # (is_champion) policy. Benched versions and a player's other competing
+    # policies qualify and rank but never occupy tournament seats. (The old
+    # status-competing filter dated from the bootstrap era when one account
+    # seeded 16 baselines and champions-only could not reach
+    # min_entries_to_start; the league has real multi-player champions now.)
+    entrants: champions

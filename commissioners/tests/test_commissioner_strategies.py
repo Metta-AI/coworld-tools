@@ -9,6 +9,7 @@ import yaml
 
 from commissioners.common.models import PolicyMembershipEventChange
 from commissioners.common.ruleset_strategy import scheduling
+from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig
 from commissioners.common.protocol import (
     DescribeDivisionRequest,
     DivisionInfo,
@@ -1185,6 +1186,16 @@ def test_ruleset_strategy_ctf_small_field_repeats_evenly_and_shuffles_seats() ->
             for pv in policy_version_ids
         )
         assert parity_mixed
+
+
+def test_ruleset_strategy_ctf_competition_seats_champions_only() -> None:
+    """Tournament rounds seat each player's single designated (is_champion) policy;
+    benched versions and a player's other competing policies never get seats."""
+    config = RulesetStrategyCommissionerConfig.model_validate(_ruleset_config("ctf"))
+    competition = next(rule for rule in config.division_rules if rule.match.type == "competition")
+    assert competition.entrants is not None
+    assert competition.entrants.status == "competing"
+    assert competition.entrants.is_champion is True
 
 
 def test_ruleset_strategy_ctf_full_field_seats_distinct_entrants() -> None:
