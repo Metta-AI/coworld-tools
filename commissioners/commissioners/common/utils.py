@@ -262,10 +262,17 @@ def _episode_win_points(scores: list[float]) -> list[float]:
     The episode's top scorer earns 1 and everyone else earns 0; a tie for first shares the win, so
     every policy at the top score gets 1. Margins and lower placements are discarded — only winning
     the episode counts. An empty episode yields no points.
+
+    A scoreless episode awards nobody: when the top score is not positive there was no winner —
+    e.g. a timeout draw where every policy scored 0, or win-only scoring where losers go negative.
+    Sharing those "ties" handed every entrant a win point per drawn episode, which froze whole
+    divisions at a permanent 1.0 whenever draws were common.
     """
     if not scores:
         return []
     top = max(scores)
+    if top <= 0:
+        return [0.0 for _ in scores]
     return [1.0 if score == top else 0.0 for score in scores]
 
 

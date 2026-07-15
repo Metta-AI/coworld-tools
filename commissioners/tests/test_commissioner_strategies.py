@@ -1254,6 +1254,16 @@ def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() ->
     assert set(response.rankings[0].policy_version_ids) == {champion_policy_id, other_policy_id}
 
 
+def test_win_points_scoreless_draw_awards_nobody() -> None:
+    """A drawn episode (top score <= 0) must not share the win with every entrant."""
+    from commissioners.common.utils import _episode_win_points
+
+    assert _episode_win_points([0.0, 0.0, 0.0]) == [0.0, 0.0, 0.0]
+    assert _episode_win_points([-1.0, -1.0]) == [0.0, 0.0]
+    assert _episode_win_points([1.0, -1.0, 0.0]) == [1.0, 0.0, 0.0]
+    assert _episode_win_points([1.0, 1.0, -1.0]) == [1.0, 1.0, 0.0]
+
+
 def test_ruleset_strategy_cue_n_woo_config_matches_leaderboard_neighbor_schedule() -> None:
     policy_version_ids = [uuid4() for _ in range(6)]
     round_start = _round_start(
