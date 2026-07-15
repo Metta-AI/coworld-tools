@@ -72,9 +72,8 @@ divisions:
     level: 1
     match:
       type: competition
-    # All competing policies play, not one champion per account: the platform
-    # allows a single is_champion membership per player, so a league seeded
-    # with many baselines from one account would otherwise never reach
-    # min_entries_to_start.
-    entrants:
-      status: competing
+    # One champion per player: benched older versions must not eat round
+    # seats — they go objective-blind after every game update and become
+    # free-win farms that distort the whole board. (The old all-competing
+    # selector predates the league having more than one real player.)
+    entrants: champions
