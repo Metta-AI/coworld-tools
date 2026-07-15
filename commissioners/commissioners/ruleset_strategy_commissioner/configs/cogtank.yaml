@@ -1,7 +1,12 @@
 schedule_interval_minutes: 30
 
+# Rank seats within each episode instead of win-rate: cogtank episode scores
+# are 100*win + 25*captures + 5*kills per seat (game >= 0.9.0), so placement
+# separates the winning team's contributors and still differentiates draws.
+# The old `win` scoring collapsed to 1.0 for every seat whenever an episode
+# drew (all scores tied at the top), which made every round flat.
 scoring:
-  round_score: win
+  round_score: rank
   leaderboard:
     type: ewma
     half_life_hours: 2
