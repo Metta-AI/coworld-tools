@@ -133,6 +133,11 @@ class RoundStartView:
                 division = division_by_id.get(membership.division_id)
                 if division is None or not source.match.matches(division) or not source.entrants.matches(membership):
                     continue
+                if (
+                    source.policy_version_ids is not None
+                    and membership.policy_version_id not in source.policy_version_ids
+                ):
+                    continue
                 if membership.policy_version_id in seen:
                     continue
                 seen.add(membership.policy_version_id)

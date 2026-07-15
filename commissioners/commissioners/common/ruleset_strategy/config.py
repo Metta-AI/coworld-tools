@@ -4,6 +4,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -94,6 +95,9 @@ class FillerSource(_ConfigModel):
             is_champion=True,
         )
     )
+    # Restrict this source to an explicit allowlist of policy versions (e.g. pin a league's
+    # house baseline as the standing filler). None = any membership the selectors match.
+    policy_version_ids: list[UUID] | None = None
 
 
 class InsufficientPlayersConfig(_ConfigModel):
