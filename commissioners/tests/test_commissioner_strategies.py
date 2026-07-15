@@ -2511,6 +2511,68 @@ def test_ruleset_strategy_commissioner_fills_short_round_from_configured_divisio
     assert schedule.episodes[0].policy_version_ids == [primary_policy_id, *filler_policy_ids]
 
 
+def test_ruleset_strategy_commissioner_filler_source_pins_policy_version_ids() -> None:
+    primary_policy_ids = [uuid4(), uuid4(), uuid4()]
+    pinned_filler_id = uuid4()
+    other_benched_ids = [uuid4(), uuid4()]
+    daily_id = uuid4()
+    config = {
+        "defaults": {
+            "seating": "rolling_window",
+            "fill_seats": "fill_from_divisions",
+            "fill_from": [
+                {
+                    "match": {"name": "Daily"},
+                    "entrants": {"status": "competing", "substatus": "benched", "match_substatus": True},
+                    "policy_version_ids": [str(pinned_filler_id)],
+                }
+            ],
+        },
+        "divisions": {
+            "daily": {
+                "match": {"name": "Daily"},
+                "entrants": "champions",
+                "min_entries_to_start": 1,
+                "stage": {"label": "Daily", "episodes": 1},
+            },
+        },
+    }
+    round_start = _round_start(
+        policy_version_ids=primary_policy_ids,
+        num_agents=4,
+        commissioner_config={},
+        division_name="Daily",
+        division_id=daily_id,
+        state={"round_config": {"current_division_id": str(daily_id)}},
+    )
+    # Benched division members: two ordinary benched policies that must NOT be seated, and the
+    # pinned filler listed last so ordering alone can't make the test pass.
+    round_start.memberships.extend(
+        [
+            MembershipInfo(
+                id=uuid4(),
+                league_id=round_start.league.id,
+                division_id=daily_id,
+                policy_version_id=policy_version_id,
+                player_id=f"benched-{index}",
+                status="competing",
+                substatus="benched",
+                is_champion=False,
+            )
+            for index, policy_version_id in enumerate([*other_benched_ids, pinned_filler_id])
+        ]
+    )
+
+    schedule = schedule_episodes_for_round_start(RulesetStrategyCommissioner(config), round_start)
+
+    assert schedule.episodes
+    for episode in schedule.episodes:
+        assert len(episode.policy_version_ids) == 4
+        assert set(episode.policy_version_ids) == {*primary_policy_ids, pinned_filler_id}
+        for excluded in other_benched_ids:
+            assert excluded not in episode.policy_version_ids
+
+
 def test_ruleset_strategy_commissioner_advances_qualifier_substatus_after_completed_stage() -> None:
     qualifier_id = uuid4()
     policy_version_ids = [uuid4(), uuid4()]
