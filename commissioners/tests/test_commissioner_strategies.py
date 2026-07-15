@@ -1264,6 +1264,43 @@ def test_win_points_scoreless_draw_awards_nobody() -> None:
     assert _episode_win_points([1.0, 1.0, -1.0]) == [1.0, 1.0, 0.0]
 
 
+def test_rank_points_scoreless_draw_yields_no_placement() -> None:
+    """A scoreless episode contributes no rank points instead of a shared-top tie.
+
+    Shared-top ties paid a draw the same points as a win, so a policy drawing every
+    episode averaged the same round score as one winning every episode.
+    """
+    from commissioners.common.utils import _episode_rank_points
+
+    assert _episode_rank_points([0.0, 0.0]) == []
+    assert _episode_rank_points([-1.0, -1.0, -1.0]) == []
+    assert _episode_rank_points([]) == []
+    assert _episode_rank_points([400.0, 0.0]) == [2.0, 1.0]
+    assert _episode_rank_points([200.0, 200.0]) == [2.0, 2.0]
+
+
+def test_points_lists_skip_scoreless_episodes() -> None:
+    """Scoreless episodes are excluded from per-policy point averages entirely."""
+    from commissioners.common.models import EpisodeResult, RoundPolicyScore
+    from commissioners.common.utils import _episode_points_lists_by_policy, _episode_rank_points
+
+    a, b = uuid4(), uuid4()
+
+    def episode(scores: dict) -> EpisodeResult:
+        return EpisodeResult(
+            episode_request_id=uuid4(),
+            scores=[RoundPolicyScore(policy_version_id=pv, score=s) for pv, s in scores.items()],
+        )
+
+    results = [
+        episode({a: 0.0, b: 0.0}),      # scoreless draw: skipped
+        episode({a: 400.0, b: 0.0}),    # decisive: a places 2, b places 1
+    ]
+    points = _episode_points_lists_by_policy(results, _episode_rank_points)
+    assert points[a] == [2.0]
+    assert points[b] == [1.0]
+
+
 def test_ruleset_strategy_cue_n_woo_config_matches_leaderboard_neighbor_schedule() -> None:
     policy_version_ids = [uuid4() for _ in range(6)]
     round_start = _round_start(

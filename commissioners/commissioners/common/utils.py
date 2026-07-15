@@ -251,7 +251,17 @@ def _episode_rank_points(scores: list[float]) -> list[float]:
     A policy earns N minus the number of policies that strictly outscored it, so the winner of
     an N-policy episode gets N and last place gets 1. Ties share the better placement (two
     policies tied for first both get N). Margins are discarded — only placement matters.
+
+    A scoreless episode contributes no placement signal: when the top score is not positive
+    nobody did anything worth ranking (e.g. a timeout draw where every policy scored 0).
+    Yielding no points (rather than a shared-top tie) keeps a policy that draws every episode
+    from averaging the same rank points as one that wins every episode — the win-points
+    equivalent of this rule landed in #26.
     """
+    if not scores:
+        return []
+    if max(scores) <= 0:
+        return []
     n = len(scores)
     return [float(n - sum(1 for other in scores if other > score)) for score in scores]
 
@@ -284,12 +294,16 @@ def _episode_points_lists_by_policy(
 
     Unlike ``_score_lists_by_policy`` no scores are dropped: ``episode_points`` is meaningful for
     every seat in an episode, including a zero score, so each episode contributes one point per
-    participating policy.
+    participating policy. The exception is an episode whose ``episode_points`` yields nothing
+    (e.g. a scoreless draw under rank scoring) — that episode is skipped entirely rather than
+    counted as a zero, so it dilutes nobody's average.
     """
     points_lists: dict[UUID, list[float]] = defaultdict(list)
     for result in episode_results:
         episode_scores = [(score.policy_version_id, score.score) for score in result.scores]
         points = episode_points([score for _, score in episode_scores])
+        if not points:
+            continue
         for (policy_version_id, _), point in zip(episode_scores, points, strict=True):
             points_lists[policy_version_id].append(point)
     return points_lists
