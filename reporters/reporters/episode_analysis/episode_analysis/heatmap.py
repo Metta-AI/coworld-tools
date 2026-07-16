@@ -74,13 +74,22 @@ def total_grid(grids: Mapping[object, np.ndarray]) -> np.ndarray:
 
 
 def gaussian_blur(g: np.ndarray, sigma: float) -> np.ndarray:
-    """Separable Gaussian blur. No scipy — the kernel is six lines and this
-    is the only use."""
+    """Separable Gaussian blur. No scipy — the kernel is a few lines and
+    this is the only use.
+
+    Convolves in ``full`` mode and slices the centre so the output always
+    matches the input shape (``mode="same"`` returns ``max(M, N)`` and would
+    *grow* a grid smaller than the kernel — the origin only ever blurred
+    large map grids, so the edge case never fired there)."""
     if sigma <= 0:
         return g
     radius = max(1, int(3 * sigma))
     x = np.arange(-radius, radius + 1, dtype=np.float64)
     k = np.exp(-(x**2) / (2 * sigma * sigma))
     k /= k.sum()
-    out = np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 0, g.astype(np.float64))
-    return np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 1, out)
+
+    def conv(m: np.ndarray) -> np.ndarray:
+        return np.convolve(m, k, mode="full")[radius : radius + len(m)]
+
+    out = np.apply_along_axis(conv, 0, g.astype(np.float64))
+    return np.apply_along_axis(conv, 1, out)
