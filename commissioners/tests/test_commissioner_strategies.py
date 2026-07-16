@@ -3420,3 +3420,119 @@ def test_agricogla_mmr_neighbors_seats_skill_bands() -> None:
         variant_id="default", game_config=None, config=cfg, recent_results=[],
     )
     assert {pv for episode in cold.episodes for pv in episode.policy_version_ids} == set(pvids)
+
+
+def _lifeless_config(sustained_rounds: int = 3) -> dict:
+    return {
+        "defaults": {"min_entries_to_start": 1, "stage": {"label": "Round", "episodes": 2}},
+        "scoring": {"round_score": "win"},
+        "divisions": {
+            "competition": {
+                "match": {"name": "Competition", "type": "competition"},
+                "entrants": "champions",
+                "on_round_complete": [
+                    {
+                        "id": "lifeless",
+                        "criteria": {"score_lte": 0.0, "sustained_rounds": sustained_rounds},
+                        "actions": [
+                            {
+                                "type": "update_membership",
+                                "status": "disqualified",
+                                "substatus": "lifeless",
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+
+
+def _lifeless_round(
+    corpse: UUID,
+    live: UUID,
+    division_id: UUID,
+    recent: list[tuple[float, float]],
+) -> RoundStart:
+    round_start = _round_start(
+        policy_version_ids=[corpse, live],
+        num_agents=2,
+        division_name="Competition",
+        division_id=division_id,
+        division_type="competition",
+        state={"round_config": {"current_division_id": str(division_id)}},
+    )
+    round_ids = [uuid4() for _ in recent]
+    round_start.recent_results = [
+        RecentResult(
+            round_id=round_ids[index],
+            division_id=division_id,
+            round_number=index + 1,
+            policy_version_id=policy_version_id,
+            rank=rank,
+            score=score,
+        )
+        for index, (corpse_score, live_score) in enumerate(recent)
+        for policy_version_id, rank, score in [(corpse, 2, corpse_score), (live, 1, live_score)]
+    ]
+    return round_start
+
+
+def _lifeless_events(round_start: RoundStart, corpse: UUID, live: UUID, sustained_rounds: int = 3):
+    complete = complete_round_for_round_start(
+        RulesetStrategyCommissioner(_lifeless_config(sustained_rounds)),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="0",
+                scores=[
+                    EpisodeScore(policy_version_id=corpse, score=-1.0),
+                    EpisodeScore(policy_version_id=live, score=1.0),
+                ],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[corpse, live],
+            )
+        ],
+    )
+    return complete.policy_membership_events
+
+
+def test_lifeless_entrant_disqualified_after_sustained_zero_rounds() -> None:
+    corpse, live, division_id = uuid4(), uuid4(), uuid4()
+    round_start = _lifeless_round(corpse, live, division_id, recent=[(0.0, 0.8)] * 3)
+    events = _lifeless_events(round_start, corpse, live)
+    corpse_membership = next(m for m in round_start.memberships if m.policy_version_id == corpse)
+    assert [e.league_policy_membership_id for e in events if e.status == "disqualified"] == [
+        corpse_membership.id
+    ]
+    assert all(e.status != "disqualified" for e in events if e.league_policy_membership_id != corpse_membership.id)
+
+
+def test_lifeless_transition_fail_safe_on_thin_history() -> None:
+    corpse, live, division_id = uuid4(), uuid4(), uuid4()
+    round_start = _lifeless_round(corpse, live, division_id, recent=[(0.0, 0.8)])
+    events = _lifeless_events(round_start, corpse, live)
+    assert all(e.status != "disqualified" for e in events)
+
+
+def test_lifeless_transition_spares_league_wide_outage() -> None:
+    corpse, live, division_id = uuid4(), uuid4(), uuid4()
+    # Every recent round is all-zero (a game update blinded the whole field):
+    # no round discriminates the corpse from the field, so nobody is kicked.
+    round_start = _lifeless_round(corpse, live, division_id, recent=[(0.0, 0.0)] * 6)
+    events = _lifeless_events(round_start, corpse, live)
+    assert all(e.status != "disqualified" for e in events)
+
+
+def test_lifeless_transition_spared_by_single_scoring_round() -> None:
+    corpse, live, division_id = uuid4(), uuid4(), uuid4()
+    round_start = _lifeless_round(
+        corpse, live, division_id, recent=[(0.0, 0.8), (0.4, 0.8), (0.0, 0.8), (0.0, 0.8)]
+    )
+    events = _lifeless_events(round_start, corpse, live)
+    assert all(e.status != "disqualified" for e in events)

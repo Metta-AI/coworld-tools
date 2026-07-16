@@ -73,6 +73,14 @@ def build_membership_events(
         }
     else:
         observations = ctx.transition_observations
+    recent_rounds: dict[object, list[tuple[object, float]]] = {}
+    for result in ctx.recent_results:
+        recent_rounds.setdefault(result.round_id, []).append(
+            (result.policy_version_id, result.score)
+        )
+    current_round_results = [
+        (result.policy_version_id, result.score) for result in ctx.round_results
+    ]
     events: list[PolicyMembershipEventChange] = []
     for rule in config.membership_changes:
         for membership in ctx.division_memberships:
@@ -86,6 +94,9 @@ def build_membership_events(
                 membership,
                 ctx.all_divisions,
                 observation=observation,
+                policy_version_id=membership.policy_version_id,
+                recent_rounds=recent_rounds,
+                current_round_results=current_round_results,
             )
             if event is not None:
                 events.append(event)
@@ -102,6 +113,9 @@ def transition_change(
     divisions: list[DivisionSnapshot],
     *,
     observation: PolicyTransitionObservation,
+    policy_version_id: object = None,
+    recent_rounds: dict[object, list[tuple[object, float]]] | None = None,
+    current_round_results: list[tuple[object, float]] | None = None,
 ) -> PolicyMembershipEventChange | None:
     observed: dict[str, int | float] = {
         "completed_episodes": observation.completed_episodes,
@@ -110,6 +124,12 @@ def transition_change(
     }
     if observation.failed_episodes:
         observed["failed_episodes"] = observation.failed_episodes
+    if recent_rounds:
+        observed["recent_rounds_observed"] = sum(
+            1
+            for results in recent_rounds.values()
+            if any(pvid == policy_version_id for pvid, _ in results)
+        )
     transition = next(
         (
             candidate
@@ -118,6 +138,9 @@ def transition_change(
                 candidate.criteria,
                 completed_episodes=observation.completed_episodes,
                 score=observation.score,
+                policy_version_id=policy_version_id,
+                recent_rounds=recent_rounds,
+                current_round_results=current_round_results,
             )
         ),
         None,
@@ -154,7 +177,15 @@ def transition_change(
     )
 
 
-def criteria_matches(criteria: TransitionCriteria, *, completed_episodes: int, score: float) -> bool:
+def criteria_matches(
+    criteria: TransitionCriteria,
+    *,
+    completed_episodes: int,
+    score: float,
+    policy_version_id: object = None,
+    recent_rounds: dict[object, list[tuple[object, float]]] | None = None,
+    current_round_results: list[tuple[object, float]] | None = None,
+) -> bool:
     if criteria.otherwise:
         return True
     if criteria.completed_episodes_gt is not None:
@@ -162,10 +193,52 @@ def criteria_matches(criteria: TransitionCriteria, *, completed_episodes: int, s
     if criteria.completed_episodes_lte is not None:
         return completed_episodes <= criteria.completed_episodes_lte
     if criteria.score_gt is not None:
-        return score > criteria.score_gt
-    if criteria.score_lte is not None:
-        return score <= criteria.score_lte
-    return False
+        condition = lambda s: s > criteria.score_gt  # noqa: E731
+    elif criteria.score_lte is not None:
+        condition = lambda s: s <= criteria.score_lte  # noqa: E731
+    else:
+        return False
+    if not condition(score):
+        return False
+    if criteria.sustained_rounds is None:
+        return True
+    return _sustained_condition_holds(
+        criteria.sustained_rounds,
+        condition,
+        policy_version_id=policy_version_id,
+        recent_rounds=recent_rounds or {},
+        current_round_results=current_round_results or [],
+    )
+
+
+def _sustained_condition_holds(
+    sustained_rounds: int,
+    condition,
+    *,
+    policy_version_id: object,
+    recent_rounds: dict[object, list[tuple[object, float]]],
+    current_round_results: list[tuple[object, float]],
+) -> bool:
+    # Sustained: the condition must hold for EVERY recent round the policy
+    # appears in (order-free — the protocol carries no round ordering), and at
+    # least sustained_rounds of those rounds must be DISCRIMINATING: some
+    # other policy in the same round did NOT satisfy the condition. The guard
+    # keeps a league-wide outage (e.g. a game update blinding every bot at
+    # once, all scores zero) from mass-disqualifying the whole field, and
+    # makes thin history fail-safe: too few rounds on record, no transition.
+    discriminating = 0
+    rounds = list(recent_rounds.values()) + [current_round_results]
+    seen_any = False
+    for results in rounds:
+        own = [s for pvid, s in results if pvid == policy_version_id]
+        if not own:
+            continue
+        seen_any = True
+        if not all(condition(s) for s in own):
+            return False
+        if any(not condition(s) for pvid, s in results if pvid != policy_version_id):
+            discriminating += 1
+    return seen_any and discriminating >= sustained_rounds
 
 
 def target_for_transition(
