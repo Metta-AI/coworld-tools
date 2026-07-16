@@ -130,6 +130,13 @@ class TransitionCriteria(_ConfigModel):
     score_gt: float | None = None
     score_lte: float | None = None
     otherwise: bool = False
+    # Modifier for the score_* conditions: the condition must hold for EVERY
+    # recent-window round result of the policy (the current round included),
+    # and the policy must have at least this many rounds on record. Order-free
+    # on purpose — the round-completed protocol carries no round ordering —
+    # and fail-safe: with fewer than sustained_rounds results the transition
+    # never fires.
+    sustained_rounds: int | None = None
 
     @model_validator(mode="after")
     def require_single_condition(self) -> TransitionCriteria:
@@ -142,6 +149,11 @@ class TransitionCriteria(_ConfigModel):
         ]
         if sum(conditions) != 1:
             raise ValueError("transition criteria must specify exactly one condition")
+        if self.sustained_rounds is not None:
+            if self.score_gt is None and self.score_lte is None:
+                raise ValueError("sustained_rounds requires a score_gt or score_lte condition")
+            if self.sustained_rounds < 2:
+                raise ValueError("sustained_rounds must be at least 2")
         return self
 
 
@@ -265,6 +277,7 @@ class TransitionCriteriaConfig(_ConfigModel):
     completed_episodes_lte: int | None = None
     score_gt: float | None = None
     score_lte: float | None = None
+    sustained_rounds: int | None = None
 
     @model_validator(mode="after")
     def require_single_condition(self) -> TransitionCriteriaConfig:
@@ -276,6 +289,11 @@ class TransitionCriteriaConfig(_ConfigModel):
         ]
         if sum(conditions) != 1:
             raise ValueError("transition criteria must specify exactly one condition")
+        if self.sustained_rounds is not None:
+            if self.score_gt is None and self.score_lte is None:
+                raise ValueError("sustained_rounds requires a score_gt or score_lte condition")
+            if self.sustained_rounds < 2:
+                raise ValueError("sustained_rounds must be at least 2")
         return self
 
 
@@ -580,6 +598,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
             completed_episodes_lte=criteria.completed_episodes_lte,
             score_gt=criteria.score_gt,
             score_lte=criteria.score_lte,
+            sustained_rounds=criteria.sustained_rounds,
         )
 
     def _expanded_stages(self, division: RulesetDivisionConfig) -> list[DivisionStageConfig]:

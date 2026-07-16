@@ -285,7 +285,19 @@ class RoundStartView:
             division_memberships=[
                 membership for membership in self.memberships if membership.division_id == self.current_division.id
             ],
-            recent_results=[],
+            # The platform sends league-wide recent round results with the
+            # round start; membership transitions (sustained_rounds) evaluate
+            # against the current division's slice of that history.
+            recent_results=[
+                RoundResultSnapshot(
+                    round_id=result.round_id,
+                    policy_version_id=result.policy_version_id,
+                    rank=result.rank,
+                    score=result.score,
+                )
+                for result in self.round_start.recent_results
+                if result.division_id == self.current_division.id
+            ],
             commissioner_config={CONFIG_KEY: self.config.model_dump(mode="json")},
         )
 

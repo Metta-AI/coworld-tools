@@ -77,3 +77,25 @@ divisions:
     # free-win farms that distort the whole board. (The old all-competing
     # selector predates the league having more than one real player.)
     entrants: champions
+    # Kick lifeless entrants: qualification is a one-time crash check, but the
+    # game keeps updating underneath the field — a policy that qualified three
+    # versions ago can rot into a crash-on-connect corpse that forfeits every
+    # episode in seconds (daf-flagrunner:v3 was 0.0000 over 190 rounds of
+    # 1-tick games). A policy that has >= sustained_rounds recent rounds on
+    # record and never scored above zero in ANY of them is not competing —
+    # disqualify it. A single scoring round anywhere in the recent window
+    # protects a live-but-struggling bot (and everyone during a game-update
+    # blind spell earns points off the truly dead, so live bots never sustain
+    # an all-zero window). Re-uploading a fixed version re-qualifies fresh.
+    on_round_complete:
+      - id: lifeless
+        criteria:
+          score_lte: 0.0
+          sustained_rounds: 10
+        actions:
+          - type: update_membership
+            status: disqualified
+            substatus: lifeless
+            reason: >-
+              Zero score in every recent round on record (10+ rounds) —
+              presumed broken; resubmit a fixed version to re-qualify.
