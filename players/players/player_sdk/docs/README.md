@@ -56,6 +56,36 @@ URL source: the cogweb and sprite bridges read the websocket URL via `env_ws_url
 bridge's `main()` reads `COGAMES_ENGINE_WS_URL` directly (along with
 `COGAMES_POLICY_URI` and friends — see its module docstring).
 
+## Opt-in game-support modules
+
+Beside the game-agnostic core, the SDK ships opt-in libraries (never
+re-exported from `players.player_sdk`; import them explicitly). This is the
+"grid-specific parts as opt-in modules sitting beside a game-agnostic core"
+direction of the generalization design doc, realized. Origin: extracted from
+Ron Dahlgren's (swgy) battle-tested agent stacks (sm-policies Cogs-vs-Clips;
+swgy-crewrift) — each module's README carries the provenance details.
+
+| Module | One-liner | Deps |
+|---|---|---|
+| [`nav_grid/`](../nav_grid/README.md) | Discrete 4-way grid navigation: cost-shaped A* with potential fields, tabu trail, exploration strategies, stuck/deadlock recovery | stdlib |
+| [`nav_mesh/`](../nav_mesh/README.md) | Continuous/pixel-world navigation with inertia: waypoint mesh + A* + release-and-coast follower, plus the offline mesh `builder/` | numpy |
+| [`worldmodel/`](../worldmodel/README.md) | Limited-information bookkeeping: shared maps, POIs, TTL claims, frame anchoring, team census, intents, sticky targets, selection | stdlib |
+| [`tuning/`](../tuning/README.md) | Typed string-kwarg knob configs + GA genome vectors | stdlib |
+| [`simulation/`](../simulation/README.md) | Byte-faithful parameterized inertia physics oracle for offline tests/benchmarks | stdlib |
+| [`perception/`](../perception/__init__.py) | Duck-typed cogames token-stream parsing (no mettagrid import) | stdlib |
+| `action_names.py` | Action-name resolution with noop fallback | stdlib |
+
+Runnable examples (`metta_cogames_framework/examples/`):
+
+- `grid_nav_agent.py` — two agents frontier-explore an unknown ASCII maze
+  under partial observability with dead-reckoning (the `nav_grid` per-tick
+  contract, end to end).
+- `inertial_nav_demo.py` — walkability mask → `builder` → mesh → A* →
+  follower driving the `simulation` physics oracle to an on-goal stop. No
+  server.
+- `players/paintarena/gridnav/` — a *packaged* demo player using
+  `nav_grid` + `worldmodel` on the real Paint Arena protocol.
+
 ## Designs
 
 Living design documents for SDK evolution.
