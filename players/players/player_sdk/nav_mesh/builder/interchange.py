@@ -29,7 +29,7 @@ def build_interchange(
     params: BuildParams,
     tasks: list[dict] | None = None,
     vents: list[dict] | None = None,
-    source: str = "aseprite:croatoan#walkLayer",
+    source: str = "mask",
     provenance: dict | None = None,
 ) -> dict:
     h, w = mask.shape
