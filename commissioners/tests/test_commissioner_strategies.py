@@ -3571,3 +3571,50 @@ def test_lifeless_transition_spared_by_single_scoring_round() -> None:
     )
     events = _lifeless_events(round_start, corpse, live)
     assert all(e.status != "disqualified" for e in events)
+
+
+def test_broken_entrant_disqualified_on_zero_completed_episodes() -> None:
+    corpse, live, division_id = uuid4(), uuid4(), uuid4()
+    config = _lifeless_config(3)
+    config["divisions"]["competition"]["on_round_complete"].insert(
+        0,
+        {
+            "id": "broken",
+            "criteria": {"completed_episodes_lte": 0},
+            "actions": [
+                {
+                    "type": "update_membership",
+                    "status": "disqualified",
+                    "substatus": "broken",
+                }
+            ],
+        },
+    )
+    round_start = _lifeless_round(corpse, live, division_id, recent=[])
+    complete = complete_round_for_round_start(
+        RulesetStrategyCommissioner(config),
+        round_start,
+        [
+            ProtocolEpisodeResult(
+                request_id="1",
+                scores=[EpisodeScore(policy_version_id=live, score=1.0)],
+            )
+        ],
+        [
+            ProtocolEpisodeRequest(
+                request_id="0",
+                variant_id="default",
+                policy_version_ids=[corpse, live],
+            ),
+            ProtocolEpisodeRequest(
+                request_id="1",
+                variant_id="default",
+                policy_version_ids=[live],
+            ),
+        ],
+    )
+    events = complete.policy_membership_events
+    corpse_membership = next(m for m in round_start.memberships if m.policy_version_id == corpse)
+    broken = [e for e in events if e.status == "disqualified"]
+    assert [e.league_policy_membership_id for e in broken] == [corpse_membership.id]
+    assert broken[0].substatus == "broken"
