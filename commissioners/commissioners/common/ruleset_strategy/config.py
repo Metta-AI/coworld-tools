@@ -85,6 +85,7 @@ class DivisionRule(_ConfigModel):
     stages: list[V2StageConfig] | None = None
     game_config: dict[str, Any] | None = None
     description: str | None = None
+    bench_scoreless_after: int | None = None
 
 
 class FillerSource(_ConfigModel):
@@ -349,6 +350,15 @@ class RulesetDivisionConfig(_ConfigModel):
     entrants: EntrantSelector | EntrantShortcut | None = None
     game_config: dict[str, Any] | None = None
     min_entries_to_start: int | None = Field(default=None, gt=0)
+    # Seating guard, evaluated at ROUND START from recent results: an entrant
+    # with at least this many recent completed-round results, ALL zero while
+    # some other entrant scored in the same round, is not seated. This is the
+    # only enforcement point that still works when a broken container keeps
+    # FAILING rounds — round-completion membership events never fire on a
+    # failed round, so a crash-farm can wedge the league indefinitely without
+    # this. The membership itself is untouched (the on_round_complete rules
+    # formally disqualify it once a round completes).
+    bench_scoreless_after: int | None = Field(default=None, ge=2)
     stage: StageScheduleConfig | None = None
     stages: list[DivisionStageConfig] = Field(default_factory=list)
     policy_membership_events: list[EpisodeCompleteTransition] = Field(default_factory=list)
@@ -530,6 +540,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
                     minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
                     stages=[division.stage.to_stage_config()] if division.stage is not None else None,
                     game_config=division.game_config,
+                    bench_scoreless_after=division.bench_scoreless_after,
                 )
             ]
 
@@ -541,6 +552,7 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
                 minimum_entrants=division.min_entries_to_start or self.defaults.min_entries_to_start,
                 stages=[stage.schedule.to_stage_config()],
                 game_config=stage.game_config or division.game_config,
+                bench_scoreless_after=division.bench_scoreless_after,
             )
             for index, stage in reversed(list(enumerate(stages)))
         ]

@@ -3618,3 +3618,55 @@ def test_broken_entrant_disqualified_on_zero_completed_episodes() -> None:
     broken = [e for e in events if e.status == "disqualified"]
     assert [e.league_policy_membership_id for e in broken] == [corpse_membership.id]
     assert broken[0].substatus == "broken"
+
+
+def test_ruleset_strategy_ctf_benches_scoreless_entrant_at_round_start() -> None:
+    """A crash-farm entrant (all-zero in every recent scoring round) is not seated.
+
+    Round-completion disqualification can't reach a container whose episode failures
+    keep rounds from completing, so seating itself must exclude it. A league-wide
+    outage (rounds where NOBODY scored) must not bench anyone.
+    """
+    policy_version_ids = [uuid4() for _ in range(7)]
+    corpse = policy_version_ids[2]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+    division_id = round_start.divisions[0].id
+    recent = []
+    # Three discriminating rounds: corpse zero, others scoring.
+    for rnum in range(1, 4):
+        rid = uuid4()
+        for index, pv in enumerate(policy_version_ids):
+            recent.append(
+                RecentResult(
+                    round_id=rid,
+                    division_id=division_id,
+                    round_number=rnum,
+                    policy_version_id=pv,
+                    rank=index + 1,
+                    score=0.0 if pv == corpse else 0.5,
+                )
+            )
+    # One league-wide outage round: all zero — discriminates nobody.
+    outage = uuid4()
+    for index, pv in enumerate(policy_version_ids):
+        recent.append(
+            RecentResult(
+                round_id=outage,
+                division_id=division_id,
+                round_number=4,
+                policy_version_id=pv,
+                rank=index + 1,
+                score=0.0,
+            )
+        )
+    round_start.recent_results = recent
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+
+    seated = {pv for episode in schedule.episodes for pv in episode.policy_version_ids}
+    assert corpse not in seated
+    assert seated == set(policy_version_ids) - {corpse}

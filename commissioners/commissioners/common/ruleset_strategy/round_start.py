@@ -101,6 +101,8 @@ class RoundStartView:
 
     def entries(self, rule: DivisionRule | None) -> list[PolicyPoolEntry]:
         entries = division_entries(self.current_division, self.memberships, rule)
+        if rule is not None and rule.bench_scoreless_after:
+            entries = self._without_scoreless(entries, rule.bench_scoreless_after)
         configured_order = self.round_config.get("entrant_policy_version_ids")
         if isinstance(configured_order, list):
             order = {UUID(str(policy_id)): index for index, policy_id in enumerate(configured_order)}
@@ -119,6 +121,51 @@ class RoundStartView:
                 entry.seed_order = index
         for entry in entries:
             entry.pool_id = self.round_start.round_id
+        return entries
+
+    def _without_scoreless(
+        self,
+        entries: list[PolicyPoolEntry],
+        threshold: int,
+    ) -> list[PolicyPoolEntry]:
+        # Seating guard against broken containers: don't seat an entrant whose
+        # every recent completed-round result is zero while somebody else
+        # scored in the same round, once it has `threshold` such rounds on
+        # record. Round-completion disqualification can't reach a crash-farm
+        # whose failures keep rounds from completing; seating is decided every
+        # round regardless. League-wide outages stay safe: a round where
+        # nobody scored discriminates nobody. Fails open if benching would
+        # leave the division unable to run a round.
+        by_round: dict[object, list[tuple[object, float]]] = {}
+        for r in self.round_start.recent_results:
+            by_round.setdefault(r.round_id, []).append((r.policy_version_id, r.score))
+        kept: list[PolicyPoolEntry] = []
+        benched: list[PolicyPoolEntry] = []
+        for entry in entries:
+            pvid = entry.policy_version_id
+            scored = False
+            discriminating = 0
+            for results in by_round.values():
+                own = [s for p, s in results if p == pvid]
+                if not own:
+                    continue
+                if any(s > 0 for s in own):
+                    scored = True
+                    break
+                if any(s > 0 for p, s in results if p != pvid):
+                    discriminating += 1
+            if not scored and discriminating >= threshold:
+                benched.append(entry)
+            else:
+                kept.append(entry)
+        if benched and len(kept) >= 2:
+            for entry in benched:
+                print(
+                    "bench_scoreless: not seating policy "
+                    f"{entry.policy_version_id} (zero score in every recent "
+                    "round on record)"
+                )
+            return kept
         return entries
 
     def filler_entries(self, primary_entries: list[PolicyPoolEntry]) -> list[PolicyPoolEntry]:
