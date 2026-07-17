@@ -1203,6 +1203,41 @@ def test_ruleset_strategy_ctf_even_field_rotates_opponents() -> None:
         assert seen == set(policy_version_ids) - {pv}
 
 
+def test_ruleset_strategy_ctf_odd_field_rotates_opponents() -> None:
+    """An odd field must NOT degenerate to a fixed neighbor ring.
+
+    With the stride schedule and an odd entry count, entrant i only ever plays entrants
+    i-1 and i+1 (mod n) — two fixed opponents for the whole round, every round, so most of
+    the field never meets. The circle method must also cover odd fields (bye per cycle),
+    and every entrant must still reach min_episodes_per_entrant appearances.
+    """
+    policy_version_ids = [uuid4() for _ in range(7)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+
+    opponents: dict[UUID, set[UUID]] = {pv: set() for pv in policy_version_ids}
+    appearances: dict[UUID, int] = {pv: 0 for pv in policy_version_ids}
+    for episode in schedule.episodes:
+        red = set(episode.policy_version_ids[0::2])
+        blue = set(episode.policy_version_ids[1::2])
+        assert len(red) == 1 and len(blue) == 1
+        (a,), (b,) = red, blue
+        assert a != b
+        opponents[a].add(b)
+        opponents[b].add(a)
+        appearances[a] += 1
+        appearances[b] += 1
+    for pv, seen in opponents.items():
+        assert seen == set(policy_version_ids) - {pv}
+    for pv, count in appearances.items():
+        assert count >= 10
+
+
 def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() -> None:
     """A player's row must list all fielded policy versions, not just the per-round best.
 
