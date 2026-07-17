@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import time
 from collections import defaultdict
+from math import ceil
 from typing import Any
 
 from openskill.models import PlackettLuce
@@ -21,17 +22,37 @@ from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissi
 
 
 def _two_team_round_robin_pair(job_index: int, *, num_entries: int) -> tuple[int, int]:
-    """Circle-method round-robin pairing for two-team episodes over an even field.
+    """Circle-method round-robin pairing for two-team episodes.
 
-    Episodes are scheduled in cycles of num_entries/2 pairs; each cycle every entrant plays
-    exactly once. Entry 0 stays fixed while the rest of the ring rotates one step per cycle,
-    so consecutive cycles pair every entrant against a different opponent (the standard
-    round-robin tournament schedule).
+    Episodes are scheduled in cycles of num_entries//2 pairs; each cycle every entrant
+    plays exactly once, except that an odd field adds a bye slot to the ring and the
+    entrant drawn against it sits the cycle out. Entry 0 stays fixed while the rest of
+    the ring rotates one step per cycle, so consecutive cycles pair every entrant against
+    a different opponent (the standard round-robin tournament schedule).
     """
-    pairs_per_cycle = num_entries // 2
+    ring_size = num_entries + (num_entries % 2)  # odd fields get a bye slot
+    pairs_per_cycle = num_entries // 2  # the bye pair is not an episode
     cycle, pair_index = divmod(job_index, pairs_per_cycle)
-    ring = [0] + [1 + (i + cycle) % (num_entries - 1) for i in range(num_entries - 1)]
-    return ring[pair_index], ring[num_entries - 1 - pair_index]
+    ring = [0] + [1 + (i + cycle) % (ring_size - 1) for i in range(ring_size - 1)]
+    pairs = [(ring[i], ring[ring_size - 1 - i]) for i in range(ring_size // 2)]
+    real_pairs = [pair for pair in pairs if pair[0] < num_entries and pair[1] < num_entries]
+    return real_pairs[pair_index]
+
+
+def _two_team_episode_count(*, num_entries: int, pool_config: PoolConfig) -> int:
+    """Episode count that honors min_episodes_per_entrant under the bye schedule.
+
+    An odd field sits each entrant out once every num_entries cycles, so the generic
+    entrant-appearances/episode arithmetic undercounts: schedule enough whole cycles that
+    even the entrant with the most byes reaches min_episodes_per_entrant appearances.
+    """
+    min_episodes = pool_config.min_episodes_per_entrant or 1
+    if num_entries % 2 == 0:
+        return max(pool_config.num_episodes, ceil(num_entries * min_episodes / 2))
+    cycles = min_episodes
+    while cycles - ceil(cycles / num_entries) < min_episodes:
+        cycles += 1
+    return max(pool_config.num_episodes, cycles * (num_entries // 2))
 
 
 def schedule_entries(
@@ -72,17 +93,23 @@ def schedule_entries(
             raise ValueError(f"{config.seating} seating requires num_agents divisible by {team_count}")
 
         team_size = num_agents // team_count
-        num_episodes = _pool_episode_count(
-            config=pool_config,
-            num_entries=len(primary_entries),
-            num_agents=team_count,
-        )
+        if team_count == 2 and len(primary_entries) >= 2:
+            num_episodes = _two_team_episode_count(
+                num_entries=len(primary_entries),
+                pool_config=pool_config,
+            )
+        else:
+            num_episodes = _pool_episode_count(
+                config=pool_config,
+                num_entries=len(primary_entries),
+                num_agents=team_count,
+            )
         episodes: list[CommissionerEpisodeRequest] = []
         for job_index in range(num_episodes):
-            if team_count == 2 and len(primary_entries) % 2 == 0:
+            if team_count == 2 and len(primary_entries) >= 2:
                 # Circle-method round-robin: the stride schedule below degenerates to a FIXED
-                # neighbor pairing whenever num_entries is divisible by team_count — every
-                # entrant then plays the same single opponent all round, so a pocket of
+                # pairing for two-team fields — an even field locks every entrant to a single
+                # opponent all round, an odd field to its two ring neighbors — so a pocket of
                 # mutually-drawing policies never meets the rest of the field. Rotate the
                 # ring each cycle so every entrant faces a different opponent per cycle.
                 entry_indices = list(
