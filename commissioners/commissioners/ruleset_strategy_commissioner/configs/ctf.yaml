@@ -88,6 +88,22 @@ divisions:
     # blind spell earns points off the truly dead, so live bots never sustain
     # an all-zero window). Re-uploading a fixed version re-qualifies fresh.
     on_round_complete:
+      # A container that completes ZERO of its scheduled episodes in a round
+      # is broken outright (crash-on-start resubmissions sail through the
+      # self-play crash check but fail every competition episode, and ten
+      # failed episodes per round take the whole ROUND down with them).
+      # One completed round of nothing-but-failures is enough evidence —
+      # resubmitting a fixed version re-qualifies through the normal check.
+      - id: broken
+        criteria:
+          completed_episodes_lte: 0
+        actions:
+          - type: update_membership
+            status: disqualified
+            substatus: broken
+            reason: >-
+              Completed zero episodes in a round — container presumed
+              broken; resubmit a fixed version to re-qualify.
       - id: lifeless
         criteria:
           score_lte: 0.0
