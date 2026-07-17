@@ -77,6 +77,11 @@ divisions:
     # free-win farms that distort the whole board. (The old all-competing
     # selector predates the league having more than one real player.)
     entrants: champions
+    # Seating guard (round start, works even while rounds keep failing): an
+    # entrant with 3+ recent completed-round results, all zero while someone
+    # else scored, is not seated at all. The membership-event rules below
+    # formally disqualify it once a round completes.
+    bench_scoreless_after: 3
     # Kick lifeless entrants: qualification is a one-time crash check, but the
     # game keeps updating underneath the field — a policy that qualified three
     # versions ago can rot into a crash-on-connect corpse that forfeits every
