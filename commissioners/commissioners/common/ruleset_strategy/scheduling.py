@@ -266,6 +266,7 @@ def _adaptive_two_team_pairs(
         [entry.policy_version_id for entry in entries],
         recent_results,
         adaptive,
+        fallback_episodes_per_round=min_episodes,
     )
     budgets = [
         episode_budget(

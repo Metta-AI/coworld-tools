@@ -54,6 +54,9 @@ class RecentResult(BaseModel):
     policy_version_id: UUID
     rank: int
     score: float
+    # Platform-populated per-result metadata (e.g. completed_episode_count), used to
+    # estimate sampling-noise floors for adaptive scheduling. Absent on old servers.
+    result_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class VariantInfo(BaseModel):
