@@ -287,6 +287,8 @@ class BaselineCommissioner(Commissioner):
                 for round_row in ctx.recent_rounds
             ]
 
+        # The name/id keys only make the ordering deterministic for display; equal scores
+        # share a competition rank (1, 1, 3) below so a tie is never decided by name order.
         ranked_aggs = sorted(
             aggs.values(),
             key=lambda agg: (
@@ -295,18 +297,26 @@ class BaselineCommissioner(Commissioner):
                 str(agg.player_id),
             ),
         )
-        return [
-            DivisionLeaderboardSnapshot(
-                player_id=agg.player_id,
-                player_name=agg.player_name,
-                rank=rank,
-                score=agg.score(),
-                rounds_played=rounds_played_by_player[agg.player_id],
-                policy_version_ids=agg.policy_version_ids,
-                recent_rounds=build_recent_rounds(agg.player_id),
+        snapshots: list[DivisionLeaderboardSnapshot] = []
+        rank = 0
+        previous_score: float | None = None
+        for position, agg in enumerate(ranked_aggs, start=1):
+            score = agg.score()
+            if previous_score is None or score != previous_score:
+                rank = position
+                previous_score = score
+            snapshots.append(
+                DivisionLeaderboardSnapshot(
+                    player_id=agg.player_id,
+                    player_name=agg.player_name,
+                    rank=rank,
+                    score=score,
+                    rounds_played=rounds_played_by_player[agg.player_id],
+                    policy_version_ids=agg.policy_version_ids,
+                    recent_rounds=build_recent_rounds(agg.player_id),
+                )
             )
-            for rank, agg in enumerate(ranked_aggs, start=1)
-        ]
+        return snapshots
 
     def _leaderboard_ewma_halflife(self, ctx: DivisionLeaderboardContext) -> timedelta:
         return DIVISION_LEADERBOARD_SCORE_EWMA_HALFLIFE

@@ -1289,6 +1289,68 @@ def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() ->
     assert set(response.rankings[0].policy_version_ids) == {champion_policy_id, other_policy_id}
 
 
+def test_division_leaderboard_tied_scores_share_rank() -> None:
+    """Players with equal leaderboard scores must share a rank, not split on name order.
+
+    The name sort is only a deterministic display order; letting it assign distinct ranks
+    hands every exact tie to whichever player's name happens to sort first ("Alex Smith"
+    beats "daveey" forever on ASCII alone).
+    """
+    division_id = uuid4()
+    round_id = uuid4()
+    response = rank_division_for_request(
+        BaselineCommissioner(),
+        RankDivisionRequest(
+            league=LeagueInfo(id=uuid4(), commissioner_config={}),
+            division=DivisionInfo(id=division_id, name="Bronze", level=0, type="competition"),
+            completed_rounds=[
+                RoundInfo(
+                    id=round_id,
+                    division_id=division_id,
+                    round_number=1,
+                    status="completed",
+                    completed_at="2026-06-07T00:00:00+00:00",
+                ),
+            ],
+            recent_rounds=[],
+            round_results=[
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=uuid4(),
+                    player_id="player-alex",
+                    player_name="Alex Smith",
+                    rank=1,
+                    score=0.8,
+                    result_metadata={},
+                ),
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=uuid4(),
+                    player_id="player-daveey",
+                    player_name="daveey",
+                    rank=1,
+                    score=0.8,
+                    result_metadata={},
+                ),
+                LeaderboardRoundResultInfo(
+                    round_id=round_id,
+                    policy_version_id=uuid4(),
+                    player_id="player-third",
+                    player_name="aaron",
+                    rank=3,
+                    score=0.5,
+                    result_metadata={},
+                ),
+            ],
+        ),
+    )
+
+    ranks_by_player = {ranking.player_id: ranking.rank for ranking in response.rankings}
+    assert ranks_by_player["player-alex"] == 1
+    assert ranks_by_player["player-daveey"] == 1
+    assert ranks_by_player["player-third"] == 3
+
+
 def test_win_points_scoreless_draw_awards_nobody() -> None:
     """A drawn episode (top score <= 0) must not share the win with every entrant."""
     from commissioners.common.utils import _episode_win_points
