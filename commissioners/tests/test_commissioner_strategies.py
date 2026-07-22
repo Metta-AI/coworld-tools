@@ -384,6 +384,50 @@ def test_complete_round_emits_observability_report() -> None:
     assert rehydrated.observability.rule_id == "mean_episode_score"
 
 
+def test_complete_round_tied_scores_share_rank() -> None:
+    """Policies with equal round scores share a competition rank (1, 1, 3).
+
+    complete_round used to enumerate the score-sorted entries, so an exact score tie was
+    decided by seed_order forever. Distinct ranks for tied scores skewed both rank_division's
+    (score, -rank) best-result pick and the MMR rater, which consumes these ranks as finishing
+    positions with ties allowed. Ties share placement elsewhere too — see _episode_rank_points.
+    """
+    policy_version_ids = [uuid4() for _ in range(4)]
+    pool = PolicyPool(id=uuid4(), label="Round", pool_type="round", config={"num_episodes": 1})
+    entries = [
+        PolicyPoolEntry(pool_id=pool.id, policy_version_id=policy_version_id, seed_order=index)
+        for index, policy_version_id in enumerate(policy_version_ids)
+    ]
+    complete = BaselineCommissioner().complete_round(
+        round_row=Round(id=uuid4(), division_id=uuid4(), round_number=1, commissioner_key="auto"),
+        pool=pool,
+        entries=entries,
+        episode_results=[
+            EpisodeResult(
+                episode_request_id=uuid4(),
+                scores=[
+                    RoundPolicyScore(policy_version_id=policy_version_ids[0], score=0.8),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[1], score=0.8),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[2], score=0.5),
+                    RoundPolicyScore(policy_version_id=policy_version_ids[3], score=0.5),
+                ],
+            ),
+        ],
+    )
+
+    rankings = complete.results[0].rankings
+    # Ordering stays deterministic (seed_order breaks the tie for display)...
+    assert [ranking.policy_version_id for ranking in rankings] == policy_version_ids
+    # ...but tied scores share a competition rank instead of splitting on seed_order.
+    assert [ranking.rank for ranking in rankings] == [1, 1, 3, 3]
+    assert [ranking.score for ranking in rankings] == pytest.approx([0.8, 0.8, 0.5, 0.5])
+
+    # The observability trace shows the same shared placements.
+    report = complete.observability
+    assert report is not None
+    assert [entrant.outcome.split(" ·")[0] for entrant in report.entrants] == ["#1", "#1", "#3", "#3"]
+
+
 def test_ruleset_strategy_rank_round_score_uses_per_episode_placement() -> None:
     # Same episode results as the mean test above, but with scoring.round_score = "rank": the
     # round score becomes the mean of each policy's per-episode rank points (placement N..1),

@@ -197,6 +197,27 @@ class Commissioner(ABC):
 # ---------------------------------------------------------------------------
 
 
+def _competition_ranks(
+    ranked_entries: list[PolicyPoolEntry],
+    round_score_by_policy: dict[UUID, float],
+) -> list[int]:
+    """Competition ranks (1, 1, 3) for score-sorted entries: equal scores share a rank.
+
+    Same tie treatment as ``_episode_rank_points``, which shares placement across
+    tied episode scores.
+    """
+    ranks: list[int] = []
+    rank = 0
+    previous_score: float | None = None
+    for position, entry in enumerate(ranked_entries, start=1):
+        score = round_score_by_policy[entry.policy_version_id]
+        if previous_score is None or score != previous_score:
+            rank = position
+            previous_score = score
+        ranks.append(rank)
+    return ranks
+
+
 def _phase_summary(pool: PolicyPool, num_entries: int) -> dict[str, object]:
     config = PoolConfig.model_validate(pool.config)
     summary = f"{num_entries} entrants"
@@ -460,6 +481,10 @@ class BaselineCommissioner(Commissioner):
         for result in episode_results:
             for policy_version_id in {score.policy_version_id for score in result.scores}:
                 completed_episode_counts[policy_version_id] += 1
+        # The seed_order/id keys only make the ordering deterministic; equal round scores share
+        # a competition rank (1, 1, 3) so a tie is never decided by seed order. These ranks feed
+        # rank_division's best-result pick and the MMR rater's finishing positions, both of which
+        # expect tied scores to tie on rank.
         ranked_entries = sorted(
             entries,
             key=lambda entry: (
@@ -480,7 +505,7 @@ class BaselineCommissioner(Commissioner):
                     RANKED_SCORE_COUNT_METADATA_KEY: ranked_score_counts[entry.policy_version_id],
                 },
             )
-            for rank, entry in enumerate(ranked_entries, start=1)
+            for rank, entry in zip(_competition_ranks(ranked_entries, round_score_by_policy), ranked_entries)
         ]
         return CommissionerRoundComplete(
             results=[CommissionerDivisionRanking(division_id=round_row.division_id, rankings=rankings)],
@@ -528,7 +553,7 @@ class BaselineCommissioner(Commissioner):
                 ],
                 summary="Round score is the mean of this entrant's per-episode scores.",
             )
-            for rank, entry in enumerate(ranked_entries, start=1)
+            for rank, entry in zip(_competition_ranks(ranked_entries, round_score_by_policy), ranked_entries)
         ]
         return CommissionerRoundReport(
             rule_id="mean_episode_score",
