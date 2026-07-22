@@ -206,6 +206,7 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             game_config=game_config,
             config=config,
             recent_results=round_start.recent_results,
+            division_id=view.current_division.id,
         )
 
     def schedule_episodes(

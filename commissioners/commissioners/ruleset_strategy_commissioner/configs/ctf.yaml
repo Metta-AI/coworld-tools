@@ -32,7 +32,20 @@ defaults:
   stage:
     label: CTF round
     episodes: 2
-    min_episodes_per_entrant: 10
+    # Adaptive budgets: settled entrants play the floor, new/moving entrants up
+    # to the ceiling. Rounds shrink from ~5x to ~2-3x the field size, so at the
+    # 5-minute schedule slot each round completes (and feeds the 2h-EWMA board)
+    # roughly twice as often — movers settle faster while flat veterans stop
+    # burning episodes that can't move their score.
+    min_episodes_per_entrant: 4
+    max_episodes_per_entrant: 16
+  adaptive:
+    enabled: true
+    settle_rounds: 6
+    volatility_rounds: 6
+    volatility_scale: 0.15
+    trend_scale: 0.10
+    max_round_episodes: 160
 
 divisions:
   qualifiers:
