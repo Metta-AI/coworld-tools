@@ -195,6 +195,9 @@ class V2StageConfig(BaseModel):
     label: str = "Round"
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    # Adaptive-scheduling ceiling: entrants whose scores are still settling are
+    # scheduled up to this many appearances per round (floor = min_episodes_per_entrant).
+    max_episodes_per_entrant: int | None = Field(default=None, gt=0)
     # When true, every seat in an episode is filled by a single entrant playing
     # against copies of itself, and each entrant gets its own episodes. Used for
     # qualifiers so a policy's score reflects only its own play, not its opponents'.
@@ -216,6 +219,7 @@ class V2RoundConfig(BaseModel):
 class PoolConfig(BaseModel):
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    max_episodes_per_entrant: int | None = Field(default=None, gt=0)
     mock_scores: dict[UUID, float] | None = None
     self_play: bool = False
 

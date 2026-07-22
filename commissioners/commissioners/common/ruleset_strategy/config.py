@@ -239,12 +239,19 @@ class StageScheduleConfig(_ConfigModel):
     episodes: int | None = Field(default=None, gt=0)
     attempts: int | None = Field(default=None, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    max_episodes_per_entrant: int | None = Field(default=None, gt=0)
     self_play: bool = False
 
     @model_validator(mode="after")
     def require_single_count(self) -> StageScheduleConfig:
         if self.episodes is not None and self.attempts is not None:
             raise ValueError("stage schedule may use either episodes or attempts, not both")
+        if (
+            self.max_episodes_per_entrant is not None
+            and self.min_episodes_per_entrant is not None
+            and self.max_episodes_per_entrant < self.min_episodes_per_entrant
+        ):
+            raise ValueError("max_episodes_per_entrant must be >= min_episodes_per_entrant")
         return self
 
     def to_stage_config(self) -> V2StageConfig:
@@ -252,8 +259,34 @@ class StageScheduleConfig(_ConfigModel):
             label=self.label,
             num_episodes=self.attempts or self.episodes or 1,
             min_episodes_per_entrant=self.min_episodes_per_entrant,
+            max_episodes_per_entrant=self.max_episodes_per_entrant,
             self_play=self.self_play,
         )
+
+
+class AdaptiveScheduleConfig(_ConfigModel):
+    """Uncertainty-weighted episode budgets for two-team round-robin scheduling.
+
+    When enabled, each entrant's per-round episode count scales between the stage's
+    min_episodes_per_entrant (settled entrants) and max_episodes_per_entrant (new or
+    moving entrants) based on its recent round-score history, so policies whose board
+    score is still settling get sampled harder than policies whose score is flat.
+    """
+
+    enabled: bool = False
+    # An entrant's current policy version counts as fully "new" at 0 rounds on record,
+    # decaying linearly to 0 uncertainty at settle_rounds rounds.
+    settle_rounds: int = Field(default=6, gt=0)
+    # Std-dev of the last volatility_rounds round scores, normalized by volatility_scale
+    # (round scores are win rates on [0, 1], so 0.15 std ~ fully uncertain).
+    volatility_rounds: int = Field(default=6, ge=3)
+    volatility_scale: float = Field(default=0.15, gt=0)
+    # |mean(last 3 rounds) - mean(prior 3 rounds)| normalized by trend_scale: catches a
+    # same-version entrant whose true strength shifted (game update, new rival).
+    trend_scale: float = Field(default=0.10, gt=0)
+    # Hard cap on episodes per round: an all-new field (e.g. after a game update
+    # requalifies everyone) degrades to a bounded dense round, not an unbounded one.
+    max_round_episodes: int | None = Field(default=None, gt=0)
 
 
 class RulesetDefaults(_ConfigModel):
@@ -264,6 +297,7 @@ class RulesetDefaults(_ConfigModel):
     duplicate_after_fill: bool = True
     min_entries_to_start: int = Field(default=1, gt=0)
     stage: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
+    adaptive: AdaptiveScheduleConfig = Field(default_factory=AdaptiveScheduleConfig)
 
     def insufficient_players(self) -> InsufficientPlayersConfig:
         return InsufficientPlayersConfig(
@@ -407,6 +441,19 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
     def require_divisions(self) -> RulesetStrategyCommissionerConfig:
         if not self.divisions:
             raise ValueError("ruleset strategy commissioner requires at least one division")
+        return self
+
+    @model_validator(mode="after")
+    def require_adaptive_for_episode_ceiling(self) -> RulesetStrategyCommissionerConfig:
+        if self.defaults.adaptive.enabled:
+            return self
+        stage_configs = [self.defaults.stage]
+        for division in self.divisions.values():
+            if division.stage is not None:
+                stage_configs.append(division.stage)
+            stage_configs.extend(stage.schedule for stage in division.stages)
+        if any(stage.max_episodes_per_entrant is not None for stage in stage_configs):
+            raise ValueError("max_episodes_per_entrant requires defaults.adaptive.enabled")
         return self
 
     @classmethod

@@ -18,7 +18,11 @@ from commissioners.common.utils import (
     _entry_index_offset,
     _pool_episode_count,
 )
-from commissioners.common.ruleset_strategy.config import RulesetStrategyCommissionerConfig
+from commissioners.common.ruleset_strategy.config import (
+    AdaptiveScheduleConfig,
+    RulesetStrategyCommissionerConfig,
+)
+from commissioners.common.ruleset_strategy.uncertainty import entrant_uncertainties, episode_budget
 
 
 def _two_team_round_robin_pair(job_index: int, *, num_entries: int) -> tuple[int, int]:
@@ -65,6 +69,7 @@ def schedule_entries(
     game_config: dict[str, Any] | None,
     config: RulesetStrategyCommissionerConfig,
     recent_results: list[Any] | None = None,
+    division_id: Any = None,
 ) -> CommissionerScheduleEpisodes:
     if not primary_entries:
         raise ValueError("pool must have at least one primary entry")
@@ -93,11 +98,28 @@ def schedule_entries(
             raise ValueError(f"{config.seating} seating requires num_agents divisible by {team_count}")
 
         team_size = num_agents // team_count
+        seat_entries = primary_entries
+        adaptive_pairs: list[tuple[int, int]] | None = None
         if team_count == 2 and len(primary_entries) >= 2:
-            num_episodes = _two_team_episode_count(
-                num_entries=len(primary_entries),
-                pool_config=pool_config,
-            )
+            adaptive = config.defaults.adaptive
+            if adaptive.enabled and recent_results is not None:
+                # Uncertainty-weighted budgets: settled entrants play the stage floor,
+                # new/moving entrants play up to the stage ceiling. Entries are shuffled
+                # per scheduling (wall-clock seed, like shuffled_window) so ring coverage
+                # precesses across rounds instead of replaying cycle 0 forever.
+                seat_entries = _round_shuffled_entries(primary_entries)
+                adaptive_pairs = _adaptive_two_team_pairs(
+                    seat_entries,
+                    recent_results=_division_results(recent_results, division_id),
+                    pool_config=pool_config,
+                    adaptive=adaptive,
+                )
+                num_episodes = len(adaptive_pairs)
+            else:
+                num_episodes = _two_team_episode_count(
+                    num_entries=len(primary_entries),
+                    pool_config=pool_config,
+                )
         else:
             num_episodes = _pool_episode_count(
                 config=pool_config,
@@ -106,7 +128,9 @@ def schedule_entries(
             )
         episodes: list[CommissionerEpisodeRequest] = []
         for job_index in range(num_episodes):
-            if team_count == 2 and len(primary_entries) >= 2:
+            if adaptive_pairs is not None:
+                entry_indices = list(adaptive_pairs[job_index])
+            elif team_count == 2 and len(primary_entries) >= 2:
                 # Circle-method round-robin: the stride schedule below degenerates to a FIXED
                 # pairing for two-team fields — an even field locks every entrant to a single
                 # opponent all round, an odd field to its two ring neighbors — so a pocket of
@@ -134,7 +158,7 @@ def schedule_entries(
                     variant_id=variant_id,
                     game_config=game_config,
                     policy_version_ids=[
-                        primary_entries[entry_index].policy_version_id for entry_index in seat_entry_indices
+                        seat_entries[entry_index].policy_version_id for entry_index in seat_entry_indices
                     ],
                     tags={"pool_id": str(pool.id)},
                 )
@@ -200,6 +224,95 @@ def schedule_entries(
             for job_index in range(num_episodes)
         ]
     )
+
+
+def _division_results(recent_results: list[Any], division_id: Any) -> list[Any]:
+    """Restrict history to the scheduled division when the caller identifies one.
+
+    The platform's recent_results are league-wide; qualifier crash-check rounds
+    (self-play, near-guaranteed wins) would otherwise count as settling evidence
+    for a brand-new champion.
+    """
+    if division_id is None:
+        return recent_results
+    return [
+        result
+        for result in recent_results
+        if getattr(result, "division_id", division_id) == division_id
+    ]
+
+
+def _adaptive_two_team_pairs(
+    entries: list[PolicyPoolEntry],
+    *,
+    recent_results: list[Any],
+    pool_config: PoolConfig,
+    adaptive: AdaptiveScheduleConfig,
+) -> list[tuple[int, int]]:
+    """Budget-filtered circle round-robin for two-team episodes.
+
+    Every entrant gets an episode budget between the stage floor and ceiling based on
+    its score uncertainty, then circle-method cycles run until every budget is met,
+    keeping only pairs where at least one side still needs episodes. Movers stay in
+    nearly every cycle and face ~the whole field (their round win rate stays an
+    unbiased estimate with more samples); settled entrants play their floor plus
+    incidental episodes when a mover's cycle drafts them, which the rotating ring
+    spreads evenly. Both sides of every episode are scored as usual.
+    """
+    num_entries = len(entries)
+    min_episodes = pool_config.min_episodes_per_entrant or 1
+    max_episodes = max(pool_config.max_episodes_per_entrant or min_episodes, min_episodes)
+    uncertainties = entrant_uncertainties(
+        [entry.policy_version_id for entry in entries],
+        recent_results,
+        adaptive,
+    )
+    budgets = [
+        episode_budget(
+            uncertainties[entry.policy_version_id].value,
+            min_episodes=min_episodes,
+            max_episodes=max_episodes,
+        )
+        for entry in entries
+    ]
+
+    remaining = list(budgets)
+    pairs: list[tuple[int, int]] = []
+    pairs_per_cycle = num_entries // 2
+    # Bye slack: an odd field sits each entrant out once per ring rotation, so a few
+    # extra cycles may be needed beyond the largest budget. Fixed bound => terminates.
+    max_cycles = 2 * max_episodes + 2
+    for cycle in range(max_cycles):
+        if not any(remaining):
+            break
+        for pair_index in range(pairs_per_cycle):
+            first, second = _two_team_round_robin_pair(
+                cycle * pairs_per_cycle + pair_index,
+                num_entries=num_entries,
+            )
+            if remaining[first] > 0 or remaining[second] > 0:
+                pairs.append((first, second))
+                remaining[first] = max(0, remaining[first] - 1)
+                remaining[second] = max(0, remaining[second] - 1)
+    if adaptive.max_round_episodes is not None:
+        pairs = pairs[: adaptive.max_round_episodes]
+
+    appearances = [0] * num_entries
+    for first, second in pairs:
+        appearances[first] += 1
+        appearances[second] += 1
+    for entry, budget, played in zip(entries, budgets, appearances, strict=True):
+        parts = uncertainties[entry.policy_version_id]
+        print(
+            f"adaptive_schedule: policy {entry.policy_version_id} budget={budget} episodes={played} "
+            f"u={parts.value:.2f} (new={parts.newness:.2f} vol={parts.volatility:.2f} "
+            f"trend={parts.trend:.2f}, {parts.rounds_on_record} rounds on record)"
+        )
+    print(
+        f"adaptive_schedule: {num_entries} entrants, {len(pairs)} episodes "
+        f"(floor={min_episodes} ceiling={max_episodes})"
+    )
+    return pairs
 
 
 def episode_entries(

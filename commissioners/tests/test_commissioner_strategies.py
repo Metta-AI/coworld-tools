@@ -72,6 +72,19 @@ def _ruleset_commissioner(name: str) -> RulesetStrategyCommissioner:
     return RulesetStrategyCommissioner(_ruleset_config(name))
 
 
+def _ctf_uniform_commissioner() -> RulesetStrategyCommissioner:
+    """The bundled CTF config with adaptive budgets disabled.
+
+    The circle-method round-robin tests below assert exact, deterministic schedules;
+    the adaptive scheduler shuffles the ring per round and sizes budgets from history.
+    """
+    config = _ruleset_config("ctf")
+    config["defaults"]["adaptive"]["enabled"] = False
+    config["defaults"]["stage"]["min_episodes_per_entrant"] = 10
+    del config["defaults"]["stage"]["max_episodes_per_entrant"]
+    return RulesetStrategyCommissioner(config)
+
+
 def test_baseline_commissioner_migration_config_echoes_current_divisions() -> None:
     league_id = uuid4()
     division_id = uuid4()
@@ -1199,7 +1212,7 @@ def test_ruleset_strategy_ctf_config_interleaves_two_teams() -> None:
         commissioner_config={},
     )
 
-    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+    schedule = schedule_episodes_for_round_start(_ctf_uniform_commissioner(), round_start)
 
     _assert_episode_seeds(schedule.episodes)
     assert len(schedule.episodes) == 15
@@ -1230,7 +1243,7 @@ def test_ruleset_strategy_ctf_even_field_rotates_opponents() -> None:
         commissioner_config={},
     )
 
-    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+    schedule = schedule_episodes_for_round_start(_ctf_uniform_commissioner(), round_start)
 
     assert len(schedule.episodes) == 20
     opponents: dict[UUID, set[UUID]] = {pv: set() for pv in policy_version_ids}
@@ -1262,7 +1275,7 @@ def test_ruleset_strategy_ctf_odd_field_rotates_opponents() -> None:
         commissioner_config={},
     )
 
-    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf"), round_start)
+    schedule = schedule_episodes_for_round_start(_ctf_uniform_commissioner(), round_start)
 
     opponents: dict[UUID, set[UUID]] = {pv: set() for pv in policy_version_ids}
     appearances: dict[UUID, int] = {pv: 0 for pv in policy_version_ids}
