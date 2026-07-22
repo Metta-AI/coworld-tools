@@ -85,8 +85,10 @@ def _results(
     policy_scores: dict[UUID, list[float]],
     *,
     division_id: UUID,
+    episodes_per_round: int | None = None,
 ) -> list[RecentResult]:
     """One completed round per score index, every policy with a score in each round it has one."""
+    metadata = {"completed_episode_count": episodes_per_round} if episodes_per_round else {}
     rounds: dict[int, UUID] = {}
     results: list[RecentResult] = []
     for policy_version_id, scores in policy_scores.items():
@@ -100,6 +102,7 @@ def _results(
                     policy_version_id=policy_version_id,
                     rank=1,
                     score=score,
+                    result_metadata=metadata,
                 )
             )
     return results
@@ -248,3 +251,35 @@ def test_stage_ceiling_below_floor_rejected() -> None:
     config["defaults"]["stage"]["max_episodes_per_entrant"] = 2
     with pytest.raises(ValueError, match="max_episodes_per_entrant must be >="):
         RulesetStrategyCommissionerConfig.from_mapping(config)
+
+
+def test_uncertainty_noisy_but_stable_win_rates_stay_settled() -> None:
+    """Round-899 regression: binomial sampling noise alone must not saturate the signals.
+
+    A stable mid-field policy's win rate over ~10 episodes has sampling std ~0.16 —
+    above the volatility scale. Without the noise floor every veteran in the live
+    field read vol=1.00/trend=1.00 and the whole round went dense.
+    """
+    policy = uuid4()
+    division = uuid4()
+    results = _results(
+        {policy: [0.5, 0.6, 0.4, 0.7, 0.5, 0.4, 0.6, 0.5]},
+        division_id=division,
+        episodes_per_round=10,
+    )
+    parts = entrant_uncertainties([policy], results, CONFIG)[policy]
+    assert parts.volatility == 0.0
+    assert parts.trend == 0.0
+    assert parts.value == 0.0
+
+
+def test_uncertainty_true_regime_shift_clears_noise_floor() -> None:
+    policy = uuid4()
+    division = uuid4()
+    results = _results(
+        {policy: [0.9, 0.9, 0.9, 0.9, 0.9, 0.3, 0.3, 0.3]},
+        division_id=division,
+        episodes_per_round=10,
+    )
+    parts = entrant_uncertainties([policy], results, CONFIG)[policy]
+    assert parts.trend == 1.0
