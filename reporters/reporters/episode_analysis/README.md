@@ -38,7 +38,8 @@ MettaScope replay.json                         ← mettascope.py decodes it
 - **`palette`** — the CVD-validated dark palette (constants are import-free)
   + lazy matplotlib `world_axes`/`basemap` helpers.
 - **`charts/`** *(requires `episode-analysis[charts]`)* — heatmap renders,
-  swimlane timelines, trajectory plots. See `charts/__init__.py`.
+  swimlane timelines, trajectory plots, two-group contrast tables.
+  See `charts/__init__.py`.
 
 ## Recommended event-log key registry
 
