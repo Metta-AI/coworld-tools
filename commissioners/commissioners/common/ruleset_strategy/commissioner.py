@@ -22,6 +22,7 @@ from commissioners.common.models import (
     PolicyMembershipEventEvidence,
     PolicyPool,
     PolicyPoolEntry,
+    PoolConfig,
     Round,
     RoundSpec,
     ScheduleContext,
@@ -59,7 +60,11 @@ from commissioners.common.ruleset_strategy.membership_events import (
 )
 from commissioners.common.ruleset_strategy.mmr import rank_division_by_mmr
 from commissioners.common.ruleset_strategy.round_start import RoundStartView
-from commissioners.common.ruleset_strategy.scheduling import schedule_entries
+from commissioners.common.ruleset_strategy.scheduling import (
+    _decorate_leader_slots,
+    _leaderboard_leader,
+    schedule_entries,
+)
 
 
 class RulesetStrategyCommissioner(BaselineCommissioner):
@@ -197,8 +202,9 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
         rule = select_rule(config, view.current_division, view.memberships)
         variant_id, num_agents, game_config = view.variant(rule)
         entries = view.entries(rule)
-        return schedule_entries(
-            pool=view.pool(rule),
+        pool = view.pool(rule)
+        schedule = schedule_entries(
+            pool=pool,
             primary_entries=entries,
             filler_entries=view.filler_entries(entries),
             num_agents=num_agents,
@@ -208,6 +214,21 @@ class RulesetStrategyCommissioner(BaselineCommissioner):
             recent_results=round_start.recent_results,
             division_id=view.current_division.id,
         )
+        if config.defaults.leader_slot_config and not PoolConfig.model_validate(pool.config).self_play:
+            # Decorate the current board leader's seats (e.g. a crown skin). Not in
+            # self-play pools: a crash check seats one policy in every slot, which
+            # would decorate the whole roster. Leader standing comes from THIS
+            # division's recent results, so qualifier rounds never crown anyone.
+            schedule.episodes = _decorate_leader_slots(
+                schedule.episodes,
+                leader=_leaderboard_leader(
+                    entries,
+                    [r for r in round_start.recent_results if r.division_id == view.current_division.id],
+                ),
+                base_game_config=view.effective_game_config(rule),
+                slot_config=config.defaults.leader_slot_config,
+            )
+        return schedule
 
     def schedule_episodes(
         self,
