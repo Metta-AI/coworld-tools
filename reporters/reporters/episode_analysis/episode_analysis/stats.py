@@ -2,7 +2,8 @@
 
 The one statistical kernel both origin harnesses used: paired differences
 with a Student-t 95% CI, a seeded bootstrap CI, a win rate, and a one-word
-verdict. Plus a plain mean±CI for unpaired summaries.
+verdict. Plus a plain mean±CI for unpaired summaries, and a rank-AUC
+separation measure for unpaired two-group contrasts.
 
 Origin: merged from Ron Dahlgren's (swgy) tooling — the nav-ablation
 harness's ``_paired_stats``/``_verdict`` (swgy-crewrift
@@ -12,9 +13,12 @@ harness's ``_paired_stats``/``_verdict`` (swgy-crewrift
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import NamedTuple
+
 import numpy as np
 
-__all__ = ["mean_ci", "paired_stats", "verdict"]
+__all__ = ["RankAUC", "mean_ci", "paired_stats", "rank_auc", "verdict"]
 
 # Student-t two-sided 95% critical values by degrees of freedom. Small table
 # on purpose: paired runs in practice have n in the tens to low hundreds;
@@ -84,6 +88,38 @@ def verdict(stats: dict, improved: str = "IMPROVED (sig)", worse: str = "worse (
     if hi < 0:
         return worse
     return "ns"
+
+
+class RankAUC(NamedTuple):
+    """Result of :func:`rank_auc`: the AUC itself plus its folded separation."""
+
+    auc: float  # P(a > b) + 0.5 * P(a == b); above 0.5 means group a tends higher
+    separation: float  # |auc - 0.5| * 2: 0 = indistinguishable, 1 = perfectly separated
+
+
+def rank_auc(a: Sequence[float], b: Sequence[float]) -> RankAUC:
+    """Rank AUC of two unpaired groups (Mann-Whitney U / n1*n2), with midranks.
+
+    ``a`` is the group of interest: ``auc > 0.5`` means ``a`` tends higher
+    than ``b``. Non-finite values are dropped per side (callers may pass NaN
+    for undefined observations); raises ``ValueError`` when either side has
+    no finite value left.
+    """
+    x = np.asarray(a, dtype=float)
+    y = np.asarray(b, dtype=float)
+    x = x[np.isfinite(x)]
+    y = y[np.isfinite(y)]
+    if x.size == 0 or y.size == 0:
+        raise ValueError("rank_auc needs at least one finite value on each side")
+    combined = np.concatenate([x, y])
+    order = np.argsort(combined, kind="mergesort")
+    ordinal = np.empty(combined.size, dtype=float)
+    ordinal[order] = np.arange(1, combined.size + 1, dtype=float)
+    _, inverse, counts = np.unique(combined, return_inverse=True, return_counts=True)
+    midranks = (np.bincount(inverse, weights=ordinal) / counts)[inverse]
+    u = midranks[: x.size].sum() - x.size * (x.size + 1) / 2.0
+    auc = float(u / (x.size * y.size))
+    return RankAUC(auc, abs(auc - 0.5) * 2.0)
 
 
 def mean_ci(vals: list[float]) -> tuple[float, float, float]:

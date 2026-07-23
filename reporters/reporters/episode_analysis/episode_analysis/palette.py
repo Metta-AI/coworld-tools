@@ -38,6 +38,7 @@ __all__ = [
     "PORTAL_MARK",
     "SURFACE",
     "basemap",
+    "lift",
     "world_axes",
 ]
 
@@ -65,6 +66,27 @@ EDGE = "#0b0b0b"
 # the mismatch read as a slip.
 STATION_MARK = "#3cd2eb"  # cyan squares  -- objective/task stations
 PORTAL_MARK = "#ff50eb"  # magenta diamonds -- teleporters/vents
+
+
+def lift(color: str, amount: float = 0.34) -> str:
+    """Lift a hex color toward white: ``c' = c + (1 - c) * amount`` per channel.
+
+    The hue-preserving legibility fix for saturated identity colors on a dark
+    backdrop — deep blues/greens/purples vanish on a dimmed basemap, and
+    substituting a lighter hue would change the identity the color encodes.
+    Accepts ``#rrggbb`` or bare ``rrggbb``; returns lowercase ``#rrggbb``.
+    Pure string math, importable without matplotlib.
+    """
+    if not 0.0 <= amount <= 1.0:
+        raise ValueError(f"lift amount must be in [0, 1], got {amount}")
+    hexpart = color[1:] if color.startswith("#") else color
+    try:
+        if len(hexpart) != 6:
+            raise ValueError
+        channels = bytes.fromhex(hexpart)
+    except ValueError:
+        raise ValueError(f"expected an rrggbb hex color, got {color!r}") from None
+    return "#" + "".join(f"{round(c + (255 - c) * amount):02x}" for c in channels)
 
 
 def _plt() -> Any:

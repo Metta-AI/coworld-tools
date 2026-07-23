@@ -9,7 +9,7 @@ import pytest
 
 from episode_analysis.heatmap import accumulate_by_group, bin_positions, gaussian_blur, total_grid
 from episode_analysis.routing import TourComparison, optimal_open_tour, pairwise_costs, path_cost
-from episode_analysis.stats import mean_ci, paired_stats, verdict
+from episode_analysis.stats import mean_ci, paired_stats, rank_auc, verdict
 
 # --- heatmap ----------------------------------------------------------------
 
@@ -103,6 +103,38 @@ def test_mean_ci():
     assert all(math.isnan(v) for v in mean_ci([]))
     m1, sd1, ci1 = mean_ci([5.0])
     assert m1 == 5.0 and sd1 == 0.0 and math.isnan(ci1)
+
+
+def test_rank_auc_perfect_separation():
+    hi, lo = [3.0, 4.0, 5.0], [0.0, 1.0, 2.0]
+    assert rank_auc(hi, lo) == (1.0, 1.0)
+    assert rank_auc(lo, hi) == (0.0, 1.0)
+
+
+def test_rank_auc_midrank_ties():
+    # combined [1, 2, 2, 3] -> midranks [1, 2.5, 2.5, 4]; R_a = 3.5, U = 0.5
+    r = rank_auc([1.0, 2.0], [2.0, 3.0])
+    assert r.auc == pytest.approx(0.125)
+    assert r.separation == pytest.approx(0.75)
+
+
+def test_rank_auc_identical_groups():
+    r = rank_auc([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+    assert r.auc == pytest.approx(0.5)
+    assert r.separation == pytest.approx(0.0)
+
+
+def test_rank_auc_drops_non_finite():
+    assert rank_auc([1.0, float("nan")], [0.0]) == rank_auc([1.0], [0.0])
+    with pytest.raises(ValueError):
+        rank_auc([float("nan")], [1.0])
+
+
+def test_rank_auc_empty_raises():
+    with pytest.raises(ValueError):
+        rank_auc([], [1.0])
+    with pytest.raises(ValueError):
+        rank_auc([1.0], [])
 
 
 # --- routing ---------------------------------------------------------------------
