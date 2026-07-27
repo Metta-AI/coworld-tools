@@ -868,6 +868,12 @@ the game loop into a social phase, so the LLM call can run on the mode fast path
 without starving movement or combat decisions. The path is opt-in and supports
 two backends:
 
+Every Crewrift backend must select Haiku 4.5. Hosted Bedrock uses
+`us.anthropic.claude-haiku-4-5-20251001-v1:0`. The policy pod has one shared
+**1,800 quota-weighted token** episode budget (`input + cache-write + 5 ×
+output`) across this meeting path and every other LLM layer; it must retain the
+deterministic fallback when the remainder cannot cover another call.
+
 - **Direct Anthropic API** — `CREWBORG_LLM_MEETINGS=1` plus `ANTHROPIC_API_KEY`.
 - **AWS Bedrock** — any of `USE_BEDROCK=1`, `CREWBORG_USE_BEDROCK=1`, or
   `CLAUDE_CODE_USE_BEDROCK=1`. A Bedrock flag implies `CREWBORG_LLM_MEETINGS`, so
@@ -920,8 +926,8 @@ The implementation is split into four portable pieces under `strategy/meeting/`:
   mode). `read_meeting_params_from_env` resolves the backend choice
   (`use_bedrock`) and model: the direct path defaults to
   `claude-haiku-4-5-20251001` while Bedrock defaults to the inference-profile ID
-  `us.anthropic.claude-haiku-4-5-20251001-v1:0`; either is overridable via
-  `CREWBORG_LLM_MODEL`. The client builder selects `Anthropic` or
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`; `CREWBORG_LLM_MODEL` may select
+  only the equivalent Haiku 4.5 identifier for the active backend. The client builder selects `Anthropic` or
   `AnthropicBedrock` from `MeetingParams.use_bedrock`; the underlying SDK client
   is constructed lazily on the first call. Bedrock needs the optional `boto3`
   dependency (the `players` distribution's `bedrock` extra, installed in the

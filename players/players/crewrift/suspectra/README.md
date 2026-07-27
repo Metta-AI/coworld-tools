@@ -21,6 +21,13 @@ decision is used. The helper is intentionally time-boxed and advisory: low
 confidence `submit_vote` responses are treated as tentative votes, and crewmates
 cast non-skip votes only on repeated same-target sus/body evidence or revenge votes.
 
+Suspectra must use Haiku 4.5. Hosted Crewrift runs select
+`us.anthropic.claude-haiku-4-5-20251001-v1:0`; do not substitute Sonnet or
+Opus. Keep all helper calls from one policy pod below **1,800 quota-weighted
+tokens per episode** (`input + cache-write + 5 × output`), equivalent to the
+`$0.0018` cap, and take the original notsus vote path once the remaining budget
+cannot cover another request.
+
 When Coworld provides a `slot=` in `COWORLD_PLAYER_WS_URL` or via `--slot`,
 Suspectra pins its self color from that slot. That keeps meeting context and
 self-vote filtering stable when vote-screen marker reads are noisy.

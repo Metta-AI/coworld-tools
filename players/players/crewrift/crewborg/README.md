@@ -216,6 +216,13 @@ off by default; when it is disabled — or the call times out, returns late, or
 returns no legal vote target — the mode falls back to the deterministic
 canned-chat (`"no read, skipping"`) plus the Bayesian suspicion vote.
 
+Crewrift permits Haiku 4.5 only. Hosted policies use the Bedrock profile
+`us.anthropic.claude-haiku-4-5-20251001-v1:0`, and all LLM calls made by one
+policy pod must stay below **1,800 quota-weighted tokens per episode**
+(`input + cache-write + 5 × output`), equivalent to `$0.0018`. This is the
+whole-episode allowance, so lower prompt size, response limits, and call cadence
+as needed and take the deterministic fallback before exceeding it.
+
 If the LLM is enabled but its calls keep failing — a permanent error
 (HTTP 401/403/404, e.g. an ungated model or a bad key) on the first call, or two
 failures otherwise — the mode latches onto that deterministic fallback for the
@@ -268,8 +275,8 @@ Shared tuning knobs (both backends):
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `CREWBORG_LLM_MODEL` | backend default | Override the model name (direct) or inference-profile ID (Bedrock). |
-| `CREWBORG_LLM_MAX_TOKENS` | `512` | Response token cap. |
+| `CREWBORG_LLM_MODEL` | backend default | Select Haiku 4.5 only; hosted Bedrock uses `us.anthropic.claude-haiku-4-5-20251001-v1:0`. |
+| `CREWBORG_LLM_MAX_TOKENS` | `512` | Per-call output ceiling; lower it so cumulative episode usage remains below 1,800 quota-weighted tokens. |
 | `CREWBORG_LLM_TEMPERATURE` | `0.2` | Sampling temperature. |
 | `CREWBORG_LLM_TIMEOUT_SECONDS` | `3.0` | Per-call client timeout. |
 | `CREWBORG_TRACE_OUTPUTS` | `jsonl@stderr` | Comma-separated `format@destination` trace outputs; formats: `jsonl`, `json`, `csv`, `parquet`; destinations: `stderr`, `stdout`, `file:<path>`, `artifact[:path/in/zip]`. |
