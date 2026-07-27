@@ -99,6 +99,16 @@ class RoundStartView:
             return variant_id, num_agents, game_config
         return variant_id, len(self.entries(None)) or 1, game_config
 
+    def effective_game_config(self, rule: DivisionRule | None) -> dict[str, Any]:
+        """The game config episodes actually run with: the selected variant's
+        config merged with the rule override, even when variant() reports None
+        (None on the wire means "platform falls back to the variant config")."""
+        variant_id, _num_agents, game_config = self.variant(rule)
+        if game_config is not None:
+            return game_config
+        variant = next((candidate for candidate in self.round_start.variants if candidate.id == variant_id), None)
+        return dict(variant.game_config) if variant is not None else {}
+
     def entries(self, rule: DivisionRule | None) -> list[PolicyPoolEntry]:
         entries = division_entries(self.current_division, self.memberships, rule)
         if rule is not None and rule.bench_scoreless_after:

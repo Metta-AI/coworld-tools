@@ -59,6 +59,71 @@ def _two_team_episode_count(*, num_entries: int, pool_config: PoolConfig) -> int
     return max(pool_config.num_episodes, cycles * (num_entries // 2))
 
 
+def _leaderboard_leader(
+    entries: list[PolicyPoolEntry],
+    recent_results: list[Any],
+) -> PolicyPoolEntry | None:
+    """The division's current unique leaderboard leader among the entrants.
+
+    Approximates the platform's EWMA board from the recent results the protocol
+    provides: the unique best mean round score. Returns None when no entrant
+    has a result yet or the top mean score is shared, so a cold or tied board
+    decorates nobody rather than someone arbitrary.
+    """
+    scores: dict[Any, list[float]] = defaultdict(list)
+    entry_ids = {entry.policy_version_id for entry in entries}
+    for result in recent_results:
+        if result.policy_version_id in entry_ids:
+            scores[result.policy_version_id].append(result.score)
+    if not scores:
+        return None
+    means = {policy_id: sum(s) / len(s) for policy_id, s in scores.items()}
+    top = max(means.values())
+    leaders = [policy_id for policy_id, mean in means.items() if mean == top]
+    if len(leaders) != 1:
+        return None
+    return next(entry for entry in entries if entry.policy_version_id == leaders[0])
+
+
+def _decorate_leader_slots(
+    episodes: list[CommissionerEpisodeRequest],
+    *,
+    leader: PolicyPoolEntry | None,
+    base_game_config: dict[str, Any],
+    slot_config: dict[str, Any],
+) -> list[CommissionerEpisodeRequest]:
+    """Merges leader_slot_config into the leader's slots[] of each episode it plays.
+
+    Episodes seat policies by slot index (policy_version_ids[i] plays slot i), so
+    the leader's seats are exactly the indices holding its policy version. The
+    episode gets a deep-ish copy of the effective game config with those slots[]
+    entries extended; existing per-slot keys (team, color, token) are preserved
+    and slots[] grows to num_agents if the base config declares fewer entries.
+    Episodes without the leader keep their original game_config untouched.
+    """
+    if leader is None:
+        return episodes
+    decorated: list[CommissionerEpisodeRequest] = []
+    for episode in episodes:
+        seat_indices = [
+            index
+            for index, policy_version_id in enumerate(episode.policy_version_ids)
+            if policy_version_id == leader.policy_version_id
+        ]
+        if not seat_indices:
+            decorated.append(episode)
+            continue
+        game_config = dict(base_game_config)
+        slots = [dict(slot) for slot in game_config.get("slots") or []]
+        while len(slots) < len(episode.policy_version_ids):
+            slots.append({})
+        for index in seat_indices:
+            slots[index] = slots[index] | slot_config
+        game_config["slots"] = slots
+        decorated.append(episode.model_copy(update={"game_config": game_config}))
+    return decorated
+
+
 def schedule_entries(
     *,
     pool: PolicyPool,

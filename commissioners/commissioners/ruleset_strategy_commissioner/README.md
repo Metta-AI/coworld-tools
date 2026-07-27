@@ -33,6 +33,10 @@ Key config areas:
 - `policy_membership_events`: ordered criteria-based transitions produced when round results are complete.
   `on_round_complete` is still accepted as an alias, and `on_episode_complete` is still accepted as a legacy alias.
 - `scoring`: optional round-score and leaderboard aggregation settings.
+- `defaults.leader_slot_config`: optional slot-config decoration for the division's current leaderboard leader — merged
+  into each of the leader's `slots[]` entries in every scheduled episode's game config (e.g. `{skin: crown}` renders the
+  CTF board leader's agents crowned). The leader is the unique best mean round score over the division's recent results;
+  a cold or tied board decorates nobody, and self-play (qualifier) pools are never decorated.
 - `dispatch_throttle`: optional WebSocket episode release throttling for games that should not receive the full round
   schedule at once.
 

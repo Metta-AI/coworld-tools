@@ -298,6 +298,12 @@ class RulesetDefaults(_ConfigModel):
     min_entries_to_start: int = Field(default=1, gt=0)
     stage: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
     adaptive: AdaptiveScheduleConfig = Field(default_factory=AdaptiveScheduleConfig)
+    # Optional slot-config decoration for the division's current leaderboard
+    # leader: merged into each of the leader's slots[] entries in every scheduled
+    # episode's game_config (e.g. {skin: crown} renders the CTF board leader's
+    # agents crowned). The leader is the unique best mean round score over the
+    # division's recent results; no results or a tie at the top decorates nobody.
+    leader_slot_config: dict[str, Any] | None = None
 
     def insufficient_players(self) -> InsufficientPlayersConfig:
         return InsufficientPlayersConfig(
