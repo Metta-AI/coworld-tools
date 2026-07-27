@@ -27,6 +27,11 @@ cited file before relying on it.**
 > [`design.md`](./design.md) for the settled architecture. crewborg sits at
 > `players/players/crewrift/crewborg/` inside the `players` uv workspace.
 
+> **Crewrift LLM rule:** use Haiku 4.5 only; hosted Bedrock uses
+> `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Keep the whole policy episode
+> below **1,800 quota-weighted tokens** (`input + cache-write + 5 × output`)
+> across every LLM layer, then fall back to deterministic play.
+
 ---
 
 ## The big picture
