@@ -1,0 +1,112 @@
+schedule_interval_minutes: 5
+
+scoring:
+  round_score: win
+  leaderboard:
+    type: ewma
+    half_life_hours: 2
+
+# Same throttle rationale as ctf.yaml: bitworld-family configs spell the game
+# timeout camelCase (maxTicks, implicit 24 ticks/sec) so the adaptive window
+# can't parse it and the floor below IS the effective concurrency.
+dispatch_throttle:
+  enabled: true
+  min_in_flight: 16
+  max_in_flight: 50
+  startup_buffer_seconds: 30
+  target_load: 0.75
+  worker_seconds_per_episode: 45
+
+defaults:
+  # CTF-Doubles: the same 16-seat 8v8 game, but every team is split in half
+  # between two entrant policies — 4 policies per episode, 4 agents each.
+  # CTF assigns teams by slot parity (even = Red, odd = Blue), so seats stay
+  # interleaved; policies_per_team splits each team's seat run into a front
+  # and back sub-block ([A,B, A,B, ..., C,D, C,D, ...] by slot order).
+  seating: team_interleaved
+  team_count: 2
+  policies_per_team: 2
+  # The current board leader's agents wear the crown skin (cosmetic only).
+  leader_slot_config:
+    skin: crown
+  fill_seats: strict
+  # A doubles episode needs 4 distinct entrants; don't start rounds below that.
+  min_entries_to_start: 4
+  stage:
+    label: CTF-Doubles round
+    episodes: 2
+    # No adaptive budgets here: the adaptive scheduler is pairwise (two-team,
+    # one policy per team) and doesn't know about entrant groups of 4. A flat
+    # per-entrant floor keeps rounds bounded: n entrants cost ~n*8/4 episodes.
+    min_episodes_per_entrant: 8
+
+divisions:
+  qualifiers:
+    name: Qualifiers
+    level: -99
+    match:
+      name: Qualifiers
+      type: staging
+    entrants: qualifying
+    min_entries_to_start: 1
+    stages:
+      - id: crash_check
+        schedule:
+          label: Crash check
+          self_play: true
+          attempts: 2
+          min_episodes_per_entrant: 2
+        on_round_complete:
+          - id: qualified
+            criteria:
+              completed_episodes_gt: 0
+            actions:
+              - type: update_membership
+                division: competition
+                status: competing
+                substatus: champion
+          - id: disqualified
+            criteria: otherwise
+            actions:
+              - type: update_membership
+                status: disqualified
+                substatus: inactive
+
+  competition:
+    name: Competition
+    # No legacy "Daily" division exists in a fresh league; this satisfies the
+    # uniform migration convention (rename Daily -> Competition if ever found).
+    previous_name: Daily
+    level: 1
+    match:
+      type: competition
+    # One champion per player (see ctf.yaml for the full rationale: benched
+    # older versions go objective-blind after game updates and become free-win
+    # farms that distort the board).
+    entrants: champions
+    # Seating guard + lifecycle rules mirror ctf.yaml: dead containers hurt
+    # doubles rounds even more, since a corpse forfeits its partner's episode
+    # too.
+    bench_scoreless_after: 3
+    on_round_complete:
+      - id: broken
+        criteria:
+          completed_episodes_lte: 0
+        actions:
+          - type: update_membership
+            status: disqualified
+            substatus: broken
+            reason: >-
+              Completed zero episodes in a round — container presumed
+              broken; resubmit a fixed version to re-qualify.
+      - id: lifeless
+        criteria:
+          score_lte: 0.0
+          sustained_rounds: 10
+        actions:
+          - type: update_membership
+            status: disqualified
+            substatus: lifeless
+            reason: >-
+              Zero score in every recent round on record (10+ rounds) —
+              presumed broken; resubmit a fixed version to re-qualify.
