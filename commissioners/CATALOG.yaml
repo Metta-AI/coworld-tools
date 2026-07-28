@@ -39,6 +39,14 @@ entries:
     status: active
     owner: Metta-AI
     description: Config-driven commissioner using the CTF two-team-block ruleset config (8v8, win-based EWMA leaderboard).
+  - name: ctf-doubles-commissioner
+    source: commissioners/ruleset_strategy_commissioner
+    source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner
+    image: ghcr.io/metta-ai/commissioners-ctf-doubles:latest
+    target: ctf-doubles
+    status: active
+    owner: Metta-AI
+    description: Config-driven commissioner for CTF-Doubles — each 8-seat parity team split between two policies (4 policies per episode), win-based EWMA leaderboard.
   - name: cue-n-woo-commissioner
     source: commissioners/ruleset_strategy_commissioner
     source_url: https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner

@@ -1295,6 +1295,88 @@ def test_ruleset_strategy_ctf_odd_field_rotates_opponents() -> None:
         assert count >= 10
 
 
+def test_ruleset_strategy_ctf_doubles_seats_four_policies_two_per_team() -> None:
+    """CTF-Doubles: 4 entrants per episode; each parity team is split into two 4-seat halves."""
+    policy_version_ids = [uuid4() for _ in range(6)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf_doubles"), round_start)
+
+    _assert_episode_seeds(schedule.episodes)
+    # ceil(6 entrants * 8 min episodes per entrant / 4 entrants per episode) = 12.
+    assert len(schedule.episodes) == 12
+    appearances: dict[UUID, int] = {pv: 0 for pv in policy_version_ids}
+    for episode in schedule.episodes:
+        assert len(episode.policy_version_ids) == 16
+        red = episode.policy_version_ids[0::2]
+        blue = episode.policy_version_ids[1::2]
+        # Each parity team is two policies, one per contiguous 4-seat half of its run.
+        for team in (red, blue):
+            assert len(set(team[:4])) == 1
+            assert len(set(team[4:])) == 1
+            assert team[0] != team[4]
+        fielded = {red[0], red[4], blue[0], blue[4]}
+        assert len(fielded) == 4
+        for pv in fielded:
+            appearances[pv] += 1
+    # 12 episodes x 4 entrant seats = 48 appearances, cycled evenly over 6 entrants.
+    assert set(appearances.values()) == {8}
+
+
+def test_ruleset_strategy_ctf_doubles_rotates_roles() -> None:
+    """The entrant group rotates so nobody is locked to one team or one half."""
+    policy_version_ids = [uuid4() for _ in range(4)]
+    round_start = _round_start(
+        policy_version_ids=policy_version_ids,
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    schedule = schedule_episodes_for_round_start(_ruleset_commissioner("ctf_doubles"), round_start)
+
+    # ceil(4 entrants * 8 / 4) = 8 episodes, every entrant in each one.
+    assert len(schedule.episodes) == 8
+    roles: dict[UUID, set[str]] = {pv: set() for pv in policy_version_ids}
+    for episode in schedule.episodes:
+        # Role-holder seats: slot 0 = Red front half, 1 = Blue front, 8 = Red back, 9 = Blue back.
+        roles[episode.policy_version_ids[0]].add("red_front")
+        roles[episode.policy_version_ids[1]].add("blue_front")
+        roles[episode.policy_version_ids[8]].add("red_back")
+        roles[episode.policy_version_ids[9]].add("blue_back")
+    for pv, seen in roles.items():
+        assert seen == {"red_front", "blue_front", "red_back", "blue_back"}
+
+
+def test_ruleset_strategy_ctf_doubles_requires_a_full_entrant_group() -> None:
+    """Three entrants cannot fill four half-team seats under strict fill."""
+    round_start = _round_start(
+        policy_version_ids=[uuid4() for _ in range(3)],
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    with pytest.raises(ValueError, match="at least 4 primary entries"):
+        schedule_episodes_for_round_start(_ruleset_commissioner("ctf_doubles"), round_start)
+
+
+def test_ruleset_strategy_team_seating_requires_team_size_divisible_by_policies_per_team() -> None:
+    """An 8-seat team cannot be split among 3 policies."""
+    config = _ruleset_config("ctf_doubles")
+    config["defaults"]["policies_per_team"] = 3
+    round_start = _round_start(
+        policy_version_ids=[uuid4() for _ in range(6)],
+        num_agents=16,
+        commissioner_config={},
+    )
+
+    with pytest.raises(ValueError, match="divisible by policies_per_team"):
+        schedule_episodes_for_round_start(RulesetStrategyCommissioner(config), round_start)
+
+
 def test_division_leaderboard_keeps_every_policy_version_the_player_fielded() -> None:
     """A player's row must list all fielded policy versions, not just the per-round best.
 

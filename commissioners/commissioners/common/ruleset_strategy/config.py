@@ -292,6 +292,11 @@ class AdaptiveScheduleConfig(_ConfigModel):
 class RulesetDefaults(_ConfigModel):
     seating: SeatingStrategy = "baseline_window"
     team_count: int = Field(default=4, gt=0)
+    # Team seating only: how many distinct policies share one team. 1 (default)
+    # gives each team to a single entrant; 2 splits every team in half between
+    # two entrants (doubles), so an episode consumes team_count * policies_per_team
+    # entrants. team_size must be divisible by this.
+    policies_per_team: int = Field(default=1, gt=0)
     fill_seats: FillSeatsStrategy = "duplicate"
     fill_from: list[FillerSource] = Field(default_factory=list)
     duplicate_after_fill: bool = True
