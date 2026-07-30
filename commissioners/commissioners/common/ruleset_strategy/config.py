@@ -289,6 +289,27 @@ class AdaptiveScheduleConfig(_ConfigModel):
     max_round_episodes: int | None = Field(default=None, gt=0)
 
 
+class EpisodeModeConfig(_ConfigModel):
+    """One per-episode seating/game shape in a mixed-mode league.
+
+    Team seating only. Every mode must consume the same entrant group size
+    (team_count * policies_per_team), so the round scheduler can deal groups
+    uniformly and only the SHAPE of an episode varies: e.g. CTF 2v2 (2 teams
+    x 2 policies) and 4ffa (4 teams x 1 policy) both burn a group of 4.
+    Scheduled episodes cycle through the modes in order (job_index modulo),
+    so a round is an even deterministic mix. `game_config` merges OVER the
+    episode's base game config (variant + division/stage overrides).
+    """
+
+    label: str
+    team_count: int = Field(gt=0)
+    policies_per_team: int = Field(default=1, gt=0)
+    game_config: dict[str, Any] | None = None
+
+    def group_size(self) -> int:
+        return self.team_count * self.policies_per_team
+
+
 class RulesetDefaults(_ConfigModel):
     seating: SeatingStrategy = "baseline_window"
     team_count: int = Field(default=4, gt=0)
@@ -303,6 +324,11 @@ class RulesetDefaults(_ConfigModel):
     min_entries_to_start: int = Field(default=1, gt=0)
     stage: StageScheduleConfig = Field(default_factory=StageScheduleConfig)
     adaptive: AdaptiveScheduleConfig = Field(default_factory=AdaptiveScheduleConfig)
+    # Mixed-mode leagues: when non-empty, each scheduled episode takes one of
+    # these modes (cycling by episode index) instead of the flat
+    # team_count/policies_per_team above, which then only describe the
+    # ENTRANT-GROUP shape and must match every mode's group size.
+    episode_modes: list[EpisodeModeConfig] = Field(default_factory=list)
     # Optional slot-config decoration for the division's current leaderboard
     # leader: merged into each of the leader's slots[] entries in every scheduled
     # episode's game_config (e.g. {skin: crown} renders the CTF board leader's
@@ -452,6 +478,23 @@ class RulesetStrategyCommissionerConfig(_ConfigModel):
     def require_divisions(self) -> RulesetStrategyCommissionerConfig:
         if not self.divisions:
             raise ValueError("ruleset strategy commissioner requires at least one division")
+        return self
+
+    @model_validator(mode="after")
+    def require_uniform_episode_mode_groups(self) -> RulesetStrategyCommissionerConfig:
+        modes = self.defaults.episode_modes
+        if not modes:
+            return self
+        if self.defaults.seating not in ("team_blocks", "team_interleaved"):
+            raise ValueError("episode_modes requires team seating")
+        group = self.defaults.team_count * self.defaults.policies_per_team
+        for mode in modes:
+            if mode.group_size() != group:
+                raise ValueError(
+                    "episode_modes must all consume the same entrant group size: "
+                    f"mode {mode.label!r} consumes {mode.group_size()}, "
+                    f"defaults consume {group}"
+                )
         return self
 
     @model_validator(mode="after")

@@ -113,7 +113,12 @@ def _decorate_leader_slots(
         if not seat_indices:
             decorated.append(episode)
             continue
-        game_config = dict(base_game_config)
+        # Start from the EPISODE's own game config when the scheduler set one
+        # (mixed-mode overlays like the paintbot 4ffa `teams: 4` live there);
+        # rebuilding from the base would silently strip the mode overlay from
+        # exactly the leader's episodes. The base fills in when the episode
+        # carries none.
+        game_config = dict(episode.game_config or base_game_config)
         slots = [dict(slot) for slot in game_config.get("slots") or []]
         while len(slots) < len(episode.policy_version_ids):
             slots.append({})
@@ -161,37 +166,57 @@ def schedule_entries(
         group_size = team_count * policies_per_team
         if len(primary_entries) < group_size:
             raise ValueError(f"{config.seating} seating requires at least {group_size} primary entries")
-        if num_agents % team_count != 0:
-            raise ValueError(f"{config.seating} seating requires num_agents divisible by {team_count}")
 
-        team_size = num_agents // team_count
-        if team_size % policies_per_team != 0:
-            raise ValueError(
-                f"{config.seating} seating requires team_size ({team_size}) divisible by "
-                f"policies_per_team ({policies_per_team})"
-            )
-        # Job-invariant seat geometry: seat -> index into the episode's entrant
-        # group, laid out as [team0 sub0, team1 sub0, ..., team0 sub1, team1 sub1, ...]
-        # so a rotation of the group walks every entrant through every team AND
-        # every sub-block across consecutive episodes.
-        sub_size = team_size // policies_per_team
-        if config.seating == "team_blocks":
-            # One contiguous block of seats per team, each split into
-            # policies_per_team contiguous sub-blocks: [A]*sub + [C]*sub + [B]*sub + [D]*sub.
-            seat_group_slots = [
-                (slot % team_size) // sub_size * team_count + slot // team_size for slot in range(num_agents)
-            ]
-        else:
+        def seat_slots_for(mode_team_count: int, mode_policies_per_team: int) -> list[int]:
+            # Job-invariant seat geometry: seat -> index into the episode's
+            # entrant group, laid out as [team0 sub0, team1 sub0, ...,
+            # team0 sub1, team1 sub1, ...] so a rotation of the group walks
+            # every entrant through every team AND every sub-block across
+            # consecutive episodes.
+            if num_agents % mode_team_count != 0:
+                raise ValueError(
+                    f"{config.seating} seating requires num_agents divisible by {mode_team_count}"
+                )
+            team_size = num_agents // mode_team_count
+            if team_size % mode_policies_per_team != 0:
+                raise ValueError(
+                    f"{config.seating} seating requires team_size ({team_size}) divisible by "
+                    f"policies_per_team ({mode_policies_per_team})"
+                )
+            sub_size = team_size // mode_policies_per_team
+            if config.seating == "team_blocks":
+                # One contiguous block of seats per team, each split into
+                # policies_per_team contiguous sub-blocks: [A]*sub + [C]*sub + [B]*sub + [D]*sub.
+                return [
+                    (slot % team_size) // sub_size * mode_team_count + slot // team_size
+                    for slot in range(num_agents)
+                ]
             # Interleaved team seats for games that assign teams by slot parity
             # (slot mod team_count), e.g. CTF: [A, B, A, B, ...]; with
             # policies_per_team > 1 each team's seat run is further split into
             # sub-blocks along the slot order: [A, B, ..., C, D, ...].
-            seat_group_slots = [
-                (slot // team_count) // sub_size * team_count + slot % team_count for slot in range(num_agents)
+            return [
+                (slot // mode_team_count) // sub_size * mode_team_count + slot % mode_team_count
+                for slot in range(num_agents)
             ]
+
+        modes = config.defaults.episode_modes
+        seat_group_slots = seat_slots_for(team_count, policies_per_team)
         seat_entries = primary_entries
         adaptive_pairs: list[tuple[int, int]] | None = None
-        if policies_per_team > 1:
+        if modes:
+            # Mixed-mode league (e.g. CTF 2v2 + 4ffa): every mode consumes the
+            # same entrant group, so groups schedule exactly like the
+            # multi-policy path; only each episode's seat SHAPE and game
+            # config vary, cycling through the modes so a round is an even
+            # deterministic mix.
+            seat_entries = _round_shuffled_entries(primary_entries)
+            num_episodes = _pool_episode_count(
+                config=pool_config,
+                num_entries=len(primary_entries),
+                num_agents=group_size,
+            )
+        elif policies_per_team > 1:
             # Multi-policy teams (e.g. CTF-Doubles): an episode consumes a whole
             # group of group_size entrants. The stride schedule below fixes the
             # group boundaries within a round, so entries are shuffled per
@@ -246,18 +271,31 @@ def schedule_entries(
                 entry_indices = [
                     (job_index * group_size + group_index) % len(seat_entries) for group_index in range(group_size)
                 ]
-            rotation = job_index % group_size
+            # With mixed modes the mode cycle and the rotation cycle would
+            # otherwise stay phase-locked (both keyed to job_index), pinning
+            # small fields to a fixed role per mode — advance the rotation
+            # once per SAME-MODE episode instead.
+            rotation = (job_index // len(modes) if modes else job_index) % group_size
             entry_indices = entry_indices[rotation:] + entry_indices[:rotation]
-            seat_entry_indices = [entry_indices[group_slot] for group_slot in seat_group_slots]
+            episode_slots = seat_group_slots
+            episode_game_config = game_config
+            episode_tags = {"pool_id": str(pool.id)}
+            if modes:
+                mode = modes[job_index % len(modes)]
+                episode_slots = seat_slots_for(mode.team_count, mode.policies_per_team)
+                if mode.game_config:
+                    episode_game_config = dict(game_config or {}) | dict(mode.game_config)
+                episode_tags["mode"] = mode.label
+            seat_entry_indices = [entry_indices[group_slot] for group_slot in episode_slots]
             episodes.append(
                 CommissionerEpisodeRequest(
                     request_id=str(job_index),
                     variant_id=variant_id,
-                    game_config=game_config,
+                    game_config=episode_game_config,
                     policy_version_ids=[
                         seat_entries[entry_index].policy_version_id for entry_index in seat_entry_indices
                     ],
-                    tags={"pool_id": str(pool.id)},
+                    tags=episode_tags,
                 )
             )
         return CommissionerScheduleEpisodes(episodes=episodes)

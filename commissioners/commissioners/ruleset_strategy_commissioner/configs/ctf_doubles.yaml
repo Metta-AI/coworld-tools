@@ -18,14 +18,33 @@ dispatch_throttle:
   worker_seconds_per_episode: 45
 
 defaults:
-  # CTF-Doubles: the same 16-seat 8v8 game, but every team is split in half
-  # between two entrant policies — 4 policies per episode, 4 agents each.
-  # CTF assigns teams by slot parity (even = Red, odd = Blue), so seats stay
-  # interleaved; policies_per_team splits each team's seat run into a front
-  # and back sub-block ([A,B, A,B, ..., C,D, C,D, ...] by slot order).
+  # Paintbot: 16 seats, ALWAYS four policies per episode, mixing two shapes
+  # evenly (episodes cycle through the modes):
+  #   - 2v2: the classic 8v8 sides game with every team split in half
+  #     between two entrant policies ([A,B, A,B, ..., C,D, C,D, ...] — CTF
+  #     assigns teams by slot parity, so seats stay interleaved).
+  #   - 4ffa: four teams (red/blue/green/yellow), one policy per team, on a
+  #     generated square corner/plus map ([A,B,C,D, A,B,C,D, ...] — CTF
+  #     deals teams by slot mod 4).
+  # Both modes play RANDOM GENERATED terrain (mapPath gen; the seed derives
+  # from the per-episode randomized game seed, and the replay pins the
+  # exact geometry as mapSpec).
   seating: team_interleaved
   team_count: 2
   policies_per_team: 2
+  episode_modes:
+    - label: 2v2
+      team_count: 2
+      policies_per_team: 2
+      game_config:
+        teams: 2
+        mapPath: gen
+    - label: 4ffa
+      team_count: 4
+      policies_per_team: 1
+      game_config:
+        teams: 4
+        mapPath: gen
   # The current board leader's agents wear the crown skin (cosmetic only).
   leader_slot_config:
     skin: crown
