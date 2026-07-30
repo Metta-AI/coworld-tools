@@ -723,8 +723,12 @@ def test_cogs_vs_clips_config_qualifier_round_uses_qualifier_stage() -> None:
     assert rounds[qualifier_id].label == "Qualifier"
     assert rounds[qualifier_id].num_episodes == 2
     assert rounds[qualifier_id].min_episodes_per_entrant == 2
-    assert "self_play" not in rounds[qualifier_id].model_dump()
+    # The wire model must carry self_play: when it was missing here, the
+    # platform received the qualifier proposal without it, defaulted it to
+    # False, and handed the poisoned stage back at round start.
+    assert rounds[qualifier_id].self_play is True
     assert rounds[daily_id].label == "Slot-balanced round"
+    assert rounds[daily_id].self_play is False
 
 
 def test_ruleset_strategy_default_config_matches_default_schedule() -> None:
@@ -2148,6 +2152,46 @@ def test_ruleset_strategy_among_them_score_gate_ignores_unscheduled_crash_check_
     assert events[score_gate_membership_id].to_division_id == competition_id
     assert events[score_gate_membership_id].status == "competing"
     assert events[score_gate_membership_id].reason == "Passed score gate"
+
+
+def test_ruleset_strategy_ctf_doubles_crash_check_proposal_carries_self_play() -> None:
+    """A lone doubles candidate's crash-check proposal must stay self-play on the wire.
+
+    ctf_doubles seats team_interleaved with policies_per_team 2, so a
+    non-self-play round needs 4 primary entries. The crash check declares
+    self_play: true precisely so a single candidate can qualify; if the wire
+    model drops the flag the platform defaults it to False and every
+    single-candidate qualifier round dies with "team_interleaved seating
+    requires at least 4 primary entries".
+    """
+    league_id = uuid4()
+    qualifier_id = uuid4()
+    candidate_policy_id = uuid4()
+
+    response = schedule_rounds_for_request(
+        _ruleset_commissioner("ctf_doubles"),
+        ScheduleRoundsRequest(
+            league=LeagueInfo(id=league_id, commissioner_config={}),
+            divisions=[DivisionInfo(id=qualifier_id, name="Qualifiers", level=-99, type="staging")],
+            active_memberships=[
+                MembershipInfo(
+                    id=uuid4(),
+                    league_id=league_id,
+                    division_id=qualifier_id,
+                    policy_version_id=candidate_policy_id,
+                    player_id="lone-candidate",
+                    status="qualifying",
+                ),
+            ],
+            recent_rounds=[],
+        ),
+    )
+
+    assert len(response.rounds) == 1
+    stage = response.rounds[0].round_config.stages[0]
+    assert stage.label == "Crash check"
+    assert stage.self_play is True
+    assert response.rounds[0].round_config.entrant_policy_version_ids == [candidate_policy_id]
 
 
 def test_ruleset_strategy_among_them_config_prioritizes_later_qualifier_stage_when_mixed() -> None:

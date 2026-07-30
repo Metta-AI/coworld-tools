@@ -132,6 +132,13 @@ class StageConfig(BaseModel):
     label: str = "Round"
     num_episodes: int = Field(default=1, gt=0)
     min_episodes_per_entrant: int | None = Field(default=None, gt=0)
+    # Must mirror the platform's wire model (metta packages/coworld
+    # commissioner/protocol.py StageConfig): coercing an internal V2StageConfig
+    # into this narrower model silently DROPS any field missing here, so the
+    # platform refills it with its default. Dropping self_play turned every
+    # proposed self-play qualifier round into a non-self-play round, which
+    # hard-fails team seating (needs team_count*policies_per_team entries).
+    self_play: bool = False
 
 
 class RoundConfig(BaseModel):
