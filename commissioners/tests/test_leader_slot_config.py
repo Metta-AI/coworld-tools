@@ -242,3 +242,43 @@ def test_short_variant_slots_grow_to_num_agents() -> None:
         slots = episode.game_config["slots"]
         assert len(slots) == NUM_AGENTS
         assert slots[0]["team"] == "red"  # the declared entry survives
+
+
+def test_leader_crown_preserves_mixed_mode_game_config() -> None:
+    """The crown must decorate ON TOP of a mode overlay, not replace it.
+
+    Paintbot 4ffa episodes carry {teams: 4, mapPath: gen}; rebuilding the
+    leader's episode config from the pre-mode base would silently revert
+    the crowned player's 4ffa games to the 2-team shape.
+    """
+    division_id = uuid4()
+    entrants = [uuid4() for _ in range(4)]
+    leader = entrants[0]
+    round_start = _round_start(
+        policy_version_ids=entrants,
+        division_id=division_id,
+        recent_results=_results(
+            {
+                entrants[0]: [0.9, 0.9],
+                entrants[1]: [0.4, 0.3],
+                entrants[2]: [0.3, 0.2],
+                entrants[3]: [0.2, 0.1],
+            },
+            division_id=division_id,
+        ),
+    )
+    config = yaml.safe_load((CONFIG_DIR / "ctf_doubles.yaml").read_text())
+    schedule = RulesetStrategyCommissioner(config).schedule_episodes_for_round_start(round_start)
+    assert schedule.episodes
+    saw_leader_ffa = False
+    for episode in schedule.episodes:
+        game_config = episode.game_config or {}
+        mode = episode.tags.get("mode")
+        assert game_config.get("mapPath") == "gen"
+        assert game_config.get("teams") == (4 if mode == "4ffa" else 2)
+        leader_seats = _leader_seats(episode, leader)
+        assert _decorated_seats(episode) == leader_seats
+        if leader_seats and mode == "4ffa":
+            saw_leader_ffa = True
+    # A 4-entrant field seats the leader in every episode, half of them 4ffa.
+    assert saw_leader_ffa

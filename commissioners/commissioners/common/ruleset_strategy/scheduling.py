@@ -113,7 +113,12 @@ def _decorate_leader_slots(
         if not seat_indices:
             decorated.append(episode)
             continue
-        game_config = dict(base_game_config)
+        # Start from the EPISODE's own game config when the scheduler set one
+        # (mixed-mode overlays like the paintbot 4ffa `teams: 4` live there);
+        # rebuilding from the base would silently strip the mode overlay from
+        # exactly the leader's episodes. The base fills in when the episode
+        # carries none.
+        game_config = dict(episode.game_config or base_game_config)
         slots = [dict(slot) for slot in game_config.get("slots") or []]
         while len(slots) < len(episode.policy_version_ids):
             slots.append({})
