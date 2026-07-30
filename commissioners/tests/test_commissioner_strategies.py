@@ -1299,8 +1299,12 @@ def test_ruleset_strategy_ctf_odd_field_rotates_opponents() -> None:
         assert count >= 10
 
 
-def test_ruleset_strategy_ctf_doubles_seats_four_policies_two_per_team() -> None:
-    """CTF-Doubles: 4 entrants per episode; each parity team is split into two 4-seat halves."""
+def test_ruleset_strategy_ctf_doubles_mixes_2v2_and_4ffa() -> None:
+    """Paintbot: 4 entrants per episode, episodes alternating 2v2 and 4ffa.
+
+    2v2 episodes split each parity team into two 4-seat halves; 4ffa episodes
+    deal one policy per team by slot mod 4. Both play generated terrain.
+    """
     policy_version_ids = [uuid4() for _ in range(6)]
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
@@ -1314,16 +1318,30 @@ def test_ruleset_strategy_ctf_doubles_seats_four_policies_two_per_team() -> None
     # ceil(6 entrants * 8 min episodes per entrant / 4 entrants per episode) = 12.
     assert len(schedule.episodes) == 12
     appearances: dict[UUID, int] = {pv: 0 for pv in policy_version_ids}
-    for episode in schedule.episodes:
+    for index, episode in enumerate(schedule.episodes):
         assert len(episode.policy_version_ids) == 16
-        red = episode.policy_version_ids[0::2]
-        blue = episode.policy_version_ids[1::2]
-        # Each parity team is two policies, one per contiguous 4-seat half of its run.
-        for team in (red, blue):
-            assert len(set(team[:4])) == 1
-            assert len(set(team[4:])) == 1
-            assert team[0] != team[4]
-        fielded = {red[0], red[4], blue[0], blue[4]}
+        game_config = episode.game_config or {}
+        assert game_config.get("mapPath") == "gen"
+        if index % 2 == 0:
+            # 2v2: each parity team is two policies, one per contiguous
+            # 4-seat half of its run.
+            assert episode.tags.get("mode") == "2v2"
+            assert game_config.get("teams") == 2
+            red = episode.policy_version_ids[0::2]
+            blue = episode.policy_version_ids[1::2]
+            for team in (red, blue):
+                assert len(set(team[:4])) == 1
+                assert len(set(team[4:])) == 1
+                assert team[0] != team[4]
+            fielded = {red[0], red[4], blue[0], blue[4]}
+        else:
+            # 4ffa: CTF deals teams by slot mod 4 — one policy per team.
+            assert episode.tags.get("mode") == "4ffa"
+            assert game_config.get("teams") == 4
+            for team_slot in range(4):
+                team = episode.policy_version_ids[team_slot::4]
+                assert len(set(team)) == 1
+            fielded = set(episode.policy_version_ids[:4])
         assert len(fielded) == 4
         for pv in fielded:
             appearances[pv] += 1
@@ -1332,7 +1350,12 @@ def test_ruleset_strategy_ctf_doubles_seats_four_policies_two_per_team() -> None
 
 
 def test_ruleset_strategy_ctf_doubles_rotates_roles() -> None:
-    """The entrant group rotates so nobody is locked to one team or one half."""
+    """The entrant group rotates so nobody is locked to one role IN EITHER MODE.
+
+    The rotation advances once per same-mode episode (not per episode), so the
+    mode cycle and the rotation cycle never phase-lock a small field into
+    fixed roles.
+    """
     policy_version_ids = [uuid4() for _ in range(4)]
     round_start = _round_start(
         policy_version_ids=policy_version_ids,
@@ -1344,15 +1367,22 @@ def test_ruleset_strategy_ctf_doubles_rotates_roles() -> None:
 
     # ceil(4 entrants * 8 / 4) = 8 episodes, every entrant in each one.
     assert len(schedule.episodes) == 8
-    roles: dict[UUID, set[str]] = {pv: set() for pv in policy_version_ids}
+    doubles_roles: dict[UUID, set[str]] = {pv: set() for pv in policy_version_ids}
+    ffa_teams: dict[UUID, set[int]] = {pv: set() for pv in policy_version_ids}
     for episode in schedule.episodes:
-        # Role-holder seats: slot 0 = Red front half, 1 = Blue front, 8 = Red back, 9 = Blue back.
-        roles[episode.policy_version_ids[0]].add("red_front")
-        roles[episode.policy_version_ids[1]].add("blue_front")
-        roles[episode.policy_version_ids[8]].add("red_back")
-        roles[episode.policy_version_ids[9]].add("blue_back")
-    for pv, seen in roles.items():
-        assert seen == {"red_front", "blue_front", "red_back", "blue_back"}
+        if episode.tags.get("mode") == "2v2":
+            # Role-holder seats: slot 0 = Red front half, 1 = Blue front,
+            # 8 = Red back, 9 = Blue back.
+            doubles_roles[episode.policy_version_ids[0]].add("red_front")
+            doubles_roles[episode.policy_version_ids[1]].add("blue_front")
+            doubles_roles[episode.policy_version_ids[8]].add("red_back")
+            doubles_roles[episode.policy_version_ids[9]].add("blue_back")
+        else:
+            for team_slot in range(4):
+                ffa_teams[episode.policy_version_ids[team_slot]].add(team_slot)
+    for pv in policy_version_ids:
+        assert doubles_roles[pv] == {"red_front", "blue_front", "red_back", "blue_back"}
+        assert ffa_teams[pv] == {0, 1, 2, 3}
 
 
 def test_ruleset_strategy_ctf_doubles_requires_a_full_entrant_group() -> None:
@@ -1371,6 +1401,9 @@ def test_ruleset_strategy_team_seating_requires_team_size_divisible_by_policies_
     """An 8-seat team cannot be split among 3 policies."""
     config = _ruleset_config("ctf_doubles")
     config["defaults"]["policies_per_team"] = 3
+    # Drop the mixed modes: their group-size validator would fire before the
+    # seating divisibility check this test pins.
+    config["defaults"].pop("episode_modes", None)
     round_start = _round_start(
         policy_version_ids=[uuid4() for _ in range(6)],
         num_agents=16,
