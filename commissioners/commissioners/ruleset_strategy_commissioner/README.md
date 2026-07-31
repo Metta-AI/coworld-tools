@@ -56,12 +56,18 @@ from the selected game config controls the number of policy slots in the schedul
 Example ruleset configs live in `configs/`:
 
 - `default.yaml`: parity config for the default round-robin commissioner.
-- `cogs_vs_clips.yaml`: parity config for Cogs vs Clips rolling-window scheduling.
-- `four_score.yaml`: Four Score config with crash-check qualifiers and four repeated 8-agent teams per episode.
 - `among_them.yaml`: replacement-style Among Them config with staged qualifiers and no Dirt league.
+- `cogtank.yaml`: Cogtank config with `team_interleaved` seating.
 - `cue_n_woo.yaml`: Cue n Woo config with leaderboard-neighbor scheduling and throttled episode dispatch.
 - `proxywar.yaml`: ProxyWar config with rolling-window 2-player/4-player scheduling, duplicate filling for short pools, crash-check qualifiers, and throttled episode dispatch.
-- `agricogla.yaml`: Agricogla config with `shuffled_window` scheduling (per-round-permuted entry order so every champion eventually meets every other across rounds, instead of the fixed band `baseline_window`/`rolling_window` produce) and per-episode win-rate scoring.
+
+A config lives here only while some league still runs `commissioner_key=container`.
+When a league moves to the platform ladder service its config is removed; the
+strategies it used stay in the engine. Retired configs that were the only
+coverage for a shipped strategy are kept as test fixtures under
+`tests/fixtures/retired_rulesets/` (`ctf`, `ctf_doubles`, `agricogla`), which is
+also where to look for a worked example of `leader_slot_config`,
+`shuffled_window`, or `mmr_neighbors`.
 
 `shuffled_window` seating is the round-robin-over-rounds option: `baseline_window` and `rolling_window` seat a fixed-width window of consecutive entries in a seed order that is stable across rounds, so two entries co-occur only when within `num_agents - 1` of each other and distant entries never share an episode. `shuffled_window` permutes the entry order each time a round is scheduled (seeded from the wall clock, so a re-scheduled round never reuses its previous order) so the band precesses and full pairwise coverage accrues across rounds while per-entrant appearances stay balanced.
 

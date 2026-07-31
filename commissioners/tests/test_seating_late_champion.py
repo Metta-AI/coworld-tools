@@ -16,11 +16,13 @@ from commissioners.common.protocol import (
     VariantInfo,
 )
 
-_CONFIG_DIR = Path(__file__).parents[1] / "commissioners" / "ruleset_strategy_commissioner" / "configs"
+# agricogla is a retired ruleset — its league moved to the platform ladder — but
+# it is still the only mmr_neighbors fixture. See fixtures/retired_rulesets/.
+_RETIRED_CONFIG_DIR = Path(__file__).parent / "fixtures" / "retired_rulesets"
 
 
 def test_champion_promoted_after_scheduling_is_seated() -> None:
-    config = yaml.safe_load((_CONFIG_DIR / "agricogla.yaml").read_text())
+    config = yaml.safe_load((_RETIRED_CONFIG_DIR / "agricogla.yaml").read_text())
     commissioner = RulesetStrategyCommissioner(config)
 
     league_id, division_id = uuid.UUID(int=1), uuid.UUID(int=10)

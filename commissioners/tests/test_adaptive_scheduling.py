@@ -33,12 +33,17 @@ CONFIG_DIR = (
     / "ruleset_strategy_commissioner"
     / "configs"
 )
+# Retired rulesets kept only as fixtures; see fixtures/retired_rulesets/README.md.
+RETIRED_CONFIG_DIR = Path(__file__).parent / "fixtures" / "retired_rulesets"
 
 CONFIG = AdaptiveScheduleConfig(enabled=True)
 
 
 def _ruleset_config(name: str) -> dict:
-    return yaml.safe_load((CONFIG_DIR / f"{name}.yaml").read_text())
+    path = CONFIG_DIR / f"{name}.yaml"
+    if not path.exists():
+        path = RETIRED_CONFIG_DIR / f"{name}.yaml"
+    return yaml.safe_load(path.read_text())
 
 
 def _round_start(
