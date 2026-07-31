@@ -62,10 +62,15 @@ from commissioners.common.commissioners import (
 )
 
 RULESET_CONFIG_DIR = Path(__file__).parents[1] / "commissioners" / "ruleset_strategy_commissioner" / "configs"
+# Retired rulesets kept only as fixtures; see fixtures/retired_rulesets/README.md.
+RETIRED_CONFIG_DIR = Path(__file__).parent / "fixtures" / "retired_rulesets"
 
 
 def _ruleset_config(name: str) -> dict:
-    return yaml.safe_load((RULESET_CONFIG_DIR / f"{name}.yaml").read_text())
+    path = RULESET_CONFIG_DIR / f"{name}.yaml"
+    if not path.exists():
+        path = RETIRED_CONFIG_DIR / f"{name}.yaml"
+    return yaml.safe_load(path.read_text())
 
 
 def _ruleset_commissioner(name: str) -> RulesetStrategyCommissioner:
@@ -119,7 +124,10 @@ def test_ruleset_strategy_migration_config_declares_divisions_from_commissioner_
     assert response.divisions[1].previous_name == "Daily"
 
 
-@pytest.mark.parametrize("config_path", sorted(RULESET_CONFIG_DIR.glob("*.yaml")))
+@pytest.mark.parametrize(
+    "config_path",
+    sorted(RULESET_CONFIG_DIR.glob("*.yaml")) + sorted(RETIRED_CONFIG_DIR.glob("*.yaml")),
+)
 def test_ruleset_strategy_configs_declare_migration_divisions(config_path: Path) -> None:
     config = _ruleset_config(config_path.stem)
     raw_divisions = config["divisions"]

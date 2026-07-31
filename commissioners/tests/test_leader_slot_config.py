@@ -17,18 +17,16 @@ from commissioners.common.protocol import (
     VariantInfo,
 )
 
-CONFIG_DIR = (
-    Path(__file__).parents[1]
-    / "commissioners"
-    / "ruleset_strategy_commissioner"
-    / "configs"
-)
+# ctf is a retired ruleset — the Ctf league moved to the platform ladder — but it
+# is still the only fixture that sets leader_slot_config, which the engine ships.
+# See fixtures/retired_rulesets/README.md.
+RETIRED_CONFIG_DIR = Path(__file__).parent / "fixtures" / "retired_rulesets"
 
 NUM_AGENTS = 16
 
 
 def _ctf_config() -> dict:
-    return yaml.safe_load((CONFIG_DIR / "ctf.yaml").read_text())
+    return yaml.safe_load((RETIRED_CONFIG_DIR / "ctf.yaml").read_text())
 
 
 def _ctf_game_config() -> dict:
@@ -267,7 +265,7 @@ def test_leader_crown_preserves_mixed_mode_game_config() -> None:
             division_id=division_id,
         ),
     )
-    config = yaml.safe_load((CONFIG_DIR / "ctf_doubles.yaml").read_text())
+    config = yaml.safe_load((RETIRED_CONFIG_DIR / "ctf_doubles.yaml").read_text())
     schedule = RulesetStrategyCommissioner(config).schedule_episodes_for_round_start(round_start)
     assert schedule.episodes
     saw_leader_ffa = False

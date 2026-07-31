@@ -29,20 +29,6 @@ IMAGES = [
         8,
     ),
     (
-        "commissioners-smoke-cogs-vs-clips",
-        "config_driven",
-        "cogs_vs_clips",
-        8,
-        8,
-    ),
-    (
-        "commissioners-smoke-four-score",
-        "config_driven",
-        "four_score",
-        4,
-        32,
-    ),
-    (
         "commissioners-smoke-cue-n-woo",
         "config_driven",
         "cue_n_woo",
