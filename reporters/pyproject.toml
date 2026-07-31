@@ -5,6 +5,7 @@ description = "Workspace anchor for the reporters repo. The shared, pip-installa
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "episode-analysis",
     "reporter-sdk",
 ]
 
@@ -18,7 +19,8 @@ dev = [
 ]
 
 [tool.uv.sources]
+episode-analysis = { workspace = true }
 reporter-sdk = { workspace = true }
 
 [tool.uv.workspace]
-members = ["reporters/reporter_sdk"]
+members = ["reporters/episode_analysis", "reporters/reporter_sdk"]
