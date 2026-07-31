@@ -47,6 +47,15 @@ def test_gaussian_blur_conserves_mass_and_noops():
     assert gaussian_blur(g, sigma=0) is g
 
 
+def test_gaussian_blur_preserves_shape_on_tiny_grids():
+    # Kernel longer than the axis: naive mode="same" convolution GROWS the
+    # grid (returns max(M, N)); the centred full-mode slice must not.
+    tiny = np.zeros((3, 2))
+    tiny[1, 1] = 9.0
+    out = gaussian_blur(tiny, sigma=2.0)  # radius 6 > both axes
+    assert out.shape == tiny.shape
+
+
 # --- stats --------------------------------------------------------------------
 
 
