@@ -21,7 +21,7 @@ the canonical protocol reference, which additionally decodes the AmongThem
         0x03  object remove      u16 id
         0x04  clear all objects
         0x05 / 0x06              5- / 3-byte records this bridge skips (timing/keepalive)
-    player -> server   input     [0x84, mask]            (mask is 7 button bits, 0..0x7F)
+    player -> server   input     [0x84, mask]            (mask is 8 button bits, 0..0xFF)
     player -> server   chat      [0x81, u16 len, <ascii>]
 
 This bridge owns the **transport envelope**: it accumulates the sprite/object
@@ -69,7 +69,7 @@ PACKET_INPUT = 0x84
 PACKET_CHAT = 0x81
 
 #: A controller mask is 7 button bits.
-INPUT_MASK_MAX = 0x7F
+INPUT_MASK_MAX = 0xFF
 
 #: Inbound record kinds.
 _RECORD_SPRITE = 0x01

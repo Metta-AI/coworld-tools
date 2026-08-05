@@ -321,9 +321,17 @@ def test_pack_input_packet_round_trip() -> None:
     assert pack_input_packet(0x21) == bytes([PACKET_INPUT, 0x21])
 
 
+def test_pack_input_packet_carries_bit7() -> None:
+    # bit 7 is a real button (the CTF grenade / C button); the engine reads
+    # the input byte as a full uint8. The old 0x7F cap silently disarmed
+    # any policy that pressed it.
+    assert pack_input_packet(0x80) == bytes([PACKET_INPUT, 0x80])
+    assert pack_input_packet(0xFF) == bytes([PACKET_INPUT, 0xFF])
+
+
 def test_pack_input_packet_rejects_out_of_range() -> None:
     with pytest.raises(ValueError):
-        pack_input_packet(0x80)
+        pack_input_packet(0x100)
 
 
 def test_pack_chat_packet_layout() -> None:
