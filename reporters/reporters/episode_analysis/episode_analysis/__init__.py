@@ -7,7 +7,8 @@ For reporter/diagnoser authors. Two input surfaces, one analysis layer:
 - :mod:`.eventlog` — query the canonical ``(ts, player, key, value)`` event
   log every reporter emits (:class:`EventLog`).
 - :mod:`.heatmap` — positional occupancy grids + blur (numpy).
-- :mod:`.stats` — paired A/B statistics (t-CI, bootstrap, win rate).
+- :mod:`.stats` — paired A/B statistics (t-CI, bootstrap, win rate) and
+  rank-AUC two-group separation.
 - :mod:`.routing` — exact optimal-open-tour comparison over an injected
   cost function (Held-Karp).
 - :mod:`.imaging` — dependency-free PNG drawing/encoding.
@@ -37,11 +38,12 @@ from .mettascope import (
     value_at,
 )
 from .routing import TourComparison, optimal_open_tour, pairwise_costs, path_cost
-from .stats import mean_ci, paired_stats, verdict
+from .stats import RankAUC, mean_ci, paired_stats, rank_auc, verdict
 
 __all__ = [
     "EventLog",
     "EventRow",
+    "RankAUC",
     "TourComparison",
     "accumulate_by_group",
     "agent_objects",
@@ -57,6 +59,7 @@ __all__ = [
     "paired_stats",
     "pairwise_costs",
     "path_cost",
+    "rank_auc",
     "to_event_rows",
     "total_grid",
     "value_at",
