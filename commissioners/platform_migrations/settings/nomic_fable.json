@@ -1,0 +1,47 @@
+{
+  "round_interval_minutes": 30,
+  "ladder": {
+    "enabled": false,
+    "scheduler": {
+      "strategy": "round_robin",
+      "insufficient_players": "multiple_seats",
+      "min_episodes_per_entrant": 8
+    },
+    "fulfillment": {
+      "allowed_failures": 0.05,
+      "retry_times": 2
+    },
+    "ranking": {
+      "algorithm": "score",
+      "direction": "maximize",
+      "round_scoring_rule": "mean",
+      "standing_aggregation": "ewma",
+      "half_life_hours": 2,
+      "initial_standing": 0.0
+    },
+    "qualification": {
+      "experience": {
+        "kind": "self_play",
+        "num_episodes": 1,
+        "seat_count": 3
+      },
+      "gate": {
+        "op": "pred",
+        "pred": {
+          "key": "result.turns_played",
+          "operator": "gte",
+          "value": 1
+        }
+      },
+      "max_attempts": 3,
+      "attempt_timeout_minutes": 120
+    },
+    "divisions": [
+      {
+        "division_id": "div_a1784629-d985-4701-8da2-e8496cb992fc",
+        "name": "Competition",
+        "disqualify_after_consecutive_failures": 3
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "artifacts": [
+    {
+      "path": "commissioners/commissioners/ruleset_strategy_commissioner/configs/cogtank.yaml",
+      "phase": "rollback_ready",
+      "league_id": "league_b99b668b-29cc-42dc-849e-dd573bf59003",
+      "owner_repo": "Metta-AI/coworld-cogtank"
+    },
+    {
+      "path": "commissioners/commissioners/ruleset_strategy_commissioner/configs/proxywar.yaml",
+      "phase": "rollback_ready",
+      "league_id": "league_cb60d526-ecfd-4836-ab3a-81fc6cf7dc42",
+      "owner_repo": "Metta-AI/coworld-tools"
+    }
+  ]
+}
