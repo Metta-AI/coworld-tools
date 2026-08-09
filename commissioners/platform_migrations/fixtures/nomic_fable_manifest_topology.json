@@ -1,0 +1,10 @@
+{
+  "coworld": "nomic-fable",
+  "canonical_version": "0.3.0",
+  "captured_at": "2026-08-08",
+  "seat_limits": {"min": 3, "max": 3},
+  "variants": {
+    "standard-3": {"seat_count": 3, "turns_min": 10, "turns_max": 15}
+  },
+  "results_fields": ["scores", "turns_played"]
+}

@@ -1,8 +1,11 @@
 # Remaining shared commissioner migrations
 
-This plan covers the enabled container leagues whose commissioner source or
-default configuration is owned by `coworld-tools`, rather than by a dedicated
-game repository. It proposes no production mutation.
+This implementation covers the enabled container leagues whose commissioner
+source or default configuration is owned by `coworld-tools`, rather than by a
+dedicated game repository. Directly postable disabled settings, captured
+manifest topology, and retirement gates live under `platform_migrations/`.
+Validate all three with `uv run pytest tests/test_platform_migrations.py` from
+the `commissioners/` directory. It performs no production mutation.
 
 ## Inventory
 
@@ -30,7 +33,8 @@ Do not delete shared code as part of the ownership flip.
 ## Nomic Fable target
 
 Nomic Fable's generic three-seat, mean-score round robin needs no uploaded
-scheduler logic. Its proposed settings are:
+scheduler logic. Its executable settings are
+`platform_migrations/settings/nomic_fable.json`; the important shape is:
 
 ```yaml
 round_interval_minutes: 30
@@ -42,8 +46,10 @@ ladder:
     min_episodes_per_entrant: 8
   ranking:
     algorithm: score
+    direction: maximize
     round_scoring_rule: mean
-    standing_aggregation: mean
+    standing_aggregation: ewma
+    half_life_hours: 2
   fulfillment:
     allowed_failures: 0.05
     retry_times: 2
@@ -54,32 +60,34 @@ ladder:
 ```
 
 Qualification is the legacy
-`div_38221c61-3e74-41ef-b330-f34d6f5201ee`; use generic completion
-qualification or direct Competition placement, then archive it. Prove frozen
-plans for one, two, and at least three champions, including uncredited duplicate
-seats. Fresh platform standings are expected.
+`div_38221c61-3e74-41ef-b330-f34d6f5201ee`. The settings replace its generic
+container crash check with one three-seat self-play episode gated on
+`result.turns_played >= 1`; archive the old division only during cutover. Prove
+frozen plans for one, two, and at least three champions, including uncredited
+duplicate seats. Fresh platform standings are expected.
 
 ## Proxywar prerequisite and target
 
-Proxywar's fairness contract selects the largest legal 2/4/8/12-player rung and
-rotates the Coworld variant/map by round. `scaling_roster` alone is insufficient:
-the platform design currently excludes per-round `variant_rotation`. Do not cut
-over using a fixed map or a fixed seat count.
+Proxywar's fairness contract selects the largest legal 2/4/8/12-player rung,
+partitions fields above 12, and rotates that rung's Coworld map by round. The
+executable settings are `platform_migrations/settings/proxywar.json`; their
+size-to-variant mapping is checked against the minimal topology captured from
+canonical Proxywar 0.1.25.
 
-Add a typed platform capability in Metta with:
+The corresponding typed platform capability must provide:
 
 - ordered rungs `[2, 4, 8, 12]` and coverage when the field exceeds one table;
 - deterministic, replayable variant rotation frozen into each round plan;
 - validation that every selected variant admits the selected seat count;
 - one champion per player, duplicate seats uncredited only when a short rung
   explicitly permits them; and
-- a documented choice of fresh Elo or `score` standings (container OpenSkill /
-  EWMA state is not imported).
+- `score` ranking with a mean round fold and two-hour EWMA, matching the active
+  ruleset-strategy config. Existing container standings are not imported.
 
 Acceptance compares frozen platform plans to the current Proxywar commissioner
 over field sizes 1, 2, 3, 4, 7, 8, 11, 12, and 13 across a full rotation cycle.
-Only after that proof should operators write disabled settings for Competition,
-`div_b54268ee-6b2f-4156-9c2a-8542645e31bc`.
+Only after that proof should operators post the already-disabled settings for
+Competition, `div_b54268ee-6b2f-4156-9c2a-8542645e31bc`.
 
 ## Common cutover and retirement gate
 
@@ -90,6 +98,7 @@ idempotent Temporal cycle with settled results, replays, and standings. Never
 run both schedulers.
 
 Rollback drains Temporal, disables the ladder, and restores container ownership
-through the seed before unpausing. Shared configs/images can be removed only
-after every referencing environment and pinned Coworld version has completed
-its soak.
+through the seed before unpausing. `retirement_contract.json` keeps Cogtank and
+Proxywar artifacts in `rollback_ready`; changing one to `retired` makes the
+validator require its old config to be absent. This turns shared cleanup into a
+reviewable state transition instead of an untracked deletion.

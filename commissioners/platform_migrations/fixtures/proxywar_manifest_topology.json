@@ -1,0 +1,26 @@
+{
+  "coworld": "proxywar",
+  "canonical_version": "0.1.25",
+  "captured_at": "2026-08-08",
+  "seat_limits": {"min": 2, "max": 12},
+  "variants": {
+    "tournament-2p-pangaea": {"seat_count": 2, "map": "Pangaea"},
+    "tournament-2p-asia": {"seat_count": 2, "map": "Asia"},
+    "tournament-4p-pangaea": {"seat_count": 4, "map": "Pangaea"},
+    "tournament-4p-asia": {"seat_count": 4, "map": "Asia"},
+    "tournament-4p-europe": {"seat_count": 4, "map": "Europe"},
+    "tournament-8p-pangaea": {"seat_count": 8, "map": "Pangaea"},
+    "tournament-8p-world": {"seat_count": 8, "map": "World"},
+    "tournament-8p-asia": {"seat_count": 8, "map": "Asia"},
+    "tournament-12p-pangaea": {"seat_count": 12, "map": "Pangaea"},
+    "tournament-12p-world": {"seat_count": 12, "map": "World"},
+    "tournament-12p-asia": {"seat_count": 12, "map": "Asia"},
+    "tournament-12p-eastasia": {"seat_count": 12, "map": "EastAsia"},
+    "tournament-12p-oceania": {"seat_count": 12, "map": "Oceania"},
+    "tournament-12p-blacksea": {"seat_count": 12, "map": "BlackSea"},
+    "tournament-12p-britannia": {"seat_count": 12, "map": "Britannia"},
+    "tournament-12p-northamerica": {"seat_count": 12, "map": "NorthAmerica"},
+    "tournament-12p-europe": {"seat_count": 12, "map": "Europe"}
+  },
+  "results_fields": ["scores", "decision_count"]
+}

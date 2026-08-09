@@ -1,0 +1,65 @@
+{
+  "round_interval_minutes": 30,
+  "ladder": {
+    "enabled": false,
+    "scheduler": {
+      "strategy": "scaling_roster",
+      "insufficient_players": "multiple_seats",
+      "seat_rungs": [2, 4, 8, 12],
+      "episodes_per_round": 8,
+      "roster_overflow": "partition",
+      "variant_rotation_by_seat_count": {
+        "2": ["tournament-2p-pangaea", "tournament-2p-asia"],
+        "4": ["tournament-4p-pangaea", "tournament-4p-asia", "tournament-4p-europe"],
+        "8": ["tournament-8p-pangaea", "tournament-8p-world", "tournament-8p-asia"],
+        "12": [
+          "tournament-12p-pangaea",
+          "tournament-12p-world",
+          "tournament-12p-asia",
+          "tournament-12p-eastasia",
+          "tournament-12p-oceania",
+          "tournament-12p-blacksea",
+          "tournament-12p-britannia",
+          "tournament-12p-northamerica",
+          "tournament-12p-europe"
+        ]
+      }
+    },
+    "fulfillment": {
+      "allowed_failures": 0.05,
+      "retry_times": 2
+    },
+    "ranking": {
+      "algorithm": "score",
+      "direction": "maximize",
+      "round_scoring_rule": "mean",
+      "standing_aggregation": "ewma",
+      "half_life_hours": 2,
+      "initial_standing": 0.0
+    },
+    "qualification": {
+      "experience": {
+        "kind": "self_play",
+        "num_episodes": 2,
+        "seat_count": 2
+      },
+      "gate": {
+        "op": "pred",
+        "pred": {
+          "key": "result.decision_count",
+          "operator": "gte",
+          "value": 1
+        }
+      },
+      "max_attempts": 2,
+      "attempt_timeout_minutes": 30
+    },
+    "divisions": [
+      {
+        "division_id": "div_b54268ee-6b2f-4156-9c2a-8542645e31bc",
+        "name": "Competition",
+        "disqualify_after_consecutive_failures": 3
+      }
+    ]
+  }
+}

@@ -24,4 +24,7 @@ requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["commissioners*"]
+include = ["commissioners*", "platform_migrations*"]
+
+[tool.setuptools.package-data]
+platform_migrations = ["*.json", "fixtures/*.json", "settings/*.json"]
