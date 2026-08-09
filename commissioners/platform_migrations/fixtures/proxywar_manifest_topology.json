@@ -1,7 +1,7 @@
 {
   "coworld": "proxywar",
-  "canonical_version": "0.1.25",
-  "captured_at": "2026-08-08",
+  "canonical_version": "0.1.27",
+  "captured_at": "2026-08-09",
   "seat_limits": {"min": 2, "max": 12},
   "variants": {
     "tournament-2p-pangaea": {"seat_count": 2, "map": "Pangaea"},

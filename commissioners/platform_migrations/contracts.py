@@ -171,6 +171,7 @@ def validate_proxywar() -> None:
     )
     ladder = settings.ladder
     scheduler = ladder.scheduler
+    assert topology.canonical_version == "0.1.27"
     assert settings.round_interval_minutes == container["schedule_interval_minutes"]
     assert ladder.enabled is False
     assert len(ladder.divisions) == 1
