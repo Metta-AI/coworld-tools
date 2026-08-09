@@ -13,7 +13,7 @@ the `commissioners/` directory. It performs no production mutation.
 | --- | --- | --- | --- |
 | Cogtank (`league_b99b668b-29cc-42dc-849e-dd573bf59003`) | `div_7ff13a32-59e9-4bfb-a118-c51eca436bd0` | `configs/cogtank.yaml` | Migrate with `team_pair` + Elo; game repo owns the detailed cutover proof |
 | Nomic Fable (`league_33f50eed-02ae-4b80-92d9-536cb900a15a`) | `div_a1784629-d985-4701-8da2-e8496cb992fc` | default ruleset strategy | Migrate directly to fixed-seat round robin + score ranking |
-| Proxywar (`league_cb60d526-ecfd-4836-ab3a-81fc6cf7dc42`) | `div_b54268ee-6b2f-4156-9c2a-8542645e31bc` | `configs/proxywar.yaml` | Blocked on variant/rung rotation in the platform planner |
+| Proxywar (`league_cb60d526-ecfd-4836-ab3a-81fc6cf7dc42`) | `div_b54268ee-6b2f-4156-9c2a-8542645e31bc` | `configs/proxywar.yaml` | Ready with scaling-rung partitioning and size-specific variant rotation |
 
 Nomic Fable and Proxywar have no dedicated `Metta-AI/coworld-<slug>` source
 repository to carry this plan, so this shared owner is their migration surface.
@@ -66,15 +66,15 @@ container crash check with one three-seat self-play episode gated on
 frozen plans for one, two, and at least three champions, including uncredited
 duplicate seats. Fresh platform standings are expected.
 
-## Proxywar prerequisite and target
+## Proxywar target
 
-Proxywar's fairness contract selects the largest legal 2/4/8/12-player rung,
+Proxywar's platform target selects the largest legal 2/4/8/12-player rung,
 partitions fields above 12, and rotates that rung's Coworld map by round. The
 executable settings are `platform_migrations/settings/proxywar.json`; their
 size-to-variant mapping is checked against the minimal topology captured from
-canonical Proxywar 0.1.25.
+canonical Proxywar 0.1.27.
 
-The corresponding typed platform capability must provide:
+The landed typed platform capability provides:
 
 - ordered rungs `[2, 4, 8, 12]` and coverage when the field exceeds one table;
 - deterministic, replayable variant rotation frozen into each round plan;
@@ -84,9 +84,14 @@ The corresponding typed platform capability must provide:
 - `score` ranking with a mean round fold and two-hour EWMA, matching the active
   ruleset-strategy config. Existing container standings are not imported.
 
-Acceptance compares frozen platform plans to the current Proxywar commissioner
-over field sizes 1, 2, 3, 4, 7, 8, 11, 12, and 13 across a full rotation cycle.
-Only after that proof should operators post the already-disabled settings for
+The legacy `rolling_window` commissioner does not partition fields above 12:
+its overlapping windows can give champions unequal appearance counts in one
+round. Platform partitioning is an intentional fairness repair, not exact
+seating parity; every champion receives eight credited appearances while
+duplicate pad seats stay uncredited. Acceptance proves that invariant over
+field sizes 1, 2, 3, 4, 7, 8, 11, 12, 13, and 24 across a full rotation cycle,
+while preserving the 30-minute cadence, mean score fold, and two-hour EWMA.
+After that proof operators can post the already-disabled settings for
 Competition, `div_b54268ee-6b2f-4156-9c2a-8542645e31bc`.
 
 ## Common cutover and retirement gate
