@@ -216,7 +216,6 @@ def test_read_meeting_params_from_env_parses_tuning_and_trace() -> None:
             "ANTHROPIC_API_KEY": "secret",
             "CREWBORG_LLM_MODEL": "claude-test",
             "CREWBORG_LLM_MAX_TOKENS": "123",
-            "CREWBORG_LLM_TEMPERATURE": "0.7",
             "CREWBORG_LLM_TIMEOUT_SECONDS": "9.5",
             "CREWBORG_TRACE": "debug",
         }
@@ -226,7 +225,6 @@ def test_read_meeting_params_from_env_parses_tuning_and_trace() -> None:
         use_llm=True,
         model="claude-test",
         max_tokens=123,
-        temperature=0.7,
         timeout_seconds=9.5,
         trace_raw=True,
     )

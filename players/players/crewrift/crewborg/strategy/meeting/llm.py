@@ -28,7 +28,6 @@ DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 class MeetingLLMConfig:
     model: str = DEFAULT_MEETING_MODEL
     max_tokens: int = 512
-    temperature: float = 0.2
     timeout_seconds: float = 3.0
     trace_raw: bool = False
     use_bedrock: bool = False
@@ -41,7 +40,6 @@ class MeetingParams(ModeParams):
     use_bedrock: bool = False
     model: str = DEFAULT_MEETING_MODEL
     max_tokens: int = 512
-    temperature: float = 0.2
     timeout_seconds: float = 3.0
     trace_raw: bool = False
 
@@ -122,7 +120,6 @@ class AnthropicMeetingClient:
         response = self._anthropic_client().messages.create(
             model=self.config.model,
             max_tokens=self.config.max_tokens,
-            temperature=self.config.temperature,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
@@ -158,7 +155,6 @@ def read_meeting_params_from_env(env: Mapping[str, str] | None = None) -> Meetin
         use_bedrock=use_bedrock,
         model=_resolve_model(env, use_bedrock),
         max_tokens=_env_int(env, "CREWBORG_LLM_MAX_TOKENS", 512),
-        temperature=_env_float(env, "CREWBORG_LLM_TEMPERATURE", 0.2),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
         trace_raw=trace_raw,
     )
@@ -170,7 +166,6 @@ def build_meeting_client(params: MeetingParams) -> MeetingLLMClient:
     config = MeetingLLMConfig(
         model=params.model,
         max_tokens=params.max_tokens,
-        temperature=params.temperature,
         timeout_seconds=params.timeout_seconds,
         trace_raw=params.trace_raw,
         use_bedrock=params.use_bedrock,
