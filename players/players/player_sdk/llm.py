@@ -142,7 +142,6 @@ def call_json(
     system: str,
     user: str,
     max_tokens: int,
-    temperature: float = 0.0,
     **create_kwargs: Any,
 ) -> LLMCall:
     """Call Anthropic Messages and return text intended for caller-side JSON parsing."""
@@ -151,7 +150,6 @@ def call_json(
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        temperature=temperature,
         system=system,
         messages=[{"role": "user", "content": user}],
         **create_kwargs,

@@ -10,7 +10,6 @@ DEFAULT_DIRECT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_TOKENS = 160
-DEFAULT_TEMPERATURE = 0.0
 DEFAULT_MIN_SUBMIT_CONFIDENCE = 0.75
 CHAT_MAX_CHARS = 160
 
@@ -52,7 +51,6 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
     response = client.messages.create(
         model=model,
         max_tokens=int(os.environ.get("SUSPECTRA_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-        temperature=float(os.environ.get("SUSPECTRA_LLM_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
         system=_system_prompt(),
         messages=[
             {

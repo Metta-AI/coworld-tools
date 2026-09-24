@@ -161,8 +161,24 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
             self.response = response
             self.calls: list[dict[str, Any]] = []
 
-        def create(self, **kwargs: Any) -> FakeResponse:
-            self.calls.append(kwargs)
+        def create(
+            self,
+            *,
+            model: str,
+            max_tokens: int,
+            system: str,
+            messages: list[dict[str, str]],
+            metadata: dict[str, str],
+        ) -> FakeResponse:
+            self.calls.append(
+                {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "system": system,
+                    "messages": messages,
+                    "metadata": metadata,
+                }
+            )
             return self.response
 
     class FakeClient:
@@ -178,7 +194,6 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
         system="system prompt",
         user="user payload",
         max_tokens=123,
-        temperature=0.4,
         metadata={"source": "test"},
     )
 
@@ -186,7 +201,6 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
         {
             "model": "model-id",
             "max_tokens": 123,
-            "temperature": 0.4,
             "system": "system prompt",
             "messages": [{"role": "user", "content": "user payload"}],
             "metadata": {"source": "test"},

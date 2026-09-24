@@ -277,7 +277,6 @@ Shared tuning knobs (both backends):
 |---|---|---|
 | `CREWBORG_LLM_MODEL` | backend default | Select Haiku 4.5 only; hosted Bedrock uses `us.anthropic.claude-haiku-4-5-20251001-v1:0`. |
 | `CREWBORG_LLM_MAX_TOKENS` | `512` | Per-call output ceiling; lower it so cumulative episode usage remains below 1,800 quota-weighted tokens. |
-| `CREWBORG_LLM_TEMPERATURE` | `0.2` | Sampling temperature. |
 | `CREWBORG_LLM_TIMEOUT_SECONDS` | `3.0` | Per-call client timeout. |
 | `CREWBORG_TRACE_OUTPUTS` | `jsonl@stderr` | Comma-separated `format@destination` trace outputs; formats: `jsonl`, `json`, `csv`, `parquet`; destinations: `stderr`, `stdout`, `file:<path>`, `artifact[:path/in/zip]`. |
 | `CREWBORG_LLM_TRACE_RAW` | off | Include raw request/response text in the trace (also on with `CREWBORG_TRACE=debug`). |
