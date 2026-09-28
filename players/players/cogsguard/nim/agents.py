@@ -27,6 +27,7 @@ def _nim_agents():
             from players.cogsguard.nim.build import build_nim  # noqa: PLC0415
 
             build_nim()
+            importlib.invalidate_caches()
             _na = importlib.import_module("nim_agents")
     return _na
 
