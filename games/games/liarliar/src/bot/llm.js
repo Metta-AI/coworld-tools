@@ -6,7 +6,22 @@ import { tmpdir } from 'node:os';
 export async function llmDecisions(view) {
   const provider = process.env.BOT_PROVIDER ?? 'bedrock';
   const prompt = buildPrompt(view);
-  const text = provider === 'openai' ? await openAiCompatible(prompt) : await bedrockClaude(prompt);
+  let text;
+  if (process.env.COWORLD_LLM_ENDPOINT) {
+    const response = await fetch(`${process.env.COWORLD_LLM_ENDPOINT.replace(/\/$/, '')}/v1/messages`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(30_000),
+      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01',
+                 'X-Coworld-Player-Slot': String(view.slot) },
+      body: JSON.stringify({ model: process.env.COWORLD_LLM_MODEL ?? 'anthropic/claude-haiku-4.5',
+                             max_tokens: 1200, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!response.ok) throw new Error(`Coworld Messages request failed: ${response.status}`);
+    const payload = await response.json();
+    text = payload.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n');
+  } else {
+    text = provider === 'openai' ? await openAiCompatible(prompt) : await bedrockClaude(prompt);
+  }
   const parsed = parseJsonBlock(text);
   return Array.isArray(parsed) ? parsed.filter(isDecision) : [];
 }
@@ -14,8 +29,8 @@ export async function llmDecisions(view) {
 export function llmTelemetry() {
   const provider = process.env.BOT_PROVIDER ?? 'bedrock';
   return {
-    provider,
-    model: provider === 'openai' ? process.env.OPENAI_MODEL : bedrockModelId(),
+    provider: process.env.COWORLD_LLM_ENDPOINT ? 'sidecar' : provider,
+    model: process.env.COWORLD_LLM_ENDPOINT ? process.env.COWORLD_LLM_MODEL ?? 'anthropic/claude-haiku-4.5' : provider === 'openai' ? process.env.OPENAI_MODEL : bedrockModelId(),
   };
 }
 
