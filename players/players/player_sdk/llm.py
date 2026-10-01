@@ -50,38 +50,33 @@ def resolve_model(
 ) -> str:
     """Resolve the model ID for direct Anthropic API or Bedrock-backed calls."""
 
+    if os.environ.get("COWORLD_LLM_ENDPOINT"):
+        return os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
     if explicit is not None:
         return explicit
     return bedrock_model if use_bedrock else direct_model
 
 
 def bedrock_base_url(env: Mapping[str, str] | None = None) -> str | None:
-    """The Bedrock endpoint override to target, or ``None`` for direct AWS Bedrock.
-
-    Coworld runs a loopback Bedrock proxy "sidecar": the app container is given dummy AWS
-    credentials plus ``AWS_ENDPOINT_URL_BEDROCK_RUNTIME`` pointing at ``http://127.0.0.1:<port>``,
-    and the sidecar re-signs each request with the real identity. ``AnthropicBedrock`` only
-    honors an explicit ``base_url`` / ``ANTHROPIC_BEDROCK_BASE_URL`` — it does **not** read the
-    botocore ``AWS_ENDPOINT_URL_BEDROCK_RUNTIME`` var — so without pointing it at the sidecar it
-    would bypass the loopback, sign with the dummy creds, and hit real AWS (HTTP 403 "security
-    token invalid"). An explicit ``ANTHROPIC_BEDROCK_BASE_URL`` wins; otherwise we use the
-    sidecar endpoint when present.
-    """
+    """Return an explicitly configured local Bedrock endpoint."""
 
     source = os.environ if env is None else env
-    return source.get("ANTHROPIC_BEDROCK_BASE_URL") or source.get("AWS_ENDPOINT_URL_BEDROCK_RUNTIME") or None
+    return source.get("ANTHROPIC_BEDROCK_BASE_URL") or None
 
 
 def select_client(*, use_bedrock: bool, timeout: float) -> Any:
     """Construct the direct Anthropic client or the Bedrock-backed client."""
 
+    endpoint = os.environ.get("COWORLD_LLM_ENDPOINT")
+    if endpoint:
+        from anthropic import Anthropic
+
+        return Anthropic(base_url=endpoint.rstrip("/"), api_key="sidecar", timeout=timeout, max_retries=0)
     if use_bedrock:
         try:
             # Keep the optional boto3-backed Bedrock client out of the SDK import path.
             from anthropic import AnthropicBedrock
 
-            # Route through the Coworld loopback sidecar when its endpoint is present;
-            # otherwise AnthropicBedrock targets real AWS Bedrock directly.
             base_url = bedrock_base_url()
             if base_url is not None:
                 return AnthropicBedrock(timeout=timeout, base_url=base_url)
