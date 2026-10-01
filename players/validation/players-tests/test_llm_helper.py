@@ -213,33 +213,23 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
     assert result.latency_ms >= 0.0
 
 
-def test_bedrock_base_url_prefers_explicit_then_sidecar_then_none() -> None:
-    # No override -> direct AWS Bedrock.
+def test_bedrock_base_url_uses_only_local_override() -> None:
     assert bedrock_base_url({}) is None
-    assert bedrock_base_url({"AWS_ENDPOINT_URL_BEDROCK_RUNTIME": ""}) is None
-    # The Coworld loopback sidecar endpoint is used when present.
-    assert bedrock_base_url({"AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "http://127.0.0.1:9100"}) == "http://127.0.0.1:9100"
-    # An explicit ANTHROPIC_BEDROCK_BASE_URL wins over the sidecar.
-    assert (
-        bedrock_base_url(
-            {
-                "ANTHROPIC_BEDROCK_BASE_URL": "https://proxy.example",
-                "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "http://127.0.0.1:9100",
-            }
-        )
-        == "https://proxy.example"
-    )
+    assert bedrock_base_url({"AWS_ENDPOINT_URL_BEDROCK_RUNTIME": "http://retired.invalid"}) is None
+    assert bedrock_base_url({"ANTHROPIC_BEDROCK_BASE_URL": "https://local.example"}) == "https://local.example"
 
 
-def test_select_client_bedrock_routes_through_sidecar_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-    _fake_anthropic_import(monkeypatch, captured)
-    monkeypatch.delenv("ANTHROPIC_BEDROCK_BASE_URL", raising=False)
-    monkeypatch.setenv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "http://127.0.0.1:9100")
+def test_hosted_client_and_model_override_local_configuration(monkeypatch):
+    import anthropic
 
+    captured = {}
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setenv("COWORLD_LLM_ENDPOINT", "http://127.0.0.1:9100/")
+    monkeypatch.setenv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.6")
+    monkeypatch.setenv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "http://retired.invalid")
     select_client(use_bedrock=True, timeout=2.0)
-
-    assert captured == {"timeout": 2.0, "base_url": "http://127.0.0.1:9100"}
+    assert captured == {"base_url": "http://127.0.0.1:9100", "api_key": "sidecar", "timeout": 2.0, "max_retries": 0}
+    assert resolve_model(use_bedrock=True, direct_model="direct", bedrock_model="bedrock", explicit="local") == "anthropic/claude-sonnet-4.6"
 
 
 def test_select_client_bedrock_direct_when_no_sidecar_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
