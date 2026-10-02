@@ -11,7 +11,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python -m pip install 'anthropic>=1.11.0' pytest
+      - run: python -m pip install 'anthropic>=1.11.0' pytest numpy
       - run: python players/validation/test_native_language_players.py
       - run: PYTHONPATH=players/users/james/personal_cogs/persephone python -m pytest players/users/james/personal_cogs/persephone/tests/test_eurydice_llm_provider.py -q
   native-guided-player:
@@ -19,6 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: treeform/setup-nim-action@v6
-      - run: nimby --global sync players/users/james/personal_cogs/among_them/guided_bot/nimby.lock
+      - name: Install isolated guided-player dependencies
+        run: |
+          cd ..
+          nimby create
+          nimby sync "$GITHUB_WORKSPACE/players/users/james/personal_cogs/among_them/guided_bot/nimby.lock"
       - run: nim c -d:ssl -o:/tmp/native-guided-player players/users/james/personal_cogs/among_them/guided_bot/test/native_llm_http.nim
       - run: python3 players/users/james/personal_cogs/among_them/guided_bot/test/test_native_llm_http.py /tmp/native-guided-player
