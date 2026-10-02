@@ -1360,3 +1360,45 @@ def test_toolsy_agent_exposes_world_model_snapshot_in_policy_infos() -> None:
             },
         ],
     }
+
+
+def test_native_sidecar_routes_toolsy_and_game_owned_seats(monkeypatch):
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, self.headers.get("X-Coworld-Player-Slot"), body))
+            reply = json.dumps({
+                "id": "msg_native", "type": "message", "role": "assistant", "model": body["model"],
+                "content": [{"type": "text", "text": "Explore the compound."}],
+                "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1},
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(reply)))
+            self.end_headers()
+            self.wfile.write(reply)
+
+        def log_message(self, *_):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setenv("COWORLD_LLM_ENDPOINT", f"http://127.0.0.1:{server.server_port}")
+        monkeypatch.setenv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.6")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        try:
+            policy = ToolsyPolicy(SimpleNamespace())
+            policy.agent_policy(7)._do_llm_turn(_view())
+            owned = ToolsyAgentPolicy(SimpleNamespace(), 3, toolsy_coworld._make_llm_client(player_slot=3))
+            owned._do_llm_turn(_view())
+        finally:
+            server.shutdown()
+            thread.join()
+    assert [(path, slot) for path, slot, _ in requests] == [("/v1/messages", None), ("/v1/messages", "3")]
+    assert all(body["model"] == "anthropic/claude-sonnet-4.6" for _, _, body in requests)

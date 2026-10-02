@@ -332,7 +332,8 @@ class CogonyPolicy(MultiAgentPolicy):
 
     def _init_llm(self) -> None:
         api_key = os.environ.get("COGORA_ANTHROPIC_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
+        endpoint = os.environ.get("COWORLD_LLM_ENDPOINT")
+        if not (endpoint or api_key):
             return
         import logging
 
@@ -340,7 +341,10 @@ class CogonyPolicy(MultiAgentPolicy):
 
         import anthropic
 
-        self._llm_client = anthropic.Anthropic(api_key=api_key)
+        self._llm_client = (
+            anthropic.Anthropic(base_url=endpoint, api_key="coworld-sidecar", max_retries=0)
+            if endpoint else anthropic.Anthropic(api_key=api_key)
+        )
 
     @property
     def programs(self) -> dict[str, Program]:

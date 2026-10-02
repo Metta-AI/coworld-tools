@@ -10,6 +10,7 @@ never waits on the LLM.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -273,7 +274,8 @@ class LLMWorker:
 
         t0 = time.perf_counter()
         response = self._client.messages.create(
-            model=_MODEL,
+            model=(os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
+                   if os.environ.get("COWORLD_LLM_ENDPOINT") else _MODEL),
             max_tokens=_MAX_TOKENS,
             system=_SYSTEM,
             tools=_TOOLS,

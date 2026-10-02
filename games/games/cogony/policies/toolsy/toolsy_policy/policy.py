@@ -946,7 +946,11 @@ class ToolsyAgentPolicy(AgentPolicy):
         t0 = time.time()
         self._total_llm_calls += 1
         response = self._llm.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=(
+                os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4")
+                if os.environ.get("COWORLD_LLM_ENDPOINT")
+                else "claude-sonnet-4-20250514"
+            ),
             max_tokens=300,
             system=SYSTEM_PROMPT,
             tools=self._tool_descriptions(),
@@ -1672,13 +1676,10 @@ class ToolsyPolicy(MultiAgentPolicy):
         self._agents: dict[int, AgentPolicy] = {}
         self._llm = llm_client
         api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if enable_llm and self._llm is None and api_key:
-            import anthropic
-            self._llm = anthropic.Anthropic(
-                api_key=api_key,
-                timeout=LLM_REQUEST_TIMEOUT_SECONDS,
-                max_retries=0,
-            )
+        if enable_llm and self._llm is None and (os.environ.get("COWORLD_LLM_ENDPOINT") or api_key):
+            from toolsy_policy.coworld import _make_llm_client
+
+            self._llm = _make_llm_client()
 
     def agent_policy(self, agent_id: int) -> AgentPolicy:
         if agent_id not in self._agents:

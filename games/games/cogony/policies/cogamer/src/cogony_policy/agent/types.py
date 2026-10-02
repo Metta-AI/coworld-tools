@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cogames.policy.starter_agent import ELEMENTS
-from mettagrid.sdk.cogsguard import (
+from cogames.sdk.cogsguard import (
     COGSGUARD_GEAR_COSTS as GEAR_COSTS,
     COGSGUARD_HUB_ALIGN_DISTANCE as HUB_ALIGN_DISTANCE,
     COGSGUARD_JUNCTION_ALIGN_DISTANCE as JUNCTION_ALIGN_DISTANCE,
