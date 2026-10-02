@@ -1,3 +1,4 @@
+import { LlmClient } from "./llm_client.js";
 /**
  * LLM Bot — harness-style control loop.
  *
@@ -13,7 +14,6 @@
 import WebSocket from "ws";
 import { argv } from "process";
 import {
-  BedrockRuntimeClient, ConverseCommand,
   type Message, type ContentBlock, type Tool, type ToolResultContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
 import { PACKED_FRAME_BYTES, unpackFrame, ActionQueue, sendInput } from "./bot_utils.js";
@@ -32,7 +32,7 @@ import {
 } from "./tasks.js";
 
 const cliArgs = parseArgs(argv.slice(2));
-const botUrl = cliArgs["url"] ?? "ws://localhost:8080/player";
+const botUrl = cliArgs["url"] ?? process.env.COWORLD_PLAYER_WS_URL ?? "ws://localhost:8080/player";
 const botName = cliArgs["name"] ?? "llm_bot";
 const MODEL_ALIASES: Record<string, string> = {
   "haiku": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -43,7 +43,7 @@ const rawModel = cliArgs["model"] ?? "sonnet";
 const modelId = MODEL_ALIASES[rawModel] ?? rawModel;
 const region = cliArgs["region"] ?? "us-west-2";
 
-const bedrock = new BedrockRuntimeClient({ region });
+const llm = new LlmClient(region);
 
 // ---------------------------------------------------------------------------
 // System prompt — full game mechanics
@@ -422,13 +422,13 @@ async function askLLM(harnessBlock: string): Promise<LLMResult> {
   const MAX_RETRIES = 3;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const resp = await bedrock.send(new ConverseCommand({
+      const resp = await llm.complete({
         modelId,
         system: [{ text: SYSTEM_PROMPT }],
         messages: history,
         toolConfig: { tools: [TASK_TOOL] },
         inferenceConfig: { maxTokens: 800, temperature: 0.3 },
-      }));
+      });
       const content = resp.output?.message?.content ?? [];
       const assistantContent: ContentBlock[] = [];
       let reasoning = "";
@@ -474,7 +474,7 @@ async function askLLM(harnessBlock: string): Promise<LLMResult> {
 // Bot state
 // ---------------------------------------------------------------------------
 
-const ws = new WebSocket(`${botUrl}?name=${botName}`, { perMessageDeflate: false });
+const ws = new WebSocket(`${botUrl}${botUrl.includes("?") ? "&" : "?"}name=${encodeURIComponent(botName)}`, { perMessageDeflate: false });
 const player = createGameKnowledge(botName);
 
 const bot: BotController = {
