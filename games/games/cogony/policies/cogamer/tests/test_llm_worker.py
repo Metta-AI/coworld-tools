@@ -226,3 +226,41 @@ def test_world_model_skips_territory_observation_attrs():
             "energy": 80,
         }
     ]
+
+
+def test_native_sidecar_enables_worker_without_provider_credentials(monkeypatch):
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from cogony_policy.cogamer_policy import CogonyPolicy
+
+    requests = []
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, self.headers.get("X-Coworld-Player-Slot"), body))
+            data = json.dumps({"id": "msg_native", "type": "message", "role": "assistant", "model": body["model"], "content": [{"type": "text", "text": "done"}], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        def log_message(self, *_):
+            pass
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setenv("COWORLD_LLM_ENDPOINT", f"http://127.0.0.1:{server.server_port}")
+        monkeypatch.setenv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.6")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("COGORA_ANTHROPIC_KEY", raising=False)
+        try:
+            policy = object.__new__(CogonyPolicy)
+            policy._init_llm()
+            worker = LLMWorker(policy._llm_client, agent_id=9, state=CogonyAgentState(), recorder=EventRecorder())
+            worker._step_once()
+        finally:
+            server.shutdown()
+            thread.join()
+    assert [(path, slot) for path, slot, _ in requests] == [("/v1/messages", None)]
+    assert requests[0][2]["model"] == "anthropic/claude-sonnet-4.6"

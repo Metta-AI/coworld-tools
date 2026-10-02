@@ -1,0 +1,15 @@
+name: Native copied Cogony players
+on: [pull_request, push]
+jobs:
+  native-cogony:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest anthropic==1.11.0 mettagrid==0.26.21 cogames==0.27.3 websockets jinja2
+      - run: PYTHONPATH=policies/toolsy:policies/baseline/src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_toolsy_policy.py -q -o addopts=''
+        working-directory: games/games/cogony
+      - run: PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_llm_worker.py --noconftest -q -o addopts=''
+        working-directory: games/games/cogony/policies/cogamer

@@ -24,7 +24,7 @@ class ToolsyCoworldProcessManager:
         return list(self._websocket_urls)
 
     def start(self) -> None:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
+        if not (os.environ.get("COWORLD_LLM_ENDPOINT") or os.environ.get("ANTHROPIC_API_KEY")):
             raise RuntimeError("ANTHROPIC_API_KEY is required for the toolsy policy")
         if self._processes:
             return
@@ -54,7 +54,7 @@ def run_toolsy_coworld_agent(agent_id: int, websocket_url: str) -> None:
     policy = ToolsyAgentPolicy(
         policy_env_info=None,
         agent_id=agent_id,
-        llm_client=_make_llm_client(),
+        llm_client=_make_llm_client(player_slot=agent_id),
     )
     world_map = WorldMap()
     last_llm_trigger_id = 0
@@ -108,7 +108,19 @@ def sync_policy_llm_trigger(policy: ToolsyAgentPolicy, agent_state: dict, last_t
     return trigger_id
 
 
-def _make_llm_client():
+def _make_llm_client(*, player_slot: int | None = None):
+    endpoint = os.environ.get("COWORLD_LLM_ENDPOINT")
+    if endpoint:
+        import anthropic
+
+        headers = {} if player_slot is None else {"X-Coworld-Player-Slot": str(player_slot)}
+        return anthropic.Anthropic(
+            api_key="coworld-sidecar",
+            base_url=endpoint,
+            default_headers=headers,
+            timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is required for the toolsy policy")
