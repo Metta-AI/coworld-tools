@@ -168,7 +168,7 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
             max_tokens: int,
             system: str,
             messages: list[dict[str, str]],
-            metadata: dict[str, str],
+            extra_body: dict[str, Any],
         ) -> FakeResponse:
             self.calls.append(
                 {
@@ -176,7 +176,7 @@ def test_call_json_forwards_messages_create_args_and_returns_metadata() -> None:
                     "max_tokens": max_tokens,
                     "system": system,
                     "messages": messages,
-                    "metadata": metadata,
+                    "metadata": extra_body["metadata"],
                 }
             )
             return self.response
@@ -262,3 +262,50 @@ def test_select_client_bedrock_missing_extra_raises_actionable_error(monkeypatch
 
     with pytest.raises(RuntimeError, match=r"players\[bedrock\]"):
         select_client(use_bedrock=True, timeout=1.0)
+
+
+def test_native_messages_sends_sampling_in_supported_sdk_body(monkeypatch) -> None:
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            requests.append((self.path, body))
+            response = json.dumps({
+                'id': 'msg_native', 'type': 'message', 'role': 'assistant',
+                'model': body['model'], 'stop_reason': 'end_turn', 'stop_sequence': None,
+                'content': [{'type': 'text', 'text': '{"ok":true}'}],
+                'usage': {'input_tokens': 10, 'output_tokens': 3},
+            }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv('COWORLD_LLM_ENDPOINT', f'http://127.0.0.1:{server.server_port}')
+    try:
+        client = select_client(use_bedrock=True, timeout=3)
+        response = call_json(client, model='anthropic/claude-haiku-4.5',
+                             system='rules', user='state', max_tokens=32, temperature=0.2)
+        assert response.text == '{"ok":true}'
+        assert response.usage['input_tokens'] == 10
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert requests == [('/v1/messages', {
+        'model': 'anthropic/claude-haiku-4.5', 'system': 'rules', 'max_tokens': 32,
+        'messages': [{'role': 'user', 'content': 'state'}], 'temperature': 0.2,
+    })]

@@ -147,7 +147,7 @@ def call_json(
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
-        **create_kwargs,
+        extra_body=create_kwargs,
     )
     latency_ms = (time.perf_counter() - start) * 1000.0
     return LLMCall(
