@@ -131,6 +131,8 @@ proc haveAwsCredentialHint(): bool =
 proc selectedProvider(): LlmProvider =
   if llmDisabled():
     return ProviderNone
+  if getEnv("COWORLD_LLM_ENDPOINT").len > 0:
+    return ProviderAnthropic
   let provider = configuredProvider()
   case provider
   of "anthropic", "direct":
@@ -161,12 +163,16 @@ proc haveApiKey*(): bool =
   haveLlmProvider()
 
 proc currentProviderName*(): string =
+  if getEnv("COWORLD_LLM_ENDPOINT").len > 0:
+    return "llm-sidecar"
   case selectedProvider()
   of ProviderAnthropic: "anthropic"
   of ProviderBedrock: "bedrock"
   of ProviderNone: "none"
 
 proc directAnthropicModel(): string =
+  if getEnv("COWORLD_LLM_ENDPOINT").len > 0:
+    return getEnv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.5")
   let guided = getEnv(GuidedBotLlmModelEnv, "").strip()
   if guided.len > 0:
     return guided
@@ -564,8 +570,9 @@ proc httpPostAnthropic(systemPrompt, userContent: string,
   ## avoids GC-safety issues with global state accessed from the worker
   ## thread. The worker calls this infrequently (fractions of Hz), so
   ## the overhead is negligible.
+  let endpoint = getEnv("COWORLD_LLM_ENDPOINT")
   let apiKey = getEnv(AnthropicKeyEnv, "")
-  if apiKey.len == 0:
+  if endpoint.len == 0 and apiKey.len == 0:
     return LlmResult(kind: LlmNoKey, detail: "ANTHROPIC_API_KEY not set")
 
   let messages = buildAnthropicMessages(userContent, conversationHistory)
@@ -583,9 +590,8 @@ proc httpPostAnthropic(systemPrompt, userContent: string,
   defer: pool.close()
   try:
     response = pool.post(
-      AnthropicUrl,
-      @[
-        ("x-api-key", apiKey),
+      if endpoint.len > 0: endpoint.strip(chars = {'/'}, leading = false) & "/v1/messages" else: AnthropicUrl,
+      (if endpoint.len > 0: @[] else: @[("x-api-key", apiKey)]) & @[
         ("anthropic-version", AnthropicVersion),
         ("Content-Type", "application/json")
       ],
