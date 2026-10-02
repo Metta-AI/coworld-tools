@@ -75,6 +75,9 @@ def _get_default_anthropic_model(*, api_key: str | None) -> str:
 
 def _build_anthropic_client(*, api_key: str | None) -> object:
     anthropic = importlib.import_module("anthropic")
+    endpoint = os.getenv("COWORLD_LLM_ENDPOINT")
+    if endpoint:
+        return anthropic.Anthropic(base_url=endpoint.rstrip("/"), api_key="sidecar", max_retries=0)
 
     if _should_use_anthropic_bedrock(api_key):
         return anthropic.AnthropicBedrock(
@@ -212,7 +215,7 @@ class AmongUsAnthropicCyborgAgent(AgentPolicy):
         response = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
-            temperature=self._temperature,
+            extra_body={"temperature": self._temperature},
             messages=[{"role": "user", "content": prompt}],
         )
         decision = AmongUsMeetingDecision.model_validate_json(_extract_json_object(_response_text(response)))
@@ -270,7 +273,9 @@ class AmongUsAnthropicCyborgPolicy(MultiAgentPolicy):
             env_var="ANTHROPIC_API_KEY",
         )
         resolved_model = (
-            model or os.getenv("ANTHROPIC_SMALL_FAST_MODEL") or _get_default_anthropic_model(api_key=resolved_api_key)
+            os.getenv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.5")
+            if os.getenv("COWORLD_LLM_ENDPOINT")
+            else model or os.getenv("ANTHROPIC_SMALL_FAST_MODEL") or _get_default_anthropic_model(api_key=resolved_api_key)
         )
         self._client = client if client is not None else _build_anthropic_client(api_key=resolved_api_key)
         self._model = resolved_model

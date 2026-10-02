@@ -23,18 +23,27 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
     if not _enabled():
         return _fallback("llm disabled")
     use_bedrock = _flag("USE_BEDROCK") or _flag("CLAUDE_CODE_USE_BEDROCK")
-    if not use_bedrock and not os.environ.get("ANTHROPIC_API_KEY"):
+    endpoint = os.environ.get("COWORLD_LLM_ENDPOINT")
+    if not endpoint and not use_bedrock and not os.environ.get("ANTHROPIC_API_KEY"):
         return _fallback("ANTHROPIC_API_KEY is not set")
 
     from anthropic import Anthropic, AnthropicBedrock
 
-    timeout = float(os.environ.get("SUSPECTRA_LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
-    if use_bedrock:
+    timeout = float(
+        os.environ.get("SUSPECTRA_LLM_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))
+    )
+    if endpoint:
+        client = Anthropic(
+            base_url=endpoint, api_key="sidecar", timeout=timeout, max_retries=0
+        )
+        model = os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
+    elif use_bedrock:
         client = AnthropicBedrock(
             aws_access_key=os.environ.get("AWS_ACCESS_KEY_ID"),
             aws_secret_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
             aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
-            aws_region=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
+            aws_region=os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION"),
             aws_profile=os.environ.get("AWS_PROFILE"),
             timeout=timeout,
         )
@@ -50,7 +59,9 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
     response = client.messages.create(
         model=model,
-        max_tokens=int(os.environ.get("SUSPECTRA_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
+        max_tokens=int(
+            os.environ.get("SUSPECTRA_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))
+        ),
         system=_system_prompt(),
         messages=[
             {
@@ -78,7 +89,8 @@ def decide(context: dict[str, Any]) -> dict[str, Any]:
 
 def _enabled() -> bool:
     return (
-        _flag("SUSPECTRA_LLM_MEETINGS")
+        bool(os.environ.get("COWORLD_LLM_ENDPOINT"))
+        or _flag("SUSPECTRA_LLM_MEETINGS")
         or _flag("USE_BEDROCK")
         or _flag("CLAUDE_CODE_USE_BEDROCK")
     )
@@ -146,7 +158,9 @@ def _validate_decision(
         vote_target = ""
         if action in {"set_tentative_vote", "submit_vote"}:
             action = "wait"
-    if action == "submit_vote" and (confidence is None or confidence < _min_submit_confidence()):
+    if action == "submit_vote" and (
+        confidence is None or confidence < _min_submit_confidence()
+    ):
         action = "set_tentative_vote"
     if action == "send_chat" and not chat_text:
         action = "wait"

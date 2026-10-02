@@ -8,15 +8,15 @@ credential mechanisms.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -24,7 +24,6 @@ from urllib.request import Request, urlopen
 
 from agents.eurydice.llm_context import DECISION_SCHEMA_VERSION
 from agents.eurydice.llm_prompts import build_prompt_parts, infer_surface
-
 
 DEFAULT_BEDROCK_HAIKU_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31"
@@ -193,7 +192,13 @@ class BedrockHaikuProvider:
     )
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "model", self.model or _bedrock_model())
+        object.__setattr__(
+            self,
+            "model",
+            _bedrock_model()
+            if os.environ.get("COWORLD_LLM_ENDPOINT")
+            else self.model or _bedrock_model(),
+        )
         object.__setattr__(
             self,
             "max_tokens",
@@ -409,13 +414,17 @@ def _first_offer(context: dict[str, Any], kind: str) -> list[int] | None:
 def _first_whisper_occupant(context: dict[str, Any]) -> list[int] | None:
     for player in context.get("players") or []:
         target = player.get("player_id")
-        if player.get("in_current_whisper") and not player.get("is_self") and _is_target(target):
+        if (
+            player.get("in_current_whisper")
+            and not player.get("is_self")
+            and _is_target(target)
+        ):
             return [int(target[0]), int(target[1])]
     return None
 
 
 def _first_hostage_targets(context: dict[str, Any]) -> list[list[int]]:
-    options = ((context.get("runtime") or {}).get("hostage_options") or {})
+    options = (context.get("runtime") or {}).get("hostage_options") or {}
     remaining = options.get("remaining_count")
     if not isinstance(remaining, int) or remaining <= 0:
         return []
@@ -464,18 +473,8 @@ def _invoke_bedrock_messages(
     system_prompt: str,
     user_prompt: str,
 ) -> str:
-    credentials = _resolve_aws_credentials()
-    region = _aws_region()
-    host = f"bedrock-runtime.{region}.amazonaws.com"
-    model = str(provider.model)
-    canonical_uri = f"/model/{quote(model, safe='-_.~')}/invoke"
-    # Match AWS canonicalization: sign the single-encoded path, but let the
-    # HTTP client send the raw model id. Sending `%3A` in the URL causes AWS to
-    # canonicalize the percent again and reject the signature.
-    url = f"https://{host}/model/{model}/invoke"
     payload = json.dumps(
         {
-            "anthropic_version": BEDROCK_ANTHROPIC_VERSION,
             "max_tokens": int(provider.max_tokens or 512),
             "temperature": float(provider.temperature or 0.0),
             "system": system_prompt,
@@ -485,16 +484,44 @@ def _invoke_bedrock_messages(
         separators=(",", ":"),
     ).encode("utf-8")
 
-    headers = _sigv4_headers(
-        credentials=credentials,
-        region=region,
-        host=host,
-        canonical_uri=canonical_uri,
-        payload=payload,
-    )
+    endpoint = os.environ.get("COWORLD_LLM_ENDPOINT")
+    if endpoint:
+        url = endpoint.rstrip("/") + "/v1/messages"
+        data = json.loads(payload)
+        data["model"] = os.environ.get(
+            "COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5"
+        )
+        payload = json.dumps(data).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        credentials = _resolve_aws_credentials()
+        region = _aws_region()
+        host = f"bedrock-runtime.{region}.amazonaws.com"
+        model = str(provider.model)
+        canonical_uri = f"/model/{quote(model, safe='-_.~')}/invoke"
+        # Match AWS canonicalization: sign the single-encoded path, but let the
+        # HTTP client send the raw model id. Sending `%3A` in the URL causes AWS to
+        # canonicalize the percent again and reject the signature.
+        url = f"https://{host}/model/{model}/invoke"
+
+        data = json.loads(payload)
+        data["anthropic_version"] = BEDROCK_ANTHROPIC_VERSION
+        payload = json.dumps(data).encode("utf-8")
+        headers = _sigv4_headers(
+            credentials=credentials,
+            region=region,
+            host=host,
+            canonical_uri=canonical_uri,
+            payload=payload,
+        )
     request = Request(url, data=payload, headers=headers, method="POST")
     try:
-        with urlopen(request, timeout=float(provider.timeout_seconds or 12.0)) as response:
+        with urlopen(
+            request, timeout=float(provider.timeout_seconds or 12.0)
+        ) as response:
             response_body = response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         detail = _http_error_detail(exc)
@@ -502,7 +529,9 @@ def _invoke_bedrock_messages(
     except TimeoutError as exc:
         raise BedrockProviderError("Bedrock request timed out") from exc
     except URLError as exc:
-        raise BedrockProviderError(_clip(f"Bedrock network error: {exc.reason}", 240)) from exc
+        raise BedrockProviderError(
+            _clip(f"Bedrock network error: {exc.reason}", 240)
+        ) from exc
 
     try:
         data = json.loads(response_body)
@@ -532,9 +561,13 @@ def _sigv4_headers(
         ("x-amz-date", amz_date),
     ]
     if credentials.session_token:
-        canonical_header_items.append(("x-amz-security-token", credentials.session_token))
+        canonical_header_items.append(
+            ("x-amz-security-token", credentials.session_token)
+        )
     canonical_header_items.sort(key=lambda item: item[0])
-    canonical_headers = "".join(f"{key}:{value}\n" for key, value in canonical_header_items)
+    canonical_headers = "".join(
+        f"{key}:{value}\n" for key, value in canonical_header_items
+    )
     signed_headers = ";".join(key for key, _ in canonical_header_items)
     canonical_request = "\n".join(
         [
@@ -585,7 +618,9 @@ def _sigv4_headers(
     return headers
 
 
-def _sigv4_signing_key(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
+def _sigv4_signing_key(
+    secret_key: str, date_stamp: str, region: str, service: str
+) -> bytes:
     key = ("AWS4" + secret_key).encode("utf-8")
     key = hmac.new(key, date_stamp.encode("utf-8"), hashlib.sha256).digest()
     key = hmac.new(key, region.encode("utf-8"), hashlib.sha256).digest()
@@ -637,7 +672,9 @@ def _credentials_from_container() -> tuple[AwsCredentials | None, str]:
         headers["Authorization"] = auth_token
     elif auth_token_file:
         try:
-            headers["Authorization"] = Path(auth_token_file).read_text(encoding="utf-8").strip()
+            headers["Authorization"] = (
+                Path(auth_token_file).read_text(encoding="utf-8").strip()
+            )
         except OSError:
             pass
 
@@ -646,7 +683,9 @@ def _credentials_from_container() -> tuple[AwsCredentials | None, str]:
         with urlopen(request, timeout=2.0) as response:
             body = response.read().decode("utf-8", errors="replace")
     except Exception as exc:
-        return None, _clip(f"container credentials fetch failed: {type(exc).__name__}", 120)
+        return None, _clip(
+            f"container credentials fetch failed: {type(exc).__name__}", 120
+        )
 
     try:
         data = json.loads(body)
@@ -805,6 +844,8 @@ def _extract_json_object(text: str) -> str | None:
 
 
 def _bedrock_model() -> str:
+    if os.environ.get("COWORLD_LLM_ENDPOINT"):
+        return os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
     return _first_env(
         [
             "EURYDICE_LLM_MODEL",
