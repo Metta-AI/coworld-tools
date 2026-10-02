@@ -31,6 +31,7 @@ class MeetingLLMConfig:
     timeout_seconds: float = 3.0
     trace_raw: bool = False
     use_bedrock: bool = False
+    sidecar_endpoint: str = ""
 
 
 class MeetingParams(ModeParams):
@@ -38,6 +39,7 @@ class MeetingParams(ModeParams):
 
     use_llm: bool = False
     use_bedrock: bool = False
+    sidecar_endpoint: str = ""
     model: str = DEFAULT_MEETING_MODEL
     max_tokens: int = 512
     timeout_seconds: float = 3.0
@@ -87,7 +89,13 @@ class AnthropicMeetingClient:
     def _anthropic_client(self) -> Any:
         if self._client is not None:
             return self._client
-        if self.config.use_bedrock:
+        if self.config.sidecar_endpoint:
+            from anthropic import Anthropic
+            self._client = Anthropic(
+                base_url=self.config.sidecar_endpoint.rstrip("/"), api_key="sidecar",
+                timeout=self.config.timeout_seconds, max_retries=0,
+            )
+        elif self.config.use_bedrock:
             # AnthropicBedrock authenticates through the standard AWS environment
             # (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN and
             # AWS_REGION), the same way the direct client reads ANTHROPIC_API_KEY.
@@ -140,19 +148,21 @@ def read_meeting_params_from_env(env: Mapping[str, str] | None = None) -> Meetin
     """Read meeting LLM behavior flags once for the strategy layer."""
 
     env = os.environ if env is None else env
-    use_bedrock = _bedrock_enabled(env)
+    sidecar_endpoint = env.get("COWORLD_LLM_ENDPOINT", "").strip()
+    use_bedrock = _bedrock_enabled(env) and not sidecar_endpoint
     # The LLM needs a viable backend: Bedrock authenticates through the AWS
     # environment, while the direct Anthropic path needs ANTHROPIC_API_KEY.
     # Setting a Bedrock flag also implies meetings are on, so an upload that only
     # passes --use-bedrock still turns the feature on without a second flag.
-    meetings_on = _truthy_value(env.get("CREWBORG_LLM_MEETINGS", "")) or use_bedrock
-    has_backend = use_bedrock or bool(env.get("ANTHROPIC_API_KEY"))
+    meetings_on = _truthy_value(env.get("CREWBORG_LLM_MEETINGS", "")) or use_bedrock or bool(sidecar_endpoint)
+    has_backend = bool(sidecar_endpoint) or use_bedrock or bool(env.get("ANTHROPIC_API_KEY"))
     use_llm = meetings_on and has_backend
     trace_raw = _truthy_value(env.get("CREWBORG_LLM_TRACE_RAW", ""))
     trace_raw = trace_raw or env.get("CREWBORG_TRACE", "").strip().lower() == "debug"
     return MeetingParams(
         use_llm=use_llm,
         use_bedrock=use_bedrock,
+        sidecar_endpoint=sidecar_endpoint,
         model=_resolve_model(env, use_bedrock),
         max_tokens=_env_int(env, "CREWBORG_LLM_MAX_TOKENS", 512),
         timeout_seconds=_env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0),
@@ -169,6 +179,7 @@ def build_meeting_client(params: MeetingParams) -> MeetingLLMClient:
         timeout_seconds=params.timeout_seconds,
         trace_raw=params.trace_raw,
         use_bedrock=params.use_bedrock,
+        sidecar_endpoint=params.sidecar_endpoint,
     )
     return AnthropicMeetingClient(config)
 
@@ -182,6 +193,8 @@ def _bedrock_enabled(env: Mapping[str, str]) -> bool:
 
 
 def _resolve_model(env: Mapping[str, str], use_bedrock: bool) -> str:
+    if env.get("COWORLD_LLM_ENDPOINT", "").strip():
+        return env.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
     explicit = env.get("CREWBORG_LLM_MODEL")
     if explicit:
         return explicit

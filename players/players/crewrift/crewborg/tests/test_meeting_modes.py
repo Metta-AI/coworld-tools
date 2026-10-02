@@ -298,3 +298,27 @@ def test_flee_targets_believed_imposter_and_is_dormant_when_empty() -> None:
     belief.believed_imposters = {"red"}
     intent = FleeMode().decide(belief, ActionState())
     assert intent.kind == "flee_from" and intent.target_color == "red"
+
+
+def test_native_sidecar_overrides_local_provider_and_model(monkeypatch):
+    import anthropic
+
+    captured = {}
+
+    class NativeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(anthropic, 'Anthropic', NativeClient)
+    params = read_meeting_params_from_env({
+        'COWORLD_LLM_ENDPOINT': 'http://localhost:19350/',
+        'COWORLD_LLM_MODEL': 'anthropic/claude-haiku-4.5',
+        'USE_BEDROCK': '1', 'CREWBORG_LLM_MODEL': 'retired-model',
+    })
+    assert params.use_llm and not params.use_bedrock
+    assert params.model == 'anthropic/claude-haiku-4.5'
+    client = build_meeting_client(params)
+    assert isinstance(client._anthropic_client(), NativeClient)
+    assert captured['base_url'] == 'http://localhost:19350'
+    assert captured['api_key'] == 'sidecar'
+    assert captured['max_retries'] == 0
