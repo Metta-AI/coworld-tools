@@ -1,0 +1,16 @@
+name: Native copied Persephone bots
+on: [pull_request, push]
+jobs:
+  native-persephone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+        working-directory: games/games/persephones_escape
+      - run: npm run typecheck
+        working-directory: games/games/persephones_escape
+      - run: npx tsx tests/test_native_llm.ts
+        working-directory: games/games/persephones_escape

@@ -1,10 +1,10 @@
+import { LlmClient } from "./llm_client.js";
 /**
  * Focused LLM orienters. All outputs are bounded policy patches or notes;
  * deterministic Decide never waits on them.
  */
 
 import {
-  BedrockRuntimeClient, ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import {
   type GameKnowledge,
@@ -19,7 +19,7 @@ import {
 } from "./game_knowledge.js";
 
 export interface SkillConfig {
-  bedrock: BedrockRuntimeClient;
+  llm: LlmClient;
   modelId: string;
   botName: string;
 }
@@ -59,12 +59,12 @@ async function callSkillLLM(config: SkillConfig, opts: SkillCallOptions): Promis
   const timeoutMs = opts.timeoutMs ?? DEFAULT_SKILL_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await config.bedrock.send(new ConverseCommand({
+    const resp = await config.llm.complete({
       modelId: config.modelId,
       system: [{ text: opts.systemPrompt }],
       messages: [{ role: "user", content: [{ text: opts.userPrompt }] }],
       inferenceConfig: { maxTokens: opts.maxTokens ?? 300, temperature: 0.25 },
-    }), { abortSignal: controller.signal });
+    }, { abortSignal: controller.signal });
     const content = resp.output?.message?.content ?? [];
     let text = "";
     for (const block of content) {

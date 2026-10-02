@@ -1,9 +1,9 @@
+import { LlmClient } from "./llm_client.js";
 /**
  * Background Observer — slow-cadence LLM loop that writes notes only.
  */
 
 import {
-  BedrockRuntimeClient, ConverseCommand,
   type Tool,
 } from "@aws-sdk/client-bedrock-runtime";
 import WebSocket from "ws";
@@ -13,7 +13,7 @@ import {
 } from "./game_knowledge.js";
 
 export interface ObserverConfig {
-  bedrock: BedrockRuntimeClient;
+  llm: LlmClient;
   modelId: string;
   botName: string;
   ws: WebSocket;
@@ -106,13 +106,13 @@ export class BackgroundObserver {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OBSERVER_TIMEOUT_MS);
     try {
-      const resp = await this.config.bedrock.send(new ConverseCommand({
+      const resp = await this.config.llm.complete({
         modelId: this.config.modelId,
         system: [{ text: OBSERVER_SYSTEM }],
         messages: [{ role: "user", content: [{ text: harnessBlock }] }],
         toolConfig: { tools: [NOTES_TOOL] },
         inferenceConfig: { maxTokens: 500, temperature: 0.2 },
-      }), { abortSignal: controller.signal });
+      }, { abortSignal: controller.signal });
 
       const content = resp.output?.message?.content ?? [];
       let toolInput: Record<string, any> | null = null;

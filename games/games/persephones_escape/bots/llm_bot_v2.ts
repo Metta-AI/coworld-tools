@@ -1,3 +1,4 @@
+import { LlmClient } from "./llm_client.js";
 /**
  * LLM Bot v2 — OODA policy architecture.
  *
@@ -10,7 +11,6 @@ import WebSocket from "ws";
 import { argv } from "process";
 import { appendFileSync, mkdirSync } from "fs";
 import { dirname, resolve } from "path";
-import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { ActionQueue } from "./bot_utils.js";
 import { createGameKnowledge } from "./game_knowledge.js";
 import { parseArgs, type BotController } from "./bot_common.js";
@@ -22,7 +22,7 @@ import { OodaDecider } from "./ooda_decide.js";
 import { OodaActuator } from "./ooda_act.js";
 
 const cliArgs = parseArgs(argv.slice(2));
-const botUrl = cliArgs["url"] ?? "ws://localhost:8080/player";
+const botUrl = cliArgs["url"] ?? process.env.COWORLD_PLAYER_WS_URL ?? "ws://localhost:8080/player";
 const botName = cliArgs["name"] ?? "llm_bot";
 const MODEL_ALIASES: Record<string, string> = {
   haiku: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -34,8 +34,8 @@ const modelId = MODEL_ALIASES[rawModel] ?? rawModel;
 const region = cliArgs["region"] ?? "us-west-2";
 const llmDisabled = cliArgs["disable-llm"] === "true" || process.env.BOT_DISABLE_LLM === "1";
 
-const bedrock = new BedrockRuntimeClient({ region });
-const ws = new WebSocket(`${botUrl}?name=${botName}`, { perMessageDeflate: false });
+const llm = new LlmClient(region);
+const ws = new WebSocket(`${botUrl}${botUrl.includes("?") ? "&" : "?"}name=${encodeURIComponent(botName)}`, { perMessageDeflate: false });
 const knowledge = createGameKnowledge(botName);
 
 const logDir = cliArgs["log-dir"] ?? process.env.BOT_LOG_DIR ?? "../logs/bots";
@@ -78,10 +78,10 @@ const bot: BotController = {
   nonInterruptingTasks: [],
 };
 
-const skillConfig = { bedrock, modelId, botName };
+const skillConfig = { llm, modelId, botName };
 const skillTriggers = new SkillTriggerManager(skillConfig);
 const observer = new BackgroundObserver({
-  bedrock,
+  llm,
   modelId,
   botName,
   ws,
