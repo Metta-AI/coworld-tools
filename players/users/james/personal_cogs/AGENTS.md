@@ -10,7 +10,7 @@ Among Them is now Coworld-only in this checkout.
 - Do not use legacy bundle upload helpers.
 - Do not use hosted-play wrappers.
 - Do not use deprecated historical bot directories.
-- Do not run Coworld through a local Metta checkout for this project.
+- Run Coworld from the project-local environment.
 
 The intended command surface is:
 

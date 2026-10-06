@@ -141,8 +141,8 @@ mettascope data layout (`resources/*.png`, `objects/*.png`, `agents/*.png`,
 etc.). The overlay picks them up on the next `import cogony`.
 
 For AI-generated art following a shared style guide, use **ArtGen** — the
-folder-driven pipeline in the vendored mettascope source:
-[`packages/mettagrid/nim/mettascope/tools/art/artgen.md`](.mettagrid/packages/mettagrid/nim/mettascope/tools/art/artgen.md).
+folder-driven pipeline documented in the public engine repository:
+[ArtGen guide](https://github.com/Metta-AI/mettagrid/blob/main/nim/mettascope/tools/art/artgen.md).
 ArtGen reads markdown asset specs from `artin/`, generates concept images via
 an LLM image provider, converts them to 3D via Tripo, and renders final
 sprites. Copy the generated PNGs into `assets/mettascope/` when ready.
