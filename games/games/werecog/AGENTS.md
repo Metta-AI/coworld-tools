@@ -5,7 +5,7 @@ Guidance for AI assistants working inside Werecog.
 ## Start Here
 
 Werecog is a standalone MettaGrid / CoGames social-deduction game derived from
-the shared [`Metta-AI/cogame`](https://github.com/Metta-AI/cogame) template.
+the shared game template.
 This repository intentionally keeps a merge parent from `cogame/main` so template
 documentation and authoring skills can be merged forward into downstream games.
 
@@ -14,11 +14,7 @@ documentation and authoring skills can be merged forward into downstream games.
 ```bash
 pytest
 werecog play --mission werecog --policy werecog --cogs 8 --render none
-metta play werecog render=none max_steps=120 autostart=true
 ```
-
-Use `./install.sh` when you need a branch-pinned Metta checkout with the
-`werecog` extra installed.
 
 ## Architecture
 
@@ -26,8 +22,8 @@ Use `./install.sh` when you need a branch-pinned Metta checkout with the
   MettaGrid config.
 - [`src/werecog/cogame.py`](src/werecog/cogame.py) registers Werecog with
   `cogames` and exposes the direct env factory.
-- [`src/werecog/recipe.py`](src/werecog/recipe.py) owns the Metta play recipe
-  that the Metta monorepo bridges to.
+- [`src/werecog/recipe.py`](src/werecog/recipe.py) owns the play recipe
+  used by downstream integrations.
 - [`src/werecog/variants/`](src/werecog/variants) contains the Werecog variant
   tree.
 - [`src/werecog/policy.py`](src/werecog/policy.py) contains the scripted
@@ -43,7 +39,7 @@ git fetch cogame
 git merge cogame/main
 ```
 
-Do not push to `Metta-AI/cogame` from this repository. Resolve template merges by
+Do not push to an upstream template without explicit authorization. Resolve template merges by
 keeping Werecog game code authoritative and accepting template changes only for
 shared docs, skills, metadata, and broadly applicable scaffolding.
 

@@ -4,8 +4,8 @@ Guidance for AI assistants working inside the AmongCogs standalone game repo.
 
 ## Start Here
 
-AmongCogs is a concrete game repo downstream of the shared
-[`Metta-AI/cogame`](https://github.com/Metta-AI/cogame) template. Keep the
+AmongCogs is a concrete game repo downstream of the
+shared game template. Keep the
 game-specific implementation in `src/amongcogs/`, and keep the inherited
 template docs and skills current so future template updates can be merged
 instead of copied manually.
@@ -29,12 +29,6 @@ uv run pytest tests/amongcogs -q
 uv run amongcogs-headless --num-agents 8 --max-steps 120 --episodes 1 --output summary
 ```
 
-From a Metta checkout with the `amongcogs` extra:
-
-```bash
-uv run --extra amongcogs metta play amongcogs render=none max_steps=8 cogs=6 seed=0
-```
-
 ## Architecture
 
 - [`src/amongcogs/missions/mission.py`](src/amongcogs/missions/mission.py) defines the
@@ -43,8 +37,8 @@ uv run --extra amongcogs metta play amongcogs render=none max_steps=8 cogs=6 see
   registration module.
 - [`src/amongcogs/runtime.py`](src/amongcogs/runtime.py) exposes the local runtime
   registry and `make_game` helper used by tests and headless tools.
-- [`src/amongcogs/recipe.py`](src/amongcogs/recipe.py) owns the Metta play recipe
-  implementation; the Metta repo should only keep a thin bridge to this function.
+- [`src/amongcogs/recipe.py`](src/amongcogs/recipe.py) owns the play recipe
+  implementation; downstream integrations should keep a thin bridge to this function.
 - [`src/amongcogs/agent/`](src/amongcogs/agent) contains scripted and cyborg policies.
 - [`tests/amongcogs/`](tests/amongcogs) contains focused game regressions.
 
@@ -56,8 +50,8 @@ uv run --extra amongcogs metta play amongcogs render=none max_steps=8 cogs=6 see
 
 ## Non-Negotiables
 
-1. Run the code. If a change is local and reversible, run the relevant `pytest`,
-   headless smoke, or Metta play command.
+1. Run the code. If a change is local and reversible, run the relevant `pytest`
+   or headless smoke command.
 2. Do not paper over errors. Let exceptions crash with a full traceback.
 3. Make minimal, root-cause changes. If the root cause touches adjacent files,
    touch them.

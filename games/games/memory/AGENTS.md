@@ -24,8 +24,7 @@ Player-authoring skills (`build-player`, `audit-complete-episode`,
 `profile-complete-episode`, `leaderboard-gap`, `scrimmage-gauntlet`,
 `log-mine-player-design`, `map-mechanics`) are **not** shipped with this
 template — they belong with the game's player/policy repo, not the game
-repo. Grab them from `metta-ai/metta/skills/` if you end up building a
-policy in this same checkout.
+repo. Use the guidance supplied by the player project when building a policy.
 
 ## Quick commands
 

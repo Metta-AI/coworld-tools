@@ -127,8 +127,9 @@ uv run cogony play --render none        # headless sanity check
 
 ## Iteration on mettascope (Nim) and mettagrid (C++/Python)
 
-`.mettagrid/` is a sparse clone of `Metta-AI/metta` containing
-`packages/mettagrid/`. Edit Nim/C++/Python source there, then run
+The engine checkout must match the revision and layout expected by
+`./scripts/build-mettascope.sh`. Confirm its configured source before editing
+Nim/C++/Python code, then run
 `./scripts/build-mettascope.sh` — it rebuilds `libmettascope.dylib` with Nim
 and `mettagrid_c.so` with bazel, ad-hoc signs the dylibs, and overlays them
 + the relevant Python modules onto the installed `mettagrid` in `.venv/`.
