@@ -4,9 +4,8 @@ Guidance for AI assistants (Claude Code, Codex) working inside HungerCog.
 
 ## Start here
 
-This repo is a downstream fork of [`Metta-AI/cogame`](https://github.com/Metta-AI/cogame)
-for the standalone HungerCog game. HungerCog is the extracted Hunger survival
-game that used to live in the Metta monorepo.
+This repository contains the standalone HungerCog survival game, based on a
+shared game template.
 
 1. Read [`skills/cg.game.new-game/SKILL.md`](skills/cg.game.new-game/SKILL.md)
    first when designing a new game-sized mechanic or replacing the core game.
@@ -23,15 +22,13 @@ Player-authoring skills (`build-player`, `audit-complete-episode`,
 `profile-complete-episode`, `leaderboard-gap`, `scrimmage-gauntlet`,
 `log-mine-player-design`, `map-mechanics`) are **not** shipped with this
 template — they belong with the game's player/policy repo, not the game
-repo. Grab them from `metta-ai/metta/skills/` if you end up building a
-policy in this same checkout.
+repo. Use the guidance supplied by the player project when building a policy.
 
 ## Quick commands
 
 ```bash
 uv run pytest tests -q
 ./install.sh
-metta play hungercog render=none max_steps=20 autostart=true
 ```
 
 ## Architecture
@@ -41,7 +38,7 @@ metta play hungercog render=none max_steps=20 autostart=true
 - [`src/hungercog/variants/`](src/hungercog/variants) holds the HungerCog
   variant tree.
 - [`src/hungercog/recipe.py`](src/hungercog/recipe.py) exposes the `play` and
-  `train` recipe entrypoints used by Metta.
+  `train` recipe entrypoints used by downstream integrations.
 - [`src/hungercog/agent/`](src/hungercog/agent) contains the built-in scripted
   policy.
 
@@ -76,6 +73,6 @@ metta play hungercog render=none max_steps=20 autostart=true
 - **Variants** - add modules under `src/hungercog/variants/` and register them
   in [`src/hungercog/variants/__init__.py`](src/hungercog/variants/__init__.py).
 - **Recipe surface** - update [`src/hungercog/recipe.py`](src/hungercog/recipe.py)
-  when Metta CLI entrypoints change.
+  when downstream integration entrypoints change.
 - **Policy** - update [`src/hungercog/agent/`](src/hungercog/agent) and cover
   behavior with regression tests.

@@ -5,7 +5,7 @@ Guidance for AI assistants (Claude Code, Codex) working inside Overcogged.
 ## Start here
 
 This is the standalone repository for the Overcogged MettaGrid game. It is based on the
-[`Metta-AI/cogame`](https://github.com/Metta-AI/cogame) template, and keeps that template's
+shared game template, and keeps that template's
 local docs and game-authoring skills so template updates can be merged downstream.
 
 1. Read [`docs/MAKING_A_COGAME.md`](docs/MAKING_A_COGAME.md) for the standalone game contract.
@@ -32,20 +32,13 @@ For a direct local install with the CLI dependencies:
 pip install -e ".[standalone]"
 ```
 
-For the Metta handoff path:
-
-```bash
-./install.sh
-metta play overcogged render=none autostart=true seed=7
-```
-
 ## Architecture
 
 - [`src/overcogged/game/game.py`](src/overcogged/game/game.py) contains the canonical kitchen mission and CoGame registration.
 - [`src/overcogged/classic/`](src/overcogged/classic) contains the preserved classic mission.
 - [`src/overcogged/variants/`](src/overcogged/variants) contains the launch and curriculum variant graph.
 - [`src/overcogged/agent/overcogged_agent/`](src/overcogged/agent/overcogged_agent) contains the built-in scripted policy.
-- [`src/overcogged/recipe.py`](src/overcogged/recipe.py) exposes the `metta play overcogged` recipe entrypoint.
+- [`src/overcogged/recipe.py`](src/overcogged/recipe.py) exposes the downstream play recipe entrypoint.
 - [`src/overcogged/cli.py`](src/overcogged/cli.py) is the `overcogged` console script.
 
 ## Reference documentation
@@ -56,8 +49,8 @@ metta play overcogged render=none autostart=true seed=7
 
 ## Non-negotiables
 
-1. **Run the code.** If a change is local and reversible, run `pytest`, `overcogged play --render none`, or
-   `metta play overcogged` to verify.
+1. **Run the code.** If a change is local and reversible, run `pytest` or
+   `overcogged play --render none` to verify.
 2. **Don't paper over errors.** Let exceptions crash with a full traceback.
 3. **Minimal diffs, root-cause fixes.** Write the smallest change that actually solves the problem.
 4. **No backwards-compat shims.** This is the standalone game source of truth.
